@@ -12272,6 +12272,9 @@ export const ListQuotesResponse = zod.array(ListQuotesResponseItem)
  * @summary Create a new quote
  */
 
+export const createQuoteBodyItemsItemUnitPriceMin = 0;
+
+export const createQuoteBodyItemsItemPurchaseUnitPriceMin = 0;
 
 
 
@@ -12281,10 +12284,12 @@ export const CreateQuoteBody = zod.object({
   "validUntil": zod.string().nullish(),
   "notes": zod.string().nullish(),
   "items": zod.array(zod.object({
-  "description": zod.string().min(1),
+  "description": zod.string(),
+  "rowType": zod.enum(['item', 'section', 'spacer']).optional(),
   "quantity": zod.number().nullish(),
   "unit": zod.string().nullish(),
-  "unitPrice": zod.number().nullish(),
+  "unitPrice": zod.number().min(createQuoteBodyItemsItemUnitPriceMin).nullish(),
+  "purchaseUnitPrice": zod.number().min(createQuoteBodyItemsItemPurchaseUnitPriceMin).nullish(),
   "vatRate": zod.number().nullish(),
   "position": zod.number().nullish()
 })).optional()
@@ -12320,12 +12325,20 @@ export const GetQuoteResponse = zod.object({
   "id": zod.number(),
   "quoteId": zod.number(),
   "position": zod.number(),
+  "rowType": zod.enum(['item', 'section', 'spacer']),
   "description": zod.string(),
   "quantity": zod.number(),
   "unit": zod.string().nullish(),
   "unitPrice": zod.number(),
+  "purchaseUnitPrice": zod.number().nullish(),
   "vatRate": zod.number().nullish()
 })),
+  "totalPurchaseCost": zod.number(),
+  "marginAmount": zod.number().nullish(),
+  "marginPercent": zod.number().nullish(),
+  "financialItemCount": zod.number(),
+  "costedItemCount": zod.number(),
+  "marginComplete": zod.boolean(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -12338,6 +12351,9 @@ export const UpdateQuoteParams = zod.object({
   "id": zod.coerce.number()
 })
 
+export const updateQuoteBodyItemsItemUnitPriceMin = 0;
+
+export const updateQuoteBodyItemsItemPurchaseUnitPriceMin = 0;
 
 
 
@@ -12347,10 +12363,12 @@ export const UpdateQuoteBody = zod.object({
   "validUntil": zod.string().nullish(),
   "notes": zod.string().nullish(),
   "items": zod.array(zod.object({
-  "description": zod.string().min(1),
+  "description": zod.string(),
+  "rowType": zod.enum(['item', 'section', 'spacer']).optional(),
   "quantity": zod.number().nullish(),
   "unit": zod.string().nullish(),
-  "unitPrice": zod.number().nullish(),
+  "unitPrice": zod.number().min(updateQuoteBodyItemsItemUnitPriceMin).nullish(),
+  "purchaseUnitPrice": zod.number().min(updateQuoteBodyItemsItemPurchaseUnitPriceMin).nullish(),
   "vatRate": zod.number().nullish(),
   "position": zod.number().nullish()
 })).optional()
@@ -12378,12 +12396,20 @@ export const UpdateQuoteResponse = zod.object({
   "id": zod.number(),
   "quoteId": zod.number(),
   "position": zod.number(),
+  "rowType": zod.enum(['item', 'section', 'spacer']),
   "description": zod.string(),
   "quantity": zod.number(),
   "unit": zod.string().nullish(),
   "unitPrice": zod.number(),
+  "purchaseUnitPrice": zod.number().nullish(),
   "vatRate": zod.number().nullish()
 })),
+  "totalPurchaseCost": zod.number(),
+  "marginAmount": zod.number().nullish(),
+  "marginPercent": zod.number().nullish(),
+  "financialItemCount": zod.number(),
+  "costedItemCount": zod.number(),
+  "marginComplete": zod.boolean(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -12445,12 +12471,20 @@ export const AcceptQuoteResponse = zod.object({
   "id": zod.number(),
   "quoteId": zod.number(),
   "position": zod.number(),
+  "rowType": zod.enum(['item', 'section', 'spacer']),
   "description": zod.string(),
   "quantity": zod.number(),
   "unit": zod.string().nullish(),
   "unitPrice": zod.number(),
+  "purchaseUnitPrice": zod.number().nullish(),
   "vatRate": zod.number().nullish()
 })),
+  "totalPurchaseCost": zod.number(),
+  "marginAmount": zod.number().nullish(),
+  "marginPercent": zod.number().nullish(),
+  "financialItemCount": zod.number(),
+  "costedItemCount": zod.number(),
+  "marginComplete": zod.boolean(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -12485,12 +12519,20 @@ export const RejectQuoteResponse = zod.object({
   "id": zod.number(),
   "quoteId": zod.number(),
   "position": zod.number(),
+  "rowType": zod.enum(['item', 'section', 'spacer']),
   "description": zod.string(),
   "quantity": zod.number(),
   "unit": zod.string().nullish(),
   "unitPrice": zod.number(),
+  "purchaseUnitPrice": zod.number().nullish(),
   "vatRate": zod.number().nullish()
 })),
+  "totalPurchaseCost": zod.number(),
+  "marginAmount": zod.number().nullish(),
+  "marginPercent": zod.number().nullish(),
+  "financialItemCount": zod.number(),
+  "costedItemCount": zod.number(),
+  "marginComplete": zod.boolean(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -12525,12 +12567,20 @@ export const ExpireQuoteResponse = zod.object({
   "id": zod.number(),
   "quoteId": zod.number(),
   "position": zod.number(),
+  "rowType": zod.enum(['item', 'section', 'spacer']),
   "description": zod.string(),
   "quantity": zod.number(),
   "unit": zod.string().nullish(),
   "unitPrice": zod.number(),
+  "purchaseUnitPrice": zod.number().nullish(),
   "vatRate": zod.number().nullish()
 })),
+  "totalPurchaseCost": zod.number(),
+  "marginAmount": zod.number().nullish(),
+  "marginPercent": zod.number().nullish(),
+  "financialItemCount": zod.number(),
+  "costedItemCount": zod.number(),
+  "marginComplete": zod.boolean(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -12574,6 +12624,7 @@ export const GetPublicQuoteResponse = zod.object({
   "items": zod.array(zod.object({
   "id": zod.number(),
   "position": zod.number(),
+  "rowType": zod.enum(['item', 'section', 'spacer']),
   "description": zod.string(),
   "quantity": zod.number(),
   "unit": zod.string().nullish(),

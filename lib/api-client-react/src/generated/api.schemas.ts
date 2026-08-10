@@ -6245,15 +6245,32 @@ export interface Quote {
   updatedAt: string;
 }
 
+export type QuoteItemInputRowType = typeof QuoteItemInputRowType[keyof typeof QuoteItemInputRowType];
+
+
+export const QuoteItemInputRowType = {
+  item: 'item',
+  section: 'section',
+  spacer: 'spacer',
+} as const;
+
 export interface QuoteItemInput {
-  /** @minLength 1 */
   description: string;
+  rowType?: QuoteItemInputRowType;
   /** @nullable */
   quantity?: number | null;
   /** @nullable */
   unit?: string | null;
-  /** @nullable */
+  /**
+     * @minimum 0
+     * @nullable
+     */
   unitPrice?: number | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  purchaseUnitPrice?: number | null;
   /** @nullable */
   vatRate?: number | null;
   /** @nullable */
@@ -6283,15 +6300,27 @@ export const QuoteDetailStatus = {
   expired: 'expired',
 } as const;
 
+export type QuoteItemRowType = typeof QuoteItemRowType[keyof typeof QuoteItemRowType];
+
+
+export const QuoteItemRowType = {
+  item: 'item',
+  section: 'section',
+  spacer: 'spacer',
+} as const;
+
 export interface QuoteItem {
   id: number;
   quoteId: number;
   position: number;
+  rowType: QuoteItemRowType;
   description: string;
   quantity: number;
   /** @nullable */
   unit?: string | null;
   unitPrice: number;
+  /** @nullable */
+  purchaseUnitPrice?: number | null;
   /** @nullable */
   vatRate?: number | null;
 }
@@ -6329,6 +6358,14 @@ export interface QuoteDetail {
   /** @nullable */
   convertedToInvoiceId?: number | null;
   items: QuoteItem[];
+  totalPurchaseCost: number;
+  /** @nullable */
+  marginAmount?: number | null;
+  /** @nullable */
+  marginPercent?: number | null;
+  financialItemCount: number;
+  costedItemCount: number;
+  marginComplete: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -6375,9 +6412,19 @@ export const PublicQuoteDetailStatus = {
   expired: 'expired',
 } as const;
 
+export type PublicQuoteItemRowType = typeof PublicQuoteItemRowType[keyof typeof PublicQuoteItemRowType];
+
+
+export const PublicQuoteItemRowType = {
+  item: 'item',
+  section: 'section',
+  spacer: 'spacer',
+} as const;
+
 export interface PublicQuoteItem {
   id: number;
   position: number;
+  rowType: PublicQuoteItemRowType;
   description: string;
   quantity: number;
   /** @nullable */

@@ -18,6 +18,7 @@ export interface QuotePdfSupplier {
 
 export interface QuotePdfItem {
   description: string;
+  rowType: "item" | "section" | "spacer";
   quantity: number;
   unit?: string | null;
   unitPrice: number;
@@ -143,7 +144,36 @@ export function generateQuotePdf(data: QuotePdfData): Buffer {
     ? [["Popis", "Množ.", "MJ", "Cena/MJ", "Bez DPH", "DPH %", "DPH", "Celkem"]]
     : [["Popis", "Množ.", "MJ", "Cena/MJ", "Celkem"]];
 
+  const columnCount = showVat ? 8 : 5;
   const body = data.items.map((item) => {
+    if (item.rowType === "section") {
+      return [
+        {
+          content: item.description,
+          colSpan: columnCount,
+          styles: {
+            fontStyle: "bold" as const,
+            fillColor: [226, 232, 240] as [number, number, number],
+            textColor: [15, 23, 42] as [number, number, number],
+            cellPadding: { top: 2.4, right: 1.6, bottom: 2.4, left: 1.6 },
+          },
+        },
+      ];
+    }
+    if (item.rowType === "spacer") {
+      return [
+        {
+          content: "",
+          colSpan: columnCount,
+          styles: {
+            minCellHeight: 4,
+            lineWidth: 0,
+            fillColor: [255, 255, 255] as [number, number, number],
+          },
+        },
+      ];
+    }
+
     const base = [
       item.description,
       String(num(item.quantity)),

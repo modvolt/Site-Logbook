@@ -55,9 +55,28 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { QuoteStatusBadge } from "@/components/quote-status-badge";
 import { fmtKc, fmtDate, VAT_RATE_OPTIONS } from "@/lib/billing-format";
 import { useToast } from "@/hooks/use-toast";
+import {
+  computeQuoteFormTotals,
+  createQuoteFormRow,
+  formatQuoteInput,
+  hasInvalidQuoteMargin,
+  marginPercentFromPrices,
+  parseQuoteNumber,
+  unitPriceFromMargin,
+  validateQuoteFormRows,
+  type QuoteFormRow,
+  type QuoteFormTotals,
+  type QuoteRowType,
+} from "@/lib/quote-calculations";
 import {
   ArrowLeft,
   Save,
@@ -73,44 +92,108 @@ import {
   Briefcase,
   Copy,
   Link,
+  ChevronDown,
+  ChevronUp,
+  Heading2,
+  Minus,
+  LockKeyhole,
+  PackagePlus,
 } from "lucide-react";
 
-interface ItemForm {
-  description: string;
-  quantity: string;
-  unit: string;
-  unitPrice: string;
-  vatRate: string;
+function marginTone(margin: number | null): string {
+  if (margin == null) return "text-muted-foreground";
+  if (margin < 0) return "text-red-700 dark:text-red-400";
+  if (margin === 0) return "text-muted-foreground";
+  return "text-emerald-700 dark:text-emerald-400";
 }
 
-const emptyItem: ItemForm = {
-  description: "",
-  quantity: "1",
-  unit: "ks",
-  unitPrice: "0",
-  vatRate: "21",
-};
-
-function parseNum(s: string): number | null {
-  const n = parseFloat(s.replace(",", "."));
-  return Number.isFinite(n) ? n : null;
+function QuoteRowActions({
+  index,
+  count,
+  onMove,
+  onRemove,
+}: {
+  index: number;
+  count: number;
+  onMove: (to: number) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="flex items-center shrink-0">
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="h-11 w-11 sm:h-8 sm:w-8"
+        onClick={() => onMove(index - 1)}
+        disabled={index === 0}
+        title="Posunout nahoru"
+        aria-label="Posunout řádek nahoru"
+      >
+        <ChevronUp className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="h-11 w-11 sm:h-8 sm:w-8"
+        onClick={() => onMove(index + 1)}
+        disabled={index === count - 1}
+        title="Posunout dolů"
+        aria-label="Posunout řádek dolů"
+      >
+        <ChevronDown className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="h-11 w-11 text-destructive hover:bg-destructive/10 sm:h-8 sm:w-8"
+        onClick={onRemove}
+        title="Odstranit řádek"
+        aria-label="Odstranit řádek"
+      >
+        <Trash2 className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
+      </Button>
+    </div>
+  );
 }
 
-function computeTotals(items: ItemForm[], vatPayer = true) {
-  let subtotalWithoutVat = 0;
-  let totalVat = 0;
-  for (const item of items) {
-    const qty = parseNum(item.quantity) ?? 1;
-    const unitPrice = parseNum(item.unitPrice) ?? 0;
-    const vatRate = parseNum(item.vatRate) ?? 0;
-    const base = Math.round(qty * unitPrice * 100) / 100;
-    const vat = vatPayer ? Math.round(base * (vatRate / 100) * 100) / 100 : 0;
-    subtotalWithoutVat += base;
-    totalVat += vat;
-  }
-  subtotalWithoutVat = Math.round(subtotalWithoutVat * 100) / 100;
-  totalVat = Math.round(totalVat * 100) / 100;
-  return { subtotalWithoutVat, totalVat, totalWithVat: Math.round((subtotalWithoutVat + totalVat) * 100) / 100 };
+function QuoteTotalsSummary({ totals }: { totals: QuoteFormTotals }) {
+  return (
+    <div className="mt-5 grid gap-4 border-t pt-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+      <div className="flex items-start gap-2.5 text-left">
+        <LockKeyhole className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Interní marže nabídky
+          </p>
+          {totals.marginComplete ? (
+            <>
+              <p className={`mt-0.5 text-lg font-semibold ${marginTone(totals.marginAmount)}`}>
+                {fmtKc(totals.marginAmount ?? 0)} · {totals.marginPercent?.toLocaleString("cs-CZ", { maximumFractionDigits: 2 }) ?? "—"} %
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Nákup celkem {fmtKc(totals.totalPurchaseCost)} bez DPH
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="mt-0.5 text-sm font-medium">Doplňte nákupní ceny</p>
+              <p className="text-xs text-muted-foreground">
+                Vyplněno {totals.costedItemCount} z {totals.financialItemCount} cenových položek. Chybějící cena se nepočítá jako nula.
+              </p>
+            </>
+          )}
+        </div>
+      </div>
+      <div className="space-y-1 text-right text-sm sm:border-l sm:pl-6">
+        <div className="text-muted-foreground">Celkem bez DPH: {fmtKc(totals.subtotalWithoutVat)}</div>
+        <div className="text-muted-foreground">DPH: {fmtKc(totals.totalVat)}</div>
+        <div className="text-lg font-bold">Celkem: {fmtKc(totals.totalWithVat)}</div>
+      </div>
+    </div>
+  );
 }
 
 function extractError(err: unknown): string {
@@ -140,7 +223,7 @@ export default function QuoteDetail() {
   const [customerId, setCustomerId] = useState<string>(customerIdFromUrl);
   const [validUntil, setValidUntil] = useState("");
   const [notes, setNotes] = useState("");
-  const [items, setItems] = useState<ItemForm[]>([{ ...emptyItem }]);
+  const [items, setItems] = useState<QuoteFormRow[]>([createQuoteFormRow()]);
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [sendDialogOpen, setSendDialogOpen] = useState(false);
@@ -150,7 +233,14 @@ export default function QuoteDetail() {
   const [convertDialogOpen, setConvertDialogOpen] = useState(false);
   const [plannedDate, setPlannedDate] = useState(todayLocalIso);
 
-  const { data: quote, isLoading: loadingQuote } = useGetQuote(id!, {
+  const {
+    data: quote,
+    isLoading: loadingQuote,
+    isError: quoteFailed,
+    error: quoteError,
+    refetch: refetchQuote,
+    isFetching: refreshingQuote,
+  } = useGetQuote(id!, {
     query: { queryKey: getGetQuoteQueryKey(id!), enabled: id != null && id > 0 },
   });
 
@@ -171,17 +261,31 @@ export default function QuoteDetail() {
       setCustomerId(quote.customerId ? String(quote.customerId) : "");
       setValidUntil(quote.validUntil ?? "");
       setNotes(quote.notes ?? "");
-      setItems(
-        quote.items.length > 0
-          ? quote.items.map((i) => ({
-              description: i.description,
-              quantity: String(i.quantity),
-              unit: i.unit ?? "",
-              unitPrice: String(i.unitPrice),
-              vatRate: i.vatRate != null ? String(i.vatRate) : "21",
-            }))
-          : [{ ...emptyItem }],
-      );
+      setItems(quote.items.length > 0 ? quote.items.map((i) => {
+        const rowType = (i.rowType ?? "item") as QuoteRowType;
+        const purchaseUnitPrice = i.purchaseUnitPrice != null
+          ? String(i.purchaseUnitPrice)
+          : "";
+        const unitPrice = String(i.unitPrice);
+        const purchase = parseQuoteNumber(purchaseUnitPrice);
+        const sale = parseQuoteNumber(unitPrice);
+        const margin = purchase != null && sale != null
+          ? marginPercentFromPrices(purchase, sale)
+          : null;
+        return {
+          clientId: `quote-item-${i.id}`,
+          rowType,
+          description: i.description,
+          quantity: rowType === "item" ? String(i.quantity) : "",
+          unit: rowType === "item" ? (i.unit ?? "") : "",
+          unitPrice: rowType === "item" ? unitPrice : "",
+          purchaseUnitPrice: rowType === "item" ? purchaseUnitPrice : "",
+          marginPercent: margin != null ? formatQuoteInput(margin) : "",
+          vatRate: rowType === "item"
+            ? (i.vatRate != null ? String(i.vatRate) : "21")
+            : "",
+        };
+      }) : [createQuoteFormRow()]);
     }
   }, [quote, isNew]);
 
@@ -190,16 +294,22 @@ export default function QuoteDetail() {
     customerId: customerId ? parseInt(customerId, 10) : null,
     validUntil: validUntil || null,
     notes: notes.trim() || null,
-    items: items
-      .filter((i) => i.description.trim())
-      .map((i, idx) => ({
-        description: i.description.trim(),
-        quantity: parseNum(i.quantity) ?? 1,
-        unit: i.unit.trim() || null,
-        unitPrice: parseNum(i.unitPrice) ?? 0,
-        vatRate: i.vatRate === "pdp" ? 0 : parseNum(i.vatRate),
-        position: idx,
-      })),
+    items: items.map((i, idx) => i.rowType === "item"
+      ? {
+          rowType: i.rowType,
+          description: i.description.trim(),
+          quantity: parseQuoteNumber(i.quantity) ?? 1,
+          unit: i.unit.trim() || null,
+          unitPrice: parseQuoteNumber(i.unitPrice) ?? 0,
+          purchaseUnitPrice: parseQuoteNumber(i.purchaseUnitPrice),
+          vatRate: i.vatRate === "pdp" ? 0 : parseQuoteNumber(i.vatRate),
+          position: idx,
+        }
+      : {
+          rowType: i.rowType,
+          description: i.rowType === "spacer" ? "" : i.description.trim(),
+          position: idx,
+        }),
   });
 
   const invalidate = () => {
@@ -210,6 +320,11 @@ export default function QuoteDetail() {
   const handleSave = () => {
     if (!title.trim()) {
       toast({ title: "Název nabídky je povinný.", variant: "destructive" });
+      return;
+    }
+    const rowError = validateQuoteFormRows(items);
+    if (rowError) {
+      toast({ title: rowError, variant: "destructive" });
       return;
     }
     const payload = buildPayload();
@@ -325,12 +440,74 @@ export default function QuoteDetail() {
     window.open(`/api/quotes/${id}/pdf`, "_blank");
   };
 
-  const addItem = () => setItems((prev) => [...prev, { ...emptyItem }]);
+  const addItem = (rowType: QuoteRowType = "item") =>
+    setItems((prev) => [...prev, createQuoteFormRow(rowType)]);
   const removeItem = (i: number) => setItems((prev) => prev.filter((_, idx) => idx !== i));
-  const updateItem = (i: number, field: keyof ItemForm, value: string) =>
+  const updateItem = (i: number, field: keyof QuoteFormRow, value: string) =>
     setItems((prev) => prev.map((item, idx) => idx === i ? { ...item, [field]: value } : item));
+  const moveItem = (from: number, to: number) => setItems((prev) => {
+    if (to < 0 || to >= prev.length) return prev;
+    const next = [...prev];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    return next;
+  });
+  const updatePurchaseUnitPrice = (i: number, value: string) => setItems((prev) =>
+    prev.map((item, idx) => {
+      if (idx !== i) return item;
+      const purchase = parseQuoteNumber(value);
+      if (purchase == null) return { ...item, purchaseUnitPrice: value, marginPercent: "" };
+      const currentMargin = parseQuoteNumber(item.marginPercent);
+      const currentSale = parseQuoteNumber(item.unitPrice);
+      if (item.purchaseUnitPrice.trim() !== "" && currentMargin != null && currentMargin >= -100) {
+        const sale = unitPriceFromMargin(purchase, currentMargin);
+        return {
+          ...item,
+          purchaseUnitPrice: value,
+          unitPrice: sale != null ? formatQuoteInput(sale) : item.unitPrice,
+        };
+      }
+      const margin = currentSale != null ? marginPercentFromPrices(purchase, currentSale) : null;
+      return {
+        ...item,
+        purchaseUnitPrice: value,
+        marginPercent: margin != null ? formatQuoteInput(margin) : "",
+      };
+    }),
+  );
+  const updateMarginPercent = (i: number, value: string) => setItems((prev) =>
+    prev.map((item, idx) => {
+      if (idx !== i) return item;
+      const purchase = parseQuoteNumber(item.purchaseUnitPrice);
+      const margin = parseQuoteNumber(value);
+      const sale = purchase != null && margin != null
+        ? unitPriceFromMargin(purchase, margin)
+        : null;
+      return {
+        ...item,
+        marginPercent: value,
+        // Never leave a stale selling price beside an impossible margin.
+        unitPrice: sale != null ? formatQuoteInput(sale) : "",
+      };
+    }),
+  );
+  const updateUnitPrice = (i: number, value: string) => setItems((prev) =>
+    prev.map((item, idx) => {
+      if (idx !== i) return item;
+      const purchase = parseQuoteNumber(item.purchaseUnitPrice);
+      const sale = parseQuoteNumber(value);
+      const margin = purchase != null && sale != null
+        ? marginPercentFromPrices(purchase, sale)
+        : null;
+      return {
+        ...item,
+        unitPrice: value,
+        marginPercent: margin != null ? formatQuoteInput(margin) : "",
+      };
+    }),
+  );
 
-  const totals = computeTotals(items);
+  const totals = computeQuoteFormTotals(items);
 
   if (!isNew && loadingQuote) {
     return (
@@ -338,6 +515,34 @@ export default function QuoteDetail() {
         <Skeleton className="h-8 w-48" />
         <Skeleton className="h-40 w-full" />
         <Skeleton className="h-60 w-full" />
+      </div>
+    );
+  }
+
+  if (!isNew && (quoteFailed || !quote)) {
+    return (
+      <div className="mx-auto max-w-xl p-4">
+        <Card>
+          <CardContent className="flex flex-col items-center px-6 py-10 text-center">
+            <AlertCircle className="h-10 w-10 text-destructive" />
+            <h1 className="mt-4 text-lg font-semibold">Nabídku se nepodařilo načíst</h1>
+            <p className="mt-1 max-w-md text-sm text-muted-foreground">
+              {quoteFailed
+                ? extractError(quoteError)
+                : "Nabídka nebyla nalezena nebo k ní nemáte přístup."}
+            </p>
+            <div className="mt-5 flex flex-wrap justify-center gap-2">
+              <Button variant="outline" onClick={() => setLocation("/quotes")}>
+                <ArrowLeft className="mr-2 h-4 w-4" /> Zpět na nabídky
+              </Button>
+              {id != null && id > 0 && (
+                <Button onClick={() => void refetchQuote()} disabled={refreshingQuote}>
+                  Zkusit znovu
+                </Button>
+              )}
+            </div>
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -352,7 +557,7 @@ export default function QuoteDetail() {
   const canEdit = !quote || quote.status === "draft";
 
   return (
-    <div className="p-4 max-w-3xl mx-auto space-y-4">
+    <div className="p-4 max-w-5xl mx-auto space-y-4">
       {/* Header */}
       <div className="flex items-start justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2">
@@ -546,44 +751,69 @@ export default function QuoteDetail() {
           {/* Items */}
           <Card>
             <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base">Položky</CardTitle>
-                <Button size="sm" variant="outline" onClick={addItem}>
-                  <Plus className="h-4 w-4 mr-1" /> Přidat
-                </Button>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <CardTitle className="text-base">Položky a členění nabídky</CardTitle>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Nákupní ceny a marže jsou interní. Zákazník je neuvidí v odkazu ani v PDF.
+                  </p>
+                </div>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button type="button" size="sm" variant="outline" className="self-start shrink-0">
+                      <Plus className="mr-1 h-4 w-4" /> Přidat
+                      <ChevronDown className="ml-1 h-3.5 w-3.5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onSelect={() => addItem("item")}>
+                      <PackagePlus className="mr-2 h-4 w-4" /> Cenová položka
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => addItem("section")}>
+                      <Heading2 className="mr-2 h-4 w-4" /> Nadpis systému / sekce
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => addItem("spacer")}>
+                      <Minus className="mr-2 h-4 w-4" /> Prázdná mezera
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                {items.map((item, idx) => (
-                  <div key={idx} className="border rounded-md p-3 space-y-2 relative">
-                    <div className="flex gap-2">
-                      <div className="flex-1">
-                        <Label className="text-xs">Popis *</Label>
-                        <Input
-                          value={item.description}
-                          onChange={(e) => updateItem(idx, "description", e.target.value)}
-                          placeholder="Popis položky"
-                          className="mt-0.5 h-8 text-sm"
-                        />
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 shrink-0 mt-5 text-destructive"
-                        onClick={() => removeItem(idx)}
-                        disabled={items.length === 1}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
+                {items.length === 0 && (
+                  <div className="rounded-md border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
+                    Nabídka zatím nemá žádné řádky. Přidejte cenovou položku nebo nadpis sekce.
+                  </div>
+                )}
+                {items.map((item, idx) => item.rowType === "item" ? (
+                  <div key={item.clientId} className="rounded-md border p-3 space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-medium text-muted-foreground">Cenová položka</span>
+                      <QuoteRowActions
+                        index={idx}
+                        count={items.length}
+                        onMove={(to) => moveItem(idx, to)}
+                        onRemove={() => removeItem(idx)}
+                      />
                     </div>
-                    <div className="grid grid-cols-4 gap-2">
+                    <div>
+                      <Label className="text-xs">Popis položky *</Label>
+                      <Input
+                        value={item.description}
+                        onChange={(e) => updateItem(idx, "description", e.target.value)}
+                        placeholder="Např. střídač, montáž nebo revize"
+                        className="mt-0.5 h-9 text-sm"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
                       <div>
                         <Label className="text-xs">Množ.</Label>
                         <Input
+                          inputMode="decimal"
                           value={item.quantity}
                           onChange={(e) => updateItem(idx, "quantity", e.target.value)}
-                          className="mt-0.5 h-8 text-sm"
+                          className="mt-0.5 h-9 text-sm"
                         />
                       </div>
                       <div>
@@ -592,15 +822,45 @@ export default function QuoteDetail() {
                           value={item.unit}
                           onChange={(e) => updateItem(idx, "unit", e.target.value)}
                           placeholder="ks"
-                          className="mt-0.5 h-8 text-sm"
+                          className="mt-0.5 h-9 text-sm"
                         />
                       </div>
                       <div>
-                        <Label className="text-xs">Cena/MJ (Kč)</Label>
+                        <Label className="flex items-center gap-1 text-xs">
+                          Nákup/MJ <LockKeyhole className="h-3 w-3 text-muted-foreground" />
+                        </Label>
                         <Input
+                          inputMode="decimal"
+                          value={item.purchaseUnitPrice}
+                          onChange={(e) => updatePurchaseUnitPrice(idx, e.target.value)}
+                          placeholder="Nevyplněno"
+                          className="mt-0.5 h-9 text-sm"
+                        />
+                      </div>
+                      <div>
+                        <Label className="flex items-center gap-1 text-xs">
+                          Marže % <LockKeyhole className="h-3 w-3 text-muted-foreground" />
+                        </Label>
+                        <Input
+                          inputMode="decimal"
+                          value={item.marginPercent}
+                          onChange={(e) => updateMarginPercent(idx, e.target.value)}
+                          placeholder={item.purchaseUnitPrice.trim() === "" ? "Nejprve nákup" : "—"}
+                          disabled={parseQuoteNumber(item.purchaseUnitPrice) == null}
+                          aria-invalid={hasInvalidQuoteMargin(item)}
+                          className="mt-0.5 h-9 text-sm"
+                        />
+                        {hasInvalidQuoteMargin(item) && (
+                          <p className="mt-1 text-xs text-destructive">Marže musí být alespoň −100 %.</p>
+                        )}
+                      </div>
+                      <div>
+                        <Label className="text-xs">Prodej/MJ</Label>
+                        <Input
+                          inputMode="decimal"
                           value={item.unitPrice}
-                          onChange={(e) => updateItem(idx, "unitPrice", e.target.value)}
-                          className="mt-0.5 h-8 text-sm"
+                          onChange={(e) => updateUnitPrice(idx, e.target.value)}
+                          className="mt-0.5 h-9 text-sm"
                         />
                       </div>
                       <div>
@@ -609,7 +869,7 @@ export default function QuoteDetail() {
                           value={item.vatRate === "pdp" || item.vatRate === "0" ? "pdp" : (item.vatRate === "12" ? "12" : "21")}
                           onValueChange={(v) => updateItem(idx, "vatRate", v)}
                         >
-                          <SelectTrigger className="mt-0.5 h-8 text-sm">
+                          <SelectTrigger className="mt-0.5 h-9 text-sm">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -622,15 +882,48 @@ export default function QuoteDetail() {
                       </div>
                     </div>
                   </div>
+                ) : item.rowType === "section" ? (
+                  <div key={item.clientId} className="rounded-md bg-muted/70 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                        <Heading2 className="h-4 w-4" /> Nadpis sekce
+                      </span>
+                      <QuoteRowActions
+                        index={idx}
+                        count={items.length}
+                        onMove={(to) => moveItem(idx, to)}
+                        onRemove={() => removeItem(idx)}
+                      />
+                    </div>
+                    <div className="mt-2">
+                      <Label className="text-xs">Nadpis systému / sekce *</Label>
+                      <Input
+                        value={item.description}
+                        onChange={(e) => updateItem(idx, "description", e.target.value)}
+                        placeholder="Např. Fotovoltaický systém 10 kWp"
+                        className="mt-0.5 h-9 bg-background text-sm font-medium"
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div key={item.clientId} className="flex min-h-12 items-center gap-2 rounded-md border border-dashed px-3">
+                    <Minus className="h-4 w-4 text-muted-foreground" />
+                    <span className="min-w-0 flex-1 text-sm text-muted-foreground">
+                      <span className="sm:hidden">Prázdná mezera</span>
+                      <span className="hidden sm:inline">Prázdná mezera v zákaznické nabídce</span>
+                    </span>
+                    <QuoteRowActions
+                      index={idx}
+                      count={items.length}
+                      onMove={(to) => moveItem(idx, to)}
+                      onRemove={() => removeItem(idx)}
+                    />
+                  </div>
                 ))}
               </div>
 
               {/* Totals preview */}
-              <div className="mt-4 text-right space-y-1 text-sm">
-                <div className="text-muted-foreground">Celkem bez DPH: {fmtKc(totals.subtotalWithoutVat)}</div>
-                <div className="text-muted-foreground">DPH: {fmtKc(totals.totalVat)}</div>
-                <div className="font-semibold text-base">Celkem: {fmtKc(totals.totalWithVat)}</div>
-              </div>
+              <QuoteTotalsSummary totals={totals} />
             </CardContent>
           </Card>
 
@@ -700,60 +993,128 @@ export default function QuoteDetail() {
 
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-base">Položky</CardTitle>
+                <div className="flex items-center justify-between gap-3">
+                  <CardTitle className="text-base">Položky</CardTitle>
+                  <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <LockKeyhole className="h-3.5 w-3.5" /> Nákup a marže jsou interní
+                  </span>
+                </div>
               </CardHeader>
               <CardContent className="px-0">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Popis</TableHead>
-                      <TableHead className="text-right w-16">Množ.</TableHead>
-                      <TableHead className="w-12">MJ</TableHead>
-                      <TableHead className="text-right w-24">Cena/MJ</TableHead>
-                      <TableHead className="text-right w-16">DPH %</TableHead>
-                      <TableHead className="text-right w-28">Celkem</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {quote.items.map((item) => {
-                      const qty = Number(item.quantity);
-                      const up = Number(item.unitPrice);
-                      const vr = item.vatRate != null ? Number(item.vatRate) : 0;
-                      const base = Math.round(qty * up * 100) / 100;
-                      const vat = Math.round(base * (vr / 100) * 100) / 100;
-                      const total = Math.round((base + vat) * 100) / 100;
+                <div className="hidden overflow-x-auto md:block">
+                  <Table className="min-w-[880px]">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Popis</TableHead>
+                        <TableHead className="w-16 text-right">Množ.</TableHead>
+                        <TableHead className="w-12">MJ</TableHead>
+                        <TableHead className="w-24 text-right">Nákup/MJ</TableHead>
+                        <TableHead className="w-24 text-right">Prodej/MJ</TableHead>
+                        <TableHead className="w-20 text-right">Marže</TableHead>
+                        <TableHead className="w-16 text-right">DPH</TableHead>
+                        <TableHead className="w-28 text-right">Celkem</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {quote.items.map((item) => {
+                        const rowType = item.rowType ?? "item";
+                        if (rowType === "section") {
+                          return (
+                            <TableRow key={item.id} className="bg-muted/70 hover:bg-muted/70">
+                              <TableCell colSpan={8} className="py-3 font-semibold">
+                                {item.description}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        }
+                        if (rowType === "spacer") {
+                          return (
+                            <TableRow key={item.id} className="h-7 border-0 hover:bg-transparent">
+                              <TableCell colSpan={8} className="p-0" />
+                            </TableRow>
+                          );
+                        }
+                        const quantity = Number(item.quantity);
+                        const unitPrice = Number(item.unitPrice);
+                        const purchaseUnitPrice = item.purchaseUnitPrice != null
+                          ? Number(item.purchaseUnitPrice)
+                          : null;
+                        const margin = purchaseUnitPrice != null
+                          ? marginPercentFromPrices(purchaseUnitPrice, unitPrice)
+                          : null;
+                        const vatRate = item.vatRate != null ? Number(item.vatRate) : 0;
+                        const base = Math.round(quantity * unitPrice * 100) / 100;
+                        const vat = Math.round(base * (vatRate / 100) * 100) / 100;
+                        return (
+                          <TableRow key={item.id}>
+                            <TableCell className="font-medium">{item.description}</TableCell>
+                            <TableCell className="text-right">{quantity}</TableCell>
+                            <TableCell>{item.unit ?? ""}</TableCell>
+                            <TableCell className="text-right text-muted-foreground">
+                              {purchaseUnitPrice != null ? fmtKc(purchaseUnitPrice) : "—"}
+                            </TableCell>
+                            <TableCell className="text-right">{fmtKc(unitPrice)}</TableCell>
+                            <TableCell className={`text-right font-medium ${marginTone(margin)}`}>
+                              {margin != null ? `${margin.toLocaleString("cs-CZ", { maximumFractionDigits: 2 })} %` : "—"}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {vatRate === 0 ? "PDP" : item.vatRate != null ? `${vatRate} %` : "—"}
+                            </TableCell>
+                            <TableCell className="text-right font-medium">{fmtKc(base + vat)}</TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                <div className="md:hidden">
+                  {quote.items.map((item) => {
+                    const rowType = item.rowType ?? "item";
+                    if (rowType === "section") {
                       return (
-                        <TableRow key={item.id}>
-                          <TableCell className="font-medium">{item.description}</TableCell>
-                          <TableCell className="text-right">{qty}</TableCell>
-                          <TableCell>{item.unit ?? ""}</TableCell>
-                          <TableCell className="text-right">{fmtKc(up)}</TableCell>
-                          <TableCell className="text-right">{vr === 0 ? "PDP" : item.vatRate != null ? `${vr} %` : "—"}</TableCell>
-                          <TableCell className="text-right font-medium">{fmtKc(total)}</TableCell>
-                        </TableRow>
+                        <div key={item.id} className="border-t bg-muted/70 px-4 py-3 font-semibold">
+                          {item.description}
+                        </div>
                       );
-                    })}
-                  </TableBody>
-                </Table>
-                <div className="px-4 py-3 text-right space-y-1 text-sm border-t">
-                  {(() => {
-                    const t = computeTotals(
-                      quote.items.map((i) => ({
-                        description: i.description,
-                        quantity: String(i.quantity),
-                        unit: i.unit ?? "",
-                        unitPrice: String(i.unitPrice),
-                        vatRate: i.vatRate != null ? String(i.vatRate) : "21",
-                      })),
-                    );
+                    }
+                    if (rowType === "spacer") {
+                      return <div key={item.id} className="h-6 border-t" aria-hidden="true" />;
+                    }
+                    const quantity = Number(item.quantity);
+                    const unitPrice = Number(item.unitPrice);
+                    const purchaseUnitPrice = item.purchaseUnitPrice != null
+                      ? Number(item.purchaseUnitPrice)
+                      : null;
+                    const margin = purchaseUnitPrice != null
+                      ? marginPercentFromPrices(purchaseUnitPrice, unitPrice)
+                      : null;
+                    const vatRate = item.vatRate != null ? Number(item.vatRate) : 0;
+                    const base = Math.round(quantity * unitPrice * 100) / 100;
+                    const vat = Math.round(base * (vatRate / 100) * 100) / 100;
                     return (
-                      <>
-                        <div className="text-muted-foreground">Bez DPH: {fmtKc(t.subtotalWithoutVat)}</div>
-                        <div className="text-muted-foreground">DPH: {fmtKc(t.totalVat)}</div>
-                        <div className="font-bold text-base">Celkem: {fmtKc(t.totalWithVat)}</div>
-                      </>
+                      <div key={item.id} className="space-y-2 border-t px-4 py-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <p className="font-medium">{item.description}</p>
+                          <p className="shrink-0 font-semibold">{fmtKc(base + vat)}</p>
+                        </div>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                          <span className="text-muted-foreground">{quantity} {item.unit ?? ""} × {fmtKc(unitPrice)}</span>
+                          <span className="text-right text-muted-foreground">DPH {vatRate === 0 ? "PDP" : `${vatRate} %`}</span>
+                          <span className="flex items-center gap-1 text-muted-foreground">
+                            <LockKeyhole className="h-3 w-3" /> Nákup {purchaseUnitPrice != null ? fmtKc(purchaseUnitPrice) : "—"}
+                          </span>
+                          <span className={`text-right font-medium ${marginTone(margin)}`}>
+                            Marže {margin != null ? `${margin.toLocaleString("cs-CZ", { maximumFractionDigits: 2 })} %` : "—"}
+                          </span>
+                        </div>
+                      </div>
                     );
-                  })()}
+                  })}
+                </div>
+
+                <div className="px-4 pb-4">
+                  <QuoteTotalsSummary totals={totals} />
                 </div>
               </CardContent>
             </Card>

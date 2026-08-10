@@ -147,9 +147,11 @@ router.post("/quotes", async (req, res): Promise<void> => {
       notes: d.notes ?? null,
       items: d.items?.map((i) => ({
         description: i.description,
+        rowType: i.rowType ?? null,
         quantity: i.quantity ?? null,
         unit: i.unit ?? null,
         unitPrice: i.unitPrice ?? null,
+        purchaseUnitPrice: i.purchaseUnitPrice ?? null,
         vatRate: i.vatRate ?? null,
         position: i.position ?? null,
       })),
@@ -202,9 +204,11 @@ router.patch("/quotes/:id", async (req, res): Promise<void> => {
       notes: d.notes,
       items: d.items?.map((i) => ({
         description: i.description,
+        rowType: i.rowType ?? null,
         quantity: i.quantity ?? null,
         unit: i.unit ?? null,
         unitPrice: i.unitPrice ?? null,
+        purchaseUnitPrice: i.purchaseUnitPrice ?? null,
         vatRate: i.vatRate ?? null,
         position: i.position ?? null,
       })),

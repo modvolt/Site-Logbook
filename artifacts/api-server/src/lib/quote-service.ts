@@ -15,6 +15,12 @@ import { generateQuotePdf, type QuotePdfData } from "./quote-pdf";
 import { sendEmailWithPdf } from "./email";
 import { ObjectStorageService } from "./objectStorage";
 import { randomUUID } from "node:crypto";
+import {
+  computeQuoteItemTotals,
+  computeQuoteTotals,
+  normalizeQuoteRowType,
+  type QuoteRowType,
+} from "./quote-calculations";
 
 const objectStorage = new ObjectStorageService();
 const SETTINGS_ID = 1;
@@ -37,9 +43,11 @@ export interface Actor {
 
 export interface QuoteItemInput {
   description: string;
+  rowType?: QuoteRowType | null;
   quantity?: number | null;
   unit?: string | null;
   unitPrice?: number | null;
+  purchaseUnitPrice?: number | null;
   vatRate?: number | null;
   position?: number | null;
 }
@@ -76,24 +84,6 @@ function parseNum(v: string | number | null | undefined, fallback = 0): number {
   if (v == null) return fallback;
   const n = typeof v === "string" ? parseFloat(v) : v;
   return Number.isFinite(n) ? n : fallback;
-}
-
-function round2(n: number): number {
-  return Math.round(n * 100) / 100;
-}
-
-function computeItemTotals(
-  unitPrice: number,
-  quantity: number,
-  vatRate: number | null,
-  vatPayer: boolean,
-): { totalWithoutVat: number; totalVat: number; totalWithVat: number } {
-  const base = round2(unitPrice * quantity);
-  if (!vatPayer || vatRate == null) {
-    return { totalWithoutVat: base, totalVat: 0, totalWithVat: base };
-  }
-  const vat = round2(base * (vatRate / 100));
-  return { totalWithoutVat: base, totalVat: vat, totalWithVat: round2(base + vat) };
 }
 
 // ---------------------------------------------------------------------------
@@ -139,8 +129,11 @@ async function assignQuoteNumber(): Promise<string> {
 export function serializeItem(item: QuoteItem) {
   return {
     ...item,
+    rowType: normalizeQuoteRowType(item.rowType),
     quantity: parseNum(item.quantity, 1),
     unitPrice: parseNum(item.unitPrice, 0),
+    purchaseUnitPrice:
+      item.purchaseUnitPrice != null ? parseNum(item.purchaseUnitPrice) : null,
     vatRate: item.vatRate != null ? parseNum(item.vatRate) : null,
   };
 }
@@ -190,17 +183,14 @@ export async function listQuotes(opts?: {
         .where(eq(quoteItemsTable.quoteId, q.id))
         .orderBy(asc(quoteItemsTable.position));
       const itemData = items.map(serializeItem);
-      const totalWithVat = round2(itemData.reduce((s, i) => {
-        const tot = computeItemTotals(i.unitPrice, i.quantity, i.vatRate, true);
-        return s + tot.totalWithVat;
-      }, 0));
+      const totals = computeQuoteTotals(itemData, true);
       const customerInfo = q.customerId != null ? (customersMap.get(q.customerId) ?? null) : null;
       return {
         ...serializeQuote(q),
         customerCompanyName: customerInfo?.companyName ?? null,
         customerEmail: customerInfo?.email ?? null,
-        itemCount: items.length,
-        totalWithVat,
+        itemCount: totals.financialItemCount,
+        totalWithVat: totals.totalWithVat,
       };
     }),
   );
@@ -240,6 +230,9 @@ export async function getQuoteDetail(id: number) {
     customerAddress = c?.address ?? null;
   }
 
+  const itemData = items.map(serializeItem);
+  const margin = computeQuoteTotals(itemData, true);
+
   return {
     ...serializeQuote(quote),
     customerCompanyName,
@@ -247,7 +240,13 @@ export async function getQuoteDetail(id: number) {
     customerIc,
     customerDic,
     customerAddress,
-    items: items.map(serializeItem),
+    items: itemData,
+    totalPurchaseCost: margin.totalPurchaseCost,
+    marginAmount: margin.marginAmount,
+    marginPercent: margin.marginPercent,
+    financialItemCount: margin.financialItemCount,
+    costedItemCount: margin.costedItemCount,
+    marginComplete: margin.marginComplete,
   };
 }
 
@@ -279,25 +278,22 @@ export async function getQuoteByShareToken(token: string) {
     .orderBy(asc(quoteItemsTable.position));
 
   const itemData = items.map((item) => {
-    const qty = parseNum(item.quantity, 1);
-    const unitPrice = parseNum(item.unitPrice, 0);
-    const vatRate = item.vatRate != null ? parseNum(item.vatRate) : null;
-    const totals = computeItemTotals(unitPrice, qty, vatRate, vatPayer);
+    const serialized = serializeItem(item);
+    const totals = computeQuoteItemTotals(serialized, vatPayer);
     return {
       id: item.id,
       position: item.position,
       description: item.description,
-      quantity: qty,
+      rowType: serialized.rowType,
+      quantity: serialized.quantity,
       unit: item.unit ?? null,
-      unitPrice,
-      vatRate,
+      unitPrice: serialized.unitPrice,
+      vatRate: serialized.vatRate,
       ...totals,
     };
   });
 
-  const subtotalWithoutVat = round2(itemData.reduce((s, i) => s + i.totalWithoutVat, 0));
-  const totalVat = round2(itemData.reduce((s, i) => s + i.totalVat, 0));
-  const totalWithVat = round2(itemData.reduce((s, i) => s + i.totalWithVat, 0));
+  const totals = computeQuoteTotals(itemData, vatPayer);
 
   let customerCompanyName: string | null = null;
   if (quote.customerId != null) {
@@ -321,9 +317,9 @@ export async function getQuoteByShareToken(token: string) {
     supplierEmail: settings.supplierEmail ?? null,
     supplierPhone: settings.supplierPhone ?? null,
     items: itemData,
-    subtotalWithoutVat,
-    totalVat,
-    totalWithVat,
+    subtotalWithoutVat: totals.totalWithoutVat,
+    totalVat: totals.totalVat,
+    totalWithVat: totals.totalWithVat,
     vatPayer,
     createdAt: quote.createdAt.toISOString(),
   };
@@ -371,16 +367,68 @@ type DbOrTx = typeof db | Tx;
 async function upsertItems(tx: DbOrTx, quoteId: number, items: QuoteItemInput[]) {
   await tx.delete(quoteItemsTable).where(eq(quoteItemsTable.quoteId, quoteId));
   if (items.length === 0) return;
-  await tx.insert(quoteItemsTable).values(
-    items.map((item, idx) => ({
+
+  const normalizedItems = items.map((item, idx) => {
+    const rowType = normalizeQuoteRowType(item.rowType);
+    const description = item.description.trim();
+    if (rowType !== "spacer" && description.length === 0) {
+      throw appError(
+        400,
+        rowType === "section"
+          ? "Nadpis sekce nesmí být prázdný."
+          : "Popis položky nesmí být prázdný.",
+      );
+    }
+    if (rowType !== "item") {
+      return {
+        quoteId,
+        position: item.position ?? idx,
+        rowType,
+        description: rowType === "spacer" ? "" : description,
+        quantity: "0",
+        unit: null,
+        unitPrice: "0",
+        purchaseUnitPrice: null,
+        vatRate: null,
+      };
+    }
+
+    const quantity = item.quantity ?? 1;
+    const unitPrice = item.unitPrice ?? 0;
+    const purchaseUnitPrice = item.purchaseUnitPrice ?? null;
+    const vatRate = item.vatRate ?? null;
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      throw appError(400, `Množství položky „${description}“ musí být větší než nula.`);
+    }
+    if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+      throw appError(400, `Prodejní cena položky „${description}“ nesmí být záporná.`);
+    }
+    if (
+      purchaseUnitPrice != null &&
+      (!Number.isFinite(purchaseUnitPrice) || purchaseUnitPrice < 0)
+    ) {
+      throw appError(400, `Nákupní cena položky „${description}“ nesmí být záporná.`);
+    }
+    if (vatRate != null && (!Number.isFinite(vatRate) || vatRate < 0 || vatRate > 100)) {
+      throw appError(400, `Sazba DPH položky „${description}“ je mimo povolený rozsah.`);
+    }
+
+    return {
       quoteId,
       position: item.position ?? idx,
-      description: item.description,
-      quantity: String(item.quantity ?? 1),
-      unit: item.unit ?? null,
-      unitPrice: String(item.unitPrice ?? 0),
-      vatRate: item.vatRate != null ? String(item.vatRate) : null,
-    })),
+      rowType,
+      description,
+      quantity: String(quantity),
+      unit: item.unit?.trim() || null,
+      unitPrice: String(unitPrice),
+      purchaseUnitPrice:
+        purchaseUnitPrice != null ? String(purchaseUnitPrice) : null,
+      vatRate: vatRate != null ? String(vatRate) : null,
+    };
+  });
+
+  await tx.insert(quoteItemsTable).values(
+    normalizedItems,
   );
 }
 
@@ -440,9 +488,10 @@ async function buildPdfData(quote: NonNullable<Awaited<ReturnType<typeof getQuot
   const vatPayer = settings.vatPayer;
 
   const pdfItems = quote.items.map((item) => {
-    const totals = computeItemTotals(item.unitPrice, item.quantity, item.vatRate, vatPayer);
+    const totals = computeQuoteItemTotals(item, vatPayer);
     return {
       description: item.description,
+      rowType: item.rowType,
       quantity: item.quantity,
       unit: item.unit ?? null,
       unitPrice: item.unitPrice,
@@ -451,9 +500,7 @@ async function buildPdfData(quote: NonNullable<Awaited<ReturnType<typeof getQuot
     };
   });
 
-  const subtotalWithoutVat = round2(pdfItems.reduce((s, i) => s + i.totalWithoutVat, 0));
-  const totalVat = round2(pdfItems.reduce((s, i) => s + i.totalVat, 0));
-  const totalWithVat = round2(pdfItems.reduce((s, i) => s + i.totalWithVat, 0));
+  const totals = computeQuoteTotals(pdfItems, vatPayer);
 
   const pdfData: QuotePdfData = {
     quoteNumber: quote.quoteNumber ?? `#${quote.id}`,
@@ -465,9 +512,9 @@ async function buildPdfData(quote: NonNullable<Awaited<ReturnType<typeof getQuot
     validUntil: quote.validUntil,
     notes: quote.notes,
     items: pdfItems,
-    subtotalWithoutVat,
-    totalVat,
-    totalWithVat,
+    subtotalWithoutVat: totals.totalWithoutVat,
+    totalVat: totals.totalVat,
+    totalWithVat: totals.totalWithVat,
     supplier: {
       name: settings.supplierName,
       ic: settings.supplierIc,
