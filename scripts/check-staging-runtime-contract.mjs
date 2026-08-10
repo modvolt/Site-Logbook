@@ -1764,7 +1764,7 @@ export function validateStagingRuntimeContract(overrides = {}) {
     '[[ "${ACTOR,,}" == "modvolt" ]]',
     '[[ "${TRIGGERING_ACTOR,,}" == "modvolt" ]]',
     "packages: write",
-    "modvolt/Site-Logbook/.github/workflows/staging-predecessor-image.yml@1b55321e4a48c3cb2d4b37f8cb4ba14c58b54ef0",
+    "modvolt/Site-Logbook/.github/workflows/staging-predecessor-image.yml@ec1c13c11e9e42dbfc258dc353adb3db3bcc67d8",
     "secrets:\n      packages_metadata_token: ${{ secrets.SITE_LOGBOOK_GHCR_METADATA_READ_TOKEN }}",
     "confirm_predecessor_registry_publication: true",
     "verify_existing_only: true",
