@@ -687,6 +687,55 @@ test("keeps predecessor publication fixed to one exact-0104 API image", () => {
       "STAGING_RUNTIME_CONTRACT_MISSING",
     ],
     [
+      workflow.replace(
+        '.SLSA.invocation.configSource.entryPoint == "Dockerfile"',
+        '.SLSA.invocation.configSource.entryPoint == "Containerfile"',
+      ),
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      workflow.replace(
+        '.SLSA.invocation.parameters.root.configSource.path == "Dockerfile"',
+        '.SLSA.invocation.parameters.root.configSource.path == "Containerfile"',
+      ),
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      workflow.replace(
+        '.SLSA.invocation.parameters.root.request.args["vcs:localdir:context"] == "."',
+        '.SLSA.invocation.parameters.root.request.args["vcs:localdir:context"] == "artifacts"',
+      ),
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      workflow.replace(
+        '.SLSA.invocation.parameters.root.request.args["vcs:localdir:dockerfile"] == "artifacts/api-server"',
+        '.SLSA.invocation.parameters.root.request.args["vcs:localdir:dockerfile"] == "artifacts/stavba"',
+      ),
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      workflow.replace(
+        '.SLSA.invocation.parameters.root.request.args["vcs:revision"] == $sha',
+        '.SLSA.invocation.parameters.root.request.args["vcs:revision"] != $sha',
+      ),
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      workflow.replace(
+        '.SLSA.invocation.parameters.root.request.args["vcs:source"]',
+        '.SLSA.invocation.parameters.root.request.args["source"]',
+      ),
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      workflow.replace(
+        '.SLSA.invocation.parameters.root.request.args["vcs:localdir:dockerfile"] + "/" + .SLSA.invocation.configSource.entryPoint',
+        ".SLSA.invocation.configSource.entryPoint",
+      ),
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
       workflow.replace("($packages | length) > 0", "($packages | length) >= 0"),
       "STAGING_RUNTIME_CONTRACT_MISSING",
     ],
@@ -694,6 +743,24 @@ test("keeps predecessor publication fixed to one exact-0104 API image", () => {
       workflow.replace(
         '$relationship.relationshipType == "CONTAINS"',
         '$relationship.relationshipType != ""',
+      ),
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      workflow.replace(
+        "([ $packages[].SPDXID ]) as $packageIds",
+        "($packages) as $packageIds",
+      ),
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      workflow.replace("any($relationships[];", "any($relationships[]?;"),
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      workflow.replace(
+        ". as $relationship |",
+        ".relationshipType as $relationship |",
       ),
       "STAGING_RUNTIME_CONTRACT_MISSING",
     ],

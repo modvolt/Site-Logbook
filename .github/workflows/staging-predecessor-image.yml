@@ -606,14 +606,14 @@ jobs:
                  .mediaType == "application/vnd.oci.image.index.v1+json" and
                  .digest == $digest and
                  ((.manifests // []) as $manifests |
+                  ($manifests | map(select((.annotations["vnd.docker.reference.type"] // "") != "attestation-manifest"))) as $runnable |
+                  ($manifests | map(select(.annotations["vnd.docker.reference.type"] == "attestation-manifest"))) as $attestations |
                   ($manifests | length) == 2 and
                   ([ $manifests[].digest ] | length) == ([ $manifests[].digest ] | unique | length) and
                   all($manifests[];
                     .mediaType == "application/vnd.oci.image.manifest.v1+json" and
                     (.size | type) == "number" and .size > 0 and
                     (.digest | test("^sha256:[0-9a-f]{64}$"))) and
-                  ($manifests | map(select((.annotations["vnd.docker.reference.type"] // "") != "attestation-manifest"))) as $runnable |
-                  ($manifests | map(select(.annotations["vnd.docker.reference.type"] == "attestation-manifest"))) as $attestations |
                   ($runnable | length) == 1 and
                   $runnable[0].platform.os == "linux" and
                   $runnable[0].platform.architecture == "amd64" and
@@ -639,7 +639,13 @@ jobs:
                    .SLSA.invocation.environment.platform == "linux/amd64" and
                    .SLSA.metadata.completeness.parameters == true and
                    .SLSA.metadata.completeness.environment == true and
-                   .SLSA.invocation.configSource.entryPoint == "artifacts/api-server/Dockerfile" and
+                   .SLSA.invocation.configSource.entryPoint == "Dockerfile" and
+                   .SLSA.invocation.parameters.root.configSource.path == "Dockerfile" and
+                   .SLSA.invocation.parameters.root.request.args["vcs:localdir:context"] == "." and
+                   .SLSA.invocation.parameters.root.request.args["vcs:localdir:dockerfile"] == "artifacts/api-server" and
+                   .SLSA.invocation.parameters.root.request.args["vcs:revision"] == $sha and
+                   ((.SLSA.invocation.parameters.root.request.args["vcs:source"] | ascii_downcase) |
+                    test("^(https://github\\.com/modvolt/site-logbook(?:\\.git)?|git\\+https://github\\.com/modvolt/site-logbook(?:\\.git)?|git@github\\.com:modvolt/site-logbook\\.git)$")) and
                    .SLSA.invocation.parameters.args["build-arg:BUILD_SHA"] == $sha and
                    ((.SLSA.materials // []) | length) > 0 and
                    (any(.SLSA.materials[]?;
@@ -661,17 +667,19 @@ jobs:
                        ((.SPDX.creationInfo.creators // []) | length) > 0 and
                        all(.SPDX.creationInfo.creators[]; type == "string" and length > 0) and
                        ((.SPDX.packages // []) as $packages |
+                        (.SPDX.relationships // []) as $relationships |
+                        ([ $packages[].SPDXID ]) as $packageIds |
                         ($packages | length) > 0 and
-                        ([ $packages[].SPDXID ] | length) == ([ $packages[].SPDXID ] | unique | length) and
+                        ($packageIds | length) == ($packageIds | unique | length) and
                         all($packages[];
                           (.SPDXID | type) == "string" and (.SPDXID | length) > 0 and
                           (.name | type) == "string" and (.name | length) > 0) and
-                        ((.SPDX.relationships // []) as $relationships |
-                         ($relationships | length) > 0 and
-                         any($relationships[] as $relationship;
-                           $relationship.relationshipType == "CONTAINS" and
-                           (([ $packages[].SPDXID ] | index($relationship.spdxElementId)) != null or
-                            ([ $packages[].SPDXID ] | index($relationship.relatedSpdxElement)) != null))))' \
+                        ($relationships | length) > 0 and
+                        any($relationships[];
+                          . as $relationship |
+                          $relationship.relationshipType == "CONTAINS" and
+                          (($packageIds | index($relationship.spdxElementId)) != null or
+                           ($packageIds | index($relationship.relatedSpdxElement)) != null)))' \
                   <<<"$sbom_json" >/dev/null 2>&1
               then
                 diagnostic_code="SBOM_NOT_READY"
@@ -698,7 +706,10 @@ jobs:
                 runtime_url="$(jq -r '.config.Labels["org.opencontainers.image.url"]' <<<"$image_json")"
                 provenance_vcs_source="$(jq -r '.SLSA.metadata["https://mobyproject.org/buildkit@v1#metadata"].vcs.source' <<<"$provenance_json")"
                 provenance_vcs_revision="$(jq -r '.SLSA.metadata["https://mobyproject.org/buildkit@v1#metadata"].vcs.revision' <<<"$provenance_json")"
-                provenance_dockerfile="$(jq -r '.SLSA.invocation.configSource.entryPoint' <<<"$provenance_json")"
+                provenance_dockerfile="$(
+                  jq -r '.SLSA.invocation.parameters.root.request.args["vcs:localdir:dockerfile"] + "/" + .SLSA.invocation.configSource.entryPoint' \
+                    <<<"$provenance_json"
+                )"
                 provenance_build_sha="$(jq -r '.SLSA.invocation.parameters.args["build-arg:BUILD_SHA"]' <<<"$provenance_json")"
                 sbom_version="$(jq -r '.SPDX.spdxVersion' <<<"$sbom_json")"
                 sbom_package_count="$(jq -r '(.SPDX.packages // []) | length' <<<"$sbom_json")"

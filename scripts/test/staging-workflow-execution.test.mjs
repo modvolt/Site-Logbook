@@ -166,6 +166,7 @@ esac
 
 const PREDECESSOR_MOCK_DOCKER = `#!/usr/bin/env bash
 set -euo pipefail
+printf '%s\n' "$*" >> "$HARNESS_ROOT/predecessor-docker-calls.txt"
 case "$*" in
   *"{{json .Manifest}}"*) cat "$HARNESS_ROOT/fixtures/predecessor-manifest.json" ;;
   *"{{json .Image}}"*) cat "$HARNESS_ROOT/fixtures/predecessor-image.json" ;;
@@ -327,6 +328,7 @@ function runPredecessorPackageState({
 
 function runPredecessorRemoteVerifier({
   deletedVersionsForbidden = false,
+  provenanceDockerfileDirectory = "artifacts/api-server",
   verifyExistingOnly,
 }) {
   const digest = `sha256:${"c".repeat(64)}`;
@@ -402,9 +404,20 @@ function runPredecessorRemoteVerifier({
           buildType: "https://mobyproject.org/buildkit@v1",
           invocation: {
             environment: { platform: "linux/amd64" },
-            configSource: { entryPoint: "artifacts/api-server/Dockerfile" },
+            configSource: { entryPoint: "Dockerfile" },
             parameters: {
               args: { "build-arg:BUILD_SHA": PREDECESSOR_SOURCE_SHA },
+              root: {
+                configSource: { path: "Dockerfile" },
+                request: {
+                  args: {
+                    "vcs:localdir:context": ".",
+                    "vcs:localdir:dockerfile": provenanceDockerfileDirectory,
+                    "vcs:revision": PREDECESSOR_SOURCE_SHA,
+                    "vcs:source": "https://github.com/modvolt/Site-Logbook",
+                  },
+                },
+              },
             },
           },
           metadata: {
@@ -461,7 +474,11 @@ function runPredecessorRemoteVerifier({
       VERIFICATION_POLL_SECONDS: "5",
       VERIFY_EXISTING_ONLY: verifyExistingOnly ? "true" : "false",
     },
-    captureFiles: ["predecessor-gh-api-calls.txt", "predecessor-package.json"],
+    captureFiles: [
+      "predecessor-docker-calls.txt",
+      "predecessor-gh-api-calls.txt",
+      "predecessor-package.json",
+    ],
   });
 }
 
@@ -828,8 +845,7 @@ test("skips deleted-version REST reads in final verify-only inspection but retai
     deletedVersionsForbidden: true,
     verifyExistingOnly: true,
   });
-  assert.notEqual(verifyOnly.status, 0);
-  assert.match(verifyOnly.stderr, /OCI_INDEX_NOT_READY/u);
+  assert.equal(verifyOnly.status, 0, verifyOnly.stderr);
   assert.doesNotMatch(
     verifyOnly.stderr,
     /DELETED_VERSION_INVENTORY_NOT_READY/u,
@@ -852,6 +868,29 @@ test("skips deleted-version REST reads in final verify-only inspection but retai
     publicationCapable.captured["predecessor-gh-api-calls.txt"],
     /state=deleted/u,
   );
+});
+
+test("accepts the observed split predecessor Dockerfile provenance path", () => {
+  const result = runPredecessorRemoteVerifier({
+    verifyExistingOnly: true,
+  });
+  assert.equal(
+    result.status,
+    0,
+    `${result.stderr}\n${result.captured["predecessor-docker-calls.txt"]}`,
+  );
+  const evidence = JSON.parse(result.captured["predecessor-package.json"]);
+  assert.equal(
+    evidence.provenance.dockerfile,
+    "artifacts/api-server/Dockerfile",
+  );
+
+  const directoryDrift = runPredecessorRemoteVerifier({
+    provenanceDockerfileDirectory: "artifacts/stavba",
+    verifyExistingOnly: true,
+  });
+  assert.notEqual(directoryDrift.status, 0);
+  assert.match(directoryDrift.stderr, /PROVENANCE_NOT_READY/u);
 });
 
 test("emits mode-bound schema v3 evidence without a false deleted-version claim", () => {
