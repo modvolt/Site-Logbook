@@ -16,6 +16,7 @@ import { fmtKc, fmtDate } from "@/lib/billing-format";
 interface PublicQuoteItem {
   id: number;
   position: number;
+  rowType: "item" | "section" | "spacer";
   description: string;
   quantity: number;
   unit: string | null;
@@ -260,34 +261,82 @@ export default function QuoteShare() {
             <CardTitle className="text-base">Položky nabídky</CardTitle>
           </CardHeader>
           <CardContent className="px-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Popis</TableHead>
-                  <TableHead className="text-right w-16">Množ.</TableHead>
-                  <TableHead className="w-12">MJ</TableHead>
-                  <TableHead className="text-right w-28">Cena/MJ</TableHead>
-                  {quote.vatPayer && <TableHead className="text-right w-16">DPH</TableHead>}
-                  <TableHead className="text-right w-28">Celkem</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {quote.items.map((item) => (
-                  <TableRow key={item.id}>
-                    <TableCell className="font-medium">{item.description}</TableCell>
-                    <TableCell className="text-right">{item.quantity}</TableCell>
-                    <TableCell>{item.unit ?? ""}</TableCell>
-                    <TableCell className="text-right">{fmtKc(item.unitPrice)}</TableCell>
-                    {quote.vatPayer && (
-                      <TableCell className="text-right text-muted-foreground">
-                        {item.vatRate != null ? `${item.vatRate}%` : "—"}
-                      </TableCell>
-                    )}
-                    <TableCell className="text-right font-medium">{fmtKc(item.totalWithVat)}</TableCell>
+            <div className="hidden overflow-x-auto md:block">
+              <Table className="min-w-[680px]">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Popis</TableHead>
+                    <TableHead className="text-right w-16">Množ.</TableHead>
+                    <TableHead className="w-12">MJ</TableHead>
+                    <TableHead className="text-right w-28">Cena/MJ</TableHead>
+                    {quote.vatPayer && <TableHead className="text-right w-16">DPH</TableHead>}
+                    <TableHead className="text-right w-28">Celkem</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {quote.items.map((item) => {
+                    const colSpan = quote.vatPayer ? 6 : 5;
+                    if (item.rowType === "section") {
+                      return (
+                        <TableRow key={item.id} className="bg-muted/70 hover:bg-muted/70">
+                          <TableCell colSpan={colSpan} className="py-3 font-semibold">
+                            {item.description}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    }
+                    if (item.rowType === "spacer") {
+                      return (
+                        <TableRow key={item.id} className="h-7 border-0 hover:bg-transparent">
+                          <TableCell colSpan={colSpan} className="p-0" />
+                        </TableRow>
+                      );
+                    }
+                    return (
+                      <TableRow key={item.id}>
+                        <TableCell className="font-medium">{item.description}</TableCell>
+                        <TableCell className="text-right">{item.quantity}</TableCell>
+                        <TableCell>{item.unit ?? ""}</TableCell>
+                        <TableCell className="text-right">{fmtKc(item.unitPrice)}</TableCell>
+                        {quote.vatPayer && (
+                          <TableCell className="text-right text-muted-foreground">
+                            {item.vatRate != null ? `${item.vatRate}%` : "—"}
+                          </TableCell>
+                        )}
+                        <TableCell className="text-right font-medium">{fmtKc(item.totalWithVat)}</TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+
+            <div className="md:hidden">
+              {quote.items.map((item) => {
+                if (item.rowType === "section") {
+                  return (
+                    <div key={item.id} className="border-t bg-muted/70 px-4 py-3 font-semibold">
+                      {item.description}
+                    </div>
+                  );
+                }
+                if (item.rowType === "spacer") {
+                  return <div key={item.id} className="h-6 border-t" aria-hidden="true" />;
+                }
+                return (
+                  <div key={item.id} className="space-y-2 border-t px-4 py-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <p className="font-medium">{item.description}</p>
+                      <p className="shrink-0 font-semibold">{fmtKc(item.totalWithVat)}</p>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {item.quantity} {item.unit ?? ""} × {fmtKc(item.unitPrice)}
+                      {quote.vatPayer && ` · DPH ${item.vatRate != null ? `${item.vatRate} %` : "—"}`}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
 
             {/* Totals */}
             <div className="px-4 py-3 border-t space-y-1 text-sm text-right">
@@ -302,7 +351,7 @@ export default function QuoteShare() {
                 </>
               )}
               <div className="text-lg font-bold">
-                Celkem: {fmtKc(quote.totalWithVat)} Kč
+                Celkem: {fmtKc(quote.totalWithVat)}
               </div>
             </div>
           </CardContent>

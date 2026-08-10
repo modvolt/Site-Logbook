@@ -16025,7 +16025,7 @@ components:
 
     QuoteItem:
       type: object
-      required: [id, quoteId, position, description, quantity, unitPrice]
+      required: [id, quoteId, position, rowType, description, quantity, unitPrice]
       properties:
         id:
           type: integer
@@ -16033,6 +16033,9 @@ components:
           type: integer
         position:
           type: integer
+        rowType:
+          type: string
+          enum: [item, section, spacer]
         description:
           type: string
         quantity:
@@ -16041,6 +16044,8 @@ components:
           type: ["string", "null"]
         unitPrice:
           type: number
+        purchaseUnitPrice:
+          type: ["number", "null"]
         vatRate:
           type: ["number", "null"]
 
@@ -16050,13 +16055,19 @@ components:
       properties:
         description:
           type: string
-          minLength: 1
+        rowType:
+          type: string
+          enum: [item, section, spacer]
         quantity:
           type: ["number", "null"]
         unit:
           type: ["string", "null"]
         unitPrice:
           type: ["number", "null"]
+          minimum: 0
+        purchaseUnitPrice:
+          type: ["number", "null"]
+          minimum: 0
         vatRate:
           type: ["number", "null"]
         position:
@@ -16106,7 +16117,7 @@ components:
 
     QuoteDetail:
       type: object
-      required: [id, title, status, items, createdAt, updatedAt]
+      required: [id, title, status, items, totalPurchaseCost, financialItemCount, costedItemCount, marginComplete, createdAt, updatedAt]
       properties:
         id:
           type: integer
@@ -16147,6 +16158,18 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/QuoteItem"
+        totalPurchaseCost:
+          type: number
+        marginAmount:
+          type: ["number", "null"]
+        marginPercent:
+          type: ["number", "null"]
+        financialItemCount:
+          type: integer
+        costedItemCount:
+          type: integer
+        marginComplete:
+          type: boolean
         createdAt:
           type: string
         updatedAt:
@@ -16194,12 +16217,15 @@ components:
 
     PublicQuoteItem:
       type: object
-      required: [id, position, description, quantity, unitPrice, totalWithoutVat, totalVat, totalWithVat]
+      required: [id, position, rowType, description, quantity, unitPrice, totalWithoutVat, totalVat, totalWithVat]
       properties:
         id:
           type: integer
         position:
           type: integer
+        rowType:
+          type: string
+          enum: [item, section, spacer]
         description:
           type: string
         quantity:
