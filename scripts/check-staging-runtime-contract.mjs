@@ -1653,6 +1653,48 @@ export function validateStagingRuntimeContract(overrides = {}) {
       `schema-v4 release evidence boundary ${boundary}`,
     );
   }
+  const activationRunbook = readSource(
+    "docs/audit/13-staging-activation-runbook.md",
+    overrides,
+  );
+  for (const boundary of [
+    "API image při běžném startu žádnou migraci automaticky nespouští.",
+    "úspěšný one-shot `external-schema-gate`",
+    "schválený režim `apply-0105`",
+    "všemi osmi raw artefakty",
+    "--image-manifest staging-images.json",
+    "--inspect-inputs staging-deployment-inspect.json",
+    "--transition-inputs staging-deployment-transition.json",
+    "--steady-inputs staging-deployment-steady.json",
+    "--schema-gate-evidence staging-schema-gate.json",
+    "--backup-evidence staging-backup-evidence.json",
+    "--provisioning staging-provisioning-observed.json",
+    "--bootstrap staging-bootstrap-summary.json",
+    "Schéma evidence verze 4",
+    "klasifikovaný přesně jako\n  `production-copy-restricted`",
+    "recovery point není evidovaný jako `production-copy-restricted`",
+    "data `production-copy-restricted` neopustí schválené staging hranice",
+  ]) {
+    requireText(
+      activationRunbook,
+      boundary,
+      `active staging runbook boundary ${boundary}`,
+    );
+  }
+  for (const staleBoundary of [
+    "API image při startu automaticky aplikuje existující migrace",
+    "Schéma evidence verze 3",
+    "anonymizovaný společný recovery point",
+    "není doložena anonymizace recovery pointu",
+    "anonymizovaná data neopustí schválené staging hranice",
+  ]) {
+    if (activationRunbook.includes(staleBoundary)) {
+      fail(
+        "STAGING_ACTIVATION_RUNBOOK_STALE",
+        `the active staging runbook still contains stale boundary ${staleBoundary}.`,
+      );
+    }
+  }
   const schemaGateEntrypoint = readSource(
     "artifacts/api-server/src/external-schema-gate.ts",
     overrides,

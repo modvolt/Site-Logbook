@@ -30,7 +30,9 @@ Dále musí být známé, ale neukládají se do GitHub workflow:
 - mail sandbox inbox a příjemce;
 - schválené RPO/RTO a jmenovaní service owner a operator; v `dual_control` režimu
   také nezávislý reviewer, v `solo_maintainer` režimu explicitní owner waiver;
-- anonymizovaný společný recovery point DB + objektů.
+- schválený společný recovery point DB + objektů klasifikovaný přesně jako
+  `production-copy-restricted`, s oddělenými staging credentials, omezeným přístupem,
+  dobou uchování a plánem bezpečného odstranění.
 
 ## 2. Abort hranice před nasazením
 
@@ -38,7 +40,8 @@ Okamžitě zastavte běh, pokud platí alespoň jedno:
 
 - URL, DB, bucket, mail recipient nebo credential patří produkci;
 - staging má síťovou cestu, IAM oprávnění nebo sdílený secret umožňující změnu produkce;
-- není doložena anonymizace recovery pointu;
+- recovery point není evidovaný jako `production-copy-restricted` nebo nejsou
+  schválené jeho přístupové, retenční a cleanup hranice;
 - target bucket není prázdný/oddělený nebo jeho fingerprint není schválený;
 - nelze potvrdit versioning, immutable retention a read-only policy preflight;
 - nasazené `/api/healthz.version` není přesně commit testovaného workflow;
@@ -54,8 +57,11 @@ Okamžitě zastavte běh, pokud platí alespoň jedno:
 4. Nasazujte stejný SHA do izolovaného stagingu; nastavte API `BUILD_SHA`, frontend
    `VITE_BUILD_SHA` a receiver `RECEIVER_BUILD_SHA` na plný SHA. Použijte pouze
    digest-pinned privátní image z manifestu schváleného publisher workflow.
-5. Počítejte s tím, že API image při startu automaticky aplikuje existující
-   migrace. Cílová DB proto musí být stagingová a předem obnovitelná.
+5. API image při běžném startu žádnou migraci automaticky nespouští. API čeká na
+   úspěšný one-shot `external-schema-gate` a před startem serveru provede ještě
+   read-only steady-state kontrolu. Standardní migrátor smí spustit pouze samostatně
+   schválený režim `apply-0105`; cílová DB proto musí být stagingová a předem
+   obnovitelná.
 6. Receiver provozujte za veřejným TLS proxy, s vlastním hostname, persistentním
    volume a platformními log alerty. Jeho volume ani logy nesmí sdílet API proces.
 
@@ -94,7 +100,8 @@ Povinné důkazy:
 - přímý syntetický event je po restartu receiveru stále deduplikován díky volume;
 - bezpečně vyvolaný výpadek staging health endpointu vytvoří v platformních
   receiver logách `dead_man_triggered` a obnovení vytvoří `dead_man_recovered`;
-- anonymizovaná data neopustí schválené staging hranice.
+- data `production-copy-restricted` neopustí schválené staging hranice a žádný
+  mail, externí účet ani integrační webhook nevede ke skutečnému zákazníkovi.
 
 ## 6. Business a mail evidence
 
@@ -111,13 +118,13 @@ bez schválení vlastníka nákladů a lifecycle.
 ## 7. Finální evidence gate
 
 1. Zkopírujte `13-staging-evidence.template.json` mimo sledovaný repozitář.
-2. Nahraďte všechny `PENDING` hodnoty a přiložte odkazy na zdrojové artefakty v
-   externím ticketu/run logu; do JSON nevkládejte secret, token, credential ani URL
-   s userinfo.
-3. Spusťte:
+2. Nahraďte všechny `PENDING` hodnoty a uchovejte všech osm raw zdrojových artefaktů
+   vedle výsledné evidence. Odkazy v externím ticketu/run logu samotné nestačí; do
+   JSON nevkládejte secret, token, credential ani URL s userinfo.
+3. Spusťte schema-v4 gate nad výslednou evidencí i všemi osmi raw artefakty:
 
    ```text
-   pnpm gate:staging-evidence -- --file <absolute-path-to-evidence.json>
+   pnpm gate:staging-evidence -- --file staging-release-evidence.json --image-manifest staging-images.json --inspect-inputs staging-deployment-inspect.json --transition-inputs staging-deployment-transition.json --steady-inputs staging-deployment-steady.json --schema-gate-evidence staging-schema-gate.json --backup-evidence staging-backup-evidence.json --provisioning staging-provisioning-observed.json --bootstrap staging-bootstrap-summary.json
    ```
 
 Gate přijme pouze čerstvý (výchozí limit 48 hodin) a plně zelený záznam. Výchozí
@@ -126,7 +133,7 @@ Gate přijme pouze čerstvý (výchozí limit 48 hodin) a plně zelený záznam.
 všechny tři kompenzační kontroly. `decision: PASS` je nutná, nikoli sama dostačující
 podmínka produkčního release. Produkce vyžaduje nový samostatný souhlas.
 
-Schéma evidence verze 3 odděluje přímý receiver smoke od skutečného durable outbox
+Schéma evidence verze 4 odděluje přímý receiver smoke od skutečného durable outbox
 doručení a dead-man fault drillu. Automatický smoke tedy sám o sobě nestačí k
 vyplnění všech položek `alerts` hodnotou `pass`.
 

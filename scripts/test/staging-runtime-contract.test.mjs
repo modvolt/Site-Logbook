@@ -1407,6 +1407,43 @@ test("binds candidate build identity into every final runtime image", () => {
   }
 });
 
+test("keeps the active staging runbook aligned with the one-shot schema-v4 gate", () => {
+  const relativePath = "docs/audit/13-staging-activation-runbook.md";
+  const runbook = source(relativePath);
+  for (const [from, to, expectedCode] of [
+    [
+      "API image při běžném startu žádnou migraci automaticky nespouští.",
+      "API image při startu automaticky aplikuje existující migrace.",
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      "--image-manifest staging-images.json",
+      "--image-manifest-omitted staging-images.json",
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      "Schéma evidence verze 4",
+      "Schéma evidence verze 3",
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      "recovery point není evidovaný jako `production-copy-restricted`",
+      "není doložena anonymizace recovery pointu",
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+  ]) {
+    assert.throws(
+      () =>
+        validateStagingRuntimeContract({
+          [relativePath]: runbook.replace(from, to),
+        }),
+      (error) =>
+        error instanceof StagingRuntimeContractError &&
+        error.code === expectedCode,
+    );
+  }
+});
+
 test("requires all validation and publication builds to remain linux/amd64", () => {
   const workflow = source(".github/workflows/staging-images.yml");
   assertWorkflowContractError(
