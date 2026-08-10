@@ -13055,8 +13055,8 @@ components:
           enum: [standard, reverse_charge, zero, non_vat]
         materialDisplayMode:
           type: string
-          enum: [detailed, summary]
-          description: Customer-facing material layout; source lines remain detailed
+          enum: [detailed, summary, custom]
+          description: Customer-facing layout; custom text is stored separately from source lines
         subtotalWithoutVat:
           type: number
         totalVat:
@@ -13170,6 +13170,25 @@ components:
         sortOrder:
           type: integer
 
+    InvoicePresentationGroup:
+      type: object
+      required: [description, lineIndexes]
+      properties:
+        description:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: Freely editable customer-facing text for the grouped sources
+        lineIndexes:
+          type: array
+          minItems: 1
+          maxItems: 500
+          uniqueItems: true
+          description: Zero-based indexes of immutable internal invoice source lines
+          items:
+            type: integer
+            minimum: 0
+
     InvoiceDetail:
       type: object
       required:
@@ -13185,6 +13204,7 @@ components:
         - updatedAt
         - lines
         - presentationLines
+        - presentationGroups
         - sourceJobIds
       properties:
         id:
@@ -13227,8 +13247,8 @@ components:
           enum: [standard, reverse_charge, zero, non_vat]
         materialDisplayMode:
           type: string
-          enum: [detailed, summary]
-          description: Customer-facing material layout; source lines remain detailed
+          enum: [detailed, summary, custom]
+          description: Customer-facing layout; custom text is stored separately from source lines
         subtotalWithoutVat:
           type: number
         totalVat:
@@ -13271,6 +13291,11 @@ components:
           description: Lines rendered on the customer invoice and PDF
           items:
             $ref: "#/components/schemas/InvoiceLine"
+        presentationGroups:
+          type: array
+          description: Custom customer-facing groups; source lines remain immutable and linked
+          items:
+            $ref: "#/components/schemas/InvoicePresentationGroup"
         sourceJobIds:
           type: array
           items:
@@ -13463,8 +13488,14 @@ components:
           enum: [standard, reverse_charge, zero, non_vat]
         materialDisplayMode:
           type: string
-          enum: [detailed, summary]
-          description: Display material as individual lines or as one amount per VAT rate
+          enum: [detailed, summary, custom]
+          description: Choose source lines, material summary, or custom customer-facing groups
+        presentationGroups:
+          type: array
+          maxItems: 500
+          description: Custom customer-facing groups; every source line must be included exactly once
+          items:
+            $ref: "#/components/schemas/InvoicePresentationGroup"
         notes:
           type: ["string", "null"]
         lines:

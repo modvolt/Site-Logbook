@@ -6431,7 +6431,7 @@ export const ListInvoicesResponseItem = zod.object({
   "constantSymbol": zod.string().nullish(),
   "specificSymbol": zod.string().nullish(),
   "vatModeDefault": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
-  "materialDisplayMode": zod.enum(['detailed', 'summary']).describe('Customer-facing material layout; source lines remain detailed'),
+  "materialDisplayMode": zod.enum(['detailed', 'summary', 'custom']).describe('Customer-facing layout; custom text is stored separately from source lines'),
   "subtotalWithoutVat": zod.number(),
   "totalVat": zod.number(),
   "totalWithVat": zod.number(),
@@ -6514,6 +6514,14 @@ export const GetInvoiceParams = zod.object({
   "id": zod.coerce.number()
 })
 
+export const getInvoiceResponsePresentationGroupsItemDescriptionMax = 500;
+
+export const getInvoiceResponsePresentationGroupsItemLineIndexesItemMin = 0;
+
+export const getInvoiceResponsePresentationGroupsItemLineIndexesMax = 500;
+
+
+
 export const GetInvoiceResponse = zod.object({
   "id": zod.number(),
   "invoiceNumber": zod.string().nullish(),
@@ -6533,7 +6541,7 @@ export const GetInvoiceResponse = zod.object({
   "constantSymbol": zod.string().nullish(),
   "specificSymbol": zod.string().nullish(),
   "vatModeDefault": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
-  "materialDisplayMode": zod.enum(['detailed', 'summary']).describe('Customer-facing material layout; source lines remain detailed'),
+  "materialDisplayMode": zod.enum(['detailed', 'summary', 'custom']).describe('Customer-facing layout; custom text is stored separately from source lines'),
   "subtotalWithoutVat": zod.number(),
   "totalVat": zod.number(),
   "totalWithVat": zod.number(),
@@ -6587,6 +6595,10 @@ export const GetInvoiceResponse = zod.object({
   "totalWithVat": zod.number(),
   "sortOrder": zod.number()
 })).describe('Lines rendered on the customer invoice and PDF'),
+  "presentationGroups": zod.array(zod.object({
+  "description": zod.string().min(1).max(getInvoiceResponsePresentationGroupsItemDescriptionMax).describe('Freely editable customer-facing text for the grouped sources'),
+  "lineIndexes": zod.array(zod.number().min(getInvoiceResponsePresentationGroupsItemLineIndexesItemMin)).min(1).max(getInvoiceResponsePresentationGroupsItemLineIndexesMax).describe('Zero-based indexes of immutable internal invoice source lines')
+})).describe('Custom customer-facing groups; source lines remain immutable and linked'),
   "sourceJobIds": zod.array(zod.number()),
   "sourceActivityIds": zod.array(zod.number()).optional(),
   "sourceJobs": zod.array(zod.object({
@@ -6609,6 +6621,14 @@ export const UpdateInvoiceParams = zod.object({
   "id": zod.coerce.number()
 })
 
+export const updateInvoiceBodyPresentationGroupsItemDescriptionMax = 500;
+
+export const updateInvoiceBodyPresentationGroupsItemLineIndexesItemMin = 0;
+
+export const updateInvoiceBodyPresentationGroupsItemLineIndexesMax = 500;
+
+export const updateInvoiceBodyPresentationGroupsMax = 500;
+
 
 
 
@@ -6622,7 +6642,11 @@ export const UpdateInvoiceBody = zod.object({
   "constantSymbol": zod.string().nullish(),
   "specificSymbol": zod.string().nullish(),
   "vatModeDefault": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']).optional(),
-  "materialDisplayMode": zod.enum(['detailed', 'summary']).optional().describe('Display material as individual lines or as one amount per VAT rate'),
+  "materialDisplayMode": zod.enum(['detailed', 'summary', 'custom']).optional().describe('Choose source lines, material summary, or custom customer-facing groups'),
+  "presentationGroups": zod.array(zod.object({
+  "description": zod.string().min(1).max(updateInvoiceBodyPresentationGroupsItemDescriptionMax).describe('Freely editable customer-facing text for the grouped sources'),
+  "lineIndexes": zod.array(zod.number().min(updateInvoiceBodyPresentationGroupsItemLineIndexesItemMin)).min(1).max(updateInvoiceBodyPresentationGroupsItemLineIndexesMax).describe('Zero-based indexes of immutable internal invoice source lines')
+})).max(updateInvoiceBodyPresentationGroupsMax).optional().describe('Custom customer-facing groups; every source line must be included exactly once'),
   "notes": zod.string().nullish(),
   "lines": zod.array(zod.object({
   "sourceType": zod.enum(['job', 'activity', 'activity_material', 'activity_work', 'material', 'billing_document_line', 'work_session', 'quote_item', 'transport', 'parking', 'fine', 'manual']).optional(),
@@ -6639,6 +6663,14 @@ export const UpdateInvoiceBody = zod.object({
   "sortOrder": zod.number().nullish()
 })).optional().describe('If provided, replaces ALL lines of the draft')
 })
+
+export const updateInvoiceResponsePresentationGroupsItemDescriptionMax = 500;
+
+export const updateInvoiceResponsePresentationGroupsItemLineIndexesItemMin = 0;
+
+export const updateInvoiceResponsePresentationGroupsItemLineIndexesMax = 500;
+
+
 
 export const UpdateInvoiceResponse = zod.object({
   "id": zod.number(),
@@ -6659,7 +6691,7 @@ export const UpdateInvoiceResponse = zod.object({
   "constantSymbol": zod.string().nullish(),
   "specificSymbol": zod.string().nullish(),
   "vatModeDefault": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
-  "materialDisplayMode": zod.enum(['detailed', 'summary']).describe('Customer-facing material layout; source lines remain detailed'),
+  "materialDisplayMode": zod.enum(['detailed', 'summary', 'custom']).describe('Customer-facing layout; custom text is stored separately from source lines'),
   "subtotalWithoutVat": zod.number(),
   "totalVat": zod.number(),
   "totalWithVat": zod.number(),
@@ -6713,6 +6745,10 @@ export const UpdateInvoiceResponse = zod.object({
   "totalWithVat": zod.number(),
   "sortOrder": zod.number()
 })).describe('Lines rendered on the customer invoice and PDF'),
+  "presentationGroups": zod.array(zod.object({
+  "description": zod.string().min(1).max(updateInvoiceResponsePresentationGroupsItemDescriptionMax).describe('Freely editable customer-facing text for the grouped sources'),
+  "lineIndexes": zod.array(zod.number().min(updateInvoiceResponsePresentationGroupsItemLineIndexesItemMin)).min(1).max(updateInvoiceResponsePresentationGroupsItemLineIndexesMax).describe('Zero-based indexes of immutable internal invoice source lines')
+})).describe('Custom customer-facing groups; source lines remain immutable and linked'),
   "sourceJobIds": zod.array(zod.number()),
   "sourceActivityIds": zod.array(zod.number()).optional(),
   "sourceJobs": zod.array(zod.object({
@@ -6743,6 +6779,14 @@ export const RecalculateInvoiceParams = zod.object({
   "id": zod.coerce.number()
 })
 
+export const recalculateInvoiceResponsePresentationGroupsItemDescriptionMax = 500;
+
+export const recalculateInvoiceResponsePresentationGroupsItemLineIndexesItemMin = 0;
+
+export const recalculateInvoiceResponsePresentationGroupsItemLineIndexesMax = 500;
+
+
+
 export const RecalculateInvoiceResponse = zod.object({
   "id": zod.number(),
   "invoiceNumber": zod.string().nullish(),
@@ -6762,7 +6806,7 @@ export const RecalculateInvoiceResponse = zod.object({
   "constantSymbol": zod.string().nullish(),
   "specificSymbol": zod.string().nullish(),
   "vatModeDefault": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
-  "materialDisplayMode": zod.enum(['detailed', 'summary']).describe('Customer-facing material layout; source lines remain detailed'),
+  "materialDisplayMode": zod.enum(['detailed', 'summary', 'custom']).describe('Customer-facing layout; custom text is stored separately from source lines'),
   "subtotalWithoutVat": zod.number(),
   "totalVat": zod.number(),
   "totalWithVat": zod.number(),
@@ -6816,6 +6860,10 @@ export const RecalculateInvoiceResponse = zod.object({
   "totalWithVat": zod.number(),
   "sortOrder": zod.number()
 })).describe('Lines rendered on the customer invoice and PDF'),
+  "presentationGroups": zod.array(zod.object({
+  "description": zod.string().min(1).max(recalculateInvoiceResponsePresentationGroupsItemDescriptionMax).describe('Freely editable customer-facing text for the grouped sources'),
+  "lineIndexes": zod.array(zod.number().min(recalculateInvoiceResponsePresentationGroupsItemLineIndexesItemMin)).min(1).max(recalculateInvoiceResponsePresentationGroupsItemLineIndexesMax).describe('Zero-based indexes of immutable internal invoice source lines')
+})).describe('Custom customer-facing groups; source lines remain immutable and linked'),
   "sourceJobIds": zod.array(zod.number()),
   "sourceActivityIds": zod.array(zod.number()).optional(),
   "sourceJobs": zod.array(zod.object({
@@ -6838,6 +6886,14 @@ export const IssueInvoiceParams = zod.object({
   "id": zod.coerce.number()
 })
 
+export const issueInvoiceResponsePresentationGroupsItemDescriptionMax = 500;
+
+export const issueInvoiceResponsePresentationGroupsItemLineIndexesItemMin = 0;
+
+export const issueInvoiceResponsePresentationGroupsItemLineIndexesMax = 500;
+
+
+
 export const IssueInvoiceResponse = zod.object({
   "id": zod.number(),
   "invoiceNumber": zod.string().nullish(),
@@ -6857,7 +6913,7 @@ export const IssueInvoiceResponse = zod.object({
   "constantSymbol": zod.string().nullish(),
   "specificSymbol": zod.string().nullish(),
   "vatModeDefault": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
-  "materialDisplayMode": zod.enum(['detailed', 'summary']).describe('Customer-facing material layout; source lines remain detailed'),
+  "materialDisplayMode": zod.enum(['detailed', 'summary', 'custom']).describe('Customer-facing layout; custom text is stored separately from source lines'),
   "subtotalWithoutVat": zod.number(),
   "totalVat": zod.number(),
   "totalWithVat": zod.number(),
@@ -6911,6 +6967,10 @@ export const IssueInvoiceResponse = zod.object({
   "totalWithVat": zod.number(),
   "sortOrder": zod.number()
 })).describe('Lines rendered on the customer invoice and PDF'),
+  "presentationGroups": zod.array(zod.object({
+  "description": zod.string().min(1).max(issueInvoiceResponsePresentationGroupsItemDescriptionMax).describe('Freely editable customer-facing text for the grouped sources'),
+  "lineIndexes": zod.array(zod.number().min(issueInvoiceResponsePresentationGroupsItemLineIndexesItemMin)).min(1).max(issueInvoiceResponsePresentationGroupsItemLineIndexesMax).describe('Zero-based indexes of immutable internal invoice source lines')
+})).describe('Custom customer-facing groups; source lines remain immutable and linked'),
   "sourceJobIds": zod.array(zod.number()),
   "sourceActivityIds": zod.array(zod.number()).optional(),
   "sourceJobs": zod.array(zod.object({
@@ -6937,6 +6997,14 @@ export const CancelInvoiceBody = zod.object({
   "returnJobsToDone": zod.boolean().optional().describe('If true, linked jobs are returned to \"done\"')
 })
 
+export const cancelInvoiceResponsePresentationGroupsItemDescriptionMax = 500;
+
+export const cancelInvoiceResponsePresentationGroupsItemLineIndexesItemMin = 0;
+
+export const cancelInvoiceResponsePresentationGroupsItemLineIndexesMax = 500;
+
+
+
 export const CancelInvoiceResponse = zod.object({
   "id": zod.number(),
   "invoiceNumber": zod.string().nullish(),
@@ -6956,7 +7024,7 @@ export const CancelInvoiceResponse = zod.object({
   "constantSymbol": zod.string().nullish(),
   "specificSymbol": zod.string().nullish(),
   "vatModeDefault": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
-  "materialDisplayMode": zod.enum(['detailed', 'summary']).describe('Customer-facing material layout; source lines remain detailed'),
+  "materialDisplayMode": zod.enum(['detailed', 'summary', 'custom']).describe('Customer-facing layout; custom text is stored separately from source lines'),
   "subtotalWithoutVat": zod.number(),
   "totalVat": zod.number(),
   "totalWithVat": zod.number(),
@@ -7010,6 +7078,10 @@ export const CancelInvoiceResponse = zod.object({
   "totalWithVat": zod.number(),
   "sortOrder": zod.number()
 })).describe('Lines rendered on the customer invoice and PDF'),
+  "presentationGroups": zod.array(zod.object({
+  "description": zod.string().min(1).max(cancelInvoiceResponsePresentationGroupsItemDescriptionMax).describe('Freely editable customer-facing text for the grouped sources'),
+  "lineIndexes": zod.array(zod.number().min(cancelInvoiceResponsePresentationGroupsItemLineIndexesItemMin)).min(1).max(cancelInvoiceResponsePresentationGroupsItemLineIndexesMax).describe('Zero-based indexes of immutable internal invoice source lines')
+})).describe('Custom customer-facing groups; source lines remain immutable and linked'),
   "sourceJobIds": zod.array(zod.number()),
   "sourceActivityIds": zod.array(zod.number()).optional(),
   "sourceJobs": zod.array(zod.object({
@@ -7057,7 +7129,7 @@ export const UpdateInvoiceStatusResponse = zod.object({
   "constantSymbol": zod.string().nullish(),
   "specificSymbol": zod.string().nullish(),
   "vatModeDefault": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
-  "materialDisplayMode": zod.enum(['detailed', 'summary']).describe('Customer-facing material layout; source lines remain detailed'),
+  "materialDisplayMode": zod.enum(['detailed', 'summary', 'custom']).describe('Customer-facing layout; custom text is stored separately from source lines'),
   "subtotalWithoutVat": zod.number(),
   "totalVat": zod.number(),
   "totalWithVat": zod.number(),
