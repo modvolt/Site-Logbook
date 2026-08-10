@@ -52,6 +52,16 @@ const predecessorPackageStateScript = requireRunScript(
   "publish-fixed-predecessor-api",
   "Require approved private manual caller and exact tag state",
 );
+const predecessorRemoteVerifierScript = requireRunScript(
+  predecessorWorkflow,
+  "publish-fixed-predecessor-api",
+  "Verify private exact-digest predecessor package and attestations",
+);
+const predecessorEvidenceScript = requireRunScript(
+  predecessorWorkflow,
+  "publish-fixed-predecessor-api",
+  "Create secret-free fixed predecessor publication evidence",
+);
 const packageStateScript = requireRunScript(
   workflow,
   "publish-staging-images",
@@ -126,6 +136,7 @@ exit 0
 const PREDECESSOR_MOCK_GH = `#!/usr/bin/env bash
 set -euo pipefail
 endpoint="\${!#}"
+printf '%s\n' "$endpoint" >> "$HARNESS_ROOT/predecessor-gh-api-calls.txt"
 case "$endpoint" in
   repos/modvolt/site-logbook-registry)
     cat "$HARNESS_ROOT/fixtures/predecessor-caller.json"
@@ -137,6 +148,7 @@ case "$endpoint" in
     cat "$HARNESS_ROOT/fixtures/predecessor-versions.json"
     ;;
   "/user/packages/container/site-logbook-staging-api/versions?state=deleted&per_page=100")
+    [[ "\${MOCK_DELETED_VERSIONS_FORBIDDEN:-false}" != "true" ]] || exit 79
     cat "$HARNESS_ROOT/fixtures/predecessor-deleted-versions.json"
     ;;
   "/user/packages/container/site-logbook-staging-api/versions/9911")
@@ -149,6 +161,17 @@ case "$endpoint" in
     echo "Unexpected predecessor gh endpoint: $endpoint" >&2
     exit 78
     ;;
+esac
+`;
+
+const PREDECESSOR_MOCK_DOCKER = `#!/usr/bin/env bash
+set -euo pipefail
+case "$*" in
+  *"{{json .Manifest}}"*) cat "$HARNESS_ROOT/fixtures/predecessor-manifest.json" ;;
+  *"{{json .Image}}"*) cat "$HARNESS_ROOT/fixtures/predecessor-image.json" ;;
+  *"{{json .Provenance}}"*) cat "$HARNESS_ROOT/fixtures/predecessor-provenance.json" ;;
+  *"{{json .SBOM}}"*) cat "$HARNESS_ROOT/fixtures/predecessor-sbom.json" ;;
+  *) echo "Unexpected predecessor docker call: $*" >&2; exit 80 ;;
 esac
 `;
 
@@ -231,7 +254,11 @@ function runMetadataCredential(script, environment = {}) {
   });
 }
 
-function runPredecessorPackageState({ present, verifyExistingOnly }) {
+function runPredecessorPackageState({
+  deletedVersionsForbidden = false,
+  present,
+  verifyExistingOnly,
+}) {
   const digest = `sha256:${"c".repeat(64)}`;
   const packageJson = {
     id: 8811,
@@ -287,11 +314,232 @@ function runPredecessorPackageState({ present, verifyExistingOnly }) {
       GITHUB_OUTPUT: "{HARNESS_ROOT}/github-output.txt",
       HARNESS_ROOT: "{HARNESS_ROOT}",
       PACKAGE_NAME: "site-logbook-staging-api",
+      MOCK_DELETED_VERSIONS_FORBIDDEN: deletedVersionsForbidden
+        ? "true"
+        : "false",
       PUBLICATION_CONFIRMED: "true",
       TRIGGERING_ACTOR: "modvolt",
       VERIFY_EXISTING_ONLY: verifyExistingOnly ? "true" : "false",
     },
-    captureFiles: ["github-output.txt"],
+    captureFiles: ["github-output.txt", "predecessor-gh-api-calls.txt"],
+  });
+}
+
+function runPredecessorRemoteVerifier({
+  deletedVersionsForbidden = false,
+  verifyExistingOnly,
+}) {
+  const digest = `sha256:${"c".repeat(64)}`;
+  const runnableDigest = `sha256:${"d".repeat(64)}`;
+  const packageJson = {
+    id: 8811,
+    name: "site-logbook-staging-api",
+    package_type: "container",
+    owner: { login: "modvolt" },
+    visibility: "private",
+    repository: {
+      full_name: "modvolt/site-logbook-registry",
+      private: true,
+    },
+    version_count: 1,
+  };
+  const versionJson = {
+    id: 9911,
+    name: digest,
+    metadata: {
+      package_type: "container",
+      container: { tags: [PREDECESSOR_SOURCE_SHA] },
+    },
+  };
+  return runBashHarness({
+    script: predecessorRemoteVerifierScript,
+    files: {
+      "bin/docker": PREDECESSOR_MOCK_DOCKER,
+      "bin/gh": PREDECESSOR_MOCK_GH,
+      "bin/sleep": MOCK_SLEEP,
+      "fixtures/predecessor-package.json": JSON.stringify(packageJson),
+      "fixtures/predecessor-versions.json": JSON.stringify([versionJson]),
+      "fixtures/predecessor-deleted-versions.json": "[]",
+      "fixtures/predecessor-selected-version.json": JSON.stringify(versionJson),
+      "fixtures/predecessor-manifest.json": JSON.stringify({
+        schemaVersion: 2,
+        mediaType: "application/vnd.oci.image.index.v1+json",
+        digest,
+        manifests: [
+          {
+            mediaType: "application/vnd.oci.image.manifest.v1+json",
+            size: 123,
+            digest: runnableDigest,
+            platform: { os: "linux", architecture: "amd64" },
+          },
+          {
+            mediaType: "application/vnd.oci.image.manifest.v1+json",
+            size: 456,
+            digest: `sha256:${"e".repeat(64)}`,
+            annotations: {
+              "vnd.docker.reference.type": "attestation-manifest",
+              "vnd.docker.reference.digest": runnableDigest,
+            },
+            platform: { os: "unknown", architecture: "unknown" },
+          },
+        ],
+      }),
+      "fixtures/predecessor-image.json": JSON.stringify({
+        architecture: "amd64",
+        os: "linux",
+        config: {
+          Labels: {
+            "org.opencontainers.image.source":
+              "https://github.com/modvolt/Site-Logbook",
+            "org.opencontainers.image.revision": PREDECESSOR_SOURCE_SHA,
+            "org.opencontainers.image.url": `https://github.com/modvolt/Site-Logbook/commit/${PREDECESSOR_SOURCE_SHA}`,
+          },
+          Env: [`BUILD_SHA=${PREDECESSOR_SOURCE_SHA}`],
+        },
+      }),
+      "fixtures/predecessor-provenance.json": JSON.stringify({
+        SLSA: {
+          buildType: "https://mobyproject.org/buildkit@v1",
+          invocation: {
+            environment: { platform: "linux/amd64" },
+            configSource: { entryPoint: "artifacts/api-server/Dockerfile" },
+            parameters: {
+              args: { "build-arg:BUILD_SHA": PREDECESSOR_SOURCE_SHA },
+            },
+          },
+          metadata: {
+            completeness: { parameters: true, environment: true },
+            "https://mobyproject.org/buildkit@v1#metadata": {
+              vcs: {
+                source: "https://github.com/modvolt/Site-Logbook",
+                revision: PREDECESSOR_SOURCE_SHA,
+              },
+            },
+          },
+          materials: [
+            {
+              digest: {
+                sha256:
+                  "235600a8101ab264e117b1768e925532262668dc9b581ef1dd7d96ced463b8e7",
+              },
+            },
+          ],
+        },
+      }),
+      "fixtures/predecessor-sbom.json": JSON.stringify({
+        SPDX: {
+          SPDXID: "SPDXRef-DOCUMENT",
+          dataLicense: "CC0-1.0",
+          spdxVersion: "SPDX-2.3",
+          documentNamespace: "https://example.invalid/spdx/predecessor",
+          creationInfo: {
+            created: "2026-08-10T00:00:00Z",
+            creators: ["Tool: buildkit"],
+          },
+          packages: [{ SPDXID: "SPDXRef-Package", name: "api-server" }],
+          relationships: [
+            {
+              spdxElementId: "SPDXRef-DOCUMENT",
+              relationshipType: "CONTAINS",
+              relatedSpdxElement: "SPDXRef-Package",
+            },
+          ],
+        },
+      }),
+    },
+    environment: {
+      EXPECTED_DIGEST: digest,
+      EXPECTED_SOURCE_SHA: PREDECESSOR_SOURCE_SHA,
+      GH_TOKEN: "mock-read-packages-token-not-a-secret",
+      HARNESS_ROOT: "{HARNESS_ROOT}",
+      MOCK_DELETED_VERSIONS_FORBIDDEN: deletedVersionsForbidden
+        ? "true"
+        : "false",
+      PACKAGE_NAME: "site-logbook-staging-api",
+      REGISTRY_REPOSITORY: "ghcr.io/modvolt/site-logbook-staging-api",
+      VERIFICATION_ATTEMPTS: "36",
+      VERIFICATION_POLL_SECONDS: "5",
+      VERIFY_EXISTING_ONLY: verifyExistingOnly ? "true" : "false",
+    },
+    captureFiles: ["predecessor-gh-api-calls.txt", "predecessor-package.json"],
+  });
+}
+
+function runPredecessorEvidence({ verifyExistingOnly }) {
+  const digest = `sha256:${"c".repeat(64)}`;
+  const deletedFields = verifyExistingOnly
+    ? {
+        deletedInventoryMode: "not-applicable-verify-existing-only",
+        visibleDeletedTagConflictChecked: false,
+        deletedVersionCount: null,
+        deletedHistoryScope: "not-applicable-no-write",
+      }
+    : {
+        deletedInventoryMode: "queried-visible-package-versions",
+        visibleDeletedTagConflictChecked: true,
+        deletedVersionCount: 0,
+        deletedHistoryScope: "visible-package-versions-only",
+      };
+  return runBashHarness({
+    script: predecessorEvidenceScript,
+    files: {
+      "predecessor-package.json": JSON.stringify({
+        packageName: "site-logbook-staging-api",
+        packageId: "8811",
+        visibility: "private",
+        repository: "modvolt/site-logbook-registry",
+        registryRepository: "ghcr.io/modvolt/site-logbook-staging-api",
+        sourceSha: PREDECESSOR_SOURCE_SHA,
+        versionId: "9911",
+        digest,
+        runnableManifestDigest: `sha256:${"d".repeat(64)}`,
+        platform: "linux/amd64",
+        activeInventoryPaginated: true,
+        activeVersionCount: 1,
+        packageVersionCount: 1,
+        ...deletedFields,
+        selectedVersionRefetched: true,
+        remoteManifestVerified: true,
+        runtimeMetadata: {
+          source: "https://github.com/modvolt/Site-Logbook",
+          revision: PREDECESSOR_SOURCE_SHA,
+          url: `https://github.com/modvolt/Site-Logbook/commit/${PREDECESSOR_SOURCE_SHA}`,
+          buildSha: PREDECESSOR_SOURCE_SHA,
+        },
+        provenance: {
+          buildType: "https://mobyproject.org/buildkit@v1",
+          vcsSource: "https://github.com/modvolt/Site-Logbook",
+          vcsRevision: PREDECESSOR_SOURCE_SHA,
+          dockerfile: "artifacts/api-server/Dockerfile",
+          buildSha: PREDECESSOR_SOURCE_SHA,
+          baseImageDigest:
+            "sha256:235600a8101ab264e117b1768e925532262668dc9b581ef1dd7d96ced463b8e7",
+        },
+        sbom: {
+          spdxVersion: "SPDX-2.3",
+          packageCount: 1,
+          relationshipCount: 1,
+        },
+      }),
+    },
+    environment: {
+      CALLER_REPOSITORY: "modvolt/site-logbook-registry",
+      CALLER_WORKFLOW_REF:
+        "modvolt/site-logbook-registry/.github/workflows/publish-staging-predecessor.yml@refs/heads/main",
+      DIGEST: digest,
+      EXPECTED_SOURCE_SHA: PREDECESSOR_SOURCE_SHA,
+      EXPECTED_SOURCE_TREE: "cd46c3bcf51d6ab64f2fe788e0a7af97e74c999c",
+      HARNESS_ROOT: "{HARNESS_ROOT}",
+      INITIAL_TAG_STATE: verifyExistingOnly ? "present" : "absent",
+      PUBLISHED: verifyExistingOnly ? "false" : "true",
+      RUN_ATTEMPT: "1",
+      RUN_ID: "31380231076",
+      VERIFY_EXISTING_ONLY: verifyExistingOnly ? "true" : "false",
+    },
+    captureFiles: [
+      "staging-predecessor-image.json",
+      "staging-predecessor-image.sha256",
+    ],
   });
 }
 
@@ -514,6 +762,27 @@ test("makes fixed predecessor verify-existing-only fail closed before every publ
       publish: "false",
     },
   );
+  assert.doesNotMatch(
+    exactExisting.captured["predecessor-gh-api-calls.txt"],
+    /state=deleted/u,
+  );
+
+  const exactExistingWithForbiddenDeletedEndpoint = runPredecessorPackageState({
+    deletedVersionsForbidden: true,
+    present: true,
+    verifyExistingOnly: true,
+  });
+  assert.equal(
+    exactExistingWithForbiddenDeletedEndpoint.status,
+    0,
+    exactExistingWithForbiddenDeletedEndpoint.stderr,
+  );
+  assert.doesNotMatch(
+    exactExistingWithForbiddenDeletedEndpoint.captured[
+      "predecessor-gh-api-calls.txt"
+    ],
+    /state=deleted/u,
+  );
 
   const absentVerifyOnly = runPredecessorPackageState({
     present: false,
@@ -534,6 +803,95 @@ test("makes fixed predecessor verify-existing-only fail closed before every publ
     parseGithubOutput(absentPublication.captured["github-output.txt"]).publish,
     "true",
   );
+
+  const presentPublicationWithForbiddenDeletedEndpoint =
+    runPredecessorPackageState({
+      deletedVersionsForbidden: true,
+      present: true,
+      verifyExistingOnly: false,
+    });
+  assert.notEqual(presentPublicationWithForbiddenDeletedEndpoint.status, 0);
+  assert.match(
+    presentPublicationWithForbiddenDeletedEndpoint.stderr,
+    /deleted staging API package versions could not be read/u,
+  );
+  assert.match(
+    presentPublicationWithForbiddenDeletedEndpoint.captured[
+      "predecessor-gh-api-calls.txt"
+    ],
+    /state=deleted/u,
+  );
+});
+
+test("skips deleted-version REST reads in final verify-only inspection but retains the publication gate", () => {
+  const verifyOnly = runPredecessorRemoteVerifier({
+    deletedVersionsForbidden: true,
+    verifyExistingOnly: true,
+  });
+  assert.notEqual(verifyOnly.status, 0);
+  assert.match(verifyOnly.stderr, /OCI_INDEX_NOT_READY/u);
+  assert.doesNotMatch(
+    verifyOnly.stderr,
+    /DELETED_VERSION_INVENTORY_NOT_READY/u,
+  );
+  assert.doesNotMatch(
+    verifyOnly.captured["predecessor-gh-api-calls.txt"],
+    /state=deleted/u,
+  );
+
+  const publicationCapable = runPredecessorRemoteVerifier({
+    deletedVersionsForbidden: true,
+    verifyExistingOnly: false,
+  });
+  assert.notEqual(publicationCapable.status, 0);
+  assert.match(
+    publicationCapable.stderr,
+    /DELETED_VERSION_INVENTORY_NOT_READY/u,
+  );
+  assert.match(
+    publicationCapable.captured["predecessor-gh-api-calls.txt"],
+    /state=deleted/u,
+  );
+});
+
+test("emits mode-bound schema v3 evidence without a false deleted-version claim", () => {
+  const verifyOnly = runPredecessorEvidence({ verifyExistingOnly: true });
+  assert.equal(verifyOnly.status, 0, verifyOnly.stderr);
+  const verifyOnlyManifest = JSON.parse(
+    verifyOnly.captured["staging-predecessor-image.json"],
+  );
+  assert.equal(verifyOnlyManifest.schemaVersion, 3);
+  assert.equal(verifyOnlyManifest.executionMode, "verify-existing-only");
+  assert.equal(verifyOnlyManifest.registryAction, "verified-noop");
+  assert.equal(
+    verifyOnlyManifest.package.deletedInventoryMode,
+    "not-applicable-verify-existing-only",
+  );
+  assert.equal(
+    verifyOnlyManifest.package.visibleDeletedTagConflictChecked,
+    false,
+  );
+  assert.equal(verifyOnlyManifest.package.deletedVersionCount, null);
+
+  const publicationCapable = runPredecessorEvidence({
+    verifyExistingOnly: false,
+  });
+  assert.equal(publicationCapable.status, 0, publicationCapable.stderr);
+  const publicationManifest = JSON.parse(
+    publicationCapable.captured["staging-predecessor-image.json"],
+  );
+  assert.equal(publicationManifest.schemaVersion, 3);
+  assert.equal(publicationManifest.executionMode, "publication-capable");
+  assert.equal(publicationManifest.registryAction, "published");
+  assert.equal(
+    publicationManifest.package.deletedInventoryMode,
+    "queried-visible-package-versions",
+  );
+  assert.equal(
+    publicationManifest.package.visibleDeletedTagConflictChecked,
+    true,
+  );
+  assert.equal(publicationManifest.package.deletedVersionCount, 0);
 });
 
 test("runs extracted scripts in a scrubbed, no-egress container", () => {

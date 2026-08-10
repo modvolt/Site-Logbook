@@ -12,8 +12,9 @@ const DIGEST = `sha256:${"a".repeat(64)}`;
 
 function fixture(overrides = {}) {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     kind: "site-logbook-staging-predecessor-api",
+    executionMode: "publication-capable",
     sourceSha: SOURCE_SHA,
     sourceTree: SOURCE_TREE,
     migrationContract: {
@@ -48,6 +49,7 @@ function fixture(overrides = {}) {
       activeInventoryPaginated: true,
       activeVersionCount: 1,
       packageVersionCount: 1,
+      deletedInventoryMode: "queried-visible-package-versions",
       visibleDeletedTagConflictChecked: true,
       deletedVersionCount: 0,
       deletedHistoryScope: "visible-package-versions-only",
@@ -73,6 +75,24 @@ function fixture(overrides = {}) {
         packageCount: 42,
         relationshipCount: 41,
       },
+    },
+    ...overrides,
+  };
+}
+
+function verifyOnlyFixture(overrides = {}) {
+  const base = fixture();
+  return {
+    ...base,
+    executionMode: "verify-existing-only",
+    initialTagState: "present",
+    registryAction: "verified-noop",
+    package: {
+      ...base.package,
+      deletedInventoryMode: "not-applicable-verify-existing-only",
+      visibleDeletedTagConflictChecked: false,
+      deletedVersionCount: null,
+      deletedHistoryScope: "not-applicable-no-write",
     },
     ...overrides,
   };
@@ -128,6 +148,38 @@ test("accepts only the idempotent present-tag no-op pair", () => {
   );
 });
 
+test("accepts verify-existing-only evidence without claiming deleted-version access", () => {
+  const data = encoded(verifyOnlyFixture());
+  const result = validateStagingPredecessorImage(data.bytes, data.checksum);
+  assert.equal(result.decision, "INTERNALLY_CONSISTENT_UNTRUSTED");
+  assert.equal(result.schemaVersion, 3);
+  assert.equal(result.executionMode, "verify-existing-only");
+
+  expectCode(
+    verifyOnlyFixture({
+      initialTagState: "absent",
+      registryAction: "published",
+    }),
+    "PREDECESSOR_PUBLICATION_STATE_INVALID",
+  );
+  expectCode(
+    verifyOnlyFixture({
+      package: {
+        ...verifyOnlyFixture().package,
+        deletedInventoryMode: "queried-visible-package-versions",
+        visibleDeletedTagConflictChecked: true,
+        deletedVersionCount: 0,
+        deletedHistoryScope: "visible-package-versions-only",
+      },
+    }),
+    "PREDECESSOR_DELETED_INVENTORY_INVALID",
+  );
+  expectCode(
+    fixture({ executionMode: "verify-existing-only" }),
+    "PREDECESSOR_PUBLICATION_STATE_INVALID",
+  );
+});
+
 test("rejects source, tree and migration drift", () => {
   expectCode(
     fixture({ sourceSha: "f".repeat(40) }),
@@ -164,7 +216,6 @@ test("rejects caller, image and package widening", () => {
   );
   for (const boundary of [
     "activeInventoryPaginated",
-    "visibleDeletedTagConflictChecked",
     "selectedVersionRefetched",
   ]) {
     expectCode(
@@ -174,7 +225,20 @@ test("rejects caller, image and package widening", () => {
   }
   expectCode(
     fixture({ package: { ...fixture().package, deletedVersionCount: 1 } }),
-    "PREDECESSOR_PACKAGE_INVALID",
+    "PREDECESSOR_DELETED_INVENTORY_INVALID",
+  );
+  expectCode(
+    fixture({
+      package: {
+        ...fixture().package,
+        visibleDeletedTagConflictChecked: false,
+      },
+    }),
+    "PREDECESSOR_DELETED_INVENTORY_INVALID",
+  );
+  expectCode(
+    fixture({ executionMode: "read-and-write" }),
+    "PREDECESSOR_EXECUTION_MODE_INVALID",
   );
   expectCode(
     fixture({ package: { ...fixture().package, packageVersionCount: 2 } }),

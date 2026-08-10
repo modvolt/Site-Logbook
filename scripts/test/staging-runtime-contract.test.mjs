@@ -639,6 +639,32 @@ test("keeps predecessor publication fixed to one exact-0104 API image", () => {
       "STAGING_RUNTIME_CONTRACT_MISSING",
     ],
     [
+      workflow.replace(
+        `if [[ "$VERIFY_EXISTING_ONLY" == "false" ]]; then
+              deleted_versions_json="$(`,
+        `deleted_versions_json="$(`,
+      ),
+      "STAGING_PREDECESSOR_INVENTORY_DRIFT",
+    ],
+    [
+      workflow.replace("schemaVersion: 3", "schemaVersion: 2"),
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      workflow.replace(
+        "execution_mode=verify-existing-only",
+        "execution_mode=publication-capable",
+      ),
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      workflow.replace(
+        'deleted_inventory_mode="not-applicable-verify-existing-only"',
+        'deleted_inventory_mode="queried-visible-package-versions"',
+      ),
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
       workflow.replaceAll(".version_count >= 0", ".version_count >= -1"),
       "STAGING_RUNTIME_CONTRACT_MISSING",
     ],

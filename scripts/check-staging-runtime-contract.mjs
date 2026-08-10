@@ -1558,10 +1558,16 @@ export function validateStagingRuntimeContract(overrides = {}) {
     "length == $expected",
     "versions/${selected_version_id}",
     "versions/${version_id}",
+    'if [[ "$VERIFY_EXISTING_ONLY" == "false" ]]; then',
     "activeInventoryPaginated: true",
-    "visibleDeletedTagConflictChecked: true",
+    "deletedInventoryMode: $deletedInventoryMode",
+    'deleted_inventory_mode="not-applicable-verify-existing-only"',
+    'deleted_inventory_mode="queried-visible-package-versions"',
+    "visibleDeletedTagConflictChecked: $visibleDeletedTagConflictChecked",
+    'visible_deleted_tag_conflict_checked="false"',
     "deletedVersionCount: $deletedVersionCount",
-    'deletedHistoryScope: "visible-package-versions-only"',
+    "deletedHistoryScope: $deletedHistoryScope",
+    'deleted_history_scope="not-applicable-no-write"',
     "selectedVersionRefetched: true",
     "org.opencontainers.image.revision",
     "https://mobyproject.org/buildkit@v1#metadata",
@@ -1591,6 +1597,10 @@ export function validateStagingRuntimeContract(overrides = {}) {
     "Fixed predecessor verification exhausted",
     '[[ "$verification_succeeded" == "true" ]]',
     '[[ "$registry_action" == "verified-noop" && "$INITIAL_TAG_STATE" == "present" ]]',
+    "execution_mode=verify-existing-only",
+    "execution_mode=publication-capable",
+    '{schemaVersion: 3, kind: "site-logbook-staging-predecessor-api", executionMode: $executionMode',
+    ".schemaVersion == 3 and",
     'kind: "site-logbook-staging-predecessor-api"',
     "staging-predecessor-image.sha256",
     "if-no-files-found: error",
@@ -1645,6 +1655,11 @@ export function validateStagingRuntimeContract(overrides = {}) {
       .length !== 3 ||
     (predecessorWorkflow.match(/versions\?state=deleted&per_page=100/g) ?? [])
       .length !== 3 ||
+    (
+      predecessorWorkflow.match(
+        /if \[\[ "\$VERIFY_EXISTING_ONLY" == "false" \]\]; then\n\s+deleted_versions_json="\$\(/g,
+      ) ?? []
+    ).length !== 2 ||
     (predecessorWorkflow.match(/length == \$expected/g) ?? []).length !== 3 ||
     (predecessorWorkflow.match(/\n\s+length == 0 and/g) ?? []).length !== 3 ||
     (
@@ -1655,7 +1670,7 @@ export function validateStagingRuntimeContract(overrides = {}) {
   ) {
     fail(
       "STAGING_PREDECESSOR_INVENTORY_DRIFT",
-      "the predecessor publisher must paginate active and deleted versions at every gate, bind active count to package metadata, reject all visible tombstones and refetch an exact single tag.",
+      "the predecessor publisher must paginate active versions at every gate, query deleted versions only in publication-capable guards, reject visible tombstones before writes and refetch an exact single tag.",
     );
   }
   for (const forbidden of [

@@ -178,6 +178,7 @@ export function validateStagingPredecessorImage(
     [
       "schemaVersion",
       "kind",
+      "executionMode",
       "sourceSha",
       "sourceTree",
       "migrationContract",
@@ -193,7 +194,7 @@ export function validateStagingPredecessorImage(
     "manifest",
   );
   if (
-    manifest.schemaVersion !== 2 ||
+    manifest.schemaVersion !== 3 ||
     manifest.kind !== "site-logbook-staging-predecessor-api" ||
     manifest.sourceSha !== FIXED_SOURCE_SHA ||
     manifest.sourceTree !== FIXED_SOURCE_TREE
@@ -247,11 +248,25 @@ export function validateStagingPredecessorImage(
       "callerWorkflowRef does not match trusted evidence.",
     );
   }
+  const validExecutionMode = [
+    "verify-existing-only",
+    "publication-capable",
+  ].includes(manifest.executionMode);
+  if (!validExecutionMode) {
+    fail(
+      "PREDECESSOR_EXECUTION_MODE_INVALID",
+      "Evidence execution mode is not an allowed fixed predecessor mode.",
+    );
+  }
   const validPublicationState =
-    (manifest.initialTagState === "absent" &&
-      manifest.registryAction === "published") ||
-    (manifest.initialTagState === "present" &&
-      manifest.registryAction === "verified-noop");
+    (manifest.executionMode === "verify-existing-only" &&
+      manifest.initialTagState === "present" &&
+      manifest.registryAction === "verified-noop") ||
+    (manifest.executionMode === "publication-capable" &&
+      ((manifest.initialTagState === "absent" &&
+        manifest.registryAction === "published") ||
+        (manifest.initialTagState === "present" &&
+          manifest.registryAction === "verified-noop")));
   if (!validPublicationState) {
     fail(
       "PREDECESSOR_PUBLICATION_STATE_INVALID",
@@ -300,6 +315,7 @@ export function validateStagingPredecessorImage(
       "activeInventoryPaginated",
       "activeVersionCount",
       "packageVersionCount",
+      "deletedInventoryMode",
       "visibleDeletedTagConflictChecked",
       "deletedVersionCount",
       "deletedHistoryScope",
@@ -329,15 +345,29 @@ export function validateStagingPredecessorImage(
     pkg.activeVersionCount < 1 ||
     !Number.isSafeInteger(pkg.packageVersionCount) ||
     pkg.packageVersionCount !== pkg.activeVersionCount ||
-    pkg.visibleDeletedTagConflictChecked !== true ||
-    pkg.deletedVersionCount !== 0 ||
-    pkg.deletedHistoryScope !== "visible-package-versions-only" ||
     pkg.selectedVersionRefetched !== true ||
     pkg.remoteManifestVerified !== true
   ) {
     fail(
       "PREDECESSOR_PACKAGE_INVALID",
       "Package evidence is not bound to the fixed private exact-digest API image.",
+    );
+  }
+  const validDeletedInventoryEvidence =
+    (manifest.executionMode === "verify-existing-only" &&
+      pkg.deletedInventoryMode === "not-applicable-verify-existing-only" &&
+      pkg.visibleDeletedTagConflictChecked === false &&
+      pkg.deletedVersionCount === null &&
+      pkg.deletedHistoryScope === "not-applicable-no-write") ||
+    (manifest.executionMode === "publication-capable" &&
+      pkg.deletedInventoryMode === "queried-visible-package-versions" &&
+      pkg.visibleDeletedTagConflictChecked === true &&
+      pkg.deletedVersionCount === 0 &&
+      pkg.deletedHistoryScope === "visible-package-versions-only");
+  if (!validDeletedInventoryEvidence) {
+    fail(
+      "PREDECESSOR_DELETED_INVENTORY_INVALID",
+      "Deleted-version evidence does not match the selected no-write or publication-capable mode.",
     );
   }
   assertKeys(
@@ -403,7 +433,8 @@ export function validateStagingPredecessorImage(
   return Object.freeze({
     decision: trusted ? "PASS" : "INTERNALLY_CONSISTENT_UNTRUSTED",
     trusted,
-    schemaVersion: 2,
+    schemaVersion: 3,
+    executionMode: manifest.executionMode,
     sourceSha: FIXED_SOURCE_SHA,
     sourceTree: FIXED_SOURCE_TREE,
     manifestSha256,
