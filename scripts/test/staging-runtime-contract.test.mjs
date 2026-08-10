@@ -702,8 +702,16 @@ test("keeps the private predecessor wrapper manual, main-only and commit-pinned"
   for (const mutated of [
     workflow.replace("refs/heads/main", "refs/heads/feature"),
     workflow.replace(
-      "@2ab7aa1df7980180bcd334870928616d13a2ecce",
+      "@23cd74260f01ba065b2b6605382f2ab252b1603f",
       "@agent/phase16c3-staging-preflight",
+    ),
+    workflow.replace(
+      "verify_existing_only: true",
+      "verify_existing_only: false",
+    ),
+    workflow.replace(
+      "VERIFY_EXISTING_FIXED_SITE_LOGBOOK_STAGING_PREDECESSOR_0104_NO_DEPLOY_NO_PUSH",
+      "PUBLISH_FIXED_SITE_LOGBOOK_STAGING_PREDECESSOR_0104_NO_DEPLOY",
     ),
     workflow.replace("packages: write", "packages: read"),
     workflow.replace(

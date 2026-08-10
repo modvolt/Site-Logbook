@@ -1,10 +1,10 @@
-name: Publish fixed Site Logbook staging predecessor (manual, no deploy)
+name: Verify existing fixed Site Logbook staging predecessor (manual, no deploy, no push)
 
 on:
   workflow_dispatch:
     inputs:
       confirmation_phrase:
-        description: Type PUBLISH_FIXED_SITE_LOGBOOK_STAGING_PREDECESSOR_0104_NO_DEPLOY
+        description: Type VERIFY_EXISTING_FIXED_SITE_LOGBOOK_STAGING_PREDECESSOR_0104_NO_DEPLOY_NO_PUSH
         required: true
         type: string
 
@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Require private main branch, owner and exact no-deploy phrase
+      - name: Require private main branch, owner and exact no-deploy/no-push phrase
         shell: bash
         env:
           ACTOR: ${{ github.actor }}
@@ -34,15 +34,16 @@ jobs:
           [[ "$REF" == "refs/heads/main" ]]
           [[ "${ACTOR,,}" == "modvolt" ]]
           [[ "${TRIGGERING_ACTOR,,}" == "modvolt" ]]
-          [[ "$CONFIRMATION_PHRASE" == "PUBLISH_FIXED_SITE_LOGBOOK_STAGING_PREDECESSOR_0104_NO_DEPLOY" ]]
+          [[ "$CONFIRMATION_PHRASE" == "VERIFY_EXISTING_FIXED_SITE_LOGBOOK_STAGING_PREDECESSOR_0104_NO_DEPLOY_NO_PUSH" ]]
 
-  publish-fixed-predecessor:
+  verify-existing-fixed-predecessor:
     needs: validate-manual-owner
     permissions:
       contents: read
       packages: write
-    uses: modvolt/Site-Logbook/.github/workflows/staging-predecessor-image.yml@2ab7aa1df7980180bcd334870928616d13a2ecce
+    uses: modvolt/Site-Logbook/.github/workflows/staging-predecessor-image.yml@23cd74260f01ba065b2b6605382f2ab252b1603f
     secrets:
       packages_metadata_token: ${{ secrets.SITE_LOGBOOK_GHCR_METADATA_READ_TOKEN }}
     with:
       confirm_predecessor_registry_publication: true
+      verify_existing_only: true

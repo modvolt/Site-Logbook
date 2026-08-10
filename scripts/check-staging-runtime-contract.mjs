@@ -1729,16 +1729,20 @@ export function validateStagingRuntimeContract(overrides = {}) {
     "docs/audit/16-c3-private-predecessor-wrapper.template.yml",
     overrides,
   );
+  const predecessorVerifyOnlyPhrase =
+    "VERIFY_EXISTING_FIXED_SITE_LOGBOOK_STAGING_PREDECESSOR_0104_NO_DEPLOY_NO_PUSH";
   for (const boundary of [
     "workflow_dispatch:",
-    "PUBLISH_FIXED_SITE_LOGBOOK_STAGING_PREDECESSOR_0104_NO_DEPLOY",
+    predecessorVerifyOnlyPhrase,
+    "Verify existing fixed Site Logbook staging predecessor (manual, no deploy, no push)",
     '[[ "$REF" == "refs/heads/main" ]]',
     '[[ "${ACTOR,,}" == "modvolt" ]]',
     '[[ "${TRIGGERING_ACTOR,,}" == "modvolt" ]]',
     "packages: write",
-    "modvolt/Site-Logbook/.github/workflows/staging-predecessor-image.yml@2ab7aa1df7980180bcd334870928616d13a2ecce",
+    "modvolt/Site-Logbook/.github/workflows/staging-predecessor-image.yml@23cd74260f01ba065b2b6605382f2ab252b1603f",
     "secrets:\n      packages_metadata_token: ${{ secrets.SITE_LOGBOOK_GHCR_METADATA_READ_TOKEN }}",
     "confirm_predecessor_registry_publication: true",
+    "verify_existing_only: true",
   ]) {
     requireText(
       predecessorWrapperTemplate,
@@ -1764,6 +1768,15 @@ export function validateStagingRuntimeContract(overrides = {}) {
     );
   }
   if (
+    (
+      predecessorWrapperTemplate.match(
+        new RegExp(predecessorVerifyOnlyPhrase, "g"),
+      ) ?? []
+    ).length !== 2 ||
+    predecessorWrapperTemplate.includes(
+      "PUBLISH_FIXED_SITE_LOGBOOK_STAGING_PREDECESSOR_0104_NO_DEPLOY",
+    ) ||
+    predecessorWrapperTemplate.includes("verify_existing_only: false") ||
     (predecessorWrapperTemplate.match(/\bpackages: write\b/g) ?? []).length !==
       1 ||
     (
