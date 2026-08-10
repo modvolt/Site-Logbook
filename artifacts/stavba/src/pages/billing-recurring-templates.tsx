@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { useLocation } from "wouter";
 import {
   useListRecurringTemplates,
   useCreateRecurringTemplate,
@@ -43,6 +42,10 @@ import {
 import { fmtDate } from "@/lib/billing-format";
 import { useAuth } from "@/hooks/use-auth";
 import { QueryErrorState } from "@/components/query-error-state";
+import {
+  useBillingListNavigation,
+  useBillingReturnNavigation,
+} from "@/hooks/use-billing-navigation";
 
 const INTERVAL_LABELS: Record<string, string> = {
   monthly: "Měsíčně",
@@ -64,7 +67,6 @@ function intervalBadgeClass(interval: string) {
 }
 
 export default function BillingRecurringTemplates() {
-  const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { can } = useAuth();
@@ -73,6 +75,8 @@ export default function BillingRecurringTemplates() {
   const { data, isLoading, isError, error, refetch } = useListRecurringTemplates({
     query: { queryKey: getListRecurringTemplatesQueryKey() },
   });
+  const { openDetail } = useBillingListNavigation(!isLoading);
+  const { goBack } = useBillingReturnNavigation("/billing");
 
   const createTemplate = useCreateRecurringTemplate();
 
@@ -84,7 +88,7 @@ export default function BillingRecurringTemplates() {
         variant="ghost"
         size="sm"
         className="mb-3 -ml-2 text-muted-foreground"
-        onClick={() => setLocation("/billing")}
+        onClick={goBack}
       >
         <ArrowLeft className="h-4 w-4 mr-1" /> Fakturace
       </Button>
@@ -128,7 +132,7 @@ export default function BillingRecurringTemplates() {
               <CardContent className="p-4 flex items-center gap-3">
                 <button
                   type="button"
-                  onClick={() => setLocation(`/billing/recurring-templates/${t.id}`)}
+                  onClick={() => openDetail(`/billing/recurring-templates/${t.id}`)}
                   className="flex-1 min-w-0 text-left hover:opacity-80 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded"
                 >
                   <div className="flex items-center gap-2 flex-wrap">

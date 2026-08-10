@@ -1,4 +1,3 @@
-import { useLocation } from "wouter";
 import {
   useListUnbilledCustomers,
   getListUnbilledCustomersQueryKey,
@@ -9,12 +8,20 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { fmtKc } from "@/lib/billing-format";
 import { Building2, ChevronRight, ArrowLeft, CheckCircle2, AlertCircle } from "lucide-react";
 import { QueryErrorState } from "@/components/query-error-state";
+import {
+  useBillingListNavigation,
+  useBillingReturnNavigation,
+} from "@/hooks/use-billing-navigation";
 
 export default function BillingUnbilled() {
-  const [, setLocation] = useLocation();
   const { data, isLoading, isError, refetch } = useListUnbilledCustomers({
     query: { queryKey: getListUnbilledCustomersQueryKey() },
   });
+  const { openDetail } = useBillingListNavigation(!isLoading);
+  const { goBack, returnTo } = useBillingReturnNavigation("/billing");
+  const backLabel = returnTo.startsWith("/billing/invoices")
+    ? "Faktury"
+    : "Fakturace";
 
   return (
     <div className="p-4 md:p-8 max-w-4xl mx-auto w-full">
@@ -22,9 +29,9 @@ export default function BillingUnbilled() {
         variant="ghost"
         size="sm"
         className="mb-3 -ml-2 text-muted-foreground"
-        onClick={() => setLocation("/billing")}
+        onClick={goBack}
       >
-        <ArrowLeft className="h-4 w-4 mr-1" /> Fakturace
+        <ArrowLeft className="h-4 w-4 mr-1" /> {backLabel}
       </Button>
       <h1 className="text-2xl font-bold mb-1">Nevyfakturované zakázky</h1>
       <p className="text-sm text-muted-foreground mb-6">
@@ -50,7 +57,7 @@ export default function BillingUnbilled() {
                 <button
                   type="button"
                   className="w-full text-left hover:bg-muted/30 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                  onClick={() => setLocation(`/billing/unbilled/${c.customerId}`)}
+                  onClick={() => openDetail(`/billing/unbilled/${c.customerId}`)}
                   aria-label={`Otevřít zakázky zákazníka ${c.companyName}`}
                 >
                   <CardContent className="p-4 flex items-center gap-3">
