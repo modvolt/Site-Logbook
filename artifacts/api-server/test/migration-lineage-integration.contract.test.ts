@@ -16,6 +16,7 @@ const expectedTail = [
   [104, 1786383366000, "0104_thin_sheva_callister"],
   [105, 1786383367000, "0105_smooth_nitro"],
   [106, 1786459128910, "0106_graceful_frog_thor"],
+  [107, 1786484628859, "0107_canonical_audit_evidence"],
 ] as const;
 
 describe("integrated production-forward migration lineage", () => {
@@ -35,7 +36,7 @@ describe("integrated production-forward migration lineage", () => {
       .filter((entry) => entry.idx >= 96)
       .map((entry) => [entry.idx, entry.when, entry.tag]);
 
-    expect(journal.entries).toHaveLength(106);
+    expect(journal.entries).toHaveLength(107);
     expect(tail).toEqual(expectedTail);
     expect(new Set(journal.entries.map((entry) => entry.when)).size).toBe(
       journal.entries.length,
