@@ -35,12 +35,15 @@ import {
   getDocumentAllFileBuffers,
   reconcileAllDocumentRelationships,
   reconcileIncompleteMultipagePagesSafely,
-  setDocumentStatus,
 } from "./cost-document-service";
 import { publishLiveEvent } from "./live-events-service";
 
 /** Domains emitted by this worker on every state change. */
-const WORKER_DOMAINS = ["billingDocuments", "reviewQueue", "emailImport"] as const;
+const WORKER_DOMAINS = [
+  "billingDocuments",
+  "reviewQueue",
+  "emailImport",
+] as const;
 
 let schedulerStarted = false;
 let draining = false;
@@ -51,7 +54,13 @@ const BATCH = 5;
 const STALE_RUNNING_MS = 30 * 60 * 1_000;
 
 /** Statuses we never override when finishing extraction (human already acted). */
-const TERMINAL_DOC_STATUSES = new Set(["approved", "ignored", "reviewed", "duplicate", "merged"]);
+const TERMINAL_DOC_STATUSES = new Set([
+  "approved",
+  "ignored",
+  "reviewed",
+  "duplicate",
+  "merged",
+]);
 
 /** Finalise a job as `skipped` (a non-error terminal state) with a note. */
 async function markSkipped(jobId: number, note: string): Promise<void> {
@@ -69,25 +78,31 @@ async function markSkipped(jobId: number, note: string): Promise<void> {
 
 async function moveDocumentToNeedsReview(
   documentId: number,
-  currentStatus: string,
   force: boolean,
-): Promise<void> {
-  if (force && currentStatus === "approved") {
-    await setDocumentStatus(documentId, "needs_review", {
-      userId: null,
-      name: "System",
-    });
-    return;
-  }
-  const patch: Partial<typeof billingDocumentsTable.$inferInsert> = {
-    status: "needs_review",
-    updatedAt: new Date(),
-  };
-  if (force && currentStatus === "duplicate") {
-    patch.primaryDocumentId = null;
-    patch.mergeGroupId = null;
-  }
-  await db.update(billingDocumentsTable).set(patch).where(eq(billingDocumentsTable.id, documentId));
+): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    const [document] = await tx
+      .select({ status: billingDocumentsTable.status })
+      .from(billingDocumentsTable)
+      .where(eq(billingDocumentsTable.id, documentId))
+      .for("update");
+    if (!document || TERMINAL_DOC_STATUSES.has(document.status)) return false;
+
+    await tx
+      .update(billingDocumentsTable)
+      .set({
+        status: "needs_review",
+        updatedAt: new Date(),
+        ...(force
+          ? {
+              primaryDocumentId: null,
+              mergeGroupId: null,
+            }
+          : {}),
+      })
+      .where(eq(billingDocumentsTable.id, documentId));
+    return true;
+  });
 }
 
 async function processOne(jobId: number): Promise<void> {
@@ -131,11 +146,15 @@ async function processOne(jobId: number): Promise<void> {
       return;
     }
 
-    // Normal AI passes never touch a document a human already moved to a
-    // terminal state. A forced maintenance pass is allowed to reopen it after
-    // applyAiSuggestion has cleaned up document-owned propagation.
-    if (TERMINAL_DOC_STATUSES.has(doc.status) && !job.force) {
-      await markSkipped(job.id, "Doklad je již ve finálním stavu – přeskočeno.");
+    // Neither ordinary nor forced AI passes may rewrite a document after a
+    // human terminal decision. A correction must open a new immutable version;
+    // it cannot be emulated by reopening and replacing this row.
+    const forcedDuplicate = job.force === true && doc.status === "duplicate";
+    if (TERMINAL_DOC_STATUSES.has(doc.status) && !forcedDuplicate) {
+      await markSkipped(
+        job.id,
+        "Doklad je již ve finálním stavu – přeskočeno.",
+      );
       return;
     }
 
@@ -144,7 +163,8 @@ async function processOne(jobId: number): Promise<void> {
     // Decide whether AI extraction should run for this document. We skip when:
     // AI is off, the file type is unsupported, there is no stored file, or the
     // document already has lines (e.g. parsed from ISDOC at upload time).
-    const aiReady = cfg.ready && isSupportedForAi(doc.contentType, doc.fileName);
+    const aiReady =
+      cfg.ready && isSupportedForAi(doc.contentType, doc.fileName);
     const [{ count: lineCount }] = aiReady
       ? await db
           .select({ count: sql<number>`count(*)::int` })
@@ -154,12 +174,14 @@ async function processOne(jobId: number): Promise<void> {
 
     if (!aiReady || (lineCount > 0 && !job.force)) {
       // No AI: route to manual review (preserve the existing behavior).
-      await moveDocumentToNeedsReview(doc.id, doc.status, job.force === true);
+      const moved = await moveDocumentToNeedsReview(doc.id, job.force === true);
       await markSkipped(
         job.id,
-        cfg.ready
-          ? "AI vytěžení se nepoužilo (nepodporovaný typ nebo doklad již obsahuje položky) – připraveno k ruční kontrole."
-          : "Automatická extrakce (AI) není nakonfigurována – připraveno k ruční kontrole.",
+        moved
+          ? cfg.ready
+            ? "AI vytěžení se nepoužilo (nepodporovaný typ nebo doklad již obsahuje položky) – připraveno k ruční kontrole."
+            : "Automatická extrakce (AI) není nakonfigurována – připraveno k ruční kontrole."
+          : "Doklad mezitím přešel do finálního stavu – přeskočeno.",
       );
       return;
     }
@@ -170,8 +192,13 @@ async function processOne(jobId: number): Promise<void> {
     // merge the header (often only on page 1) with items spread across pages.
     const files = await getDocumentAllFileBuffers(doc.id);
     if (!files.length) {
-      await moveDocumentToNeedsReview(doc.id, doc.status, job.force === true);
-      await markSkipped(job.id, "Soubor dokladu nenalezen – připraveno k ruční kontrole.");
+      const moved = await moveDocumentToNeedsReview(doc.id, job.force === true);
+      await markSkipped(
+        job.id,
+        moved
+          ? "Soubor dokladu nenalezen – připraveno k ruční kontrole."
+          : "Doklad mezitím přešel do finálního stavu – přeskočeno.",
+      );
       return;
     }
 
@@ -219,7 +246,11 @@ async function processOne(jobId: number): Promise<void> {
       .where(eq(extractionJobsTable.id, job.id));
     await reconcileIncompleteMultipagePagesSafely(doc.id);
     logger.info(
-      { extractionJobId: job.id, documentId: doc.id, confidence: result.confidence },
+      {
+        extractionJobId: job.id,
+        documentId: doc.id,
+        confidence: result.confidence,
+      },
       "AI extraction completed",
     );
     publishLiveEvent(WORKER_DOMAINS).catch(() => {});
@@ -252,17 +283,26 @@ export async function drainQueue(): Promise<void> {
       .set({
         status: "queued",
         startedAt: null,
-        lastError: "Předchozí běh byl přerušen restartem serveru; úloha byla obnovena.",
+        lastError:
+          "Předchozí běh byl přerušen restartem serveru; úloha byla obnovena.",
         updatedAt: new Date(),
       })
-      .where(and(
-        eq(extractionJobsTable.status, "running"),
-        lt(extractionJobsTable.startedAt, new Date(Date.now() - STALE_RUNNING_MS)),
-        lt(extractionJobsTable.attempts, extractionJobsTable.maxAttempts),
-      ))
+      .where(
+        and(
+          eq(extractionJobsTable.status, "running"),
+          lt(
+            extractionJobsTable.startedAt,
+            new Date(Date.now() - STALE_RUNNING_MS),
+          ),
+          lt(extractionJobsTable.attempts, extractionJobsTable.maxAttempts),
+        ),
+      )
       .returning({ id: extractionJobsTable.id });
     if (recovered.length) {
-      logger.warn({ count: recovered.length }, "Recovered stale extraction jobs");
+      logger.warn(
+        { count: recovered.length },
+        "Recovered stale extraction jobs",
+      );
       publishLiveEvent(WORKER_DOMAINS).catch(() => {});
     }
 
@@ -302,7 +342,10 @@ export function startExtractionWorker(): void {
     relationshipBackfillStarted = true;
     void reconcileAllDocumentRelationships()
       .then((result) => {
-        logger.info(result, "Historical billing-document reconciliation completed");
+        logger.info(
+          result,
+          "Historical billing-document reconciliation completed",
+        );
         if (result.withLinks > 0) {
           publishLiveEvent(WORKER_DOMAINS).catch(() => {});
         }

@@ -30,10 +30,13 @@ import {
   recordAdminQuoteDecision,
   recordPublicQuoteDecision,
 } from "./quote-version-service";
+import { quoteDecisionExpiresAt, QuoteValidityError } from "./quote-validity";
 import {
-  quoteDecisionExpiresAt,
-  QuoteValidityError,
-} from "./quote-validity";
+  computeQuoteItemTotals,
+  computeQuoteTotals,
+  normalizeQuoteRowType,
+  type QuoteRowType,
+} from "./quote-calculations";
 
 const objectStorage = new ObjectStorageService();
 const SETTINGS_ID = 1;
@@ -56,9 +59,11 @@ export interface Actor {
 
 export interface QuoteItemInput {
   description: string;
+  rowType?: QuoteRowType | null;
   quantity?: number | null;
   unit?: string | null;
   unitPrice?: number | null;
+  purchaseUnitPrice?: number | null;
   vatRate?: number | null;
   position?: number | null;
 }
@@ -97,24 +102,6 @@ function parseNum(v: string | number | null | undefined, fallback = 0): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
-function round2(n: number): number {
-  return Math.round(n * 100) / 100;
-}
-
-function computeItemTotals(
-  unitPrice: number,
-  quantity: number,
-  vatRate: number | null,
-  vatPayer: boolean,
-): { totalWithoutVat: number; totalVat: number; totalWithVat: number } {
-  const base = round2(unitPrice * quantity);
-  if (!vatPayer || vatRate == null) {
-    return { totalWithoutVat: base, totalVat: 0, totalWithVat: base };
-  }
-  const vat = round2(base * (vatRate / 100));
-  return { totalWithoutVat: base, totalVat: vat, totalWithVat: round2(base + vat) };
-}
-
 // ---------------------------------------------------------------------------
 // Settings (quote number series)
 // ---------------------------------------------------------------------------
@@ -126,7 +113,10 @@ async function ensureSettings() {
     .where(eq(billingSettingsTable.id, SETTINGS_ID))
     .limit(1);
   if (existing.length > 0) return existing[0];
-  const [row] = await db.insert(billingSettingsTable).values({ id: SETTINGS_ID }).returning();
+  const [row] = await db
+    .insert(billingSettingsTable)
+    .values({ id: SETTINGS_ID })
+    .returning();
   return row;
 }
 
@@ -158,8 +148,11 @@ async function assignQuoteNumber(): Promise<string> {
 export function serializeItem(item: QuoteItem) {
   return {
     ...item,
+    rowType: normalizeQuoteRowType(item.rowType),
     quantity: parseNum(item.quantity, 1),
     unitPrice: parseNum(item.unitPrice, 0),
+    purchaseUnitPrice:
+      item.purchaseUnitPrice != null ? parseNum(item.purchaseUnitPrice) : null,
     vatRate: item.vatRate != null ? parseNum(item.vatRate) : null,
   };
 }
@@ -182,7 +175,8 @@ export async function listQuotes(opts?: {
   status?: string;
 }) {
   const conditions = [];
-  if (opts?.customerId != null) conditions.push(eq(quotesTable.customerId, opts.customerId));
+  if (opts?.customerId != null)
+    conditions.push(eq(quotesTable.customerId, opts.customerId));
   if (opts?.status != null && opts.status !== "all")
     conditions.push(eq(quotesTable.status, opts.status));
 
@@ -192,14 +186,26 @@ export async function listQuotes(opts?: {
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(quotesTable.createdAt));
 
-  const customerIds = [...new Set(quotes.map((q) => q.customerId).filter((id): id is number => id != null))];
-  const customersMap = new Map<number, { companyName: string | null; email: string | null }>();
+  const customerIds = [
+    ...new Set(
+      quotes.map((q) => q.customerId).filter((id): id is number => id != null),
+    ),
+  ];
+  const customersMap = new Map<
+    number,
+    { companyName: string | null; email: string | null }
+  >();
   if (customerIds.length > 0) {
     const customers = await db
-      .select({ id: customersTable.id, companyName: customersTable.companyName, email: customersTable.email })
+      .select({
+        id: customersTable.id,
+        companyName: customersTable.companyName,
+        email: customersTable.email,
+      })
       .from(customersTable)
       .where(inArray(customersTable.id, customerIds));
-    for (const c of customers) customersMap.set(c.id, { companyName: c.companyName, email: c.email });
+    for (const c of customers)
+      customersMap.set(c.id, { companyName: c.companyName, email: c.email });
   }
 
   return Promise.all(
@@ -210,24 +216,26 @@ export async function listQuotes(opts?: {
         .where(eq(quoteItemsTable.quoteId, q.id))
         .orderBy(asc(quoteItemsTable.position));
       const itemData = items.map(serializeItem);
-      const totalWithVat = round2(itemData.reduce((s, i) => {
-        const tot = computeItemTotals(i.unitPrice, i.quantity, i.vatRate, true);
-        return s + tot.totalWithVat;
-      }, 0));
-      const customerInfo = q.customerId != null ? (customersMap.get(q.customerId) ?? null) : null;
+      const totals = computeQuoteTotals(itemData, true);
+      const customerInfo =
+        q.customerId != null ? (customersMap.get(q.customerId) ?? null) : null;
       return {
         ...serializeQuote(q),
         customerCompanyName: customerInfo?.companyName ?? null,
         customerEmail: customerInfo?.email ?? null,
-        itemCount: items.length,
-        totalWithVat,
+        itemCount: totals.financialItemCount,
+        totalWithVat: totals.totalWithVat,
       };
     }),
   );
 }
 
 export async function getQuoteDetail(id: number) {
-  const [quote] = await db.select().from(quotesTable).where(eq(quotesTable.id, id)).limit(1);
+  const [quote] = await db
+    .select()
+    .from(quotesTable)
+    .where(eq(quotesTable.id, id))
+    .limit(1);
   if (!quote) return null;
 
   const items = await db
@@ -260,6 +268,9 @@ export async function getQuoteDetail(id: number) {
     customerAddress = c?.address ?? null;
   }
 
+  const itemData = items.map(serializeItem);
+  const margin = computeQuoteTotals(itemData, true);
+
   return {
     ...serializeQuote(quote),
     customerCompanyName,
@@ -267,7 +278,13 @@ export async function getQuoteDetail(id: number) {
     customerIc,
     customerDic,
     customerAddress,
-    items: items.map(serializeItem),
+    items: itemData,
+    totalPurchaseCost: margin.totalPurchaseCost,
+    marginAmount: margin.marginAmount,
+    marginPercent: margin.marginPercent,
+    financialItemCount: margin.financialItemCount,
+    costedItemCount: margin.costedItemCount,
+    marginComplete: margin.marginComplete,
   };
 }
 
@@ -316,12 +333,13 @@ export async function acceptQuoteByToken(
     purpose: "quote_decision",
     token,
     action: "accepted",
-    transition: (tx, record) => recordPublicQuoteDecision(tx, {
-      record,
-      action: "accepted",
-      respondentName: evidence.respondentName,
-      userAgent: evidence.userAgent,
-    }),
+    transition: (tx, record) =>
+      recordPublicQuoteDecision(tx, {
+        record,
+        action: "accepted",
+        respondentName: evidence.respondentName,
+        userAgent: evidence.userAgent,
+      }),
   });
 }
 
@@ -333,12 +351,13 @@ export async function rejectQuoteByToken(
     purpose: "quote_decision",
     token,
     action: "rejected",
-    transition: (tx, record) => recordPublicQuoteDecision(tx, {
-      record,
-      action: "rejected",
-      respondentName: evidence.respondentName,
-      userAgent: evidence.userAgent,
-    }),
+    transition: (tx, record) =>
+      recordPublicQuoteDecision(tx, {
+        record,
+        action: "rejected",
+        respondentName: evidence.respondentName,
+        userAgent: evidence.userAgent,
+      }),
   });
 }
 
@@ -349,20 +368,89 @@ export async function rejectQuoteByToken(
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type DbOrTx = typeof db | Tx;
 
-async function upsertItems(tx: DbOrTx, quoteId: number, items: QuoteItemInput[]) {
+async function upsertItems(
+  tx: DbOrTx,
+  quoteId: number,
+  items: QuoteItemInput[],
+) {
   await tx.delete(quoteItemsTable).where(eq(quoteItemsTable.quoteId, quoteId));
   if (items.length === 0) return;
-  await tx.insert(quoteItemsTable).values(
-    items.map((item, idx) => ({
+
+  const normalizedItems = items.map((item, idx) => {
+    const rowType = normalizeQuoteRowType(item.rowType);
+    const description = item.description.trim();
+    if (rowType !== "spacer" && description.length === 0) {
+      throw appError(
+        400,
+        rowType === "section"
+          ? "Nadpis sekce nesmí být prázdný."
+          : "Popis položky nesmí být prázdný.",
+      );
+    }
+    if (rowType !== "item") {
+      return {
+        quoteId,
+        position: item.position ?? idx,
+        rowType,
+        description: rowType === "spacer" ? "" : description,
+        quantity: "0",
+        unit: null,
+        unitPrice: "0",
+        purchaseUnitPrice: null,
+        vatRate: null,
+      };
+    }
+
+    const quantity = item.quantity ?? 1;
+    const unitPrice = item.unitPrice ?? 0;
+    const purchaseUnitPrice = item.purchaseUnitPrice ?? null;
+    const vatRate = item.vatRate ?? null;
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      throw appError(
+        400,
+        `Množství položky „${description}“ musí být větší než nula.`,
+      );
+    }
+    if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+      throw appError(
+        400,
+        `Prodejní cena položky „${description}“ nesmí být záporná.`,
+      );
+    }
+    if (
+      purchaseUnitPrice != null &&
+      (!Number.isFinite(purchaseUnitPrice) || purchaseUnitPrice < 0)
+    ) {
+      throw appError(
+        400,
+        `Nákupní cena položky „${description}“ nesmí být záporná.`,
+      );
+    }
+    if (
+      vatRate != null &&
+      (!Number.isFinite(vatRate) || vatRate < 0 || vatRate > 100)
+    ) {
+      throw appError(
+        400,
+        `Sazba DPH položky „${description}“ je mimo povolený rozsah.`,
+      );
+    }
+
+    return {
       quoteId,
       position: item.position ?? idx,
-      description: item.description,
-      quantity: String(item.quantity ?? 1),
-      unit: item.unit ?? null,
-      unitPrice: String(item.unitPrice ?? 0),
-      vatRate: item.vatRate != null ? String(item.vatRate) : null,
-    })),
-  );
+      rowType,
+      description,
+      quantity: String(quantity),
+      unit: item.unit?.trim() || null,
+      unitPrice: String(unitPrice),
+      purchaseUnitPrice:
+        purchaseUnitPrice != null ? String(purchaseUnitPrice) : null,
+      vatRate: vatRate != null ? String(vatRate) : null,
+    };
+  });
+
+  await tx.insert(quoteItemsTable).values(normalizedItems);
 }
 
 export async function createQuote(input: QuoteCreateInput) {
@@ -386,9 +474,14 @@ export async function createQuote(input: QuoteCreateInput) {
 }
 
 export async function updateQuote(id: number, input: QuoteUpdateInput) {
-  const [existing] = await db.select().from(quotesTable).where(eq(quotesTable.id, id)).limit(1);
+  const [existing] = await db
+    .select()
+    .from(quotesTable)
+    .where(eq(quotesTable.id, id))
+    .limit(1);
   if (!existing) throw appError(404, "Nabídka nenalezena.");
-  if (existing.status !== "draft") throw appError(409, "Upravovat lze pouze nabídky ve stavu Koncept.");
+  if (existing.status !== "draft")
+    throw appError(409, "Upravovat lze pouze nabídky ve stavu Koncept.");
 
   await db.transaction(async (tx) => {
     const set: Record<string, unknown> = { updatedAt: new Date() };
@@ -405,12 +498,22 @@ export async function updateQuote(id: number, input: QuoteUpdateInput) {
 }
 
 export async function deleteQuote(id: number) {
-  const [existing] = await db.select().from(quotesTable).where(eq(quotesTable.id, id)).limit(1);
+  const [existing] = await db
+    .select()
+    .from(quotesTable)
+    .where(eq(quotesTable.id, id))
+    .limit(1);
   if (!existing) throw appError(404, "Nabídka nenalezena.");
   if (existing.status !== "draft")
-    throw appError(409, "Smazat lze pouze koncept, který ještě nemá důkazní verzi.");
+    throw appError(
+      409,
+      "Smazat lze pouze koncept, který ještě nemá důkazní verzi.",
+    );
   if (await latestQuoteVersion(db, id)) {
-    throw appError(409, "Koncept navazuje na dříve odeslanou verzi a musí zůstat zachován.");
+    throw appError(
+      409,
+      "Koncept navazuje na dříve odeslanou verzi a musí zůstat zachován.",
+    );
   }
   await db.delete(quotesTable).where(eq(quotesTable.id, id));
 }
@@ -419,14 +522,17 @@ export async function deleteQuote(id: number) {
 // State transitions
 // ---------------------------------------------------------------------------
 
-async function buildPdfData(quote: NonNullable<Awaited<ReturnType<typeof getQuoteDetail>>>) {
+async function buildPdfData(
+  quote: NonNullable<Awaited<ReturnType<typeof getQuoteDetail>>>,
+) {
   const settings = await ensureSettings();
   const vatPayer = settings.vatPayer;
 
   const pdfItems = quote.items.map((item) => {
-    const totals = computeItemTotals(item.unitPrice, item.quantity, item.vatRate, vatPayer);
+    const totals = computeQuoteItemTotals(item, vatPayer);
     return {
       description: item.description,
+      rowType: item.rowType,
       quantity: item.quantity,
       unit: item.unit ?? null,
       unitPrice: item.unitPrice,
@@ -435,9 +541,7 @@ async function buildPdfData(quote: NonNullable<Awaited<ReturnType<typeof getQuot
     };
   });
 
-  const subtotalWithoutVat = round2(pdfItems.reduce((s, i) => s + i.totalWithoutVat, 0));
-  const totalVat = round2(pdfItems.reduce((s, i) => s + i.totalVat, 0));
-  const totalWithVat = round2(pdfItems.reduce((s, i) => s + i.totalWithVat, 0));
+  const totals = computeQuoteTotals(pdfItems, vatPayer);
 
   const pdfData: QuotePdfData = {
     quoteNumber: quote.quoteNumber ?? `#${quote.id}`,
@@ -449,9 +553,9 @@ async function buildPdfData(quote: NonNullable<Awaited<ReturnType<typeof getQuot
     validUntil: quote.validUntil,
     notes: quote.notes,
     items: pdfItems,
-    subtotalWithoutVat,
-    totalVat,
-    totalWithVat,
+    subtotalWithoutVat: totals.totalWithoutVat,
+    totalVat: totals.totalVat,
+    totalWithVat: totals.totalWithVat,
     supplier: {
       name: settings.supplierName,
       ic: settings.supplierIc,
@@ -500,7 +604,8 @@ export async function sendQuote(
 
   const to = (opts.to ?? quote.customerEmail ?? "").trim();
   const emailPattern = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
-  if (!emailPattern.test(to)) throw appError(400, "Chybí platná e-mailová adresa příjemce.");
+  if (!emailPattern.test(to))
+    throw appError(400, "Chybí platná e-mailová adresa příjemce.");
 
   await ensureSettings();
   let expiresAt: Date;
@@ -511,7 +616,10 @@ export async function sendQuote(
     );
   } catch (error) {
     if (error instanceof QuoteValidityError) {
-      throw appError(409, "Platnost nabídky již skončila. Upravte datum platnosti před odesláním.");
+      throw appError(
+        409,
+        "Platnost nabídky již skončila. Upravte datum platnosti před odesláním.",
+      );
     }
     throw error;
   }
@@ -556,7 +664,12 @@ export async function sendQuote(
 
   await db
     .update(quotesTable)
-    .set({ status: "sent", pdfObjectPath: version.pdfObjectPath, shareToken: null, updatedAt: new Date() })
+    .set({
+      status: "sent",
+      pdfObjectPath: version.pdfObjectPath,
+      shareToken: null,
+      updatedAt: new Date(),
+    })
     .where(eq(quotesTable.id, id));
 
   return {
@@ -571,60 +684,105 @@ export async function sendQuote(
 
 export async function acceptQuote(id: number, actor: Actor) {
   await db.transaction(async (tx) => {
-    const [quote] = await tx.select().from(quotesTable).where(eq(quotesTable.id, id)).for("update").limit(1);
+    const [quote] = await tx
+      .select()
+      .from(quotesTable)
+      .where(eq(quotesTable.id, id))
+      .for("update")
+      .limit(1);
     if (!quote) throw appError(404, "Nabídka nenalezena.");
     if (quote.status !== "sent")
-      throw appError(409, "Přijmout lze pouze odeslanou neměnnou verzi nabídky.");
-    await recordAdminQuoteDecision(tx, { quoteId: id, action: "accepted", actor });
+      throw appError(
+        409,
+        "Přijmout lze pouze odeslanou neměnnou verzi nabídky.",
+      );
+    await recordAdminQuoteDecision(tx, {
+      quoteId: id,
+      action: "accepted",
+      actor,
+    });
     await tx
       .update(quotesTable)
       .set({ status: "accepted", shareToken: null, updatedAt: new Date() })
       .where(eq(quotesTable.id, id));
-    await revokePublicAccessTokens({
-      purpose: "quote_decision",
-      resourceId: id,
-      reason: "admin_accepted",
-    }, tx);
+    await revokePublicAccessTokens(
+      {
+        purpose: "quote_decision",
+        resourceId: id,
+        reason: "admin_accepted",
+      },
+      tx,
+    );
   });
   return getQuoteDetail(id);
 }
 
 export async function rejectQuote(id: number, actor: Actor) {
   await db.transaction(async (tx) => {
-    const [quote] = await tx.select().from(quotesTable).where(eq(quotesTable.id, id)).for("update").limit(1);
+    const [quote] = await tx
+      .select()
+      .from(quotesTable)
+      .where(eq(quotesTable.id, id))
+      .for("update")
+      .limit(1);
     if (!quote) throw appError(404, "Nabídka nenalezena.");
     if (quote.status !== "sent")
-      throw appError(409, "Odmítnout lze pouze odeslanou neměnnou verzi nabídky.");
-    await recordAdminQuoteDecision(tx, { quoteId: id, action: "rejected", actor });
+      throw appError(
+        409,
+        "Odmítnout lze pouze odeslanou neměnnou verzi nabídky.",
+      );
+    await recordAdminQuoteDecision(tx, {
+      quoteId: id,
+      action: "rejected",
+      actor,
+    });
     await tx
       .update(quotesTable)
       .set({ status: "rejected", shareToken: null, updatedAt: new Date() })
       .where(eq(quotesTable.id, id));
-    await revokePublicAccessTokens({
-      purpose: "quote_decision",
-      resourceId: id,
-      reason: "admin_rejected",
-    }, tx);
+    await revokePublicAccessTokens(
+      {
+        purpose: "quote_decision",
+        resourceId: id,
+        reason: "admin_rejected",
+      },
+      tx,
+    );
   });
   return getQuoteDetail(id);
 }
 
 export async function expireQuote(id: number, actor: Actor) {
   await db.transaction(async (tx) => {
-    const [quote] = await tx.select().from(quotesTable).where(eq(quotesTable.id, id)).for("update").limit(1);
+    const [quote] = await tx
+      .select()
+      .from(quotesTable)
+      .where(eq(quotesTable.id, id))
+      .for("update")
+      .limit(1);
     if (!quote) throw appError(404, "Nabídka nenalezena.");
     if (quote.status !== "sent")
-      throw appError(409, "Expirovat lze pouze odeslanou neměnnou verzi nabídky.");
-    await recordAdminQuoteDecision(tx, { quoteId: id, action: "expired", actor });
+      throw appError(
+        409,
+        "Expirovat lze pouze odeslanou neměnnou verzi nabídky.",
+      );
+    await recordAdminQuoteDecision(tx, {
+      quoteId: id,
+      action: "expired",
+      actor,
+    });
     await tx
       .update(quotesTable)
       .set({ status: "expired", shareToken: null, updatedAt: new Date() })
       .where(eq(quotesTable.id, id));
-    await revokePublicAccessTokens({
-      purpose: "quote_decision",
-      resourceId: id,
-      reason: "admin_expired",
-    }, tx);
+    await revokePublicAccessTokens(
+      {
+        purpose: "quote_decision",
+        resourceId: id,
+        reason: "admin_expired",
+      },
+      tx,
+    );
   });
   return getQuoteDetail(id);
 }
@@ -636,7 +794,11 @@ export async function convertQuoteToJob(
 ) {
   const plannedDate = input.plannedDate?.trim() || todayIso();
   const parsedDate = new Date(`${plannedDate}T00:00:00Z`);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(plannedDate) || Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== plannedDate) {
+  if (
+    !/^\d{4}-\d{2}-\d{2}$/.test(plannedDate) ||
+    Number.isNaN(parsedDate.getTime()) ||
+    parsedDate.toISOString().slice(0, 10) !== plannedDate
+  ) {
     throw appError(400, "Plánovaný termín musí být platné datum.");
   }
 
@@ -654,7 +816,9 @@ export async function convertQuoteToJob(
     if (quote.convertedToJobId != null || quote.convertedToJobGroupId != null)
       throw appError(409, "Nabídka již byla převedena na akci zakázek.");
 
-    const noteLines = [`Vytvořeno z nabídky ${quote.quoteNumber ?? `#${id}`}: ${quote.title}`];
+    const noteLines = [
+      `Vytvořeno z nabídky ${quote.quoteNumber ?? `#${id}`}: ${quote.title}`,
+    ];
     if (quote.notes) noteLines.push(quote.notes);
 
     const [group] = await tx
@@ -669,7 +833,9 @@ export async function convertQuoteToJob(
       })
       .returning();
 
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`jobs-sort:${plannedDate}`}))`);
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtext(${`jobs-sort:${plannedDate}`}))`,
+    );
     const [order] = await tx
       .select({ maxSort: max(jobsTable.sortOrder) })
       .from(jobsTable)

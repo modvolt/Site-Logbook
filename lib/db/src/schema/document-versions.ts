@@ -30,6 +30,7 @@ export interface JobDocumentSnapshot {
 export interface QuoteVersionSnapshotItem {
   lineId: number;
   position: number;
+  rowType: "item" | "section" | "spacer";
   description: string;
   quantity: number;
   unit: string | null;
@@ -41,7 +42,7 @@ export interface QuoteVersionSnapshotItem {
 }
 
 export interface QuoteVersionSnapshot {
-  schemaVersion: 1;
+  schemaVersion: 2;
   quote: {
     id: number;
     quoteNumber: string | null;
@@ -196,7 +197,9 @@ export const quoteVersionsTable = pgTable(
       .references(() => quotesTable.id, { onDelete: "restrict" }),
     version: integer("version").notNull(),
     supersedesVersionId: integer("supersedes_version_id"),
-    dataSnapshot: jsonb("data_snapshot").$type<QuoteVersionSnapshot>().notNull(),
+    dataSnapshot: jsonb("data_snapshot")
+      .$type<QuoteVersionSnapshot>()
+      .notNull(),
     snapshotSha256: text("snapshot_sha256").notNull(),
     pdfObjectPath: text("pdf_object_path").notNull(),
     pdfSha256: text("pdf_sha256").notNull(),

@@ -290,6 +290,7 @@ function provisioningFixture() {
     ],
     privateServices: [
       "api",
+      "accounting-schema-gate",
       "external-schema-gate",
       "mailpit",
       "postgres",
@@ -330,14 +331,19 @@ function provisioningFixture() {
           memoryMiB: 384,
           reservationMiB: 192,
         },
+        "accounting-schema-gate": {
+          cpus: 0.25,
+          memoryMiB: 384,
+          reservationMiB: 192,
+        },
         mailpit: { cpus: 0.25, memoryMiB: 256, reservationMiB: 128 },
         api: { cpus: 1, memoryMiB: 1024, reservationMiB: 768 },
         "alert-receiver": { cpus: 0.25, memoryMiB: 128, reservationMiB: 64 },
         web: { cpus: 0.25, memoryMiB: 128, reservationMiB: 64 },
       },
-      totalCpu: 2.75,
-      totalMemoryMiB: 2816,
-      totalReservationMiB: 1792,
+      totalCpu: 3,
+      totalMemoryMiB: 3200,
+      totalReservationMiB: 1984,
     },
   };
 }

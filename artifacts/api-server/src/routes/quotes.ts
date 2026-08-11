@@ -7,7 +7,10 @@ import {
   SendQuoteEmailBody,
 } from "@workspace/api-zod";
 import { requirePermission } from "../middlewares/permissions";
-import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
+import {
+  ObjectStorageService,
+  ObjectNotFoundError,
+} from "../lib/objectStorage";
 import { PublicOriginConfigError } from "../lib/public-origin";
 import {
   PublicAccessTokenError,
@@ -54,10 +57,16 @@ function isAppError(err: unknown): err is ReturnType<typeof appError> {
 }
 
 function requestCorrelationId(req: import("express").Request): string {
-  return String((req as import("express").Request & { id?: string | number }).id ?? "unknown");
+  return String(
+    (req as import("express").Request & { id?: string | number }).id ??
+      "unknown",
+  );
 }
 
-function safeErrorMetadata(err: unknown): { errorName: string; errorCode?: string } {
+function safeErrorMetadata(err: unknown): {
+  errorName: string;
+  errorCode?: string;
+} {
   if (!err || typeof err !== "object") {
     return { errorName: typeof err };
   }
@@ -72,15 +81,22 @@ function safeErrorMetadata(err: unknown): { errorName: string; errorCode?: strin
   };
 }
 
-function handleError(err: unknown, fallback: string, res: import("express").Response): void {
+function handleError(
+  err: unknown,
+  fallback: string,
+  res: import("express").Response,
+): void {
   if (err instanceof PublicAccessTokenError) {
     const status = publicAccessTokenHttpStatus(err);
-    const message = err.code === "expired"
-      ? "Platnost odkazu nabídky vypršela."
-      : err.code === "consumed"
-        ? "Tento odkaz nabídky již byl použit."
-        : "Odkaz nabídky nebyl nalezen, byl zrušen nebo již není platný.";
-    res.status(status).json({ error: message, code: `public_token_${err.code}` });
+    const message =
+      err.code === "expired"
+        ? "Platnost odkazu nabídky vypršela."
+        : err.code === "consumed"
+          ? "Tento odkaz nabídky již byl použit."
+          : "Odkaz nabídky nebyl nalezen, byl zrušen nebo již není platný.";
+    res
+      .status(status)
+      .json({ error: message, code: `public_token_${err.code}` });
     return;
   }
   if (err instanceof PublicOriginConfigError) {
@@ -99,7 +115,9 @@ function handleError(err: unknown, fallback: string, res: import("express").Resp
     { requestId, ...safeErrorMetadata(err) },
     "Unexpected quote route error",
   );
-  res.status(500).json({ error: fallback, code: "unexpected_error", requestId });
+  res
+    .status(500)
+    .json({ error: fallback, code: "unexpected_error", requestId });
 }
 
 // ---------------------------------------------------------------------------
@@ -130,10 +148,7 @@ function isUsableQuoteToken(token: string, res: Response): boolean {
   return false;
 }
 
-async function getPublicQuote(
-  res: Response,
-  token: string,
-): Promise<void> {
+async function getPublicQuote(res: Response, token: string): Promise<void> {
   if (!isUsableQuoteToken(token, res)) return;
   try {
     const quote = await getQuoteByShareToken(token);
@@ -153,9 +168,13 @@ async function acceptPublicQuote(
   token: string,
 ): Promise<void> {
   if (!isUsableQuoteToken(token, res)) return;
-  const body = z.object({ respondentName: z.string().trim().min(2).max(120) }).safeParse(req.body);
+  const body = z
+    .object({ respondentName: z.string().trim().min(2).max(120) })
+    .safeParse(req.body);
   if (!body.success) {
-    res.status(400).json({ error: "Uveďte jméno osoby, která o nabídce rozhoduje." });
+    res
+      .status(400)
+      .json({ error: "Uveďte jméno osoby, která o nabídce rozhoduje." });
     return;
   }
   try {
@@ -175,9 +194,13 @@ async function rejectPublicQuote(
   token: string,
 ): Promise<void> {
   if (!isUsableQuoteToken(token, res)) return;
-  const body = z.object({ respondentName: z.string().trim().min(2).max(120) }).safeParse(req.body);
+  const body = z
+    .object({ respondentName: z.string().trim().min(2).max(120) })
+    .safeParse(req.body);
   if (!body.success) {
-    res.status(400).json({ error: "Uveďte jméno osoby, která o nabídce rozhoduje." });
+    res
+      .status(400)
+      .json({ error: "Uveďte jméno osoby, která o nabídce rozhoduje." });
     return;
   }
   try {
@@ -243,7 +266,10 @@ router.get("/quotes", async (req, res): Promise<void> => {
       : undefined;
   try {
     const quotes = await listQuotes({
-      customerId: customerId != null && Number.isFinite(customerId) ? customerId : undefined,
+      customerId:
+        customerId != null && Number.isFinite(customerId)
+          ? customerId
+          : undefined,
       status,
     });
     res.json(quotes);
@@ -271,9 +297,11 @@ router.post("/quotes", async (req, res): Promise<void> => {
       notes: d.notes ?? null,
       items: d.items?.map((i) => ({
         description: i.description,
+        rowType: i.rowType ?? null,
         quantity: i.quantity ?? null,
         unit: i.unit ?? null,
         unitPrice: i.unitPrice ?? null,
+        purchaseUnitPrice: i.purchaseUnitPrice ?? null,
         vatRate: i.vatRate ?? null,
         position: i.position ?? null,
       })),
@@ -326,9 +354,11 @@ router.patch("/quotes/:id", async (req, res): Promise<void> => {
       notes: d.notes,
       items: d.items?.map((i) => ({
         description: i.description,
+        rowType: i.rowType ?? null,
         quantity: i.quantity ?? null,
         unit: i.unit ?? null,
         unitPrice: i.unitPrice ?? null,
+        purchaseUnitPrice: i.purchaseUnitPrice ?? null,
         vatRate: i.vatRate ?? null,
         position: i.position ?? null,
       })),
@@ -401,7 +431,9 @@ router.post("/quotes/:id/accept", async (req, res): Promise<void> => {
     return;
   }
   try {
-    res.json(await acceptQuote(id, { userId: req.auth!.userId, name: req.auth!.name }));
+    res.json(
+      await acceptQuote(id, { userId: req.auth!.userId, name: req.auth!.name }),
+    );
   } catch (err) {
     handleError(err, "Přijetí nabídky selhalo.", res);
   }
@@ -414,7 +446,9 @@ router.post("/quotes/:id/reject", async (req, res): Promise<void> => {
     return;
   }
   try {
-    res.json(await rejectQuote(id, { userId: req.auth!.userId, name: req.auth!.name }));
+    res.json(
+      await rejectQuote(id, { userId: req.auth!.userId, name: req.auth!.name }),
+    );
   } catch (err) {
     handleError(err, "Odmítnutí nabídky selhalo.", res);
   }
@@ -427,7 +461,9 @@ router.post("/quotes/:id/expire", async (req, res): Promise<void> => {
     return;
   }
   try {
-    res.json(await expireQuote(id, { userId: req.auth!.userId, name: req.auth!.name }));
+    res.json(
+      await expireQuote(id, { userId: req.auth!.userId, name: req.auth!.name }),
+    );
   } catch (err) {
     handleError(err, "Označení nabídky jako expirované selhalo.", res);
   }
@@ -439,7 +475,9 @@ router.post("/quotes/:id/revision", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Neplatné ID nabídky." });
     return;
   }
-  const body = z.object({ reason: z.string().trim().min(3).max(500) }).safeParse(req.body);
+  const body = z
+    .object({ reason: z.string().trim().min(3).max(500) })
+    .safeParse(req.body);
   if (!body.success) {
     res.status(400).json({ error: "Důvod opravy musí mít alespoň 3 znaky." });
     return;
@@ -500,15 +538,17 @@ router.post("/quotes/:id/convert-to-job", async (req, res): Promise<void> => {
     return;
   }
   try {
-    res.json(await convertQuoteToJob(
-      id,
-      {
-        plannedDate: body.data.plannedDate
-          ? body.data.plannedDate.toISOString().slice(0, 10)
-          : null,
-      },
-      { userId: req.auth!.userId, name: req.auth!.name },
-    ));
+    res.json(
+      await convertQuoteToJob(
+        id,
+        {
+          plannedDate: body.data.plannedDate
+            ? body.data.plannedDate.toISOString().slice(0, 10)
+            : null,
+        },
+        { userId: req.auth!.userId, name: req.auth!.name },
+      ),
+    );
   } catch (err) {
     handleError(err, "Převod nabídky na zakázku selhal.", res);
   }
@@ -535,7 +575,10 @@ router.get("/quotes/:id/pdf", async (req, res): Promise<void> => {
       const { buffer } = await generateAndStorePdf(id);
       const number = (quote.quoteNumber ?? `${id}`).replace(/[^\w.-]+/g, "-");
       res.setHeader("Content-Type", "application/pdf");
-      res.setHeader("Content-Disposition", `attachment; filename="nabidka-${number}.pdf"`);
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="nabidka-${number}.pdf"`,
+      );
       res.end(buffer);
       return;
     } catch (err) {
@@ -544,12 +587,17 @@ router.get("/quotes/:id/pdf", async (req, res): Promise<void> => {
     }
   }
   const number = (quote.quoteNumber ?? `${id}`).replace(/[^\w.-]+/g, "-");
-  res.setHeader("Content-Disposition", `attachment; filename="nabidka-${number}.pdf"`);
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename="nabidka-${number}.pdf"`,
+  );
   try {
     await objectStorage.servePrivateObject(quote.pdfObjectPath, res);
   } catch (err) {
     if (err instanceof ObjectNotFoundError) {
-      res.status(404).json({ error: "PDF nabídky nebylo nalezeno v úložišti." });
+      res
+        .status(404)
+        .json({ error: "PDF nabídky nebylo nalezeno v úložišti." });
       return;
     }
     req.log.error({ err, quoteId: id }, "Quote PDF download failed");

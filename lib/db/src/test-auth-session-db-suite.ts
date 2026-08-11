@@ -12,34 +12,43 @@ import pg from "pg";
 import { runMigrations } from "./migrate.js";
 
 const { Client, Pool } = pg;
-const SESSION_MIGRATION_WHEN = 1785604750584;
-const IDEMPOTENCY_MIGRATION_WHEN = 1785615206350;
+const SECURITY_FOUNDATION_MIGRATION_WHEN = 1786383360000;
 
 function requireSafeEnvironment(): URL {
   if (process.env.AUTH_DB_SUITE_ENABLED !== "true") {
-    throw new Error("Refusing to run: set AUTH_DB_SUITE_ENABLED=true explicitly.");
+    throw new Error(
+      "Refusing to run: set AUTH_DB_SUITE_ENABLED=true explicitly.",
+    );
   }
   if (process.env.NODE_ENV === "production") {
     throw new Error("Refusing to run auth DB tests in NODE_ENV=production.");
   }
   if (process.env.DATABASE_URL) {
-    throw new Error("Refusing ambient DATABASE_URL; use TEST_DATABASE_URL only.");
+    throw new Error(
+      "Refusing ambient DATABASE_URL; use TEST_DATABASE_URL only.",
+    );
   }
 
   const rawUrl = process.env.TEST_DATABASE_URL;
   if (!rawUrl) {
-    throw new Error("TEST_DATABASE_URL must point to an isolated local PostgreSQL server.");
+    throw new Error(
+      "TEST_DATABASE_URL must point to an isolated local PostgreSQL server.",
+    );
   }
   const url = new URL(rawUrl);
   if (url.protocol !== "postgres:" && url.protocol !== "postgresql:") {
-    throw new Error("TEST_DATABASE_URL must use the postgres or postgresql protocol.");
+    throw new Error(
+      "TEST_DATABASE_URL must use the postgres or postgresql protocol.",
+    );
   }
   if (!new Set(["localhost", "127.0.0.1", "::1"]).has(url.hostname)) {
     throw new Error("Refusing non-loopback PostgreSQL for auth DB tests.");
   }
   const databaseName = decodeURIComponent(url.pathname.slice(1));
   if (!/(^|[_-])(test|ci)([_-]|$)/i.test(databaseName)) {
-    throw new Error("TEST_DATABASE_URL database name must contain a separate test or ci segment.");
+    throw new Error(
+      "TEST_DATABASE_URL database name must contain a separate test or ci segment.",
+    );
   }
   return url;
 }
@@ -63,11 +72,16 @@ async function assertColumn(pool: pg.Pool, expected: boolean): Promise<void> {
     ) AS present
   `);
   if (result.rows[0]?.present !== expected) {
-    throw new Error(`session_generation column presence was ${String(result.rows[0]?.present)}, expected ${expected}.`);
+    throw new Error(
+      `session_generation column presence was ${String(result.rows[0]?.present)}, expected ${expected}.`,
+    );
   }
 }
 
-async function assertIdempotencyTable(pool: pg.Pool, expected: boolean): Promise<void> {
+async function assertIdempotencyTable(
+  pool: pg.Pool,
+  expected: boolean,
+): Promise<void> {
   const result = await pool.query<{ present: boolean }>(`
     SELECT EXISTS (
       SELECT 1
@@ -77,13 +91,23 @@ async function assertIdempotencyTable(pool: pg.Pool, expected: boolean): Promise
     ) AS present
   `);
   if (result.rows[0]?.present !== expected) {
-    throw new Error(`api_idempotency_records presence was ${String(result.rows[0]?.present)}, expected ${expected}.`);
+    throw new Error(
+      `api_idempotency_records presence was ${String(result.rows[0]?.present)}, expected ${expected}.`,
+    );
   }
 }
 
-async function runAuthorizationTests(repoRoot: string, testDbUrl: string): Promise<void> {
+async function runAuthorizationTests(
+  repoRoot: string,
+  testDbUrl: string,
+): Promise<void> {
   const apiDir = path.join(repoRoot, "artifacts", "api-server");
-  const vitestEntrypoint = path.join(apiDir, "node_modules", "vitest", "vitest.mjs");
+  const vitestEntrypoint = path.join(
+    apiDir,
+    "node_modules",
+    "vitest",
+    "vitest.mjs",
+  );
   const testFiles = [
     "test/auth-session-generation.db.test.ts",
     "test/vault-authorization.db.test.ts",
@@ -112,9 +136,11 @@ async function runAuthorizationTests(repoRoot: string, testDbUrl: string): Promi
       TMP: process.env.TMP,
       CI: process.env.CI,
       NODE_ENV: "test",
+      LOG_LEVEL: "silent",
       DATABASE_URL: testDbUrl,
       SESSION_SECRET: "isolated-auth-db-suite-secret-not-for-production",
-      BACKUP_TRIGGER_SECRET: "isolated-backup-trigger-secret-not-for-production",
+      BACKUP_TRIGGER_SECRET:
+        "isolated-backup-trigger-secret-not-for-production",
       AUTH_DB_TEST_ENABLED: "true",
       AUTHORIZATION_DB_TEST_ENABLED: "true",
       BACKUP_ENABLED: "false",
@@ -131,7 +157,12 @@ async function runAuthorizationTests(repoRoot: string, testDbUrl: string): Promi
       child.once("error", reject);
       child.once("exit", (code, signal) => {
         if (code === 0) resolve();
-        else reject(new Error(`Authorization DB test child failed with ${signal ? `signal ${signal}` : `exit code ${code}`}.`));
+        else
+          reject(
+            new Error(
+              `Authorization DB test child failed with ${signal ? `signal ${signal}` : `exit code ${code}`}.`,
+            ),
+          );
       });
     });
   }
@@ -143,14 +174,19 @@ async function main(): Promise<void> {
   const testDbName = `test_auth_session_${suffix}`;
   const adminUrl = databaseUrl(sourceUrl, "postgres");
   const testDbUrl = databaseUrl(sourceUrl, testDbName);
-  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
+  const repoRoot = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../../..",
+  );
   const migrationsFolder = path.join(repoRoot, "lib", "db", "migrations");
   const rollbackSql = readFileSync(
-    path.join(repoRoot, "lib", "db", "rollbacks", "0096_daffy_puppet_master.down.sql"),
-    "utf8",
-  );
-  const idempotencyRollbackSql = readFileSync(
-    path.join(repoRoot, "lib", "db", "rollbacks", "0097_api_idempotency_records.down.sql"),
+    path.join(
+      repoRoot,
+      "lib",
+      "db",
+      "rollbacks",
+      "0097_session_and_api_idempotency.down.sql",
+    ),
     "utf8",
   );
   let databaseCreated = false;
@@ -174,48 +210,35 @@ async function main(): Promise<void> {
     const verificationPool = new Pool({ connectionString: testDbUrl });
     try {
       await assertColumn(verificationPool, true);
+      await assertIdempotencyTable(verificationPool, true);
       await verificationPool.query(rollbackSql);
       await assertColumn(verificationPool, false);
+      await assertIdempotencyTable(verificationPool, false);
       const journal = await verificationPool.query<{ count: string }>(
         "SELECT count(*)::text AS count FROM drizzle.__drizzle_migrations WHERE created_at = $1",
-        [SESSION_MIGRATION_WHEN],
+        [SECURITY_FOUNDATION_MIGRATION_WHEN],
       );
-      if (journal.rows[0]?.count !== "0") throw new Error("Rollback left migration 0096 stamped.");
+      if (journal.rows[0]?.count !== "0") {
+        throw new Error("Rollback left migration 0097 stamped.");
+      }
     } finally {
       await verificationPool.end();
     }
 
     const forwardFix = await runMigrations(testDbUrl);
     if (forwardFix.newlyApplied !== 1) {
-      throw new Error(`Expected one forward-fix migration, applied ${forwardFix.newlyApplied}.`);
+      throw new Error(
+        `Expected one forward-fix migration, applied ${forwardFix.newlyApplied}.`,
+      );
     }
     const forwardPool = new Pool({ connectionString: testDbUrl });
     try {
       await assertColumn(forwardPool, true);
       await assertIdempotencyTable(forwardPool, true);
-      await forwardPool.query(idempotencyRollbackSql);
-      await assertIdempotencyTable(forwardPool, false);
-      const journal = await forwardPool.query<{ count: string }>(
-        "SELECT count(*)::text AS count FROM drizzle.__drizzle_migrations WHERE created_at = $1",
-        [IDEMPOTENCY_MIGRATION_WHEN],
-      );
-      if (journal.rows[0]?.count !== "0") throw new Error("Rollback left migration 0097 stamped.");
     } finally {
       await forwardPool.end();
     }
     console.log("[test:auth-db] Migration forward/down/forward cycle passed.");
-
-    const idempotencyForwardFix = await runMigrations(testDbUrl);
-    if (idempotencyForwardFix.newlyApplied !== 1) {
-      throw new Error(`Expected one idempotency forward-fix migration, applied ${idempotencyForwardFix.newlyApplied}.`);
-    }
-    const idempotencyForwardPool = new Pool({ connectionString: testDbUrl });
-    try {
-      await assertIdempotencyTable(idempotencyForwardPool, true);
-    } finally {
-      await idempotencyForwardPool.end();
-    }
-    console.log("[test:auth-db] Idempotency migration forward/down/forward cycle passed.");
 
     await runAuthorizationTests(repoRoot, testDbUrl);
     console.log("[test:auth-db] All isolated authorization DB tests passed.");
@@ -226,11 +249,15 @@ async function main(): Promise<void> {
       try {
         await rollbackGuardPool.query(rollbackSql);
       } catch (error) {
-        blocked = String(error).includes("session generations have already advanced");
+        blocked = String(error).includes(
+          "session generations have already advanced",
+        );
         await rollbackGuardPool.query("ROLLBACK").catch(() => undefined);
       }
       if (!blocked) {
-        throw new Error("Rollback 0096 was not blocked after a session generation advanced.");
+        throw new Error(
+          "Rollback 0097 was not blocked after a session generation advanced.",
+        );
       }
       await assertColumn(rollbackGuardPool, true);
     } finally {
@@ -240,6 +267,11 @@ async function main(): Promise<void> {
 
     const idempotencyGuardPool = new Pool({ connectionString: testDbUrl });
     try {
+      // Isolate the second rollback guard: the preceding assertion deliberately
+      // leaves advanced generations behind, which would otherwise fail first.
+      await idempotencyGuardPool.query(
+        "UPDATE users SET session_generation = 1",
+      );
       const insertedUser = await idempotencyGuardPool.query<{ id: number }>(
         `INSERT INTO users (username, password_hash, name, role)
          VALUES ($1, 'isolated-test-hash', 'Idempotency rollback guard', 'admin')
@@ -255,14 +287,21 @@ async function main(): Promise<void> {
       );
       let blocked = false;
       try {
-        await idempotencyGuardPool.query(idempotencyRollbackSql);
+        await idempotencyGuardPool.query(rollbackSql);
       } catch (error) {
-        blocked = String(error).includes("idempotency ledger already contains records");
+        blocked = String(error).includes(
+          "idempotency ledger already contains records",
+        );
         await idempotencyGuardPool.query("ROLLBACK").catch(() => undefined);
       }
-      if (!blocked) throw new Error("Rollback 0097 was not blocked after the ledger was used.");
+      if (!blocked)
+        throw new Error(
+          "Rollback 0097 was not blocked after the ledger was used.",
+        );
       await assertIdempotencyTable(idempotencyGuardPool, true);
-      await idempotencyGuardPool.query("DELETE FROM users WHERE id = $1", [guardUserId]);
+      await idempotencyGuardPool.query("DELETE FROM users WHERE id = $1", [
+        guardUserId,
+      ]);
     } finally {
       await idempotencyGuardPool.end();
     }

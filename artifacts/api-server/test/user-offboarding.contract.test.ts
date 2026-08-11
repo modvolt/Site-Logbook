@@ -67,10 +67,16 @@ describe("user offboarding security contract", () => {
     );
 
     expect(users).toContain("lockAndAuthorizeUserManager");
-    expect(users).toMatch(/select id from users where id = \$\{userId\} for update/i);
+    expect(users).toMatch(
+      /select id from users where id = \$\{userId\} for update/i,
+    );
     expect(users).toContain("user_inactive");
-    expect(webauthn).toMatch(/select id from users where id = \$\{req\.auth!\.userId\} for update/i);
-    expect(webauthn).toContain("req.session.sessionGeneration !== lockedUser.sessionGeneration");
+    expect(webauthn).toMatch(
+      /select id from users where id = \$\{req\.auth!\.userId\} for update/i,
+    );
+    expect(webauthn).toContain(
+      "req.session.sessionGeneration !== lockedUser.sessionGeneration",
+    );
     expect(webauthn).toContain("access_revoked");
     expect(auth).toContain("establishAuthenticatedSessionIfCurrent");
     expect(webauthn).toContain("establishAuthenticatedSessionIfCurrent");
@@ -80,7 +86,9 @@ describe("user offboarding security contract", () => {
       offboarding.indexOf("export async function offboardUserAccess"),
     );
     expect(cutoff).toContain("SESSION_ISSUANCE_LOCK_NAMESPACE");
-    expect(cutoff).toMatch(/lockAndAuthorizeUserManager[\s\S]*SESSION_ISSUANCE_LOCK_NAMESPACE[\s\S]*lockedUser/);
+    expect(cutoff).toMatch(
+      /lockAndAuthorizeUserManager[\s\S]*SESSION_ISSUANCE_LOCK_NAMESPACE[\s\S]*lockedUser/,
+    );
     expect(users).toMatch(/post\("\/users"[\s\S]*lockAndAuthorizeUserManager/);
     expect(webauthn).toContain('req.auth.permissions.includes("users.manage")');
   });
@@ -99,7 +107,7 @@ describe("user offboarding security contract", () => {
     expect(audit).toMatch(/\^\\\/users\\\/\\d\+\\\/offboard\$/);
 
     const idempotency = app.indexOf(
-      'app.use("/api", enforceOfflineIdempotency)',
+      'app.use("/api", enforceDurableIdempotency)',
     );
     const routers = app.indexOf('app.use("/api", router)');
     expect(idempotency).toBeGreaterThan(-1);

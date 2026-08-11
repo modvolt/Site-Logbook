@@ -11,6 +11,12 @@ import { BiometricVaultGate } from "@/components/biometric-vault-gate";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
+  clearExternalAccountLifecycleIntent,
+  ExternalAccountLifecycleError,
+  externalAccountLifecycleRequest,
+  type LifecycleMethod,
+} from "@/lib/external-account-idempotency";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -45,35 +51,6 @@ function nextYearLocal(): string {
   return date.toISOString().slice(0, 16);
 }
 
-async function lifecycleRequest<T>(
-  path: string,
-  method: "POST" | "PUT" | "PATCH",
-  body: unknown,
-): Promise<T> {
-  const response = await fetch(`/api${path}`, {
-    method,
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      "Idempotency-Key": crypto.randomUUID(),
-    },
-    body: JSON.stringify(body),
-  });
-  const data = (await response.json().catch(() => null)) as {
-    error?: string;
-    code?: string;
-  } | null;
-  if (!response.ok) {
-    const error = new Error(
-      data?.error ?? "Operace externího účtu selhala",
-    ) as Error & { status?: number; code?: string };
-    error.status = response.status;
-    error.code = data?.code;
-    throw error;
-  }
-  return data as T;
-}
-
 export default function ExternalAccountsAdmin() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -83,6 +60,10 @@ export default function ExternalAccountsAdmin() {
   const [detail, setDetail] = useState<ExternalAccountDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [blockedIntent, setBlockedIntent] = useState<{
+    method: LifecycleMethod;
+    path: string;
+  } | null>(null);
   const [newAccount, setNewAccount] = useState({
     username: "",
     password: "",
@@ -148,6 +129,7 @@ export default function ExternalAccountsAdmin() {
   }, [accounts.data, selectedId]);
 
   const mutate = async (action: () => Promise<unknown>, success: string) => {
+    if (blockedIntent) return;
     setBusy(true);
     try {
       await action();
@@ -155,6 +137,12 @@ export default function ExternalAccountsAdmin() {
       await refreshList();
       if (selectedId) await loadDetail(selectedId);
     } catch (error: any) {
+      if (
+        error instanceof ExternalAccountLifecycleError &&
+        error.reconciliationRequired
+      ) {
+        setBlockedIntent({ method: error.method, path: error.path });
+      }
       if (error?.status === 403 && error?.code === "biometric_required")
         setVerified(false);
       toast({
@@ -170,18 +158,19 @@ export default function ExternalAccountsAdmin() {
   const createDraft = async () => {
     if (!verified) return;
     await mutate(async () => {
-      const created = await lifecycleRequest<ExternalAccountDetail>(
-        "/external-accounts",
-        "POST",
-        {
-          username: newAccount.username,
-          password: newAccount.password,
-          name: newAccount.name,
-          email: newAccount.email || null,
-          custodianUserId: Number(newAccount.custodianUserId),
-          accessExpiresAt: new Date(newAccount.accessExpiresAt).toISOString(),
-        },
-      );
+      const created =
+        await externalAccountLifecycleRequest<ExternalAccountDetail>(
+          "/external-accounts",
+          "POST",
+          {
+            username: newAccount.username,
+            password: newAccount.password,
+            name: newAccount.name,
+            email: newAccount.email || null,
+            custodianUserId: Number(newAccount.custodianUserId),
+            accessExpiresAt: new Date(newAccount.accessExpiresAt).toISOString(),
+          },
+        );
       setShowCreate(false);
       setNewAccount({
         username: "",
@@ -218,6 +207,7 @@ export default function ExternalAccountsAdmin() {
       ),
     [accounts.data],
   );
+  const mutationBlocked = busy || blockedIntent !== null;
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-4 sm:p-6">
@@ -268,10 +258,46 @@ export default function ExternalAccountsAdmin() {
 
       <BiometricVaultGate onVerified={() => setVerified(true)} />
 
+      {blockedIntent && (
+        <div
+          className="rounded-xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/20"
+          role="alert"
+        >
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+            <div className="space-y-3">
+              <div>
+                <p className="font-semibold">
+                  Výsledek poslední operace je nejasný
+                </p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Obnovte seznam, otevřete detail účtu a ověřte jeho skutečný
+                  stav. Nový pokus povolte až potom; původní požadavek mohl být
+                  dokončen i přes chybovou odpověď.
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  clearExternalAccountLifecycleIntent(
+                    blockedIntent.method,
+                    blockedIntent.path,
+                  );
+                  setBlockedIntent(null);
+                }}
+              >
+                Stav jsem ověřil – povolit nový pokus
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex justify-end">
         <Button
           onClick={() => setShowCreate((value) => !value)}
-          disabled={!verified}
+          disabled={!verified || mutationBlocked}
         >
           <Plus className="mr-2 h-4 w-4" /> Nový externí účet
         </Button>
@@ -346,7 +372,7 @@ export default function ExternalAccountsAdmin() {
             <Button
               onClick={() => void createDraft()}
               disabled={
-                busy ||
+                mutationBlocked ||
                 newAccount.password.length < 12 ||
                 !newAccount.username ||
                 !newAccount.name ||
@@ -503,11 +529,13 @@ export default function ExternalAccountsAdmin() {
                 <Button
                   className="w-full"
                   variant="outline"
-                  disabled={!verified || busy || detail.status === "revoked"}
+                  disabled={
+                    !verified || mutationBlocked || detail.status === "revoked"
+                  }
                   onClick={() =>
                     void mutate(
                       () =>
-                        lifecycleRequest(
+                        externalAccountLifecycleRequest(
                           `/external-accounts/${detail.userId}/scopes`,
                           "PUT",
                           {
@@ -533,11 +561,13 @@ export default function ExternalAccountsAdmin() {
                 <Button
                   className="w-full"
                   variant="outline"
-                  disabled={!verified || busy || detail.status === "revoked"}
+                  disabled={
+                    !verified || mutationBlocked || detail.status === "revoked"
+                  }
                   onClick={() =>
                     void mutate(
                       () =>
-                        lifecycleRequest(
+                        externalAccountLifecycleRequest(
                           `/external-accounts/${detail.userId}/expiry`,
                           "PATCH",
                           {
@@ -562,14 +592,14 @@ export default function ExternalAccountsAdmin() {
                   variant="outline"
                   disabled={
                     !verified ||
-                    busy ||
+                    mutationBlocked ||
                     detail.status === "revoked" ||
                     !custodianId
                   }
                   onClick={() =>
                     void mutate(
                       () =>
-                        lifecycleRequest(
+                        externalAccountLifecycleRequest(
                           `/external-accounts/${detail.userId}/transfer`,
                           "POST",
                           {
@@ -590,14 +620,14 @@ export default function ExternalAccountsAdmin() {
                   className="w-full"
                   disabled={
                     !verified ||
-                    busy ||
+                    mutationBlocked ||
                     !accounts.data?.runtimeEnabled ||
                     draftScopes.length === 0
                   }
                   onClick={() =>
                     void mutate(
                       () =>
-                        lifecycleRequest(
+                        externalAccountLifecycleRequest(
                           `/external-accounts/${detail.userId}/activate`,
                           "POST",
                           { expectedVersion: detail.version },
@@ -621,12 +651,14 @@ export default function ExternalAccountsAdmin() {
                     variant="destructive"
                     className="w-full"
                     disabled={
-                      !verified || busy || revokeReason.trim().length < 3
+                      !verified ||
+                      mutationBlocked ||
+                      revokeReason.trim().length < 3
                     }
                     onClick={() =>
                       void mutate(
                         () =>
-                          lifecycleRequest(
+                          externalAccountLifecycleRequest(
                             `/external-accounts/${detail.userId}/revoke`,
                             "POST",
                             {

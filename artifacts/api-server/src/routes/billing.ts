@@ -508,7 +508,10 @@ router.post("/billing/invoices/:id/cancel", async (req, res): Promise<void> => {
     res.json(
       await cancelInvoice(
         id,
-        parsed.data.returnJobsToDone ?? false,
+        {
+          returnJobsToDone: parsed.data.returnJobsToDone ?? false,
+          reasonCode: parsed.data.reasonCode,
+        },
         actorOf(req),
       ),
     );
@@ -536,7 +539,7 @@ router.patch(
           status: parsed.data.status,
           paidDate: parsed.data.paidDate ?? null,
           paidAmount: parsed.data.paidAmount ?? null,
-        }),
+        }, actorOf(req)),
       );
     } catch (err) {
       handleError(err, "Změna stavu faktury selhala.", res);

@@ -12,6 +12,7 @@ import {
 } from "@workspace/db";
 import { EraseSubjectDataBody } from "@workspace/api-zod";
 import { requireRole } from "../middlewares/auth";
+import { blockDirectPrivacyDeletion } from "../middlewares/privacy-case-required";
 import { ObjectStorageService } from "../lib/objectStorage";
 
 const router: IRouter = Router();
@@ -107,7 +108,10 @@ router.get("/gdpr/export", async (req, res): Promise<void> => {
   });
 });
 
-router.post("/gdpr/erase", async (req, res): Promise<void> => {
+router.post(
+  "/gdpr/erase",
+  blockDirectPrivacyDeletion("gdpr_direct_erase"),
+  async (req, res): Promise<void> => {
   const parsed = EraseSubjectDataBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -193,6 +197,7 @@ router.post("/gdpr/erase", async (req, res): Promise<void> => {
     allFilesRemoved,
     message,
   });
-});
+  },
+);
 
 export default router;

@@ -30,7 +30,10 @@ describe("public bearer request-log redaction", () => {
     [`/api/ppe/sign/${RAW_TOKEN}`, "/api/ppe/sign/:token"],
     [`/oopp/sign/${RAW_TOKEN}`, "/oopp/sign/:token"],
     [`/api/quotes/public/${RAW_TOKEN}`, "/api/quotes/public/:token"],
-    [`/api/quotes/public/${RAW_TOKEN}/accept`, "/api/quotes/public/:token/accept"],
+    [
+      `/api/quotes/public/${RAW_TOKEN}/accept`,
+      "/api/quotes/public/:token/accept",
+    ],
     [`/quote-share/${RAW_TOKEN}`, "/quote-share/:token"],
     [`/api/q/board/${RAW_TOKEN}`, "/api/q/board/:token"],
     [
@@ -50,8 +53,12 @@ describe("public bearer request-log redaction", () => {
   });
 
   it("preserves non-token paths while retaining the existing query omission", () => {
-    expect(redactPublicBearerPath("/api/jobs/42?view=detail")).toBe("/api/jobs/42");
-    expect(redactPublicBearerPath("/api/quotes/42/send")).toBe("/api/quotes/42/send");
+    expect(redactPublicBearerPath("/api/jobs/42?view=detail")).toBe(
+      "/api/jobs/42",
+    );
+    expect(redactPublicBearerPath("/api/quotes/42/send")).toBe(
+      "/api/quotes/42/send",
+    );
   });
 
   it("never serializes the Authorization header on canonical public routes", () => {
@@ -68,7 +75,10 @@ describe("public bearer request-log redaction", () => {
   });
 
   it("wires the sanitizer into request logging, the 5xx ring buffer, and explicit error logs", () => {
-    const appSource = readFileSync(new URL("../src/app.ts", import.meta.url), "utf8");
+    const appSource = readFileSync(
+      new URL("../src/app.ts", import.meta.url),
+      "utf8",
+    );
 
     expect(appSource).toContain("req: serializeRequestForLog");
     expect(appSource).toContain(
@@ -125,22 +135,25 @@ describe("public bearer audit-log redaction", () => {
     [`/ppe/sign/${RAW_TOKEN}`, "/ppe/sign/:token"],
     [`/quotes/public/${RAW_TOKEN}/accept`, "/quotes/public/:token/accept"],
     [`/quotes/public/${RAW_TOKEN}/reject`, "/quotes/public/:token/reject"],
-  ])("keeps the raw path token out of audit_log for %s", async (path, expectedPath) => {
-    await request(testApp())
-      .post(path)
-      .send({ respondentName: "Jan Test", marker: "preserved" })
-      .expect(200);
+  ])(
+    "keeps the raw path token out of audit_log for %s",
+    async (path, expectedPath) => {
+      await request(testApp())
+        .post(path)
+        .send({ respondentName: "Jan Test", marker: "preserved" })
+        .expect(200);
 
-    await vi.waitFor(() => expect(mocks.values).toHaveBeenCalledTimes(1));
-    const row = mocks.values.mock.calls[0]![0] as {
-      path: string;
-      summary: string;
-    };
-    expect(row.path).toBe(expectedPath);
-    expect(row.path).not.toContain(RAW_TOKEN);
-    expect(row.summary).not.toContain(RAW_TOKEN);
-    expect(row.summary).toContain("preserved");
-  });
+      await vi.waitFor(() => expect(mocks.values).toHaveBeenCalledTimes(1));
+      const row = mocks.values.mock.calls[0]![0] as {
+        path: string;
+        summary: string;
+      };
+      expect(row.path).toBe(expectedPath);
+      expect(row.path).not.toContain(RAW_TOKEN);
+      expect(row.summary).not.toContain(RAW_TOKEN);
+      expect(row.summary).toContain("preserved");
+    },
+  );
 
   it("redacts the PPE confirmation token carried in the JSON body", async () => {
     await request(testApp())
@@ -188,4 +201,19 @@ describe("public bearer audit-log redaction", () => {
     expect(row.path).toBe("/jobs/42/tasks");
     expect(row.summary).toContain("POST /jobs/42/tasks");
   });
+
+  it.each([
+    "/billing/documents/42/disposition",
+    "/billing/documents/42/status",
+  ])(
+    "leaves restricted accounting reasons to the caller-owned audit path for %s",
+    async (path) => {
+      await request(testApp())
+        .post(path)
+        .send({ reason: "restricted readable accounting reason" })
+        .expect(200);
+
+      expect(mocks.values).not.toHaveBeenCalled();
+    },
+  );
 });

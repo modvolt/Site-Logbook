@@ -1,9 +1,7 @@
 import { useState, useEffect } from "react";
 import { useSearch, useLocation } from "wouter";
-import { ConfirmDialog } from "@/components/confirm-dialog";
-import { useConfirmDialog } from "@/hooks/use-confirm-dialog";
 import { 
-  useListCustomers, useCreateCustomer, useUpdateCustomer, useDeleteCustomer, 
+  useListCustomers, useCreateCustomer, useUpdateCustomer,
   getListCustomersQueryKey 
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -12,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Building2, Trash2, Plus, Edit3, Save, X, Phone, ChevronRight, Upload, Search } from "lucide-react";
+import { Building2, Plus, Edit3, Save, X, Phone, ChevronRight, Upload, Search } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import CustomerCsvImport from "@/components/customer-csv-import";
 import { QueryErrorState } from "@/components/query-error-state";
@@ -61,7 +59,6 @@ export default function Customers() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const search_ = useSearch();
-  const { openConfirm, dialogProps } = useConfirmDialog();
 
   const { data: customers, isLoading, isError, error, refetch } = useListCustomers({
     query: { queryKey: getListCustomersQueryKey() }
@@ -69,7 +66,6 @@ export default function Customers() {
 
   const createCustomer = useCreateCustomer();
   const updateCustomer = useUpdateCustomer();
-  const deleteCustomer = useDeleteCustomer();
 
   const [search, setSearch] = useState(() => readSearchFromUrl(search_));
 
@@ -171,18 +167,6 @@ export default function Customers() {
           toast({ title: "Nepodařilo se upravit zákazníka", variant: "destructive" });
         }
       }
-    });
-  };
-
-  const handleDelete = (id: number) => {
-    openConfirm("Opravdu smazat tohoto zákazníka?", () => {
-      deleteCustomer.mutate({ id }, {
-        onSuccess: () => {
-          invalidateData(queryClient, "customers");
-          toast({ title: "Zákazník smazán" });
-        },
-        onError: () => toast({ title: "Nepodařilo se smazat zákazníka", variant: "destructive" })
-      });
     });
   };
 
@@ -431,9 +415,6 @@ export default function Customers() {
                       <Button variant="ghost" size="icon" className="h-9 w-9 text-muted-foreground" onClick={(e) => { e.stopPropagation(); startEdit(customer); }}>
                         <Edit3 className="h-4 w-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" className="h-9 w-9 text-destructive hover:bg-destructive/10" onClick={(e) => { e.stopPropagation(); handleDelete(customer.id); }}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
                       <ChevronRight className="h-5 w-5 text-muted-foreground ml-1" />
                     </div>
                   </div>
@@ -454,7 +435,6 @@ export default function Customers() {
           </div>
         )}
       </div>
-      <ConfirmDialog {...dialogProps} />
     </div>
   );
 }

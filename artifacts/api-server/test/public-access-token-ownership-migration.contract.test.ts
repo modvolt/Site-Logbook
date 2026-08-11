@@ -9,7 +9,7 @@ const migrationPath = "lib/db/migrations/0104_thin_sheva_callister.sql";
 const rollbackPath = "lib/db/rollbacks/0104_thin_sheva_callister.down.sql";
 const snapshotPath = "lib/db/migrations/meta/0104_snapshot.json";
 const journalPath = "lib/db/migrations/meta/_journal.json";
-const migrationWhen = 1785899402886;
+const migrationWhen = 1786383366000;
 
 describe("R16-B external grant expand migration", () => {
   it("adds nullable ownership metadata without rewriting live grants", () => {
@@ -29,17 +29,23 @@ describe("R16-B external grant expand migration", () => {
     expect(migration).toContain(
       'WHERE "public_access_tokens"."revoked_at" is null and "public_access_tokens"."consumed_at" is null',
     );
+    expect(migration).toContain('"public_access_tokens_owner_assignment_chk"');
     expect(migration).toContain(
-      '"public_access_tokens_owner_assignment_chk"',
+      "'resource_organization', 'legacy_organization_assignment'",
     );
-    expect(migration).toContain("'resource_organization', 'legacy_organization_assignment'");
-    expect(migration).toContain("'manual_user_assignment', 'offboarding_transfer'");
+    expect(migration).toContain(
+      "'manual_user_assignment', 'offboarding_transfer'",
+    );
     expect(migration).toContain('ADD COLUMN "qr_owner_kind" text');
     expect(migration).toContain('ADD COLUMN "qr_owner_user_id" integer');
-    expect(migration).toContain('CREATE INDEX "switchboards_qr_enabled_owner_idx"');
+    expect(migration).toContain(
+      'CREATE INDEX "switchboards_qr_enabled_owner_idx"',
+    );
 
     expect(migration).not.toMatch(/^\s*(?:UPDATE|DELETE|INSERT)\s+/gim);
-    expect(migration).not.toMatch(/ALTER\s+(?:TABLE|COLUMN)[^;]*(?:token_hash|expires_at|resource_type|resource_id|revoked_at|consumed_at)\s+(?:TYPE|SET|DROP)/i);
+    expect(migration).not.toMatch(
+      /ALTER\s+(?:TABLE|COLUMN)[^;]*(?:token_hash|expires_at|resource_type|resource_id|revoked_at|consumed_at)\s+(?:TYPE|SET|DROP)/i,
+    );
   });
 
   it("adds immutable PPE evidence and purpose-bound terminal actions", () => {
@@ -90,18 +96,21 @@ describe("R16-B external grant expand migration", () => {
       "purpose\" in ('job_signature', 'ppe_signature') and \"public_access_tokens\".\"consume_action\" = 'signed'",
     );
     expect(migration).toContain(
-      "purpose\" = 'ppe_confirmation' and \"public_access_tokens\".\"consume_action\" = 'confirmed'",
+      'purpose" = \'ppe_confirmation\' and "public_access_tokens"."consume_action" = \'confirmed\'',
     );
   });
 
   it("keeps the snapshot and journal in strict 0104 parity", () => {
     const snapshot = JSON.parse(read(snapshotPath)) as {
-      tables: Record<string, {
-        columns: Record<string, unknown>;
-        indexes: Record<string, unknown>;
-        foreignKeys: Record<string, unknown>;
-        checkConstraints: Record<string, unknown>;
-      }>;
+      tables: Record<
+        string,
+        {
+          columns: Record<string, unknown>;
+          indexes: Record<string, unknown>;
+          foreignKeys: Record<string, unknown>;
+          checkConstraints: Record<string, unknown>;
+        }
+      >;
     };
     const journal = JSON.parse(read(journalPath)) as {
       entries: Array<{
@@ -137,9 +146,7 @@ describe("R16-B external grant expand migration", () => {
     expect(snapshot.tables).toHaveProperty(
       "public.ppe_public_evidence_versions",
     );
-    expect(snapshot.tables).toHaveProperty(
-      "public.ppe_public_evidence_events",
-    );
+    expect(snapshot.tables).toHaveProperty("public.ppe_public_evidence_events");
     expect(switchboards!.columns).toHaveProperty("qr_owner_kind");
     expect(switchboards!.checkConstraints).toHaveProperty(
       "switchboards_qr_owner_assignment_chk",

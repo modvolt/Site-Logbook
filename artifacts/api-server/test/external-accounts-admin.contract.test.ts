@@ -8,6 +8,16 @@ const read = (path: string) => readFileSync(resolve(root, path), "utf8");
 describe("R16-C2 authenticated external account surface", () => {
   it("keeps management internal, step-up protected, strict and idempotent", () => {
     const route = read("artifacts/api-server/src/routes/external-accounts.ts");
+    const app = read("artifacts/api-server/src/app.ts");
+    const idempotency = read(
+      "artifacts/api-server/src/middlewares/offline-idempotency.ts",
+    );
+    const onlinePolicy = read(
+      "artifacts/api-server/src/lib/online-idempotency-policy.ts",
+    );
+    const onlineStepUp = read(
+      "artifacts/api-server/src/middlewares/online-idempotency-step-up.ts",
+    );
     const policy = read(
       "artifacts/api-server/src/lib/api-route-access-policy.ts",
     );
@@ -22,6 +32,21 @@ describe("R16-C2 authenticated external account surface", () => {
     expect(route).toContain("z.strictObject");
     expect(route).toContain("bcrypt.hash(body.data.password, 12)");
     expect(route).not.toContain("password: body.data.password");
+    expect(onlinePolicy).toContain('"online:external-accounts:v1"');
+    expect(onlinePolicy.match(/pattern:/g)).toHaveLength(6);
+    expect(onlineStepUp).toContain("onlineIdempotencyPolicyForRequest(req)");
+    expect(onlineStepUp).toContain("requireVaultStepUp(req, res, next)");
+    expect(
+      app.indexOf('app.use("/api", requireOnlineIdempotencyStepUp)'),
+    ).toBeLessThan(app.indexOf('app.use("/api", parseApiRequestBody)'));
+    expect(app.indexOf('app.use("/api", parseApiRequestBody)')).toBeLessThan(
+      app.indexOf('app.use("/api", enforceDurableIdempotency)'),
+    );
+    expect(idempotency).toContain("onlinePolicy?.scope ?? offlineScope");
+    expect(idempotency).toContain("encryptSecretValue(");
+    expect(idempotency).toContain("decryptSecretValue(");
+    expect(idempotency).toContain("`${context}:request-hash`");
+    expect(idempotency).toContain("`${context}:response-body`");
   });
 
   it("scopes portal data in SQL and exposes only a redacted network-only DTO", () => {

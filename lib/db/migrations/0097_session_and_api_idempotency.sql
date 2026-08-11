@@ -1,3 +1,7 @@
+-- Combined forward-only security foundation. Both changes were local-only and
+-- unapplied in production when the production quote migration became 0096.
+ALTER TABLE "users" ADD COLUMN "session_generation" integer DEFAULT 1 NOT NULL;
+--> statement-breakpoint
 CREATE TABLE "api_idempotency_records" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"user_id" integer NOT NULL,

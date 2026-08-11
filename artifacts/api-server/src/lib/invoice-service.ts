@@ -33,6 +33,10 @@ import {
   quoteItemsTable,
   quoteInvoiceLinksTable,
   jobGroupsTable,
+  accountingAggregateHeadsTable,
+  accountingDocumentVersionsTable,
+  accountingLifecycleEventsTable,
+  accountingPaymentEventsTable,
   type BillingSettings,
   type MaterialMarkupRule,
   type Invoice,
@@ -75,6 +79,39 @@ import {
   presentInvoiceLines,
   type MaterialDisplayMode,
 } from "./invoice-line-presentation";
+import {
+  buildIssuedInvoiceAccountingEvidence,
+  isAccountingIssueInvoiceDualWriteEnabled,
+} from "./accounting-invoice-issue-evidence";
+import {
+  buildInvoiceCancellationAccountingEvidence,
+  invoiceCancellationObjectPath,
+  isAccountingCancelInvoiceDualWriteEnabled,
+} from "./accounting-invoice-cancellation-evidence";
+import {
+  appendAccountingCorrectionBundleInTransaction,
+  appendAccountingLifecycleEventInTransaction,
+  appendAccountingPaymentEventInTransaction,
+  appendInitialAccountingVersionInTransaction,
+} from "./accounting-persistence-contract";
+import {
+  accountingPaymentEventFromRow,
+  createAccountingPersistenceDbAdapter,
+} from "./accounting-persistence-db-adapter";
+import {
+  verifyCanonicalAccountingDocumentVersionJsonBytes,
+  type AccountingDocumentVersionV1,
+} from "./accounting-document-version-contract";
+import {
+  buildInvoicePaymentAccountingEvidence,
+  buildInvoiceSentAccountingEvidence,
+  isAccountingBankPaymentDualWriteEnabled,
+  isAccountingInvoiceStatusDualWriteEnabled,
+} from "./accounting-invoice-status-evidence";
+import {
+  verifyCanonicalAccountingLifecycleEntryJsonBytes,
+  type AccountingLifecycleEventV1,
+} from "./accounting-lifecycle-event-contract";
 
 const objectStorage = new ObjectStorageService();
 
@@ -536,8 +573,7 @@ async function getJobAutomaticBillingAggregates(
     aggregate.recordedSessionCount += 1;
     if (row.saleRateSnapshot != null) {
       aggregate.recordedWorkAmount = round2(
-        aggregate.recordedWorkAmount +
-          hours * num(row.saleRateSnapshot),
+        aggregate.recordedWorkAmount + hours * num(row.saleRateSnapshot),
       );
     }
   }
@@ -699,14 +735,14 @@ async function getActivityBillingAggregates(
       ),
     );
   for (const session of workSessions) {
-    if (session.activityId == null || session.saleRateSnapshot == null) continue;
+    if (session.activityId == null || session.saleRateSnapshot == null)
+      continue;
     const hours = round2((session.durationSeconds ?? 0) / 3600);
     if (hours === 0) continue;
     const entry = out.get(session.activityId);
     if (entry) {
       entry.recordedWorkAmount = round2(
-        entry.recordedWorkAmount +
-          hours * num(session.saleRateSnapshot),
+        entry.recordedWorkAmount + hours * num(session.saleRateSnapshot),
       );
     }
   }
@@ -971,10 +1007,7 @@ export async function listUnbilledCustomers() {
       emptyEntry(job.customerId, customer.companyName);
     entry.jobCount += 1;
     entry.totalPrice += automaticJobLabourTotal(job, jobAggregate);
-    entry.totalTransportCost += effectiveTransportCost(
-      job,
-      transportRatePerKm,
-    );
+    entry.totalTransportCost += effectiveTransportCost(job, transportRatePerKm);
     entry.totalParking += num(job.parking);
     entry.totalFines += num(job.fines);
     entry.orientationalTotal += jobOrientationalTotal(
@@ -1033,10 +1066,7 @@ export async function listUnbilledCustomers() {
 
 export async function getUnbilledCustomerDetail(customerId: number) {
   const [[customer], settings] = await Promise.all([
-    db
-      .select()
-      .from(customersTable)
-      .where(eq(customersTable.id, customerId)),
+    db.select().from(customersTable).where(eq(customersTable.id, customerId)),
     ensureBillingSettings(),
   ]);
   if (!customer) throw appError(404, "Zákazník nenalezen.");
@@ -1292,9 +1322,7 @@ export function serializeInvoice(row: Invoice) {
     constantSymbol: row.constantSymbol,
     specificSymbol: row.specificSymbol,
     vatModeDefault: row.vatModeDefault,
-    materialDisplayMode: normalizeMaterialDisplayMode(
-      row.materialDisplayMode,
-    ),
+    materialDisplayMode: normalizeMaterialDisplayMode(row.materialDisplayMode),
     subtotalWithoutVat: num(row.subtotalWithoutVat),
     totalVat: num(row.totalVat),
     totalWithVat: num(row.totalWithVat),
@@ -1563,9 +1591,7 @@ async function buildProposedLines(
       throw appError(
         409,
         `Zakázka „${job.title}" je označena jako nefakturovaná${
-          job.billingExclusionReason
-            ? ` (${job.billingExclusionReason})`
-            : ""
+          job.billingExclusionReason ? ` (${job.billingExclusionReason})` : ""
         }.`,
       );
     }
@@ -1574,8 +1600,7 @@ async function buildProposedLines(
     const isFixedPrice = (job as any).pricingMode === "fixed_price";
     const includeJobPrice =
       opts.includeJobPrice !== false &&
-      (opts.includeJobPriceIds == null ||
-        opts.includeJobPriceIds.has(jobId));
+      (opts.includeJobPriceIds == null || opts.includeJobPriceIds.has(jobId));
 
     if (isFixedPrice && includeJobPrice) {
       // Fixed-price mode: one single line at the agreed contract price.
@@ -2030,9 +2055,7 @@ async function resolveAutomaticLabourParents(
   return {
     jobPriceIds,
     recordedJobIds,
-    recordedActivityIds: activityIds.filter((id) =>
-      activitiesWithWork.has(id),
-    ),
+    recordedActivityIds: activityIds.filter((id) => activitiesWithWork.has(id)),
   };
 }
 
@@ -2303,8 +2326,7 @@ export async function createDraft(
         ? (automaticLabour?.recordedActivityIds ?? [])
         : activityIds;
     const recordedWork =
-      labourBillingMode === "recorded_time" ||
-      labourBillingMode === "automatic"
+      labourBillingMode === "recorded_time" || labourBillingMode === "automatic"
         ? await buildRecordedWorkLines(
             tx,
             recordedJobIds,
@@ -3149,6 +3171,7 @@ async function buildPdfData(
 
 export async function issueInvoice(id: number, actor: Actor) {
   await ensureBillingSettings();
+  const accountingDualWriteEnabled = isAccountingIssueInvoiceDualWriteEnabled();
 
   const pdfPath = await db.transaction(async (tx) => {
     const [invoice] = await tx
@@ -3242,6 +3265,7 @@ export async function issueInvoice(id: number, actor: Actor) {
       .select({
         jobId: invoiceSourceLinksTable.jobId,
         activityId: invoiceSourceLinksTable.activityId,
+        amountWithoutVat: invoiceSourceLinksTable.amountWithoutVat,
       })
       .from(invoiceSourceLinksTable)
       .where(eq(invoiceSourceLinksTable.invoiceId, id));
@@ -3383,11 +3407,42 @@ export async function issueInvoice(id: number, actor: Actor) {
       .where(eq(invoiceLinesTable.invoiceId, id))
       .orderBy(invoiceLinesTable.sortOrder, invoiceLinesTable.id);
 
+    const workLinks = await tx
+      .select({
+        sessionId: workSessionBillingLinksTable.sessionId,
+        amountWithoutVatSnapshot:
+          workSessionBillingLinksTable.amountWithoutVatSnapshot,
+      })
+      .from(workSessionBillingLinksTable)
+      .where(
+        and(
+          eq(workSessionBillingLinksTable.invoiceId, id),
+          eq(workSessionBillingLinksTable.status, "reserved"),
+        ),
+      );
+
     // Generate + store the PDF. If the upload throws, the whole transaction
     // rolls back (number increment included) — no half-issued invoice, no gap.
     const pdfData = await buildPdfData(updated, lines, settings);
     const pdfBuffer = generateInvoicePdf(pdfData);
     const objectPath = `/objects/invoices/${invoiceNumber}.pdf`;
+    if (accountingDualWriteEnabled) {
+      const evidence = buildIssuedInvoiceAccountingEvidence({
+        invoice: updated,
+        lines,
+        invoiceSourceLinks: links,
+        workSessionLinks: workLinks,
+        settings,
+        actor,
+        pdfBuffer,
+        objectPath,
+      });
+      await appendInitialAccountingVersionInTransaction(
+        createAccountingPersistenceDbAdapter(tx),
+        evidence.version,
+        evidence.event,
+      );
+    }
     await objectStorage.putPrivateObject(
       objectPath,
       pdfBuffer,
@@ -3414,15 +3469,6 @@ export async function issueInvoice(id: number, actor: Actor) {
         .where(inArray(activitiesTable.id, activityIds));
     }
 
-    const workLinks = await tx
-      .select({ sessionId: workSessionBillingLinksTable.sessionId })
-      .from(workSessionBillingLinksTable)
-      .where(
-        and(
-          eq(workSessionBillingLinksTable.invoiceId, id),
-          eq(workSessionBillingLinksTable.status, "reserved"),
-        ),
-      );
     if (workLinks.length) {
       await tx
         .update(workSessionBillingLinksTable)
@@ -3478,12 +3524,34 @@ export async function issueInvoice(id: number, actor: Actor) {
 // Cancel (storno) + status transitions
 // ---------------------------------------------------------------------------
 
+export const INVOICE_CANCELLATION_REASON_CODES = [
+  "customer_complaint",
+  "incorrect_job",
+  "billing_error",
+  "duplicate_invoice",
+  "order_cancelled",
+] as const;
+
+export type InvoiceCancellationReasonCode =
+  (typeof INVOICE_CANCELLATION_REASON_CODES)[number];
+
+export interface CancelInvoiceInput {
+  returnJobsToDone: boolean;
+  reasonCode: InvoiceCancellationReasonCode;
+}
+
 export async function cancelInvoice(
   id: number,
-  returnJobsToDone: boolean,
+  input: CancelInvoiceInput,
   actor: Actor,
 ) {
+  if (!INVOICE_CANCELLATION_REASON_CODES.includes(input.reasonCode)) {
+    throw appError(400, "Důvod storna není podporován.");
+  }
+  const accountingDualWriteEnabled =
+    isAccountingCancelInvoiceDualWriteEnabled();
   await db.transaction(async (tx) => {
+    const { reasonCode, returnJobsToDone } = input;
     const [invoice] = await tx
       .select()
       .from(invoicesTable)
@@ -3493,13 +3561,115 @@ export async function cancelInvoice(
     if (invoice.status === "cancelled") {
       throw appError(409, "Faktura je již stornována.");
     }
+    if (
+      invoice.status === "paid" ||
+      invoice.paidDate !== null ||
+      invoice.paidAmount !== null
+    ) {
+      throw appError(
+        409,
+        "Fakturu s platebním důkazem nelze přímo stornovat. Použijte navázanou opravu platby a účetní storno.",
+      );
+    }
+
+    const cancelledAt = new Date();
+    if (accountingDualWriteEnabled) {
+      if (!new Set(["issued", "sent"]).has(invoice.status)) {
+        throw appError(
+          409,
+          "Účetní storno lze vytvořit pouze k vystavené nebo odeslané faktuře.",
+        );
+      }
+      const [head] = await tx
+        .select({
+          versionHeadId: accountingAggregateHeadsTable.versionHeadId,
+          lifecycleHeadSequence:
+            accountingAggregateHeadsTable.lifecycleHeadSequence,
+          lifecycleHeadSha256:
+            accountingAggregateHeadsTable.lifecycleHeadSha256,
+        })
+        .from(accountingAggregateHeadsTable)
+        .where(eq(accountingAggregateHeadsTable.invoiceId, id))
+        .limit(1);
+      if (
+        !head?.versionHeadId ||
+        head.lifecycleHeadSequence === null ||
+        !head.lifecycleHeadSha256
+      ) {
+        throw appError(
+          409,
+          "Vystavená faktura nemá úplnou nativní účetní hlavu. Nejdříve ji zařaďte do řízeného legacy backfillu.",
+        );
+      }
+      const [targetRow] = await tx
+        .select({
+          canonicalJson: accountingDocumentVersionsTable.canonicalJson,
+        })
+        .from(accountingDocumentVersionsTable)
+        .where(eq(accountingDocumentVersionsTable.id, head.versionHeadId))
+        .limit(1);
+      if (!targetRow) {
+        throw appError(409, "Účetní hlava odkazuje na chybějící verzi.");
+      }
+      const targetVersion = verifyCanonicalAccountingDocumentVersionJsonBytes(
+        targetRow.canonicalJson,
+      );
+      if (
+        targetVersion.aggregate.kind !== "outgoing-invoice" ||
+        targetVersion.aggregate.id !== String(id)
+      ) {
+        throw appError(
+          409,
+          "Účetní hlava faktury neodpovídá zamčenému dokladu.",
+        );
+      }
+      const nextVersion = BigInt(targetVersion.version) + 1n;
+      const objectPath = invoiceCancellationObjectPath({
+        invoiceNumber: invoice.invoiceNumber ?? String(id),
+        nextVersion,
+        targetVersionId: targetVersion.versionId,
+        reasonCode,
+        recordedAt: cancelledAt,
+      });
+      let evidence;
+      try {
+        evidence = buildInvoiceCancellationAccountingEvidence({
+          targetVersion,
+          actor,
+          reasonCode,
+          recordedAt: cancelledAt,
+          nextLifecycleSequence: head.lifecycleHeadSequence + 1n,
+          previousLifecycleEventSha256: head.lifecycleHeadSha256,
+          objectPath,
+        });
+      } catch (error) {
+        throw appError(
+          409,
+          `Účetní storno nelze bezpečně vytvořit: ${error instanceof Error ? error.message : "neznámá chyba"}`,
+        );
+      }
+      await appendAccountingCorrectionBundleInTransaction(
+        createAccountingPersistenceDbAdapter(tx),
+        {
+          sourceVersion: evidence.cancellationVersion,
+          targetVersion: evidence.targetVersion,
+          relation: evidence.relation,
+          lifecycleEvent: evidence.event,
+        },
+      );
+      await objectStorage.putPrivateObject(
+        objectPath,
+        evidence.pdfBuffer,
+        "application/pdf",
+      );
+    }
 
     await tx
       .update(invoicesTable)
       .set({
         status: "cancelled",
-        cancelledAt: new Date(),
-        updatedAt: new Date(),
+        cancelledAt,
+        updatedAt: cancelledAt,
       })
       .where(eq(invoicesTable.id, id));
 
@@ -3560,7 +3730,7 @@ export async function cancelInvoice(
         returnJobsToDone && jobIds.length
           ? ` (zakázky vráceny: ${jobIds.join(", ")})`
           : ""
-      }${activityIds.length ? ` (akce uvolněny: ${activityIds.join(", ")})` : ""}`,
+      }${activityIds.length ? ` (akce uvolněny: ${activityIds.join(", ")})` : ""} (důvod: ${reasonCode})`,
       method: "POST",
       path: `/billing/invoices/${id}/cancel`,
     });
@@ -3590,42 +3760,352 @@ export function paidTransitionFields(
       : invoice.paidAmount != null
         ? num(invoice.paidAmount)
         : num(invoice.totalWithVat);
+  if (!Number.isFinite(amount) || amount < 0) {
+    throw appError(400, "Zaplacená částka musí být konečné nezáporné číslo.");
+  }
+  const paidDate = input.paidDate ?? invoice.paidDate ?? todayIso();
+  const parsedPaidDate = /^\d{4}-\d{2}-\d{2}$/.test(paidDate)
+    ? new Date(`${paidDate}T00:00:00.000Z`)
+    : null;
+  if (
+    !parsedPaidDate ||
+    Number.isNaN(parsedPaidDate.getTime()) ||
+    parsedPaidDate.toISOString().slice(0, 10) !== paidDate
+  ) {
+    throw appError(
+      400,
+      "Datum platby musí být platné datum ve formátu YYYY-MM-DD.",
+    );
+  }
   return {
-    paidDate: input.paidDate ?? invoice.paidDate ?? todayIso(),
+    paidDate,
     paidAmount: String(round2(amount)),
   };
+}
+
+type NativeInvoiceAccountingContext = {
+  version: AccountingDocumentVersionV1;
+  lifecycleEvent: AccountingLifecycleEventV1;
+  lifecycleSequence: bigint;
+  lifecycleSha256: string;
+  paymentSequence: bigint | null;
+  paymentSha256: string | null;
+};
+
+async function loadNativeInvoiceAccountingContext(
+  tx: Tx,
+  invoiceId: number,
+): Promise<NativeInvoiceAccountingContext | null> {
+  const [head] = await tx
+    .select({
+      versionHeadId: accountingAggregateHeadsTable.versionHeadId,
+      lifecycleHeadSequence:
+        accountingAggregateHeadsTable.lifecycleHeadSequence,
+      lifecycleHeadId: accountingAggregateHeadsTable.lifecycleHeadId,
+      lifecycleHeadSha256: accountingAggregateHeadsTable.lifecycleHeadSha256,
+      paymentHeadSequence: accountingAggregateHeadsTable.paymentHeadSequence,
+      paymentHeadId: accountingAggregateHeadsTable.paymentHeadId,
+      paymentHeadSha256: accountingAggregateHeadsTable.paymentHeadSha256,
+    })
+    .from(accountingAggregateHeadsTable)
+    .where(eq(accountingAggregateHeadsTable.invoiceId, invoiceId))
+    .limit(1);
+  if (!head) return null;
+  if (
+    !head.versionHeadId ||
+    head.lifecycleHeadSequence === null ||
+    !head.lifecycleHeadId ||
+    !head.lifecycleHeadSha256
+  ) {
+    throw appError(409, "Účetní hlava faktury je neúplná.");
+  }
+  const paymentHeadParts = [
+    head.paymentHeadSequence,
+    head.paymentHeadId,
+    head.paymentHeadSha256,
+  ];
+  if (
+    paymentHeadParts.some((value) => value !== null) &&
+    paymentHeadParts.some((value) => value === null)
+  ) {
+    throw appError(409, "Platební účetní hlava faktury je neúplná.");
+  }
+
+  const [versionRow] = await tx
+    .select({ canonicalJson: accountingDocumentVersionsTable.canonicalJson })
+    .from(accountingDocumentVersionsTable)
+    .where(eq(accountingDocumentVersionsTable.id, head.versionHeadId))
+    .limit(1);
+  if (!versionRow) {
+    throw appError(409, "Účetní hlava odkazuje na chybějící verzi.");
+  }
+  const version = verifyCanonicalAccountingDocumentVersionJsonBytes(
+    versionRow.canonicalJson,
+  );
+  if (
+    version.aggregate.kind !== "outgoing-invoice" ||
+    version.aggregate.id !== String(invoiceId) ||
+    !new Set(["issued", "correction"]).has(version.purpose)
+  ) {
+    throw appError(
+      409,
+      "Aktuální účetní verze neodpovídá aktivní vydané faktuře.",
+    );
+  }
+
+  const [lifecycleRow] = await tx
+    .select({
+      id: accountingLifecycleEventsTable.id,
+      entrySha256: accountingLifecycleEventsTable.entrySha256,
+      canonicalJson: accountingLifecycleEventsTable.canonicalJson,
+    })
+    .from(accountingLifecycleEventsTable)
+    .where(eq(accountingLifecycleEventsTable.id, head.lifecycleHeadId))
+    .limit(1);
+  if (!lifecycleRow) {
+    throw appError(
+      409,
+      "Účetní hlava odkazuje na chybějící lifecycle událost.",
+    );
+  }
+  const lifecycleValue = verifyCanonicalAccountingLifecycleEntryJsonBytes(
+    lifecycleRow.canonicalJson,
+  );
+  if (!("eventId" in lifecycleValue)) {
+    throw appError(409, "Účetní lifecycle hlava odkazuje na jiný typ důkazu.");
+  }
+  const lifecycleEvent = lifecycleValue as AccountingLifecycleEventV1;
+  if (
+    lifecycleEvent.eventId !== lifecycleRow.id ||
+    lifecycleEvent.integrity.entrySha256 !== lifecycleRow.entrySha256 ||
+    lifecycleEvent.integrity.entrySha256 !== head.lifecycleHeadSha256 ||
+    lifecycleEvent.sequence !== head.lifecycleHeadSequence.toString() ||
+    lifecycleEvent.aggregate.kind !== "outgoing-invoice" ||
+    lifecycleEvent.aggregate.id !== String(invoiceId) ||
+    lifecycleEvent.aggregate.versionId !== version.versionId
+  ) {
+    throw appError(409, "Účetní lifecycle hlava faktury je nekonzistentní.");
+  }
+
+  if (head.paymentHeadId !== null) {
+    const [paymentRow] = await tx
+      .select()
+      .from(accountingPaymentEventsTable)
+      .where(eq(accountingPaymentEventsTable.id, head.paymentHeadId))
+      .limit(1);
+    if (!paymentRow) {
+      throw appError(
+        409,
+        "Platební účetní hlava odkazuje na chybějící událost.",
+      );
+    }
+    const paymentEvent = accountingPaymentEventFromRow(paymentRow);
+    if (
+      paymentEvent.invoiceId !== String(invoiceId) ||
+      paymentEvent.paymentEventId !== head.paymentHeadId ||
+      paymentEvent.sequence !== head.paymentHeadSequence!.toString() ||
+      paymentEvent.integrity.entrySha256 !== head.paymentHeadSha256
+    ) {
+      throw appError(409, "Platební účetní hlava faktury je nekonzistentní.");
+    }
+  }
+
+  return {
+    version,
+    lifecycleEvent,
+    lifecycleSequence: head.lifecycleHeadSequence,
+    lifecycleSha256: head.lifecycleHeadSha256,
+    paymentSequence: head.paymentHeadSequence,
+    paymentSha256: head.paymentHeadSha256,
+  };
+}
+
+function requireNativeInvoiceAccountingContext(
+  context: NativeInvoiceAccountingContext | null,
+): NativeInvoiceAccountingContext {
+  if (!context) {
+    throw appError(
+      409,
+      "Faktura nemá nativní účetní evidenci. Nejdříve ji zařaďte do řízeného legacy backfillu.",
+    );
+  }
+  return context;
+}
+
+function assertLifecycleMatchesInvoiceProjection(
+  invoiceStatus: string,
+  context: NativeInvoiceAccountingContext,
+): void {
+  if (invoiceStatus === "sent" && context.lifecycleEvent.eventType !== "sent") {
+    throw appError(
+      409,
+      "Stav odeslané faktury nemá odpovídající append-only událost.",
+    );
+  }
+  if (
+    invoiceStatus === "issued" &&
+    !new Set(["issued", "correction_linked"]).has(
+      context.lifecycleEvent.eventType,
+    )
+  ) {
+    throw appError(
+      409,
+      "Stav vystavené faktury neodpovídá účetní lifecycle hlavě.",
+    );
+  }
 }
 
 export async function updateInvoiceStatus(
   id: number,
   input: InvoiceStatusInput,
+  actor: Actor,
 ) {
-  const { status } = input;
-  const [invoice] = await db
-    .select()
-    .from(invoicesTable)
-    .where(eq(invoicesTable.id, id));
-  if (!invoice) throw appError(404, "Faktura nenalezena.");
-  if (invoice.status === "draft" || invoice.status === "cancelled") {
-    throw appError(409, "Stav koncept/storno nelze takto měnit.");
-  }
-  const allowed: Record<string, string[]> = {
-    sent: ["issued", "sent", "paid"],
-    paid: ["issued", "sent", "paid"],
-  };
-  if (!allowed[status].includes(invoice.status)) {
-    throw appError(409, `Přechod ${invoice.status} → ${status} není povolen.`);
-  }
-  const set: Record<string, unknown> = { status, updatedAt: new Date() };
-  if (status === "paid") {
-    // Default to today and the full invoice total when not explicitly supplied.
-    Object.assign(set, paidTransitionFields(invoice, input));
-  } else {
-    // Reverting a paid invoice back to "sent" clears the recorded payment.
-    set.paidDate = null;
-    set.paidAmount = null;
-  }
-  await db.update(invoicesTable).set(set).where(eq(invoicesTable.id, id));
+  const accountingDualWriteEnabled =
+    isAccountingInvoiceStatusDualWriteEnabled();
+  await db.transaction(async (tx) => {
+    const { status } = input;
+    const [invoice] = await tx
+      .select()
+      .from(invoicesTable)
+      .where(eq(invoicesTable.id, id))
+      .for("update");
+    if (!invoice) throw appError(404, "Faktura nenalezena.");
+    if (invoice.status === "draft" || invoice.status === "cancelled") {
+      throw appError(409, "Stav koncept/storno nelze takto měnit.");
+    }
+    if (
+      status === "sent" &&
+      (input.paidDate != null || input.paidAmount != null)
+    ) {
+      throw appError(
+        400,
+        "Platební údaje lze zadat pouze při označení faktury jako zaplacené.",
+      );
+    }
+
+    if (invoice.status === "paid") {
+      if (status !== "paid") {
+        throw appError(
+          409,
+          "Zapsanou platbu nelze odstranit změnou stavu. Použijte navázanou opravu nebo storno.",
+        );
+      }
+      const repeated = paidTransitionFields(invoice, input);
+      if (
+        repeated.paidDate !== invoice.paidDate ||
+        Number(repeated.paidAmount) !== Number(invoice.paidAmount)
+      ) {
+        throw appError(
+          409,
+          "Zapsané platební údaje nelze přepsat. Použijte navázanou opravu platby.",
+        );
+      }
+      if (accountingDualWriteEnabled) {
+        const context = requireNativeInvoiceAccountingContext(
+          await loadNativeInvoiceAccountingContext(tx, id),
+        );
+        if (
+          context.paymentSequence === null ||
+          context.paymentSha256 === null
+        ) {
+          throw appError(
+            409,
+            "Zaplacená faktura nemá odpovídající append-only platební událost.",
+          );
+        }
+      }
+      return;
+    }
+
+    if (status === "sent" && invoice.status === "sent") {
+      if (accountingDualWriteEnabled) {
+        const context = requireNativeInvoiceAccountingContext(
+          await loadNativeInvoiceAccountingContext(tx, id),
+        );
+        assertLifecycleMatchesInvoiceProjection(invoice.status, context);
+      }
+      return;
+    }
+    if (invoice.status !== "issued" && invoice.status !== "sent") {
+      throw appError(
+        409,
+        `Přechod ${invoice.status} → ${status} není povolen.`,
+      );
+    }
+
+    const now = new Date();
+    const set: Record<string, unknown> = { status, updatedAt: now };
+    const reason =
+      status === "paid"
+        ? "manual_payment_confirmation"
+        : "manual_delivery_confirmation";
+    const paid =
+      status === "paid" ? paidTransitionFields(invoice, input) : null;
+    if (paid) {
+      // Default to today and the full invoice total when not explicitly supplied.
+      Object.assign(set, paid);
+    }
+    if (accountingDualWriteEnabled) {
+      const context = requireNativeInvoiceAccountingContext(
+        await loadNativeInvoiceAccountingContext(tx, id),
+      );
+      assertLifecycleMatchesInvoiceProjection(invoice.status, context);
+      const adapter = createAccountingPersistenceDbAdapter(tx);
+      if (status === "sent") {
+        const evidence = buildInvoiceSentAccountingEvidence({
+          version: context.version,
+          actor,
+          recordedAt: now,
+          nextLifecycleSequence: context.lifecycleSequence + 1n,
+          previousLifecycleEventSha256: context.lifecycleSha256,
+        });
+        await appendAccountingLifecycleEventInTransaction(
+          adapter,
+          evidence.event,
+          context.version,
+        );
+      } else {
+        if (!paid) throw new Error("Paid transition fields were not built.");
+        if (
+          context.paymentSequence !== null ||
+          context.paymentSha256 !== null
+        ) {
+          throw appError(
+            409,
+            "Faktura už má platební účetní hlavu; další platba vyžaduje samostatný append-only přechod.",
+          );
+        }
+        const evidence = buildInvoicePaymentAccountingEvidence({
+          version: context.version,
+          actor,
+          recordedAt: now,
+          occurredOn: paid.paidDate,
+          amount: paid.paidAmount,
+          currency: invoice.currency,
+          source: "manual",
+          bankSourceReference: null,
+          nextPaymentSequence: 0n,
+          previousPaymentEventSha256: null,
+        });
+        await appendAccountingPaymentEventInTransaction(
+          adapter,
+          evidence.event,
+          context.version,
+        );
+      }
+    }
+    await tx.update(invoicesTable).set(set).where(eq(invoicesTable.id, id));
+    await tx.insert(auditLogTable).values({
+      actorUserId: actor.userId,
+      actorName: actor.name,
+      action: "update",
+      entityType: "invoices",
+      entityId: id,
+      summary: `Stav faktury ${invoice.invoiceNumber ?? `#${id}`} změněn ${invoice.status} → ${status} (${reason})`,
+      method: "PATCH",
+      path: `/billing/invoices/${id}/status`,
+    });
+  });
   return getInvoiceDetail(id);
 }
 
@@ -3827,14 +4307,17 @@ export async function confirmBankPayments(
 ): Promise<BankPaymentConfirmResult> {
   // Dedupe by invoiceId (a statement could list two credits to one invoice).
   const seen = new Set<number>();
-  const unique = payments.filter((p) => {
-    if (seen.has(p.invoiceId)) return false;
-    seen.add(p.invoiceId);
-    return true;
-  });
+  const unique = payments
+    .filter((p) => {
+      if (seen.has(p.invoiceId)) return false;
+      seen.add(p.invoiceId);
+      return true;
+    })
+    .sort((left, right) => left.invoiceId - right.invoiceId);
 
   const skipped: { invoiceId: number; reason: string }[] = [];
   let paidCount = 0;
+  const accountingDualWriteEnabled = isAccountingBankPaymentDualWriteEnabled();
 
   await db.transaction(async (tx) => {
     for (const p of unique) {
@@ -3870,9 +4353,57 @@ export async function confirmBankPayments(
         paidDate: p.paymentDate ?? null,
         paidAmount: p.amount ?? null,
       });
+      const now = new Date();
+      if (accountingDualWriteEnabled) {
+        const context = await loadNativeInvoiceAccountingContext(
+          tx,
+          p.invoiceId,
+        );
+        if (!context) {
+          skipped.push({
+            invoiceId: p.invoiceId,
+            reason:
+              "Faktura nemá nativní účetní evidenci; vyžaduje řízený legacy backfill.",
+          });
+          continue;
+        }
+        assertLifecycleMatchesInvoiceProjection(invoice.status, context);
+        if (
+          context.paymentSequence !== null ||
+          context.paymentSha256 !== null
+        ) {
+          throw appError(
+            409,
+            "Aktivní faktura už má platební účetní hlavu; další platba vyžaduje samostatný append-only přechod.",
+          );
+        }
+        const evidence = buildInvoicePaymentAccountingEvidence({
+          version: context.version,
+          actor,
+          recordedAt: now,
+          occurredOn: paid.paidDate,
+          amount: paid.paidAmount,
+          currency: invoice.currency,
+          source: "bank_import",
+          bankSourceReference: {
+            amount: paid.paidAmount,
+            currency: invoice.currency,
+            occurredOn: paid.paidDate,
+            variableSymbol: p.variableSymbol?.trim() || null,
+            counterparty: p.counterparty?.trim() || null,
+          },
+          nextPaymentSequence: 0n,
+          previousPaymentEventSha256: null,
+        });
+        await appendAccountingPaymentEventInTransaction(
+          createAccountingPersistenceDbAdapter(tx),
+          evidence.event,
+          context.version,
+        );
+      }
       await tx
         .update(invoicesTable)
-        .set({ status: "paid", updatedAt: new Date(), ...paid })
+        .set({ status: "paid", updatedAt: now, ...paid })
         .where(eq(invoicesTable.id, p.invoiceId));
 
       const parts: string[] = [];

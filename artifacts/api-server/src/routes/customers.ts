@@ -16,6 +16,7 @@ import {
 import { sendEmailWithPdf } from "../lib/email";
 import { requireRole, requireVaultStepUp } from "../middlewares/auth";
 import { requirePermission } from "../middlewares/permissions";
+import { blockDirectPrivacyDeletion } from "../middlewares/privacy-case-required";
 import { decodeCanonicalBase64 } from "../lib/base64-file";
 import { contentMatchesType } from "../lib/fileSignature";
 
@@ -147,7 +148,10 @@ router.patch("/customers/:id", async (req, res): Promise<void> => {
   res.json(serializeCustomer(customer));
 });
 
-router.delete("/customers/:id", async (req, res): Promise<void> => {
+router.delete(
+  "/customers/:id",
+  blockDirectPrivacyDeletion("customer_hard_delete"),
+  async (req, res): Promise<void> => {
   const params = DeleteCustomerParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -176,7 +180,8 @@ router.delete("/customers/:id", async (req, res): Promise<void> => {
   });
 
   res.sendStatus(204);
-});
+  },
+);
 
 router.get("/customers/:id/financial-summary", requireRole("admin", "master"), async (req, res): Promise<void> => {
   const params = GetCustomerFinancialSummaryParams.safeParse(req.params);

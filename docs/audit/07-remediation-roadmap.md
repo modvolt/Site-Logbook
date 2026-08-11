@@ -15,26 +15,26 @@ Roadmapa neznamená jeden release. R00–R07 se mají realizovat v malých izolo
 
 ### Stav realizace po FÁZI 8.11
 
-| Workstream | Stav | Důkaz | Zbývající hranice |
-|---|---|---|---|
-| R00 | Dokončeno lokálně | `f1bb210`, `2c660c1`; hermetický `pnpm gate:release` prošel 2026-08-01 | potvrdit první běh nového GitHub Actions workflow; rozšířený ephemeral DB/E2E stack patří do R14 |
-| R01 | Dokončeno lokálně | `da5e734`, `f5f6349`, `8ddea6d`, `b5ef912`, `bf18843`; izolovaný PostgreSQL test prokázal paralelní setup, rotaci cookie, revokaci dvou agents a odmítnutí znovuuložené staré session | před produkcí aplikovat migraci `0096`, připravit oznámení jednorázového odhlášení a sledovat 401/login chyby |
-| R02 | Dokončeno lokálně | `77422e6`, `8d3c4b9`, `96e5e96`, `cf34a09`, `fbff6fa`, `5b7dbb0`; 397 unikátních method/path registrací je generováno ze zdrojů a každá má explicitní public, authenticated-only nebo permission policy | před produkcí read-only inventura legitimních tras/objektů, měřitelný rollout a monitoring nových `route_not_authorized` odpovědí |
-| R03 | Dokončeno lokálně | `71bf9d8`, `7e9d819`, `45937f6`, `583eaa4`; identity partition a live scope kontrolu doplňuje atomický IndexedDB lease, durable serverový ledger pro všechny offline mutace, SHA-256 raw uploadů a řízené retry/conflict/ambiguous stavy | před produkcí aplikovat `0097`, nasadit server a frontend jako jeden řízený rollout; plný browser E2E se dvěma reálnými taby zůstává v R14 |
-| R04 | Dokončeno lokálně | `63ba086`; auth před nákladným parsingem, pevné body/decompression limity, strukturální MIME validace, re-decode podpisů, scanner/quarantine hook, SHA-256 metadata a durable upload ledger `0098` | před produkcí aplikovat `0098`, ověřit scanner a nasadit API+proxy koordinovaně; inventura, retence a orphan cleanup zůstávají v R12 |
-| R05 | Dokončeno lokálně | `5d1b041`; versioned authenticated envelope, dual-read, měřený backfill a šifrování nových DB záloh přes oddělený keyring | před produkcí schválit key custody/DR, aplikovat `0099`, provést backfill, rotaci a úplný restore drill |
-| R06 | Dokončeno lokálně | `b620014`, `a749475`, `fefc67e`; důvěryhodný veřejný origin, hash-only one-time tokeny, neměnné job/quote snapshoty a PDF hashe, atomické decision/signature eventy a korekční verze | před produkcí aplikovat `0101` a `0102`, oznámit zneplatnění legacy job/quote odkazů, ověřit object storage a provést řízený cutover; starým dokumentům nelze zpětně přisoudit neměnnost |
+| Workstream | Stav              | Důkaz                                                                                                                                                                                                                                    | Zbývající hranice                                                                                                                                                                        |
+| ---------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R00        | Dokončeno lokálně | `f1bb210`, `2c660c1`; hermetický `pnpm gate:release` prošel 2026-08-01                                                                                                                                                                   | potvrdit první běh nového GitHub Actions workflow; rozšířený ephemeral DB/E2E stack patří do R14                                                                                         |
+| R01        | Dokončeno lokálně | `da5e734`, `f5f6349`, `8ddea6d`, `b5ef912`, `bf18843`; izolovaný PostgreSQL test prokázal paralelní setup, rotaci cookie, revokaci dvou agents a odmítnutí znovuuložené staré session                                                    | před produkcí aplikovat migraci `0096`, připravit oznámení jednorázového odhlášení a sledovat 401/login chyby                                                                            |
+| R02        | Dokončeno lokálně | `77422e6`, `8d3c4b9`, `96e5e96`, `cf34a09`, `fbff6fa`, `5b7dbb0`; 397 unikátních method/path registrací je generováno ze zdrojů a každá má explicitní public, authenticated-only nebo permission policy                                  | před produkcí read-only inventura legitimních tras/objektů, měřitelný rollout a monitoring nových `route_not_authorized` odpovědí                                                        |
+| R03        | Dokončeno lokálně | `71bf9d8`, `7e9d819`, `45937f6`, `583eaa4`; identity partition a live scope kontrolu doplňuje atomický IndexedDB lease, durable serverový ledger pro všechny offline mutace, SHA-256 raw uploadů a řízené retry/conflict/ambiguous stavy | před produkcí aplikovat `0097`, nasadit server a frontend jako jeden řízený rollout; plný browser E2E se dvěma reálnými taby zůstává v R14                                               |
+| R04        | Dokončeno lokálně | `63ba086`; auth před nákladným parsingem, pevné body/decompression limity, strukturální MIME validace, re-decode podpisů, scanner/quarantine hook, SHA-256 metadata a durable upload ledger `0098`                                       | před produkcí aplikovat `0098`, ověřit scanner a nasadit API+proxy koordinovaně; inventura, retence a orphan cleanup zůstávají v R12                                                     |
+| R05        | Dokončeno lokálně | `5d1b041`; versioned authenticated envelope, dual-read, měřený backfill a šifrování nových DB záloh přes oddělený keyring                                                                                                                | před produkcí schválit key custody/DR, aplikovat `0099`, provést backfill, rotaci a úplný restore drill                                                                                  |
+| R06        | Dokončeno lokálně | `b620014`, `a749475`, `fefc67e`; důvěryhodný veřejný origin, hash-only one-time tokeny, neměnné job/quote snapshoty a PDF hashe, atomické decision/signature eventy a korekční verze                                                     | před produkcí aplikovat `0101` a `0102`, oznámit zneplatnění legacy job/quote odkazů, ověřit object storage a provést řízený cutover; starým dokumentům nelze zpětně přisoudit neměnnost |
 
 FÁZE 8.1–8.12 nic nenasadily ani neposlaly na remote. R05 a R06 jsou lokálně implementačně uzavřené. FÁZE 8.10 uzavřela hranici důvěryhodného veřejného originu, FÁZE 8.11 sjednotila lifecycle veřejných credentialů a FÁZE 8.12 svázala podpis zakázky i rozhodnutí o nabídce s neměnnou verzí, snapshotem a PDF hashem. R07 zůstává otevřený, proto celá FÁZE 8 ještě není dokončena. Podrobnosti a reprodukovatelné kontroly jsou v [08-phase-checkpoint.md](08-phase-checkpoint.md), [08-document-version-design.md](08-document-version-design.md), [08-secret-encryption-runbook.md](08-secret-encryption-runbook.md), [08-public-origin-runbook.md](08-public-origin-runbook.md) a [08-public-token-runbook.md](08-public-token-runbook.md).
 
 ## 2. Definice priorit
 
-| Priorita | Význam v této roadmapě |
-|---|---|
-| **P0 – okamžitě** | Riziko převzetí účtu, obejití oprávnění, úniku citlivých dat, podvržení dokumentu, zneužití uploadu nebo přehrání PWA dat pod jinou identitou. |
-| **P1 – před dalším významným produkčním rozvojem** | Obnova dat, audit/provenance, DB konzistence, lifecycle dokumentů, GDPR, testovací izolace, monitoring a spolehlivé externí integrace. |
-| **P2 – významné provozní a administrativní zlepšení** | Snížení večerní administrativy, dávkové zpracování, jednotný inbox, drafty a sjednocení pracovních modulů. |
-| **P3 – pozdější optimalizace** | Výkon po změření, hlasové vstupy, vizuální/accessibility polish a pokročilé assurance techniky. |
+| Priorita                                              | Význam v této roadmapě                                                                                                                         |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| **P0 – okamžitě**                                     | Riziko převzetí účtu, obejití oprávnění, úniku citlivých dat, podvržení dokumentu, zneužití uploadu nebo přehrání PWA dat pod jinou identitou. |
+| **P1 – před dalším významným produkčním rozvojem**    | Obnova dat, audit/provenance, DB konzistence, lifecycle dokumentů, GDPR, testovací izolace, monitoring a spolehlivé externí integrace.         |
+| **P2 – významné provozní a administrativní zlepšení** | Snížení večerní administrativy, dávkové zpracování, jednotný inbox, drafty a sjednocení pracovních modulů.                                     |
+| **P3 – pozdější optimalizace**                        | Výkon po změření, hlasové vstupy, vizuální/accessibility polish a pokročilé assurance techniky.                                                |
 
 ## 3. Závislosti a pořadí vln
 
@@ -53,34 +53,34 @@ R00 je minimální prerequisite, nikoli záminka odložit P0. Plný testovací s
 
 ## 4. Portfolio workstreamů
 
-| ID | Priorita | Workstream | Složitost | Migrace | Odstávka |
-|---|---|---|---|---|---|
-| R00 | P0 | Minimální izolovaný release gate | M | Ne | Ne |
-| R01 | P0 | Účty, obnova hesla a session lifecycle | M | Možná malá | Ne |
-| R02 | P0 | Fail-closed autorizace a objektové vlastnictví | L | Pravděpodobně | Ne plánovaná |
-| R03 | P0 | Identity-safe PWA cache a offline fronta | L | Browser storage | Ne |
-| R04 | P0 | Request/upload/object-storage ochrana | L | Možný metadata backfill | Ne plánovaná |
-| R05 | P0 | Šifrování trezoru a provozních secretů | XL | Ano | Možná krátká při cutoveru |
-| R06 | P0 | Veřejné tokeny a neměnné podepisované snapshoty | XL | Ano | Ne plánovaná |
-| R07 | P0 | Perimetr: CSP, dependencies, TLS a interní routy | M | Ne | Ne |
-| R08 | P1 | Úplná záloha a prokázaná obnova DB + objektů | L | Ne produkční; izolovaná kopie | Ne |
-| R09 | P1 | Durable audit, provenance a důkazní export | XL | Ano | Ne plánovaná |
-| R10 | P1 | GDPR governance, DSAR, retence a incidenty | L/XL | Ano | Ne plánovaná |
-| R11 | P1 | DB invarianty, optimistic locking a online migrace | XL | Ano | Možné krátké DDL okno |
-| R12 | P1 | Durable outbox a reconciler DB–storage–SMTP | XL | Ano | Ne plánovaná |
-| R13 | P1 | Neměnný účetní a dokumentový lifecycle | XL | Ano | Ne plánovaná |
-| R14 | P1 | Izolované DB/E2E/fault testovací prostředí | L | Ne produkční | Ne |
-| R15 | P1 | Monitoring, alerty, fronty a provozní incidenty | M/L | Ne nebo malé metriky | Ne |
-| R16 | P1 | Offboarding a dočasný scoped externí přístup | L | Ano | Ne |
-| R17 | P1 | Historie času, sazeb, cen a korekcí | L/XL | Ano | Ne plánovaná |
-| R18 | P2 | Konsolidovaný billing preview a document-level batch | L/XL | Pravděpodobně | Ne |
-| R19 | P2 | Jednotný inbox výjimek s vlastníkem a SLA | L | Ano | Ne |
-| R20 | P2 | Obecné user-scoped drafty a sync/conflict model | XL | Ano, DB + IndexedDB | Ne |
-| R21 | P2 | Projekt → Zakázka → Výjezd a ukončení `activities` | XL | Ano, vysoce riziková | Možný řízený cutover |
-| R22 | P2 | Režim Na místě, progressive disclosure a reklamace | L | Možná | Ne |
-| R23 | P3 | Výkon, indexy a worker/queue škálování | L | Možné indexy | Možné krátké DDL okno |
-| R24 | P3 | Hlasová poznámka a accessibility/UI polish | M/L | Možná pro média | Ne |
-| R25 | P3 | Pokročilé assurance: mutation, chaos a periodické security testy | M/L | Ne | Ne |
+| ID  | Priorita | Workstream                                                       | Složitost | Migrace                       | Odstávka                  |
+| --- | -------- | ---------------------------------------------------------------- | --------- | ----------------------------- | ------------------------- |
+| R00 | P0       | Minimální izolovaný release gate                                 | M         | Ne                            | Ne                        |
+| R01 | P0       | Účty, obnova hesla a session lifecycle                           | M         | Možná malá                    | Ne                        |
+| R02 | P0       | Fail-closed autorizace a objektové vlastnictví                   | L         | Pravděpodobně                 | Ne plánovaná              |
+| R03 | P0       | Identity-safe PWA cache a offline fronta                         | L         | Browser storage               | Ne                        |
+| R04 | P0       | Request/upload/object-storage ochrana                            | L         | Možný metadata backfill       | Ne plánovaná              |
+| R05 | P0       | Šifrování trezoru a provozních secretů                           | XL        | Ano                           | Možná krátká při cutoveru |
+| R06 | P0       | Veřejné tokeny a neměnné podepisované snapshoty                  | XL        | Ano                           | Ne plánovaná              |
+| R07 | P0       | Perimetr: CSP, dependencies, TLS a interní routy                 | M         | Ne                            | Ne                        |
+| R08 | P1       | Úplná záloha a prokázaná obnova DB + objektů                     | L         | Ne produkční; izolovaná kopie | Ne                        |
+| R09 | P1       | Durable audit, provenance a důkazní export                       | XL        | Ano                           | Ne plánovaná              |
+| R10 | P1       | GDPR governance, DSAR, retence a incidenty                       | L/XL      | Ano                           | Ne plánovaná              |
+| R11 | P1       | DB invarianty, optimistic locking a online migrace               | XL        | Ano                           | Možné krátké DDL okno     |
+| R12 | P1       | Durable outbox a reconciler DB–storage–SMTP                      | XL        | Ano                           | Ne plánovaná              |
+| R13 | P1       | Neměnný účetní a dokumentový lifecycle                           | XL        | Ano                           | Ne plánovaná              |
+| R14 | P1       | Izolované DB/E2E/fault testovací prostředí                       | L         | Ne produkční                  | Ne                        |
+| R15 | P1       | Monitoring, alerty, fronty a provozní incidenty                  | M/L       | Ne nebo malé metriky          | Ne                        |
+| R16 | P1       | Offboarding a dočasný scoped externí přístup                     | L         | Ano                           | Ne                        |
+| R17 | P1       | Historie času, sazeb, cen a korekcí                              | L/XL      | Ano                           | Ne plánovaná              |
+| R18 | P2       | Konsolidovaný billing preview a document-level batch             | L/XL      | Pravděpodobně                 | Ne                        |
+| R19 | P2       | Jednotný inbox výjimek s vlastníkem a SLA                        | L         | Ano                           | Ne                        |
+| R20 | P2       | Obecné user-scoped drafty a sync/conflict model                  | XL        | Ano, DB + IndexedDB           | Ne                        |
+| R21 | P2       | Projekt → Zakázka → Výjezd a ukončení `activities`               | XL        | Ano, vysoce riziková          | Možný řízený cutover      |
+| R22 | P2       | Režim Na místě, progressive disclosure a reklamace               | L         | Možná                         | Ne                        |
+| R23 | P3       | Výkon, indexy a worker/queue škálování                           | L         | Možné indexy                  | Možné krátké DDL okno     |
+| R24 | P3       | Hlasová poznámka a accessibility/UI polish                       | M/L       | Možná pro média               | Ne                        |
+| R25 | P3       | Pokročilé assurance: mutation, chaos a periodické security testy | M/L       | Ne                            | Ne                        |
 
 ## 5. P0 – okamžitě
 
@@ -217,6 +217,9 @@ R00 je minimální prerequisite, nikoli záminka odložit P0. Plný testovací s
 
 ### R09 – Durable audit, provenance a důkazní export
 
+- **Stav auditu 2026-08-11:** **NOT READY.** Obecný audit zůstává post-commit best-effort, mutable a bez canonical envelope, integrity a ověřitelného exportu. Centrální registr a pořadí opravy: `17-c-p1-core-closure-checkpoint.md`.
+- **Lokální R09-A 2026-08-11:** strict canonical envelope/projection/action-policy kontrakt a 35 cílených testů jsou připraveny bez DB wiring. Každá kritická action je allowlistově svázána s entity, source/actor/authentication, reason/lifecycle a doménovými artifacts. Samotný leaf hash není chain a produkční audit zůstává NOT READY; checkpoint `17-e-wave1-contract-and-containment-checkpoint.md`.
+- **Lokální R09-B 2026-08-11:** strict global stream/sequence/previous-ledger chain record, canonical export-outbox intent a transakční repository interface jsou připraveny bez DB schema a bez migračního čísla. Cílený R09-A/B výsek prošel 40/40; skutečné tabulky, transakční adapter, dual-write, export worker a offline bundle verifier zůstávají otevřené.
 - **Přínos:** významná změna má dohledatelného aktéra, zdroj, před/po, důvod a vazbu na immutable artefakt.
 - **Riziko neprovedení:** best-effort log selže spolu s requestem, obsahuje nadbytečná data nebo neprokáže AI/automatickou změnu.
 - **Rozsah:** transakční audit/outbox, canonical event envelope, redakce, hash chain/externí export, provenance AI/importů a autoritativní serverové vault events.
@@ -230,6 +233,7 @@ R00 je minimální prerequisite, nikoli záminka odložit P0. Plný testovací s
 
 ### R10 – GDPR governance, DSAR, retence a incidenty
 
+- **Stav auditu 2026-08-11:** **NOT READY / ČÁSTEČNÝ LOKÁLNÍ CONTAINMENT.** R10-A fail-closed middleware nyní před prvním side effectem odmítá `/gdpr/erase` a přímé hard-delete routy customer/contact/site/person s `409 privacy_case_required`; starý ani upravený klient nemá bypass a UI tyto přímé akce nenabízí. Současný export je však neúplný a neexistuje privacy case, identity verification, legal hold, retention matrix, durable DB–storage/provider plán ani reconciled evidence výsledku. Právní hodnoty zůstávají `DECISION_REQUIRED`; centrální registr: `17-c-p1-core-closure-checkpoint.md`.
 - **Přínos:** práva subjektů a mazání se provádějí řízeně, úplně a s právním holdem.
 - **Riziko neprovedení:** neúplný export, destruktivní výmaz účetních/BOZP důkazů, neurčené retence a zmeškání 72hodinového incidentního procesu.
 - **Rozsah:** ROPA/procesor registry, účely/tituly, data inventory, DSAR case, access/export/restrict/erase/anonymize, legal hold, retention jobs, breach register/runbook.
@@ -243,6 +247,9 @@ R00 je minimální prerequisite, nikoli záminka odložit P0. Plný testovací s
 
 ### R11 – DB invarianty, optimistic locking a online migrace
 
+- **Stav auditu 2026-08-11:** **NOT READY.** Chybí jednotný row-version/ETag kontrakt, DB live billing claim, kanonický lock order a oddělený bounded migration/backfill plane. Centrální registr: `17-c-p1-core-closure-checkpoint.md`.
+- **Lokální R11-B 2026-08-11:** A↔B warehouse rematch používá vzestupný `FOR NO KEY UPDATE` lock order a izolovaný PostgreSQL 16 concurrency test prošel 11/11. Same-source serializace zůstává otevřená: bezpečné řešení musí před prvním reconcile naplánovat společné pořadí source i item locků pro celou vyšší transakci; izolovaný advisory lock uvnitř jednoho volání by mohl pouze přesunout deadlock mezi více source. Nonnegative policy, row versions, live billing claim a migration plane také zůstávají otevřené.
+- **Lokální R11-C 2026-08-11:** šest external-account lifecycle mutací má explicitní stabilní online idempotency scope, vault step-up před ledgerem, authenticated `mve1` request/replay metadata a klientský same-key retry s fail-closed reconciliation UX. DB test prošel 9/9 a frontend kontrakt 6/6. Ostatní online mutace, row versions, claims a migration plane zůstávají otevřené.
 - **Přínos:** kritická business pravidla drží i při souběhu, retry a více instancích.
 - **Riziko neprovedení:** last-write-wins, dvojí billing, záporný sklad, nekonzistentní stav a startup DDL lock.
 - **Rozsah:** verze řádků/ETag, unique/check constraints, atomické transitions, idempotency registry, explicitní lock order, expand-contract migrace a velkoobjemové testy.
@@ -256,6 +263,7 @@ R00 je minimální prerequisite, nikoli záminka odložit P0. Plný testovací s
 
 ### R12 – Durable outbox a reconciler DB–storage–SMTP
 
+- **Stav auditu 2026-08-11:** **NOT READY / LOKÁLNÍ KONTRAKT A INVENTURA.** R12-A definuje strict canonical intent, projection a append-only transition event pro delivery, managed-object write/delete a inbox reservation. R12-B přidává minimální rozhraní pro atomické vložení intentu/projekce a event/CAS přechodu uvnitř již otevřené doménové transakce; samo neexponuje commit, rollback, obecný DB klient ani provider. Exact drift registr nyní fail-closed hlídá 13 syntaktických delivery/provider volání, 45 běžných object write/delete volání a dvě odděleně evidenčně svázaná recovery-stream volání. Běžných 58 callsiteů zatím zůstává `legacy-unbound`, bez durable DB implementace, workeru, reconcileru a operator repair surface. Centrální registr: `17-c-p1-core-closure-checkpoint.md`.
 - **Přínos:** přerušení mezi DB, objektem a e-mailem má dohledatelný a bezpečně opakovatelný stav.
 - **Riziko neprovedení:** orphaned objekty, DB záznam bez souboru, duplicitní/nezjistitelný e-mail a ruční hádání výsledku.
 - **Rozsah:** outbox/inbox state machine, stable idempotency/message IDs, storage staging/finalize, reconciler, dead-letter, operator retry a delivery telemetry.
@@ -269,6 +277,30 @@ R00 je minimální prerequisite, nikoli záminka odložit P0. Plný testovací s
 
 ### R13 – Neměnný účetní a dokumentový lifecycle
 
+- **Stav auditu 2026-08-11:** **NOT READY / LOKÁLNÍ CONTAINMENT, CANONICAL, PERSISTENCE A DEFAULT-DARK LIFECYCLE/CORRECTION/DISPOSITION/PRICE CALLERS.** R13-A pod řádkovým zámkem odmítá `splitLine` i hard delete schváleného cost documentu. R13-B zakazuje destruktivní přepis platebního důkazu a R13-C blokuje přímé storno zaplacené faktury bez correction chainu. R13-D0–D3 lokálně definují strict immutable version/event/relation kontrakt, caller-owned DB adapter, additive nečíslovanou SQL šablonu a offline ověřitelný archive bundle s bounded workerem. R13-D4 zapojuje `issueInvoice`, R13-D5 `approveDocument`, R13-D6 `cancelInvoice` a R13-D7 odděluje `updateInvoiceStatus` i `confirmBankPayments` do lifecycle/payment persistence cest, každou za exact default-dark feature flagem. Issue/approve používají initial version + event + export intent + head CAS; cancellation vytváří version 2 `cancellation_notice`, deterministický PDF artifact, `voids` relation a atomicky ekvivalentní `void_confirmed` event. D7 ukládá `sent` pouze jako lifecycle event a přijetí platby pouze jako samostatný payment event; bankovní potvrzení ukládá hash normalizovaného confirmation source, nikoli raw bankovní data. R13-D8 za šestým exact flagem umožní nativně verzovaný approved cost document vrátit pouze do `needs_review` s povinným důvodem, přidá `review_reopened` event a při následném schválení vytvoří version N+1 `correction`, `supersedes` relation a `correction_linked` event. Původní verze se nemění. D9A–D9G lokálně definují, persistují a archivují version-bound warehouse-price observation, explicit-currency shadow projection bez FX a bounded projection-aware read-only DB parity audit. D9H/D9I implementují volby 1A/2A: oddělený retention-limited early discard a reviewed immutable `discarded_observation` s restricted reason artifactem. D9J atomicky váže explicitní price action a correction reopen na observation/outbox/shadow projection, ale zůstává default-dark. D9K–D9O přidávají exact-hash read-only plán, transaction-only apply primitive, raw approval, staging activation-preflight, source/before/after receipt, bounded offline verifier a fail-closed capture/abort runbook; legacy item má nejvýše jednu `legacy_observation` s `historicalCompleteness = unknown` a bez vymyšleného actor/effective/event řetězce. Jde stále o nepublikovaný lokální celek: chybí runner, číslovaná migrace, skutečný warehouse-price bootstrap/backfill a read cutover, partial/refund/reversal command paths, UI disposition cutover, Hetzner provider capability preflight/adapter a runtime aktivace workeru. Centrální registr: `17-c-p1-core-closure-checkpoint.md`.
+- **Lokální R13-D2 expand vrstva 2026-08-11:** `AccountingAggregateStateV1` má explicitní monotónní revision a každá atomická operace ji posune právě jednou na každý změněný root. Drizzle model obsahuje šest additive tabulek pro version/lifecycle/payment/relation/outbox/head a konkrétní adapter pracuje výhradně uvnitř caller-owned transakce. Nečíslovaná SQL šablona přidává `ON DELETE RESTRICT`, canonical-envelope identity CHECKy, append-only triggery, root/version binding a exact revision+1 head guard. Šablona není v `lib/db/migrations`, nebyla nasazena ani přidělena migrace; route cutover, exporter/verifier, backfill a fault cutover testy zůstávají P1. R13-D0–D2 cílené unit kontrakty prošly 39/39, izolovaná SQL/adapter sada 5/5 a celý API unit/contract 726/726; API typecheck, lint a produkční build prošly.
+- **Lokální R13-D3 archivní vrstva 2026-08-11:** canonical bundle + GNU checksum + manifest commit marker exactně vážou export intent a jeho immutable evidence. Lease worker používá `SKIP LOCKED`, bounded retry/dead-letter, content-addressed create-only storage port, provider `VersionId` read-back a CAS completion; partial write i lost lease jsou idempotentní. Outbox trvale ukládá manifest key/version a tři digesty a terminální receipt je DB-immutable. Offline CLI ověřuje všechny raw bytes proti schválenému receipt. Worker ani provider adapter nejsou aktivovány, Hetzner S3 nebyl kontaktován a SQL zůstává nečíslovanou šablonou; cost-document reopen/correction, partial/refund/reversal payment cesty, migrace, legacy backfill a storage capability preflight zůstávají P1.
+- **Lokální R13-D4 issued-invoice seam 2026-08-11:** `issueInvoice` po finálním přepočtu a customer/supplier snapshotu vytváří deterministic version ID, rendered-PDF content/location digest, úplnou leaf provenance, sequence-zero `issued` event, export intent a aggregate head transition uvnitř stejné caller-owned transakce. Evidence persistence proběhne před PDF uploadem; fault test dokazuje rollback faktury i číselné řady a nulový upload při odmítnutí outbox insertu. Exact `ACCOUNTING_ISSUE_INVOICE_DUAL_WRITE_ENABLED=true` je jediná aktivační hodnota a default zůstává dark. Bez číslované migrace se flag nesmí zapnout; žádný env, deploy, S3 ani produkční/staging zápis nebyl změněn.
+- **Lokální R13-D5 approved-cost-document seam 2026-08-11:** `approveDocument` vytváří canonical approved snapshot headeru, ordered lines, totals, references a source-file artifactů s AI/ISDOC/e-mail/human `sourceTrace`, sequence-zero `approved` event, export intent a aggregate head ve stejné transakci jako schválení. Raw AI payload ani sourceRef se do evidence neukládají. Exact `ACCOUNTING_APPROVE_DOCUMENT_DUAL_WRITE_ENABLED=true` je default-dark; evidence-backed replay musí mít shodný version hash, legacy approved row bez nativní evidence se nesmí přepsat na falešnou historii a reopen je do correction chainu odmítnut. Fault/tamper/dark-gate DB sada prošla 3/3; žádný env, deploy, S3 ani migrace nebyly změněny. Checkpoint: `17-j-r13-d5-approved-cost-document-dual-write-checkpoint.md`.
+- **Lokální R13-D6 cancellation seam 2026-08-11:** `cancelInvoice` za exact `ACCOUNTING_CANCEL_INVOICE_DUAL_WRITE_ENABLED=true` vyžaduje nativní issued head a vytváří version 2 `cancellation_notice`, vlastní deterministický PDF artifact, `voids` relation a `void_confirmed` event ve stejném correction bundle. Původní issued version se nemění; `invoices.status=cancelled` je jen current-state projection. Paid evidence zůstává předem blokována. Outbox fault rollbackne bundle i projection a proběhne před PDF uploadem; DB sada prošla 4/4. Legacy issued invoice se při zapnutém gate odmítne a čeká na backfill. Checkpoint: `17-k-r13-d6-invoice-cancellation-dual-write-checkpoint.md`.
+- **Lokální R13-D7 status/payment seam 2026-08-11:** exact `ACCOUNTING_INVOICE_STATUS_DUAL_WRITE_ENABLED=true` ukládá `sent` jako lifecycle event a ruční `paid` jako `received` payment event; exact `ACCOUNTING_BANK_PAYMENT_DUAL_WRITE_ENABLED=true` používá stejný payment kontrakt se zdrojem `bank_import`. Event, export intent, head CAS, audit a mutable projection sdílejí caller-owned transakci. Replay nevytváří duplicitní event, neúplná/legacy head ani `sent` projection bez append-only události se nefabrikuje a multi-invoice bankovní batch zamyká invoice IDs vzestupně. Bank source digest váže pouze normalizované potvrzovací údaje, ne raw výpis; partial/multiple/refund/reversal command cesty zůstávají otevřené. Checkpoint: `17-l-r13-d7-invoice-status-payment-dual-write-checkpoint.md`.
+- **Lokální R13-D8 cost-document correction seam 2026-08-11:** exact `ACCOUNTING_COST_DOCUMENT_CORRECTION_DUAL_WRITE_ENABLED=true` spolu s approval flagem dovolí pouze nativně verzovaný approved doklad vrátit do `needs_review` s NFC-normalizovaným důvodem 3–1000 znaků. `review_reopened` event, export intent, head CAS a mutable reopen projection jsou v jedné transakci; nové schválení atomicky vytvoří version N+1 `correction`, `supersedes` relation a `correction_linked` event. Replay je bez duplicit a outbox fault rollbackuje jak reopen, tak correction approval. Každý accounting-backed cost document je service-level chráněn proti hard delete i po reopen; pokud už doklad vytvořil legacy warehouse price-history projection, reopen se před první změnou odmítne, aby starý kód historii nesmazal. UI používá samostatný formulář s validací a zachová vstup při chybě. V samotném D8 checkpointu zůstával čitelný reason artifact a append-only `ignored` branch otevřený; D9H/D9I je následně lokálně uzavřely restricted reason artifactem a explicitní disposition cestou. Versioned warehouse-price caller zůstává otevřený. Checkpoint: `17-m-r13-d8-cost-document-correction-dual-write-checkpoint.md`.
+- **Lokální R13-D9 design 2026-08-11:** dnešní `ignored` směšuje early junk upload s lidsky posouzeným účetním zdrojem. Doporučený kontrakt je rozdělit je na retention-limited operational discard a native immutable `discarded_observation`; druhá cesta vyžaduje reason code, actor, source artifacts, event/outbox/head a zákaz hard delete. Čitelný bounded reason note v immutable archivu je retenční volba, nikoli technický detail. `warehouse_price_history` byla přesně překlasifikována jako legacy mutable projection; cílem je nový version-bound observation ledger. Decision checkpoint: `17-n-r13-d9-ignored-reason-price-provenance-design.md`.
+- **Lokální R13-D9A price-observation kontrakt 2026-08-11:** strict canonical `warehouse-price-observation/v1` váže item-local hash chain na exact incoming accounting version, lifecycle event a material source line. `observed`, `withdrawn` a `corrected` mají odlišné reason/event/version invarianty; cena, měna, actor, timestamps a supersession jsou fail-closed ověřitelné. Jde pouze o čistý kontrakt a verifier bez DDL, adapteru, backfillu nebo runtime aktivace, takže D8 guard zůstává zapnutý. Checkpoint: `17-o-r13-d9a-warehouse-price-observation-contract-checkpoint.md`.
+- **Lokální R13-D9B price-observation persistence 2026-08-11:** additive Drizzle model, nečíslovaná SQL šablona a transaction-owned adapter ukládají exact canonical observation za warehouse-item row lockem. Unique sequence/source binding, restrictive FK, strict canonical shape/source trigger, contiguous predecessor/supersession a immutable update/delete byly ověřeny v disposable PostgreSQL 16. Caller wiring, export/outbox, parity/backfill, projection cutover a číslovaná migrace zůstávají otevřené; D8 guard se neodstraňuje. Checkpoint: `17-p-r13-d9b-warehouse-price-persistence-checkpoint.md`.
+- **Lokální R13-D9C price-observation archive binding 2026-08-11:** každá canonical warehouse-price observation nyní ve stejné caller-owned transakci vytváří přesně jeden export intent; exact replay vyžaduje oba shodné řádky a outbox fault rollbackuje celý append. Archive repository/worker, bundle, manifest a offline verifier přijímají nový operation, kontrolují exact bytes/digest/identitu i vazbu na incoming source aggregate. Jde stále o neaktivovanou expand vrstvu bez caller wiring, provideru, S3 zápisu, parity/backfillu, projection cutoveru a číslované migrace; D8 guard zůstává. Checkpoint: `17-q-r13-d9c-warehouse-price-archive-checkpoint.md`.
+- **Lokální R13-D9D price projection 2026-08-11:** čistý reducer ověřuje contiguous item stream, exact chain/supersession a odvozuje nejnovější stále platnou cenu; withdrawal novějšího dokladu fallbackne na předchozí neinvalidovanou observation. Correction může korektně založit prázdný stream na nové/přesunuté skladové kartě, první withdrawal je zakázán a pozdější observed musí supersedovat previous head. Parity vyžaduje cenu i měnu; dnešní `warehouse_items.purchase_price` měnu nemá, proto DB projection writer, multi-currency/FX model, caller wiring a cutover zůstávají otevřené. Checkpoint: `17-r-r13-d9d-warehouse-price-projection-checkpoint.md`.
+- **Lokální R13-D9E read-only parity audit 2026-08-11:** bounded CLI pořídí konzistentní `REPEATABLE READ READ ONLY` snapshot current warehouse ceny, native observations a minimalizované legacy price rows. Před inventurou vynutí hard capy, nevystavuje supplier/note metadata a vydá strict canonical/hashovaný report; `legacy_only` vyžaduje review a currency/drift/overlap/unproven stav blokuje cutover. Isolated PostgreSQL test ověřil exact nulovou mutaci. Audit nemá apply/backfill režim a nebyl spuštěn proti staging ani produkci. Checkpoint: `17-s-r13-d9e-warehouse-price-parity-audit-checkpoint.md`.
+- **Lokální R13-D9F explicit-currency shadow projection 2026-08-11:** strict canonical projection head váže current cenu na exact effective observation a její explicitní source měnu; `valuationPolicy=source-currency` a `fxConversionApplied=false` vylučují implicitní převod. Nečíslovaná projection tabulka je DB-validovaná proti latest observation streamu, nesmazatelná a po bootstrap insertu postupuje exact one-sequence CAS. Preferovaný tx seam spojuje observation, export intent a projection, ale callers ani read path nejsou zapnuté a legacy `warehouse_items.purchase_price` se nemění. Checkpoint: `17-t-r13-d9f-explicit-currency-shadow-projection-checkpoint.md`.
+- **Lokální R13-D9G projection-aware parity 2026-08-11:** parity report v2 strictně načítá canonical shadow head, znovu jej odvozuje z úplného immutable streamu a odděluje `native_projection_missing` od price driftu. Validní head dodá explicitní current měnu; numeric continuity se stále porovnává s legacy item sloupcem. CLI zůstává `REPEATABLE READ READ ONLY`, bez apply/backfill režimu. Celý API unit balík 779/779 a dva isolated DB soubory 6/6 prošly. Checkpoint: `17-u-r13-d9g-projection-aware-parity-checkpoint.md`.
+- **Lokální R13-D9H/D9I restricted reason + disposition 2026-08-11:** strict reason artifact váže bounded čitelný text, code a digest na exact lifecycle event a exportuje jej pouze přes `accounting-evidence-restricted/v1`; běžný event/audit/object key plaintext neobsahuje. Explicitní `disposeCostDocument` odděluje operational early discard od reviewed rejection, který ve stejné transakci vytvoří `discarded_observation`, `ignored` event, reason artifact, dva outbox intents a head. Isolated PostgreSQL fault test prošel 4/4 a prokázal úplný rollback při selhání restricted outboxu. OpenAPI/klienti jsou připravené; UI, číslovaná migrace, flags, provider a runtime zůstávají neaktivované. Checkpoint: `17-v-r13-d9h-d9i-reason-disposition-checkpoint.md`.
+- **Lokální R13-D9J warehouse-price caller 2026-08-11:** exact default-dark price flag vyžaduje approval+correction plane. Explicitní price action zamkne document a itemy, revaliduje immutable version i catalog match a atomicky zapisuje `observed|corrected` observation, export intent, explicit-currency/no-FX shadow head a legacy current/history. Reopen vyžaduje úplné native coverage/parity, appenduje `withdrawn` observations a pak odstraňuje legacy rows; outbox fault rollbackuje celý celek. Non-CZK, precision loss a unbootstrapped legacy item jsou fail-closed. Tři isolated DB soubory prošly 12/12 a celý hermetický API unit balík 793/793; migrace, bootstrap/backfill, read/UI cutover a activation zůstávají neprovedené. Checkpoint: `17-w-r13-d9j-warehouse-price-caller-checkpoint.md`.
+- **Lokální R13-D9K bootstrap preflight 2026-08-11:** exact canonical parity artifact a jeho schválený raw-file SHA-256 se převádějí do bounded canonical dry-run manifestu. Každý `legacy_only` item má právě jednoho deterministického kandidáta s explicitní source měnou, unknown historical completeness a nulovou actor/effective/event fabricací; unsafe parity třídy jsou blockery. CLI odmítá všechny mutation aliasy, vstup je omezen na 256 MiB a žádný apply/DB/provider režim neexistuje. Contract 9/9, isolated parity→plan DB důkaz 2/2 a celý API unit 802/802 prošly. Migrace, skutečný backfill, staging/production inventura, runtime activation a cutover zůstávají neprovedené. Checkpoint: `17-x-r13-d9k-warehouse-price-bootstrap-preflight-checkpoint.md`.
+- **Lokální R13-D9L bootstrap apply kontrakt 2026-08-11:** strict canonical autorizace váže exact parity report, dry-run plán, raw-file hashe, live target fingerprint, candidate count, external approval digest a výslovné přijetí unknown-history/source-currency modelu. Caller-owned transaction adapter před prvním insertem vzestupně zamkne a revaliduje celou dávku; povolen je pouze úplný fresh apply nebo úplný exact replay. Fresh větev atomicky vloží legacy observation, export intent a explicit-currency shadow head; stale/partial stav i outbox fault rollbackují celek. Unified stream dovolí legacy pouze jako sequence-zero evidence a první native successor ji musí explicitně nahradit, nikoli withdrawnout. Nečíslovaná SQL šablona zakazuje i direct-SQL actor/event/effective/FX fabricaci. API unit 809/809 a isolated PostgreSQL 6/6 prošly. Apply CLI, route, flag, očíslovaná migrace, staging/production backfill a read/UI cutover neexistují. Checkpoint: `17-y-r13-d9l-warehouse-price-bootstrap-apply-contract-checkpoint.md`.
+- **Lokální R13-D9M activation-preflight 2026-08-11:** strict raw approval uzavírá D9L external-digest mezeru; READY preflight exactně váže staging source/target, předem ověřené release evidence, integrovanou migration lineage bez známého driftu, dvě opaque legacy identity bez domýšlení významu, `0100` exclusion, aplikovanou expand migraci a čerstvý restore test do 256 MiB. Post-commit receipt rozlišuje source, before a after parity, fresh apply a exact replay a vyžaduje exact candidate transition i nulový non-candidate drift. API unit 816/816, typecheck, lint a build prošly. Neexistuje runner, číslo migrace, skutečný staging artifact/run, deploy ani cutover. Checkpoint: `17-z-r13-d9m-warehouse-price-activation-preflight-checkpoint.md`.
+- **Lokální R13-D9N offline verifier 2026-08-11:** dedicated preflight/receipt adresář musí obsahovat přesně 9/12 pojmenovaných souborů; trusted entry points jsou exact preflight a receipt file SHA-256. Canonical lineage a backup sidecary, staging schema-v4 PASS summary včetně hashe root release evidence a celý source/before/after chain se znovu ověřují. Symlink, extra/missing file, read-time drift, neznámý nebo mutation argument a překročení 256MiB per-report či 384MiB aggregate limitu failují. CLI je bez DB/sítě/provideru a zapisuje jen canonical stdout summary. Checkpoint: `17-aa-r13-d9n-warehouse-price-offline-verifier-checkpoint.md`.
+- **Lokální R13-D9O capture/abort runbook 2026-08-11:** všech 12 souborů má jediný přípustný producer, preflight/receipt digest musí být separately reviewed a nesmí vzniknout self-hashováním ve stejném verifier invocation. Readiness matrix zůstává celá NO-GO bez live main integrace, lineage, migrace, staging release/backup, parity, approval a runneru. Abort postup odděluje pre-tx mismatch, rollback, unknown outcome, committed-without-receipt, partial incident a exact replay; zakazuje blind retry i mazání evidence po commitu. Checkpoint: `17-ab-r13-d9o-warehouse-price-activation-capture-runbook.md`.
+- **Read-only R13-D9P integration readiness 2026-08-11:** live `main`/produkce zůstává na `6ae3072`; lokálnímu `df918a5` chybí jediný quote commit, ale exact proxy merge má 5 konfliktních souborů/10 bloků a dvojí `0096`. Doporučený forward-only tvar zachová produkční `0096_far_smiling_tiger`, po schválení spojí dosud neprodukční session generation + API idempotency do regenerované `0097`, ponechá význam `0098`–`0105`, explicitně vynechá `0100` a regeneruje celý snapshot/journal tail s novými monotónními timestamps. Nic nebylo integrováno, commitnuto, pushnuto ani migrováno; stará predecessor/candidate evidence bude po změně lineage neplatná. Checkpoint: `17-ac-r13-d9p-public-main-migration-integration-readiness.md`.
 - **Přínos:** schválení, vystavení, storno, oprava a archivace mají jednotnou korekční historii.
 - **Riziko neprovedení:** přepis schváleného dokladu/faktury a nejasný účetní či právní důkaz.
 - **Rozsah:** document/invoice versions, line snapshots, append-only status/payment events, correction/storno relations, approved locks, archive manifest a provenance AI vs human.
@@ -326,10 +358,13 @@ R00 je minimální prerequisite, nikoli záminka odložit P0. Plný testovací s
 
 ### R17 – Historie času, sazeb, cen a korekcí
 
+- **Stav auditu 2026-08-11:** **DESIGN READY / ČÁSTEČNÝ LOKÁLNÍ CONTAINMENT.** Přímý void nyní pod řádkovým zámkem odmítá `ready`/`billed` session i session s aktivním `reserved`/`billed` billing linkem; aggregate delete ověří celý zamčený set před první změnou. Izolovaná PostgreSQL 16 sada prošla 9/9. Evidence-preserving billed correction chain, effective-time/rate schema a migrace zatím neexistují. Gap audit a cílový kontrakt jsou v `17-a-time-rate-history-gap-audit.md` a `17-b-time-rate-history-contract.md`; migrační pořadí a sdílené závislosti v `17-c-p1-core-closure-checkpoint.md`.
+- **Produkční lineage 2026-08-11:** deployed SHA `6ae3072a3eb80b9647bc66abb80d979c5ec9e2a5`; všech 97 očekávaných journal položek je aplikováno a produkce navíc uchovává dvě explicitně neznámé legacy položky. Přesný read-only checkpoint: `17-d-production-lineage-inventory.md`.
+- **Schválené policy 2026-08-11:** běžný sklad nesmí do mínusu; controlled override vyžaduje zvláštní roli/důvod/limit/event. Korekce session dědí původní datum a sazbu. Business void billed práce je povolen jen přes append-only time a účetní correction/storno chain. Vystavené/schválené doklady a platební historie jsou immutable/append-only.
 - **Přínos:** fakturační a mzdové podklady lze rekonstruovat podle tehdy platných hodnot.
 - **Riziko neprovedení:** antedatování, přepočet minulosti novou sazbou a neprokazatelná korekce času/ceny.
 - **Rozsah:** effective-dated rates, line snapshots, source timezone/clock, approval workflow času, correction reason/event a oprávnění vedoucí vs pracovník.
-- **Závislosti:** R09, R11, R13; účetní/mzdová pravidla R10.
+- **Závislosti:** R09, R11, R13; právní/retention review osobních údajů z R10 a samostatně schválená účetní/mzdová policy.
 - **Složitost:** L/XL.
 - **Odstávka:** ne plánovaná.
 - **Migrace dat:** ano; historické hodnoty backfillovat jen z doložených zdrojů, jinak označit unknown.
@@ -447,46 +482,46 @@ R00 je minimální prerequisite, nikoli záminka odložit P0. Plný testovací s
 
 ## 9. Mapa pokrytí všech 84 nálezů
 
-| Zdroj | Konsolidace do workstreamů |
-|---|---|
-| SEC-01–04 | R01 |
-| SEC-05–06, SEC-10, SEC-22 | R02 |
-| SEC-07 | R05 |
-| SEC-08–09 | R03 |
-| SEC-11, SEC-13, SEC-21 | R04, R12 |
-| SEC-12, SEC-14, SEC-18 | R06 |
-| SEC-15 | R09 |
-| SEC-16–17, SEC-19–20 | R07 |
+| Zdroj                           | Konsolidace do workstreamů                 |
+| ------------------------------- | ------------------------------------------ |
+| SEC-01–04                       | R01                                        |
+| SEC-05–06, SEC-10, SEC-22       | R02                                        |
+| SEC-07                          | R05                                        |
+| SEC-08–09                       | R03                                        |
+| SEC-11, SEC-13, SEC-21          | R04, R12                                   |
+| SEC-12, SEC-14, SEC-18          | R06                                        |
+| SEC-15                          | R09                                        |
+| SEC-16–17, SEC-19–20            | R07                                        |
 | GDPR-01–04, GDPR-08–10, GDPR-13 | R10; R08/R09/R13 jako technické závislosti |
-| GDPR-05–06 | R02, R16 |
-| GDPR-07 | R03, R20 |
-| GDPR-11 | R06 |
-| GDPR-12 | R00, R14 |
-| COMP-01, COMP-11, COMP-13 | R09 |
-| COMP-02, COMP-07 | R06 |
-| COMP-03–05, COMP-12 | R13 |
-| COMP-06 | R12 |
-| COMP-08–10 | R17 |
-| ROB-01–02 | R03, R20 |
-| ROB-03, ROB-06–07 | R11 |
-| ROB-04–05 | R12 |
-| ROB-08–10, ROB-12 | R08 |
-| ROB-11 | R15 |
-| ROB-13 | R20 |
-| ROB-14 | R23 |
-| TEST-01–02, TEST-08 | R00, R14 |
-| TEST-03–04 | R14; R02 jako testovaný invariant |
-| TEST-05 | R03, R20, R14 |
-| TEST-06 | R08, R14 |
-| TEST-07 | R12, R14 |
-| UX-01 | R21 |
-| UX-02–05, UX-14 | R20, R22, R24 |
-| UX-06 | R19 |
-| UX-07–08 | R18 |
-| UX-09 | R06, R13 |
-| UX-10 | R12 |
-| UX-11–12 | R16 |
-| UX-13 | R03, R20 |
+| GDPR-05–06                      | R02, R16                                   |
+| GDPR-07                         | R03, R20                                   |
+| GDPR-11                         | R06                                        |
+| GDPR-12                         | R00, R14                                   |
+| COMP-01, COMP-11, COMP-13       | R09                                        |
+| COMP-02, COMP-07                | R06                                        |
+| COMP-03–05, COMP-12             | R13                                        |
+| COMP-06                         | R12                                        |
+| COMP-08–10                      | R17                                        |
+| ROB-01–02                       | R03, R20                                   |
+| ROB-03, ROB-06–07               | R11                                        |
+| ROB-04–05                       | R12                                        |
+| ROB-08–10, ROB-12               | R08                                        |
+| ROB-11                          | R15                                        |
+| ROB-13                          | R20                                        |
+| ROB-14                          | R23                                        |
+| TEST-01–02, TEST-08             | R00, R14                                   |
+| TEST-03–04                      | R14; R02 jako testovaný invariant          |
+| TEST-05                         | R03, R20, R14                              |
+| TEST-06                         | R08, R14                                   |
+| TEST-07                         | R12, R14                                   |
+| UX-01                           | R21                                        |
+| UX-02–05, UX-14                 | R20, R22, R24                              |
+| UX-06                           | R19                                        |
+| UX-07–08                        | R18                                        |
+| UX-09                           | R06, R13                                   |
+| UX-10                           | R12                                        |
+| UX-11–12                        | R16                                        |
+| UX-13                           | R03, R20                                   |
 
 ## 10. Implementační pravidla pro FÁZI 8
 

@@ -18,6 +18,7 @@ export interface QuotePdfSupplier {
 
 export interface QuotePdfItem {
   description: string;
+  rowType: "item" | "section" | "spacer";
   quantity: number;
   unit?: string | null;
   unitPrice: number;
@@ -95,7 +96,11 @@ export function generateQuotePdf(data: QuotePdfData): Buffer {
     data.supplier.name,
     data.supplier.address || "",
     data.supplier.ic ? `IČ: ${data.supplier.ic}` : "",
-    data.supplier.dic ? `DIČ: ${data.supplier.dic}` : (!data.supplier.vatPayer ? "Neplátce DPH" : ""),
+    data.supplier.dic
+      ? `DIČ: ${data.supplier.dic}`
+      : !data.supplier.vatPayer
+        ? "Neplátce DPH"
+        : "",
     data.supplier.email || "",
     data.supplier.phone || "",
   ].filter((l) => l.length > 0);
@@ -143,7 +148,36 @@ export function generateQuotePdf(data: QuotePdfData): Buffer {
     ? [["Popis", "Množ.", "MJ", "Cena/MJ", "Bez DPH", "DPH %", "DPH", "Celkem"]]
     : [["Popis", "Množ.", "MJ", "Cena/MJ", "Celkem"]];
 
+  const columnCount = showVat ? 8 : 5;
   const body = data.items.map((item) => {
+    if (item.rowType === "section") {
+      return [
+        {
+          content: item.description,
+          colSpan: columnCount,
+          styles: {
+            fontStyle: "bold" as const,
+            fillColor: [226, 232, 240] as [number, number, number],
+            textColor: [15, 23, 42] as [number, number, number],
+            cellPadding: { top: 2.4, right: 1.6, bottom: 2.4, left: 1.6 },
+          },
+        },
+      ];
+    }
+    if (item.rowType === "spacer") {
+      return [
+        {
+          content: "",
+          colSpan: columnCount,
+          styles: {
+            minCellHeight: 4,
+            lineWidth: 0,
+            fillColor: [255, 255, 255] as [number, number, number],
+          },
+        },
+      ];
+    }
+
     const base = [
       item.description,
       String(num(item.quantity)),
@@ -167,8 +201,18 @@ export function generateQuotePdf(data: QuotePdfData): Buffer {
     head,
     body,
     margin: { left: marginX, right: marginX },
-    styles: { font: PDF_FONT, fontStyle: "normal", fontSize: 8, cellPadding: 1.6 },
-    headStyles: { font: PDF_FONT, fontStyle: "bold", fillColor: [37, 99, 235], textColor: 255 },
+    styles: {
+      font: PDF_FONT,
+      fontStyle: "normal",
+      fontSize: 8,
+      cellPadding: 1.6,
+    },
+    headStyles: {
+      font: PDF_FONT,
+      fontStyle: "bold",
+      fillColor: [37, 99, 235],
+      textColor: 255,
+    },
     columnStyles: showVat
       ? {
           0: { cellWidth: "auto" },
@@ -189,7 +233,8 @@ export function generateQuotePdf(data: QuotePdfData): Buffer {
         },
   });
 
-  const afterTable = (doc as unknown as { lastAutoTable?: { finalY?: number } }).lastAutoTable;
+  const afterTable = (doc as unknown as { lastAutoTable?: { finalY?: number } })
+    .lastAutoTable;
   y = (afterTable?.finalY ?? y + 20) + 8;
 
   // ---- Page-break guard for totals block ----
@@ -205,15 +250,27 @@ export function generateQuotePdf(data: QuotePdfData): Buffer {
   if (showVat) {
     doc.setFont(PDF_FONT, "normal");
     doc.text("Celkem bez DPH:", totalsX, y);
-    doc.text(formatCzk(data.subtotalWithoutVat, data.currency), pageWidth - marginX, y, { align: "right" });
+    doc.text(
+      formatCzk(data.subtotalWithoutVat, data.currency),
+      pageWidth - marginX,
+      y,
+      { align: "right" },
+    );
     y += 5;
     doc.text("DPH celkem:", totalsX, y);
-    doc.text(formatCzk(data.totalVat, data.currency), pageWidth - marginX, y, { align: "right" });
+    doc.text(formatCzk(data.totalVat, data.currency), pageWidth - marginX, y, {
+      align: "right",
+    });
     y += 5;
   } else {
     doc.setFont(PDF_FONT, "normal");
     doc.text("Mezisoučet:", totalsX, y);
-    doc.text(formatCzk(data.subtotalWithoutVat, data.currency), pageWidth - marginX, y, { align: "right" });
+    doc.text(
+      formatCzk(data.subtotalWithoutVat, data.currency),
+      pageWidth - marginX,
+      y,
+      { align: "right" },
+    );
     y += 5;
   }
 
@@ -223,7 +280,12 @@ export function generateQuotePdf(data: QuotePdfData): Buffer {
   doc.setFont(PDF_FONT, "bold");
   doc.setFontSize(12);
   doc.text("Celková cena:", totalsX, y);
-  doc.text(formatCzk(data.totalWithVat, data.currency), pageWidth - marginX, y, { align: "right" });
+  doc.text(
+    formatCzk(data.totalWithVat, data.currency),
+    pageWidth - marginX,
+    y,
+    { align: "right" },
+  );
   y += 10;
 
   // ---- Notes + footer note ----
@@ -235,7 +297,10 @@ export function generateQuotePdf(data: QuotePdfData): Buffer {
     y += wrapped.length * 5 + 2;
   }
   if (data.supplier.footerNote) {
-    const wrapped = doc.splitTextToSize(data.supplier.footerNote, pageWidth - marginX * 2);
+    const wrapped = doc.splitTextToSize(
+      data.supplier.footerNote,
+      pageWidth - marginX * 2,
+    );
     doc.text(wrapped, marginX, y);
   }
 

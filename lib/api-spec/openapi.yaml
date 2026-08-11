@@ -1282,7 +1282,9 @@ paths:
     delete:
       operationId: deletePerson
       tags: [people]
-      summary: Delete a person
+      deprecated: true
+      summary: Legacy direct person deletion (disabled)
+      description: Direct deletion is fail-closed until a verified privacy-case, legal-hold, and retention workflow is available.
       parameters:
         - name: id
           in: path
@@ -1291,7 +1293,13 @@ paths:
             type: integer
       responses:
         "204":
-          description: Deleted
+          description: Legacy success response; unreachable while containment is active
+        "409":
+          description: Direct deletion is disabled; a verified privacy case is required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
 
   /people/{id}/hourly-rates:
     get:
@@ -1662,7 +1670,9 @@ paths:
     delete:
       operationId: deleteCustomer
       tags: [customers]
-      summary: Delete a customer
+      deprecated: true
+      summary: Legacy direct customer deletion (disabled)
+      description: Direct deletion is fail-closed until a verified privacy-case, legal-hold, and retention workflow is available.
       parameters:
         - name: id
           in: path
@@ -1671,7 +1681,13 @@ paths:
             type: integer
       responses:
         "204":
-          description: Deleted
+          description: Legacy success response; unreachable while containment is active
+        "409":
+          description: Direct deletion is disabled; a verified privacy case is required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
         "404":
           description: Not found
 
@@ -1832,7 +1848,9 @@ paths:
     delete:
       operationId: deleteCustomerContact
       tags: [customers]
-      summary: Delete a customer contact
+      deprecated: true
+      summary: Legacy direct customer-contact deletion (disabled)
+      description: Direct deletion is fail-closed until a verified privacy-case, legal-hold, and retention workflow is available.
       parameters:
         - name: id
           in: path
@@ -1841,7 +1859,13 @@ paths:
             type: integer
       responses:
         "204":
-          description: Deleted
+          description: Legacy success response; unreachable while containment is active
+        "409":
+          description: Direct deletion is disabled; a verified privacy case is required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
         "404":
           description: Not found
 
@@ -1937,7 +1961,9 @@ paths:
     delete:
       operationId: deleteCustomerSite
       tags: [customers]
-      summary: Delete a customer site
+      deprecated: true
+      summary: Legacy direct customer-site deletion (disabled)
+      description: Direct deletion is fail-closed until a verified privacy-case, legal-hold, and retention workflow is available.
       parameters:
         - name: id
           in: path
@@ -1946,7 +1972,13 @@ paths:
             type: integer
       responses:
         "204":
-          description: Deleted
+          description: Legacy success response; unreachable while containment is active
+        "409":
+          description: Direct deletion is disabled; a verified privacy case is required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
         "404":
           description: Not found
 
@@ -4294,14 +4326,36 @@ paths:
       operationId: listExternalAccounts
       tags: [externalAccounts]
       parameters:
-        - { name: status, in: query, schema: { type: string, enum: [draft, active, suspended, revoked, expired, all] } }
-        - { name: custodianUserId, in: query, schema: { type: integer, minimum: 1 } }
+        - {
+            name: status,
+            in: query,
+            schema:
+              {
+                type: string,
+                enum: [draft, active, suspended, revoked, expired, all],
+              },
+          }
+        - {
+            name: custodianUserId,
+            in: query,
+            schema: { type: integer, minimum: 1 },
+          }
         - { name: beforeId, in: query, schema: { type: integer, minimum: 1 } }
-        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100 } }
+        - {
+            name: limit,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 100 },
+          }
       responses:
         "200":
           description: Redacted external account inventory and runtime flag state
-          content: { application/json: { schema: { $ref: "#/components/schemas/ExternalAccountList" } } }
+          content:
+            {
+              application/json:
+                {
+                  schema: { $ref: "#/components/schemas/ExternalAccountList" },
+                },
+            }
     post:
       operationId: createExternalAccount
       tags: [externalAccounts]
@@ -4309,11 +4363,25 @@ paths:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
-        content: { application/json: { schema: { $ref: "#/components/schemas/ExternalAccountCreateInput" } } }
+        content:
+          {
+            application/json:
+              {
+                schema:
+                  { $ref: "#/components/schemas/ExternalAccountCreateInput" },
+              },
+          }
       responses:
         "201":
           description: Inactive draft created; password is never returned
-          content: { application/json: { schema: { $ref: "#/components/schemas/ExternalAccountDetail" } } }
+          content:
+            {
+              application/json:
+                {
+                  schema:
+                    { $ref: "#/components/schemas/ExternalAccountDetail" },
+                },
+            }
         "400": { description: Invalid request }
         "403": { description: Forbidden or step-up required }
         "409": { description: Conflict }
@@ -4323,11 +4391,23 @@ paths:
       operationId: getExternalAccount
       tags: [externalAccounts]
       parameters:
-        - { name: id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+        - {
+            name: id,
+            in: path,
+            required: true,
+            schema: { type: integer, minimum: 1 },
+          }
       responses:
         "200":
           description: External account detail
-          content: { application/json: { schema: { $ref: "#/components/schemas/ExternalAccountDetail" } } }
+          content:
+            {
+              application/json:
+                {
+                  schema:
+                    { $ref: "#/components/schemas/ExternalAccountDetail" },
+                },
+            }
         "404": { description: Not found }
 
   /external-accounts/{id}/scopes:
@@ -4335,11 +4415,23 @@ paths:
       operationId: replaceExternalAccountScopes
       tags: [externalAccounts]
       parameters:
-        - { name: id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+        - {
+            name: id,
+            in: path,
+            required: true,
+            schema: { type: integer, minimum: 1 },
+          }
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
-        content: { application/json: { schema: { $ref: "#/components/schemas/ExternalAccountScopesInput" } } }
+        content:
+          {
+            application/json:
+              {
+                schema:
+                  { $ref: "#/components/schemas/ExternalAccountScopesInput" },
+              },
+          }
       responses:
         "200": { description: Scopes replaced and sessions revoked }
         "400": { description: Invalid request }
@@ -4351,11 +4443,23 @@ paths:
       operationId: updateExternalAccountExpiry
       tags: [externalAccounts]
       parameters:
-        - { name: id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+        - {
+            name: id,
+            in: path,
+            required: true,
+            schema: { type: integer, minimum: 1 },
+          }
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
-        content: { application/json: { schema: { $ref: "#/components/schemas/ExternalAccountExpiryInput" } } }
+        content:
+          {
+            application/json:
+              {
+                schema:
+                  { $ref: "#/components/schemas/ExternalAccountExpiryInput" },
+              },
+          }
       responses:
         "200": { description: Expiry reviewed and sessions revoked }
         "400": { description: Invalid request }
@@ -4367,26 +4471,53 @@ paths:
       operationId: activateExternalAccount
       tags: [externalAccounts]
       parameters:
-        - { name: id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+        - {
+            name: id,
+            in: path,
+            required: true,
+            schema: { type: integer, minimum: 1 },
+          }
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
-        content: { application/json: { schema: { $ref: "#/components/schemas/ExternalAccountVersionInput" } } }
+        content:
+          {
+            application/json:
+              {
+                schema:
+                  { $ref: "#/components/schemas/ExternalAccountVersionInput" },
+              },
+          }
       responses:
         "200": { description: Account activated and previous sessions revoked }
         "403": { description: Forbidden or step-up required }
-        "409": { description: "Runtime disabled, missing scope, or version conflict" }
+        "409":
+          {
+            description: "Runtime disabled, missing scope, or version conflict",
+          }
 
   /external-accounts/{id}/transfer:
     post:
       operationId: transferExternalAccountCustodian
       tags: [externalAccounts]
       parameters:
-        - { name: id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+        - {
+            name: id,
+            in: path,
+            required: true,
+            schema: { type: integer, minimum: 1 },
+          }
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
-        content: { application/json: { schema: { $ref: "#/components/schemas/ExternalAccountTransferInput" } } }
+        content:
+          {
+            application/json:
+              {
+                schema:
+                  { $ref: "#/components/schemas/ExternalAccountTransferInput" },
+              },
+          }
       responses:
         "200": { description: Custody transferred and sessions revoked }
         "403": { description: Forbidden or step-up required }
@@ -4397,11 +4528,23 @@ paths:
       operationId: revokeExternalAccount
       tags: [externalAccounts]
       parameters:
-        - { name: id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+        - {
+            name: id,
+            in: path,
+            required: true,
+            schema: { type: integer, minimum: 1 },
+          }
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
-        content: { application/json: { schema: { $ref: "#/components/schemas/ExternalAccountRevokeInput" } } }
+        content:
+          {
+            application/json:
+              {
+                schema:
+                  { $ref: "#/components/schemas/ExternalAccountRevokeInput" },
+              },
+          }
       responses:
         "200": { description: Account and all scopes permanently revoked }
         "403": { description: Forbidden or step-up required }
@@ -4414,7 +4557,14 @@ paths:
       responses:
         "200":
           description: Exact current resource scopes; never cached offline
-          content: { application/json: { schema: { $ref: "#/components/schemas/ExternalPortalResourceList" } } }
+          content:
+            {
+              application/json:
+                {
+                  schema:
+                    { $ref: "#/components/schemas/ExternalPortalResourceList" },
+                },
+            }
         "403": { description: Portal disabled or wrong account type }
 
   /portal/resources/{scopeId}:
@@ -4422,11 +4572,25 @@ paths:
       operationId: getExternalPortalResource
       tags: [externalPortal]
       parameters:
-        - { name: scopeId, in: path, required: true, schema: { type: integer, minimum: 1 } }
+        - {
+            name: scopeId,
+            in: path,
+            required: true,
+            schema: { type: integer, minimum: 1 },
+          }
       responses:
         "200":
           description: One directly scoped redacted resource
-          content: { application/json: { schema: { $ref: "#/components/schemas/ExternalPortalResourceResponse" } } }
+          content:
+            {
+              application/json:
+                {
+                  schema:
+                    {
+                      $ref: "#/components/schemas/ExternalPortalResourceResponse",
+                    },
+                },
+            }
         "404": { description: Missing or not in the current account scope }
 
   /external-grants:
@@ -4445,7 +4609,8 @@ paths:
           in: query
           schema:
             type: string
-            enum: [job_signature, ppe_signature, ppe_confirmation, quote_decision]
+            enum:
+              [job_signature, ppe_signature, ppe_confirmation, quote_decision]
         - name: resourceType
           in: query
           schema:
@@ -4997,7 +5162,9 @@ paths:
     post:
       operationId: eraseSubjectData
       tags: [gdpr]
-      summary: Permanently erase a data subject's personal data (admin only)
+      deprecated: true
+      summary: Legacy direct data-subject erasure (disabled)
+      description: Direct erasure is fail-closed until a verified privacy-case, legal-hold, retention, and reconciled object-deletion workflow is available.
       requestBody:
         required: true
         content:
@@ -5006,11 +5173,17 @@ paths:
               $ref: "#/components/schemas/GdprEraseInput"
       responses:
         "200":
-          description: Erasure result
+          description: Legacy erasure result; unreachable while containment is active
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/GdprEraseResult"
+        "409":
+          description: Direct erasure is disabled; a verified privacy case is required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
         "404":
           description: Subject not found
           content:
@@ -5051,36 +5224,36 @@ paths:
               type: string
               format: binary
       responses:
-        '200':
+        "200":
           description: File stored.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/UploadedObject'
-        '400':
+                $ref: "#/components/schemas/UploadedObject"
+        "400":
           description: Missing file content.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
-        '413':
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "413":
           description: File too large.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
-        '415':
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "415":
           description: File type not allowed.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
-        '500':
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
           description: Failed to store file.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
+                $ref: "#/components/schemas/ErrorEnvelope"
   /storage/public-objects/{filePath}:
     get:
       tags: [Storage]
@@ -5093,19 +5266,19 @@ paths:
           schema:
             type: string
       responses:
-        '200':
+        "200":
           description: Object content streamed with correct Content-Type.
           content:
-            '*/*':
+            "*/*":
               schema:
                 type: string
                 format: binary
-        '404':
+        "404":
           description: File not found.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
+                $ref: "#/components/schemas/ErrorEnvelope"
   /storage/objects/{objectPath}:
     get:
       tags: [Storage]
@@ -5118,19 +5291,19 @@ paths:
           schema:
             type: string
       responses:
-        '200':
+        "200":
           description: Object content streamed with correct Content-Type.
           content:
-            '*/*':
+            "*/*":
               schema:
                 type: string
                 format: binary
-        '404':
+        "404":
           description: Object not found.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
+                $ref: "#/components/schemas/ErrorEnvelope"
 
   /activities:
     get:
@@ -5901,6 +6074,12 @@ paths:
       responses:
         "204":
           description: Work session voided
+        "409":
+          description: Work session is reserved or billed and must be released through invoice correction/storno
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
 
   /jobs/{jobId}/work-sessions:
     get:
@@ -5985,6 +6164,12 @@ paths:
       responses:
         "204":
           description: Work session voided
+        "409":
+          description: Work session is reserved or billed and must be released through invoice correction/storno
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
 
   /me/stats:
     get:
@@ -6547,15 +6732,36 @@ paths:
       tags: [billing]
       summary: Financial summary of recorded work with cost fields permission-filtered
       parameters:
-        - { name: from, in: query, required: false, schema: { type: string, format: date } }
-        - { name: to, in: query, required: false, schema: { type: string, format: date } }
-        - { name: personId, in: query, required: false, schema: { type: integer } }
+        - {
+            name: from,
+            in: query,
+            required: false,
+            schema: { type: string, format: date },
+          }
+        - {
+            name: to,
+            in: query,
+            required: false,
+            schema: { type: string, format: date },
+          }
+        - {
+            name: personId,
+            in: query,
+            required: false,
+            schema: { type: integer },
+          }
         - { name: jobId, in: query, required: false, schema: { type: integer } }
-        - { name: activityId, in: query, required: false, schema: { type: integer } }
+        - {
+            name: activityId,
+            in: query,
+            required: false,
+            schema: { type: integer },
+          }
         - name: billingStatus
           in: query
           required: false
-          schema: { type: string, enum: [unbilled, ready, billed, non_billable] }
+          schema:
+            { type: string, enum: [unbilled, ready, billed, non_billable] }
       responses:
         "200":
           description: Work financial summary
@@ -7109,7 +7315,7 @@ paths:
     post:
       operationId: cancelInvoice
       tags: [billing]
-      summary: Cancel (storno) an invoice, optionally returning jobs to done (admin only)
+      summary: Cancel an unpaid invoice with a registered reason, optionally returning jobs to done (admin only)
       parameters:
         - name: id
           in: path
@@ -7129,6 +7335,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/InvoiceDetail"
+        "400":
+          description: Missing or unsupported cancellation reason
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
         "403":
           description: Forbidden
           content:
@@ -7142,7 +7354,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "409":
-          description: Invoice already cancelled
+          description: Invoice already cancelled or contains immutable payment evidence
           content:
             application/json:
               schema:
@@ -7152,7 +7364,7 @@ paths:
     patch:
       operationId: updateInvoiceStatus
       tags: [billing]
-      summary: Mark an issued invoice as sent or paid (admin only)
+      summary: Advance an issued invoice to sent or paid without rewriting recorded payment evidence (admin only)
       parameters:
         - name: id
           in: path
@@ -7191,7 +7403,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "409":
-          description: Invalid status transition
+          description: Invalid status transition or attempted rewrite/removal of recorded payment evidence
           content:
             application/json:
               schema:
@@ -7392,7 +7604,14 @@ paths:
           description: Filter by review reason (needs_review | low_confidence | missing_job | missing_warehouse_item | price_jump)
           schema:
             type: string
-            enum: [needs_review, low_confidence, missing_job, missing_warehouse_item, price_jump]
+            enum:
+              [
+                needs_review,
+                low_confidence,
+                missing_job,
+                missing_warehouse_item,
+                price_jump,
+              ]
       responses:
         "200":
           description: Paginated review queue
@@ -8056,6 +8275,61 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "404":
           description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/documents/{id}/disposition:
+    post:
+      operationId: disposeCostDocument
+      tags: [billing]
+      summary: Explicitly discard an untouched upload or immutably reject a reviewed source (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CostDocumentDispositionInput"
+      responses:
+        "200":
+          description: Disposition recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CostDocumentDetail"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Disposition is incompatible with the document evidence boundary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: Reviewed-rejection evidence plane is not activated
           content:
             application/json:
               schema:
@@ -9929,7 +10203,17 @@ components:
   schemas:
     CalendarJob:
       type: object
-      required: [id, jobNumber, title, type, status, date, occurrenceKey, occurrenceType]
+      required:
+        [
+          id,
+          jobNumber,
+          title,
+          type,
+          status,
+          date,
+          occurrenceKey,
+          occurrenceType,
+        ]
       properties:
         id:
           type: integer
@@ -10621,7 +10905,16 @@ components:
 
     CustomerFinancialSummary:
       type: object
-      required: [openBalance, lastPaymentDate, unbilledJobsValue, unbilledJobCount, totalSaldo, quotesOpen, quotesAccepted]
+      required:
+        [
+          openBalance,
+          lastPaymentDate,
+          unbilledJobsValue,
+          unbilledJobCount,
+          totalSaldo,
+          quotesOpen,
+          quotesAccepted,
+        ]
       properties:
         openBalance:
           type: string
@@ -10698,7 +10991,17 @@ components:
 
     PublicJobDocument:
       type: object
-      required: [jobId, documentVersion, snapshotSha256, title, date, confirmationText, alreadySigned, expired]
+      required:
+        [
+          jobId,
+          documentVersion,
+          snapshotSha256,
+          title,
+          date,
+          confirmationText,
+          alreadySigned,
+          expired,
+        ]
       properties:
         jobId:
           type: integer
@@ -10792,7 +11095,18 @@ components:
 
     JobDocumentVersionEvidence:
       type: object
-      required: [id, jobId, version, status, dataSnapshot, snapshotSha256, rendererVersion, confirmationText, createdAt]
+      required:
+        [
+          id,
+          jobId,
+          version,
+          status,
+          dataSnapshot,
+          snapshotSha256,
+          rendererVersion,
+          confirmationText,
+          createdAt,
+        ]
       properties:
         id: { type: integer }
         jobId: { type: integer }
@@ -11004,7 +11318,23 @@ components:
 
     StatsOverview:
       type: object
-      required: [from, to, jobs, revenue, employees, materials, warehouse, billing, activities, readyToBill, comparison, trend, topCustomers, ppe]
+      required:
+        [
+          from,
+          to,
+          jobs,
+          revenue,
+          employees,
+          materials,
+          warehouse,
+          billing,
+          activities,
+          readyToBill,
+          comparison,
+          trend,
+          topCustomers,
+          ppe,
+        ]
       properties:
         from:
           type: string
@@ -11012,7 +11342,8 @@ components:
           type: string
         jobs:
           type: object
-          required: [total, planned, inProgress, done, cancelled, totalHours, byType]
+          required:
+            [total, planned, inProgress, done, cancelled, totalHours, byType]
           properties:
             total:
               type: integer
@@ -11062,7 +11393,19 @@ components:
                 $ref: "#/components/schemas/StatsMaterialRow"
         warehouse:
           type: object
-          required: [itemCount, stockValue, lowStockCount, materialSaleRevenue, materialPurchaseCost, materialGrossProfit, hasPartialCosts, topProfitItems, incompleteMovements, incompleteMovementsShare]
+          required:
+            [
+              itemCount,
+              stockValue,
+              lowStockCount,
+              materialSaleRevenue,
+              materialPurchaseCost,
+              materialGrossProfit,
+              hasPartialCosts,
+              topProfitItems,
+              incompleteMovements,
+              incompleteMovementsShare,
+            ]
           properties:
             itemCount:
               type: integer
@@ -11090,7 +11433,17 @@ components:
               description: Fraction of OUT movements missing a cost price (0–1)
         billing:
           type: object
-          required: [issuedCount, issuedWithVat, paidCount, paidAmount, toCollectCount, toCollectAmount, overdueCount, overdueAmount]
+          required:
+            [
+              issuedCount,
+              issuedWithVat,
+              paidCount,
+              paidAmount,
+              toCollectCount,
+              toCollectAmount,
+              overdueCount,
+              overdueAmount,
+            ]
           description: Invoice/billing statistics. Issued/paid are period-bound; toCollect/overdue are current snapshots.
           properties:
             issuedCount:
@@ -11119,7 +11472,8 @@ components:
               description: Current sum of overdue invoice totals
         comparison:
           type: object
-          required: [prevFrom, prevTo, revenueTotal, issuedWithVat, paid, doneJobsCount]
+          required:
+            [prevFrom, prevTo, revenueTotal, issuedWithVat, paid, doneJobsCount]
           description: Same metrics computed for the immediately preceding period of equal length (for KPI delta).
           properties:
             prevFrom:
@@ -11644,7 +11998,24 @@ components:
 
     Job:
       type: object
-      required: [id, jobNumber, title, type, date, status, sortOrder, createdAt, billingLinked, billingIntent, billingExclusionReason, billingIntentChangedAt, billingIntentChangedByUserId, assigneeIds, assigneeNames]
+      required:
+        [
+          id,
+          jobNumber,
+          title,
+          type,
+          date,
+          status,
+          sortOrder,
+          createdAt,
+          billingLinked,
+          billingIntent,
+          billingExclusionReason,
+          billingIntentChangedAt,
+          billingIntentChangedByUserId,
+          assigneeIds,
+          assigneeNames,
+        ]
       properties:
         id:
           type: integer
@@ -12112,7 +12483,16 @@ components:
 
     LinkableBillingDocumentLine:
       type: object
-      required: [id, documentId, description, unitPriceWithoutVat, totalWithoutVat, approved, sortOrder]
+      required:
+        [
+          id,
+          documentId,
+          description,
+          unitPriceWithoutVat,
+          totalWithoutVat,
+          approved,
+          sortOrder,
+        ]
       properties:
         id:
           type: integer
@@ -12180,7 +12560,19 @@ components:
 
     JobCompletionReadiness:
       type: object
-      required: [jobId, status, canComplete, blockers, warnings, activeSessions, unfinishedTaskCount, plannedMaterialCount, consumedMaterialCount, hoursSpent]
+      required:
+        [
+          jobId,
+          status,
+          canComplete,
+          blockers,
+          warnings,
+          activeSessions,
+          unfinishedTaskCount,
+          plannedMaterialCount,
+          consumedMaterialCount,
+          hoursSpent,
+        ]
       properties:
         jobId:
           type: integer
@@ -12347,7 +12739,19 @@ components:
 
     PersonHourlyRate:
       type: object
-      required: [id, personId, validFrom, validTo, costRate, saleRate, reason, createdAt, voidedAt, voidReason]
+      required:
+        [
+          id,
+          personId,
+          validFrom,
+          validTo,
+          costRate,
+          saleRate,
+          reason,
+          createdAt,
+          voidedAt,
+          voidReason,
+        ]
       properties:
         id: { type: integer }
         personId: { type: integer }
@@ -12383,7 +12787,17 @@ components:
 
     PersonStats:
       type: object
-      required: [personId, personName, todayJobsCount, weekHours, assignedMachinesCount, hasActiveTimer, assignedPpeCount, ppeAttentionCount]
+      required:
+        [
+          personId,
+          personName,
+          todayJobsCount,
+          weekHours,
+          assignedMachinesCount,
+          hasActiveTimer,
+          assignedPpeCount,
+          ppeAttentionCount,
+        ]
       properties:
         personId:
           type: integer
@@ -12406,7 +12820,8 @@ components:
 
     ActiveTimer:
       type: object
-      required: [id, personId, personName, kind, parentId, parentName, timerStartedAt]
+      required:
+        [id, personId, personName, kind, parentId, parentName, timerStartedAt]
       properties:
         id:
           type: integer
@@ -12437,7 +12852,20 @@ components:
 
     DashboardSummary:
       type: object
-      required: [todayCount, weekCount, plannedCount, inProgressCount, doneCount, totalHoursThisWeek, totalRevenueThisWeek, unbilledValue, hoursThisMonth, problematicJobsCount, overdueUnbilledCustomers]
+      required:
+        [
+          todayCount,
+          weekCount,
+          plannedCount,
+          inProgressCount,
+          doneCount,
+          totalHoursThisWeek,
+          totalRevenueThisWeek,
+          unbilledValue,
+          hoursThisMonth,
+          problematicJobsCount,
+          overdueUnbilledCustomers,
+        ]
       properties:
         todayCount:
           type: integer
@@ -12494,7 +12922,7 @@ components:
           type: string
           description: Normalized object path (e.g. `/objects/uploads/uuid`). Store this in your database.
         metadata:
-          $ref: '#/components/schemas/UploadUrlRequest'
+          $ref: "#/components/schemas/UploadUrlRequest"
     SessionEntry:
       type: object
       required: [sid, isCurrent, userAgentParsed]
@@ -12593,7 +13021,19 @@ components:
 
     AuthUser:
       type: object
-      required: [id, username, name, personId, role, accountType, isActive, createdAt, permissions, permissionOverrides]
+      required:
+        [
+          id,
+          username,
+          name,
+          personId,
+          role,
+          accountType,
+          isActive,
+          createdAt,
+          permissions,
+          permissionOverrides,
+        ]
       properties:
         id:
           type: integer
@@ -12629,7 +13069,8 @@ components:
     UserOffboardingAccessInventory:
       type: object
       additionalProperties: false
-      required: [sessions, webauthnCredentials, permissionOverrides, securityQuestions]
+      required:
+        [sessions, webauthnCredentials, permissionOverrides, securityQuestions]
       properties:
         sessions:
           type: integer
@@ -12693,7 +13134,16 @@ components:
     UserOffboardingPreview:
       type: object
       additionalProperties: false
-      required: [userId, username, personId, isActive, sessionGeneration, access, handover]
+      required:
+        [
+          userId,
+          username,
+          personId,
+          isActive,
+          sessionGeneration,
+          access,
+          handover,
+        ]
       properties:
         userId:
           type: integer
@@ -12739,13 +13189,34 @@ components:
     ExternalAccountSummary:
       type: object
       additionalProperties: false
-      required: [userId, username, name, email, state, status, custodianUserId, accessReviewedAt, accessExpiresAt, version, isActive, sessionGeneration, activeScopeCount, createdAt, updatedAt, revokedAt, revokedByUserId, revocationReason]
+      required:
+        [
+          userId,
+          username,
+          name,
+          email,
+          state,
+          status,
+          custodianUserId,
+          accessReviewedAt,
+          accessExpiresAt,
+          version,
+          isActive,
+          sessionGeneration,
+          activeScopeCount,
+          createdAt,
+          updatedAt,
+          revokedAt,
+          revokedByUserId,
+          revocationReason,
+        ]
       properties:
         userId: { type: integer, minimum: 1 }
         username: { type: string }
         name: { type: string }
         email: { type: [string, "null"] }
-        state: { type: string, enum: [draft, active, suspended, revoked, expired] }
+        state:
+          { type: string, enum: [draft, active, suspended, revoked, expired] }
         status: { type: string, enum: [draft, active, suspended, revoked] }
         custodianUserId: { type: integer, minimum: 1 }
         accessReviewedAt: { type: string, format: date-time }
@@ -12787,7 +13258,8 @@ components:
       required: [username, password, name, custodianUserId, accessExpiresAt]
       properties:
         username: { type: string, minLength: 3, maxLength: 80 }
-        password: { type: string, minLength: 12, maxLength: 200, writeOnly: true }
+        password:
+          { type: string, minLength: 12, maxLength: 200, writeOnly: true }
         name: { type: string, minLength: 1, maxLength: 160 }
         email: { type: [string, "null"], format: email }
         custodianUserId: { type: integer, minimum: 1 }
@@ -12885,7 +13357,28 @@ components:
     ExternalGrantSummary:
       type: object
       additionalProperties: false
-      required: [id, purpose, resourceType, resourceId, artifactBindingStatus, tokenPrefix, state, expiresAt, createdAt, createdByUserId, ownerKind, ownerUserId, ownerAssignedAt, ownerAssignmentSource, revokedAt, revokedByUserId, revokeReason, consumedAt, consumeAction]
+      required:
+        [
+          id,
+          purpose,
+          resourceType,
+          resourceId,
+          artifactBindingStatus,
+          tokenPrefix,
+          state,
+          expiresAt,
+          createdAt,
+          createdByUserId,
+          ownerKind,
+          ownerUserId,
+          ownerAssignedAt,
+          ownerAssignmentSource,
+          revokedAt,
+          revokedByUserId,
+          revokeReason,
+          consumedAt,
+          consumeAction,
+        ]
       properties:
         id:
           type: integer
@@ -12976,7 +13469,20 @@ components:
     SwitchboardQrGrantSummary:
       type: object
       additionalProperties: false
-      required: [switchboardId, designation, tokenPrefix, enabled, state, expiresAt, ownerKind, ownerUserId, ownerAssignedAt, ownerAssignmentSource, archivedAt]
+      required:
+        [
+          switchboardId,
+          designation,
+          tokenPrefix,
+          enabled,
+          state,
+          expiresAt,
+          ownerKind,
+          ownerUserId,
+          ownerAssignedAt,
+          ownerAssignmentSource,
+          archivedAt,
+        ]
       properties:
         switchboardId:
           type: integer
@@ -13032,7 +13538,8 @@ components:
     UserOffboardingInput:
       type: object
       additionalProperties: false
-      required: [expectedUsername, expectedSessionGeneration, reason, confirmation]
+      required:
+        [expectedUsername, expectedSessionGeneration, reason, confirmation]
       properties:
         expectedUsername:
           type: string
@@ -13042,7 +13549,13 @@ components:
           minimum: 1
         reason:
           type: string
-          enum: [employment_ended, contract_ended, access_no_longer_required, security_response]
+          enum:
+            [
+              employment_ended,
+              contract_ended,
+              access_no_longer_required,
+              security_response,
+            ]
         confirmation:
           type: string
           enum: [offboard_user]
@@ -13050,7 +13563,8 @@ components:
     UserOffboardingResult:
       type: object
       additionalProperties: false
-      required: [userId, isActive, newSessionGeneration, revokedAccess, handover]
+      required:
+        [userId, isActive, newSessionGeneration, revokedAccess, handover]
       properties:
         userId:
           type: integer
@@ -13192,7 +13706,17 @@ components:
     EmailSettings:
       type: object
       required:
-        [enabled, host, port, secure, username, fromAddress, fromName, passwordSet, source]
+        [
+          enabled,
+          host,
+          port,
+          secure,
+          username,
+          fromAddress,
+          fromName,
+          passwordSet,
+          source,
+        ]
       properties:
         enabled:
           type: boolean
@@ -13314,7 +13838,8 @@ components:
 
     EmailImportSettingsInput:
       type: object
-      required: [enabled, host, port, secure, username, folder, markSeen, pollMinutes]
+      required:
+        [enabled, host, port, secure, username, folder, markSeen, pollMinutes]
       properties:
         enabled:
           type: boolean
@@ -13423,7 +13948,19 @@ components:
 
     Activity:
       type: object
-      required: [id, name, isArchived, materialsTotalCost, photosCount, attachmentsCount, extraWorksTotalAmount, extraWorksTotalHours, createdAt, updatedAt]
+      required:
+        [
+          id,
+          name,
+          isArchived,
+          materialsTotalCost,
+          photosCount,
+          attachmentsCount,
+          extraWorksTotalAmount,
+          extraWorksTotalHours,
+          createdAt,
+          updatedAt,
+        ]
       properties:
         id:
           type: integer
@@ -13751,7 +14288,8 @@ components:
 
     WorkSession:
       type: object
-      required: [id, personId, startedAt, status, source, reviewStatus, createdAt]
+      required:
+        [id, personId, startedAt, status, source, reviewStatus, createdAt]
       properties:
         id: { type: integer }
         personId: { type: integer }
@@ -13782,7 +14320,20 @@ components:
 
     WorkSummaryWorker:
       type: object
-      required: [personId, personName, completedSeconds, activeSeconds, totalSeconds, completedHours, activeHours, totalHours, needsReviewCount, activeSessionId, activeStartedAt]
+      required:
+        [
+          personId,
+          personName,
+          completedSeconds,
+          activeSeconds,
+          totalSeconds,
+          completedHours,
+          activeHours,
+          totalHours,
+          needsReviewCount,
+          activeSessionId,
+          activeStartedAt,
+        ]
       properties:
         personId: { type: integer }
         personName: { type: string }
@@ -13798,7 +14349,20 @@ components:
 
     WorkSummary:
       type: object
-      required: [completedSeconds, activeSeconds, totalSeconds, completedHours, activeHours, totalHours, workerCount, activeWorkerCount, needsReviewCount, workers, calculatedAt]
+      required:
+        [
+          completedSeconds,
+          activeSeconds,
+          totalSeconds,
+          completedHours,
+          activeHours,
+          totalHours,
+          workerCount,
+          activeWorkerCount,
+          needsReviewCount,
+          workers,
+          calculatedAt,
+        ]
       properties:
         completedSeconds: { type: integer }
         activeSeconds: { type: integer }
@@ -13839,7 +14403,17 @@ components:
 
     MyStats:
       type: object
-      required: [activityHoursWeek, activityHoursMonth, activityHoursAll, activitiesActiveCount, jobHoursWeek, jobHoursMonth, jobHoursAll, jobsDoneCount]
+      required:
+        [
+          activityHoursWeek,
+          activityHoursMonth,
+          activityHoursAll,
+          activitiesActiveCount,
+          jobHoursWeek,
+          jobHoursMonth,
+          jobHoursAll,
+          jobsDoneCount,
+        ]
       properties:
         activityHoursWeek:
           type: number
@@ -14243,7 +14817,17 @@ components:
 
     WarehouseSummary:
       type: object
-      required: [stockValue, itemCount, itemsBelowMin, itemsWithoutPrice, itemsWithNoPriceAtAll, movementsToday, waitingForInvoice, itemsMissingCostPrice]
+      required:
+        [
+          stockValue,
+          itemCount,
+          itemsBelowMin,
+          itemsWithoutPrice,
+          itemsWithNoPriceAtAll,
+          movementsToday,
+          waitingForInvoice,
+          itemsMissingCostPrice,
+        ]
       properties:
         stockValue:
           type: number
@@ -14272,7 +14856,15 @@ components:
 
     WarehouseJobMarginSummary:
       type: object
-      required: [jobId, totalQtyOut, totalSaleValue, totalCostValue, coveredQtyOut, coveredCostQtyOut]
+      required:
+        [
+          jobId,
+          totalQtyOut,
+          totalSaleValue,
+          totalCostValue,
+          coveredQtyOut,
+          coveredCostQtyOut,
+        ]
       properties:
         jobId:
           type: integer
@@ -14490,7 +15082,16 @@ components:
 
     WarehouseMovement:
       type: object
-      required: [id, warehouseItemId, direction, quantity, signedQuantity, sourceType, createdAt]
+      required:
+        [
+          id,
+          warehouseItemId,
+          direction,
+          quantity,
+          signedQuantity,
+          sourceType,
+          createdAt,
+        ]
       properties:
         id:
           type: integer
@@ -14581,7 +15182,22 @@ components:
 
     Backup:
       type: object
-      required: [id, filename, sizeBytes, status, trigger, error, createdBy, createdAt, restoreTestedAt, restoreStatus, restoreError, restoreDurationMs, restoreVerifiedTables]
+      required:
+        [
+          id,
+          filename,
+          sizeBytes,
+          status,
+          trigger,
+          error,
+          createdBy,
+          createdAt,
+          restoreTestedAt,
+          restoreStatus,
+          restoreError,
+          restoreDurationMs,
+          restoreVerifiedTables,
+        ]
       properties:
         id:
           type: integer
@@ -14633,7 +15249,16 @@ components:
 
     BackupStatus:
       type: object
-      required: [enabled, pgDumpAvailable, intervalHours, lastAttemptAt, lastAttemptStatus, lastVerifiedRestoreAt, nextScheduledAt]
+      required:
+        [
+          enabled,
+          pgDumpAvailable,
+          intervalHours,
+          lastAttemptAt,
+          lastAttemptStatus,
+          lastVerifiedRestoreAt,
+          nextScheduledAt,
+        ]
       properties:
         enabled:
           type: boolean
@@ -14733,7 +15358,15 @@ components:
 
     GdprEraseResult:
       type: object
-      required: [subjectType, subjectId, deletedFiles, failedFiles, allFilesRemoved, message]
+      required:
+        [
+          subjectType,
+          subjectId,
+          deletedFiles,
+          failedFiles,
+          allFilesRemoved,
+          message,
+        ]
       properties:
         subjectType:
           type: string
@@ -14753,6 +15386,10 @@ components:
       required: [error]
       properties:
         error:
+          type: string
+        code:
+          type: string
+        operation:
           type: string
 
     BillingSummary:
@@ -14811,12 +15448,30 @@ components:
 
     WorkFinancialBucket:
       type: object
-      required: [hours, cost, sale, margin, marginPercent, missingCostRateCount, missingSaleRateCount, sessionCount]
+      required:
+        [
+          hours,
+          cost,
+          sale,
+          margin,
+          marginPercent,
+          missingCostRateCount,
+          missingSaleRateCount,
+          sessionCount,
+        ]
       properties:
         hours: { type: number }
-        cost: { type: ["number", "null"], description: Null without rates.cost.view }
+        cost:
+          {
+            type: ["number", "null"],
+            description: Null without rates.cost.view,
+          }
         sale: { type: number }
-        margin: { type: ["number", "null"], description: Null without rates.cost.view }
+        margin:
+          {
+            type: ["number", "null"],
+            description: Null without rates.cost.view,
+          }
         marginPercent: { type: ["number", "null"] }
         missingCostRateCount: { type: integer }
         missingSaleRateCount: { type: integer }
@@ -14828,7 +15483,8 @@ components:
         - type: object
           required: [billingStatus]
           properties:
-            billingStatus: { type: string, enum: [unbilled, ready, billed, non_billable] }
+            billingStatus:
+              { type: string, enum: [unbilled, ready, billed, non_billable] }
 
     WorkFinancialPersonBucket:
       allOf:
@@ -15123,7 +15779,21 @@ components:
           type: integer
         sourceType:
           type: string
-          enum: [job, activity, activity_material, activity_work, material, billing_document_line, work_session, quote_item, transport, parking, fine, manual]
+          enum:
+            [
+              job,
+              activity,
+              activity_material,
+              activity_work,
+              material,
+              billing_document_line,
+              work_session,
+              quote_item,
+              transport,
+              parking,
+              fine,
+              manual,
+            ]
         sourceId:
           type: ["integer", "null"]
         jobId:
@@ -15278,7 +15948,21 @@ components:
       properties:
         sourceType:
           type: string
-          enum: [job, activity, activity_material, activity_work, material, billing_document_line, work_session, quote_item, transport, parking, fine, manual]
+          enum:
+            [
+              job,
+              activity,
+              activity_material,
+              activity_work,
+              material,
+              billing_document_line,
+              work_session,
+              quote_item,
+              transport,
+              parking,
+              fine,
+              manual,
+            ]
         sourceId:
           type: ["integer", "null"]
         jobId:
@@ -15596,7 +16280,17 @@ components:
 
     CancelInvoiceInput:
       type: object
+      required: [reasonCode]
       properties:
+        reasonCode:
+          type: string
+          enum:
+            - customer_complaint
+            - incorrect_job
+            - billing_error
+            - duplicate_invoice
+            - order_cancelled
+          description: Registered mandatory reason for the cancellation; arbitrary free text is not persisted
         returnJobsToDone:
           type: boolean
           description: If true, linked jobs are returned to "done"
@@ -15763,7 +16457,15 @@ components:
 
     UnbilledRecordedWork:
       type: object
-      required: [sessionCount, hours, amount, missingRateCount, needsReviewCount, workers]
+      required:
+        [
+          sessionCount,
+          hours,
+          amount,
+          missingRateCount,
+          needsReviewCount,
+          workers,
+        ]
       properties:
         sessionCount: { type: integer }
         hours: { type: number }
@@ -15901,7 +16603,16 @@ components:
           type: integer
         status:
           type: string
-          enum: [uploaded, needs_review, reviewed, approved, ignored, duplicate, merged]
+          enum:
+            [
+              uploaded,
+              needs_review,
+              reviewed,
+              approved,
+              ignored,
+              duplicate,
+              merged,
+            ]
         materialState:
           description: >-
             Derived, document-level material state aggregated from the
@@ -16034,7 +16745,12 @@ components:
     DeliveryNoteWorkflow:
       type: object
       required:
-        [state, referenceCount, approvedReferenceCount, unresolvedReferenceNumbers]
+        [
+          state,
+          referenceCount,
+          approvedReferenceCount,
+          unresolvedReferenceNumbers,
+        ]
       properties:
         state:
           type: string
@@ -16261,7 +16977,14 @@ components:
           type: array
           items:
             type: string
-            enum: [needs_review, low_confidence, missing_job, missing_warehouse_item, price_jump]
+            enum:
+              [
+                needs_review,
+                low_confidence,
+                missing_job,
+                missing_warehouse_item,
+                price_jump,
+              ]
         suggestedWarehouseItemId:
           type: ["integer", "null"]
         suggestedWarehouseItemName:
@@ -16301,7 +17024,18 @@ components:
 
     ReanalyzeJobAttachmentDocumentsResult:
       type: object
-      required: [jobsScanned, attachmentsScanned, created, skippedAttachments, queued, alreadyQueued, skippedTerminal, skippedLocked, totalJobDocuments]
+      required:
+        [
+          jobsScanned,
+          attachmentsScanned,
+          created,
+          skippedAttachments,
+          queued,
+          alreadyQueued,
+          skippedTerminal,
+          skippedLocked,
+          totalJobDocuments,
+        ]
       properties:
         jobsScanned:
           type: integer
@@ -16336,7 +17070,18 @@ components:
 
     BulkReviewDiff:
       type: object
-      required: [total, toConfirm, alreadyConfirmed, priceJumps, missingJobCount, missingWarehouseItemCount, stillUnresolved, withJobAssigned, affectedJobIds]
+      required:
+        [
+          total,
+          toConfirm,
+          alreadyConfirmed,
+          priceJumps,
+          missingJobCount,
+          missingWarehouseItemCount,
+          stillUnresolved,
+          withJobAssigned,
+          affectedJobIds,
+        ]
       properties:
         total:
           type: integer
@@ -16631,7 +17376,16 @@ components:
 
     CostDocumentDetail:
       type: object
-      required: [document, lines, duplicates, linkedDuplicates, duplicateOf, references, files]
+      required:
+        [
+          document,
+          lines,
+          duplicates,
+          linkedDuplicates,
+          duplicateOf,
+          references,
+          files,
+        ]
       properties:
         document:
           $ref: "#/components/schemas/CostDocument"
@@ -16912,6 +17666,50 @@ components:
         status:
           type: string
           enum: [needs_review, reviewed, ignored, duplicate]
+        reason:
+          description: Povinný důvod při řízeném vrácení schváleného dokladu ke kontrole.
+          type: string
+          minLength: 3
+          maxLength: 1000
+
+    CostDocumentDispositionInput:
+      oneOf:
+        - $ref: "#/components/schemas/CostDocumentEarlyDiscardInput"
+        - $ref: "#/components/schemas/CostDocumentReviewedRejectionInput"
+      discriminator:
+        propertyName: mode
+
+    CostDocumentEarlyDiscardInput:
+      type: object
+      additionalProperties: false
+      required: [mode, reasonCode, confirmed]
+      properties:
+        mode:
+          type: string
+          enum: [early_discard]
+        reasonCode:
+          type: string
+          enum: [invalid_upload, not_a_document]
+        confirmed:
+          type: boolean
+          enum: [true]
+
+    CostDocumentReviewedRejectionInput:
+      type: object
+      additionalProperties: false
+      required: [mode, reasonCode, reason]
+      properties:
+        mode:
+          type: string
+          enum: [reviewed_rejection]
+        reasonCode:
+          type: string
+          enum: [duplicate_document, invalid_document]
+        reason:
+          description: Bounded readable reason stored only in restricted immutable accounting evidence.
+          type: string
+          minLength: 3
+          maxLength: 1000
 
     MarkCostDocumentDuplicateInput:
       type: object
@@ -16993,7 +17791,8 @@ components:
 
     CostDocumentMatchResult:
       type: object
-      required: [document, lines, duplicates, references, files, candidatesByRef]
+      required:
+        [document, lines, duplicates, references, files, candidatesByRef]
       properties:
         document:
           $ref: "#/components/schemas/CostDocument"
@@ -17271,7 +18070,8 @@ components:
 
     EmailImportMessageDetail:
       type: object
-      required: [id, status, attachmentCount, importedCount, labeled, attachments]
+      required:
+        [id, status, attachmentCount, importedCount, labeled, attachments]
       properties:
         id:
           type: integer
@@ -17394,7 +18194,8 @@ components:
 
     EmployeeLeave:
       type: object
-      required: [id, personId, type, startDate, endDate, days, createdAt, updatedAt]
+      required:
+        [id, personId, type, startDate, endDate, days, createdAt, updatedAt]
       properties:
         id:
           type: integer
@@ -17442,7 +18243,22 @@ components:
 
     LeaveSummary:
       type: object
-      required: [personId, personName, year, vacationDays, sickDays, otherDays, totalDays, vacationYearlyCap, sickYearlyCap, otherYearlyCap, remainingVacationDays, remainingSickDays, remainingOtherDays]
+      required:
+        [
+          personId,
+          personName,
+          year,
+          vacationDays,
+          sickDays,
+          otherDays,
+          totalDays,
+          vacationYearlyCap,
+          sickYearlyCap,
+          otherYearlyCap,
+          remainingVacationDays,
+          remainingSickDays,
+          remainingOtherDays,
+        ]
       properties:
         personId:
           type: integer
@@ -17483,7 +18299,8 @@ components:
 
     LeaveSettings:
       type: object
-      required: [id, vacationYearlyCap, sickYearlyCap, otherYearlyCap, updatedAt]
+      required:
+        [id, vacationYearlyCap, sickYearlyCap, otherYearlyCap, updatedAt]
       properties:
         id:
           type: integer
@@ -17573,7 +18390,19 @@ components:
 
     PpeAssignment:
       type: object
-      required: [id, ppeItemId, personId, ppeNameSnapshot, personNameSnapshot, quantity, issuedAt, status, createdAt, hasConfirmToken]
+      required:
+        [
+          id,
+          ppeItemId,
+          personId,
+          ppeNameSnapshot,
+          personNameSnapshot,
+          quantity,
+          issuedAt,
+          status,
+          createdAt,
+          hasConfirmToken,
+        ]
       properties:
         id:
           type: integer
@@ -17658,7 +18487,27 @@ components:
 
     PublicPpeEvidence:
       type: object
-      required: [id, ppeNameSnapshot, personNameSnapshot, ppeCategorySnapshot, ppeStandardSnapshot, ppeProtectionClassSnapshot, ppeRiskDescriptionSnapshot, quantity, size, serialNumber, issuedAt, replaceBy, nextInspectionAt, confirmationText, status, closed, alreadySigned, employeeConfirmedAt]
+      required:
+        [
+          id,
+          ppeNameSnapshot,
+          personNameSnapshot,
+          ppeCategorySnapshot,
+          ppeStandardSnapshot,
+          ppeProtectionClassSnapshot,
+          ppeRiskDescriptionSnapshot,
+          quantity,
+          size,
+          serialNumber,
+          issuedAt,
+          replaceBy,
+          nextInspectionAt,
+          confirmationText,
+          status,
+          closed,
+          alreadySigned,
+          employeeConfirmedAt,
+        ]
       properties:
         id:
           type: integer
@@ -17706,7 +18555,7 @@ components:
       properties:
         signatureDataUrl:
           type: string
-          pattern: '^data:image/png;base64,'
+          pattern: "^data:image/png;base64,"
 
     PublicPpeSignatureResult:
       type: object
@@ -17789,7 +18638,13 @@ components:
 
     PpeSignHandoverInput:
       type: object
-      required: [signatureDataUrl, signatoryName, confirmationText, confirmationAccepted]
+      required:
+        [
+          signatureDataUrl,
+          signatoryName,
+          confirmationText,
+          confirmationAccepted,
+        ]
       properties:
         signatureDataUrl:
           type: string
@@ -17807,7 +18662,22 @@ components:
 
     PpeHandoverDocument:
       type: object
-      required: [id, assignmentId, version, documentNumber, signatoryName, signedAt, confirmationText, pngObjectPath, pngSha256, pdfObjectPath, pdfSha256, issuerSnapshot, createdAt]
+      required:
+        [
+          id,
+          assignmentId,
+          version,
+          documentNumber,
+          signatoryName,
+          signedAt,
+          confirmationText,
+          pngObjectPath,
+          pngSha256,
+          pdfObjectPath,
+          pdfSha256,
+          issuerSnapshot,
+          createdAt,
+        ]
       properties:
         id:
           type: integer
@@ -17940,7 +18810,8 @@ components:
 
     CreateRecurringTemplateInput:
       type: object
-      required: [customerId, name, items, interval, dayOfMonth, nextGenerationDate]
+      required:
+        [customerId, name, items, interval, dayOfMonth, nextGenerationDate]
       properties:
         customerId:
           type: integer
@@ -18031,7 +18902,18 @@ components:
 
     MyPpeAssignment:
       type: object
-      required: [id, ppeItemId, personId, ppeNameSnapshot, personNameSnapshot, quantity, issuedAt, status, createdAt]
+      required:
+        [
+          id,
+          ppeItemId,
+          personId,
+          ppeNameSnapshot,
+          personNameSnapshot,
+          quantity,
+          issuedAt,
+          status,
+          createdAt,
+        ]
       properties:
         id:
           type: integer
@@ -18090,7 +18972,8 @@ components:
 
     QuoteItem:
       type: object
-      required: [id, quoteId, position, description, quantity, unitPrice]
+      required:
+        [id, quoteId, position, rowType, description, quantity, unitPrice]
       properties:
         id:
           type: integer
@@ -18098,6 +18981,9 @@ components:
           type: integer
         position:
           type: integer
+        rowType:
+          type: string
+          enum: [item, section, spacer]
         description:
           type: string
         quantity:
@@ -18106,6 +18992,8 @@ components:
           type: ["string", "null"]
         unitPrice:
           type: number
+        purchaseUnitPrice:
+          type: ["number", "null"]
         vatRate:
           type: ["number", "null"]
 
@@ -18115,13 +19003,19 @@ components:
       properties:
         description:
           type: string
-          minLength: 1
+        rowType:
+          type: string
+          enum: [item, section, spacer]
         quantity:
           type: ["number", "null"]
         unit:
           type: ["string", "null"]
         unitPrice:
           type: ["number", "null"]
+          minimum: 0
+        purchaseUnitPrice:
+          type: ["number", "null"]
+          minimum: 0
         vatRate:
           type: ["number", "null"]
         position:
@@ -18129,7 +19023,8 @@ components:
 
     Quote:
       type: object
-      required: [id, title, status, itemCount, totalWithVat, createdAt, updatedAt]
+      required:
+        [id, title, status, itemCount, totalWithVat, createdAt, updatedAt]
       properties:
         id:
           type: integer
@@ -18169,7 +19064,19 @@ components:
 
     QuoteDetail:
       type: object
-      required: [id, title, status, items, createdAt, updatedAt]
+      required:
+        [
+          id,
+          title,
+          status,
+          items,
+          totalPurchaseCost,
+          financialItemCount,
+          costedItemCount,
+          marginComplete,
+          createdAt,
+          updatedAt,
+        ]
       properties:
         id:
           type: integer
@@ -18208,6 +19115,18 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/QuoteItem"
+        totalPurchaseCost:
+          type: number
+        marginAmount:
+          type: ["number", "null"]
+        marginPercent:
+          type: ["number", "null"]
+        financialItemCount:
+          type: integer
+        costedItemCount:
+          type: integer
+        marginComplete:
+          type: boolean
         createdAt:
           type: string
         updatedAt:
@@ -18215,7 +19134,21 @@ components:
 
     PublicQuoteDetail:
       type: object
-      required: [quoteVersion, snapshotSha256, pdfSha256, confirmationText, title, status, items, subtotalWithoutVat, totalVat, totalWithVat, vatPayer, createdAt]
+      required:
+        [
+          quoteVersion,
+          snapshotSha256,
+          pdfSha256,
+          confirmationText,
+          title,
+          status,
+          items,
+          subtotalWithoutVat,
+          totalVat,
+          totalWithVat,
+          vatPayer,
+          createdAt,
+        ]
       properties:
         quoteNumber:
           type: ["string", "null"]
@@ -18294,7 +19227,16 @@ components:
 
     PublicSwitchboard:
       type: object
-      required: [designation, serialNumber, manufacturer, productionDate, documentationStatus, contact, publicDocuments]
+      required:
+        [
+          designation,
+          serialNumber,
+          manufacturer,
+          productionDate,
+          documentationStatus,
+          contact,
+          publicDocuments,
+        ]
       properties:
         designation:
           type: string
@@ -18315,12 +19257,26 @@ components:
 
     PublicQuoteItem:
       type: object
-      required: [id, position, description, quantity, unitPrice, totalWithoutVat, totalVat, totalWithVat]
+      required:
+        [
+          id,
+          position,
+          rowType,
+          description,
+          quantity,
+          unitPrice,
+          totalWithoutVat,
+          totalVat,
+          totalWithVat,
+        ]
       properties:
         id:
           type: integer
         position:
           type: integer
+        rowType:
+          type: string
+          enum: [item, section, spacer]
         description:
           type: string
         quantity:
@@ -18437,7 +19393,18 @@ components:
 
     QuoteVersionEvidence:
       type: object
-      required: [id, quoteId, version, dataSnapshot, snapshotSha256, pdfObjectPath, pdfSha256, rendererVersion, createdAt]
+      required:
+        [
+          id,
+          quoteId,
+          version,
+          dataSnapshot,
+          snapshotSha256,
+          pdfObjectPath,
+          pdfSha256,
+          rendererVersion,
+          createdAt,
+        ]
       properties:
         id: { type: integer }
         quoteId: { type: integer }

@@ -28,6 +28,7 @@ import {
 } from "@workspace/api-zod";
 import {
   ActiveWorkSessionConflict,
+  WorkSessionBillingLockedError,
   WorkSessionOverlapError,
   WorkSessionIdempotencyConflict,
   addManualWorkSession,
@@ -158,6 +159,10 @@ function handleWorkSessionError(error: unknown, res: import("express").Response)
     res.status(409).json({ error: error.message });
     return true;
   }
+  if (error instanceof WorkSessionBillingLockedError) {
+    res.status(409).json({ error: error.message, code: error.code });
+    return true;
+  }
   return false;
 }
 
@@ -254,9 +259,13 @@ router.patch("/activities/:activityId/time-entries/:personId", async (req, res):
 router.delete("/activities/:activityId/time-entries/:personId", async (req, res): Promise<void> => {
   const params = DeleteActivityTimeEntryParams.safeParse(req.params);
   if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
-  const ok = await remove("activity", params.data.activityId, params.data.personId, req.auth!.userId);
-  if (!ok) { res.status(404).json({ error: "Time entry not found" }); return; }
-  res.sendStatus(204);
+  try {
+    const ok = await remove("activity", params.data.activityId, params.data.personId, req.auth!.userId);
+    if (!ok) { res.status(404).json({ error: "Time entry not found" }); return; }
+    res.sendStatus(204);
+  } catch (error) {
+    if (!handleWorkSessionError(error, res)) throw error;
+  }
 });
 
 // ---- Job routes ----
@@ -316,10 +325,14 @@ router.patch("/jobs/:jobId/time-entries/:personId", async (req, res): Promise<vo
 router.delete("/jobs/:jobId/time-entries/:personId", async (req, res): Promise<void> => {
   const params = DeleteJobTimeEntryParams.safeParse(req.params);
   if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
-  const ok = await remove("job", params.data.jobId, params.data.personId, req.auth!.userId);
-  if (!ok) { res.status(404).json({ error: "Time entry not found" }); return; }
-  await syncJobHoursFromEntries(params.data.jobId);
-  res.sendStatus(204);
+  try {
+    const ok = await remove("job", params.data.jobId, params.data.personId, req.auth!.userId);
+    if (!ok) { res.status(404).json({ error: "Time entry not found" }); return; }
+    await syncJobHoursFromEntries(params.data.jobId);
+    res.sendStatus(204);
+  } catch (error) {
+    if (!handleWorkSessionError(error, res)) throw error;
+  }
 });
 
 async function listSessionsRoute(kind: Kind, parentId: number, req: import("express").Request, res: import("express").Response) {
@@ -392,9 +405,13 @@ router.delete("/activities/:activityId/work-sessions/:sessionId", async (req, re
   const parentId = Number(req.params.activityId);
   const sessionId = Number(req.params.sessionId);
   if (!Number.isInteger(parentId) || !Number.isInteger(sessionId)) { res.status(400).json({ error: "Neplatné ID" }); return; }
-  const ok = await voidWorkSession("activity", parentId, sessionId, req.auth!.userId);
-  if (!ok) { res.status(404).json({ error: "Work session not found" }); return; }
-  res.sendStatus(204);
+  try {
+    const ok = await voidWorkSession("activity", parentId, sessionId, req.auth!.userId);
+    if (!ok) { res.status(404).json({ error: "Work session not found" }); return; }
+    res.sendStatus(204);
+  } catch (error) {
+    if (!handleWorkSessionError(error, res)) throw error;
+  }
 });
 
 router.get("/jobs/:jobId/work-sessions", requireAssignedJobView, async (req, res): Promise<void> => {
@@ -421,10 +438,14 @@ router.delete("/jobs/:jobId/work-sessions/:sessionId", async (req, res): Promise
   const parentId = Number(req.params.jobId);
   const sessionId = Number(req.params.sessionId);
   if (!Number.isInteger(parentId) || !Number.isInteger(sessionId)) { res.status(400).json({ error: "Neplatné ID" }); return; }
-  const ok = await voidWorkSession("job", parentId, sessionId, req.auth!.userId);
-  if (!ok) { res.status(404).json({ error: "Work session not found" }); return; }
-  await syncJobHoursFromEntries(parentId);
-  res.sendStatus(204);
+  try {
+    const ok = await voidWorkSession("job", parentId, sessionId, req.auth!.userId);
+    if (!ok) { res.status(404).json({ error: "Work session not found" }); return; }
+    await syncJobHoursFromEntries(parentId);
+    res.sendStatus(204);
+  } catch (error) {
+    if (!handleWorkSessionError(error, res)) throw error;
+  }
 });
 
 export default router;

@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 import type { PoolClient } from "pg";
 import { pool } from "@workspace/db";
@@ -8,6 +8,8 @@ import {
   offlineContentDigest,
   requiresOfflineContentDigest,
 } from "../lib/offline-content-digest";
+import { decryptSecretValue, encryptSecretValue } from "../lib/secret-envelope";
+import { onlineIdempotencyPolicyForRequest } from "../lib/online-idempotency-policy";
 
 const IDEMPOTENCY_HEADER = "idempotency-key";
 const LOCK_NAMESPACE = 8452;
@@ -17,6 +19,12 @@ const MUTATION_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,199}$/;
 
 type LedgerState = "pending" | "completed" | "ambiguous";
+type IdempotencyMode = "offline" | "online-encrypted";
+
+type EncryptedReplayBody = {
+  format: "mve1";
+  ciphertext: string;
+};
 
 interface LedgerRow {
   id: number;
@@ -38,25 +46,32 @@ function stableValue(value: unknown): unknown {
     );
   }
   if (Buffer.isBuffer(value)) {
-    return { sha256: createHash("sha256").update(value).digest("hex"), bytes: value.length };
+    return {
+      sha256: createHash("sha256").update(value).digest("hex"),
+      bytes: value.length,
+    };
   }
   return value ?? null;
 }
 
-export function fingerprintOfflineReplayRequest(req: Pick<
-  Request,
-  "method" | "originalUrl" | "body" | "headers"
->): string {
+export function fingerprintOfflineReplayRequest(
+  req: Pick<Request, "method" | "originalUrl" | "body" | "headers">,
+): string {
   const url = new URL(req.originalUrl, "http://offline.local");
-  const query = [...url.searchParams.entries()].sort(([leftKey, leftValue], [rightKey, rightValue]) =>
-    leftKey === rightKey ? leftValue.localeCompare(rightValue) : leftKey.localeCompare(rightKey),
+  const query = [...url.searchParams.entries()].sort(
+    ([leftKey, leftValue], [rightKey, rightValue]) =>
+      leftKey === rightKey
+        ? leftValue.localeCompare(rightValue)
+        : leftKey.localeCompare(rightKey),
   );
-  const contentType = typeof req.headers["content-type"] === "string"
-    ? req.headers["content-type"].split(";", 1)[0]!.trim().toLowerCase()
-    : null;
-  const contentLength = typeof req.headers["content-length"] === "string"
-    ? req.headers["content-length"]
-    : null;
+  const contentType =
+    typeof req.headers["content-type"] === "string"
+      ? req.headers["content-type"].split(";", 1)[0]!.trim().toLowerCase()
+      : null;
+  const contentLength =
+    typeof req.headers["content-length"] === "string"
+      ? req.headers["content-length"]
+      : null;
   const canonical = stableValue({
     method: req.method.toUpperCase(),
     path: url.pathname,
@@ -76,12 +91,89 @@ function pathWithoutQuery(req: Request): string {
 function capturedResponseBody(body: unknown): unknown {
   if (body === undefined) return null;
   try {
-    return Buffer.byteLength(JSON.stringify(body), "utf8") <= MAX_CAPTURED_RESPONSE_BYTES
+    return Buffer.byteLength(JSON.stringify(body), "utf8") <=
+      MAX_CAPTURED_RESPONSE_BYTES
       ? body
       : null;
   } catch {
     return null;
   }
+}
+
+function ledgerEncryptionContext(
+  userId: number,
+  scope: string,
+  method: string,
+  path: string,
+  idempotencyKey: string,
+): string {
+  return `api_idempotency:${userId}:${scope}:${method}:${path}:${idempotencyKey}`;
+}
+
+function constantTimeHexEqual(left: string, right: string): boolean {
+  if (!/^[0-9a-f]{64}$/.test(left) || !/^[0-9a-f]{64}$/.test(right)) {
+    return false;
+  }
+  return timingSafeEqual(Buffer.from(left, "hex"), Buffer.from(right, "hex"));
+}
+
+function storedRequestFingerprint(
+  mode: IdempotencyMode,
+  requestHash: string,
+  context: string,
+): string {
+  return mode === "online-encrypted"
+    ? encryptSecretValue(requestHash, `${context}:request-hash`).ciphertext
+    : requestHash;
+}
+
+function requestFingerprintMatches(
+  mode: IdempotencyMode,
+  stored: string,
+  requestHash: string,
+  context: string,
+): boolean {
+  const plaintext =
+    mode === "online-encrypted"
+      ? decryptSecretValue(stored, `${context}:request-hash`)
+      : stored;
+  return constantTimeHexEqual(plaintext, requestHash);
+}
+
+function encryptReplayBody(
+  body: unknown,
+  context: string,
+): EncryptedReplayBody {
+  const plaintext = JSON.stringify(body ?? null);
+  if (typeof plaintext !== "string") {
+    throw new Error("Online idempotency response is not JSON serializable.");
+  }
+  if (Buffer.byteLength(plaintext, "utf8") > MAX_CAPTURED_RESPONSE_BYTES) {
+    throw new Error("Online idempotency response exceeds the replay limit.");
+  }
+  return {
+    format: "mve1",
+    ciphertext: encryptSecretValue(plaintext, `${context}:response-body`)
+      .ciphertext,
+  };
+}
+
+function decryptReplayBody(body: unknown, context: string): unknown {
+  if (
+    !body ||
+    typeof body !== "object" ||
+    Array.isArray(body) ||
+    Object.keys(body).sort().join(",") !== "ciphertext,format"
+  ) {
+    throw new Error("Encrypted idempotency response has an invalid shape.");
+  }
+  const envelope = body as Partial<EncryptedReplayBody>;
+  if (envelope.format !== "mve1" || typeof envelope.ciphertext !== "string") {
+    throw new Error("Encrypted idempotency response has an invalid format.");
+  }
+  return JSON.parse(
+    decryptSecretValue(envelope.ciphertext, `${context}:response-body`),
+  ) as unknown;
 }
 
 async function finishTransaction(
@@ -96,27 +188,38 @@ async function finishTransaction(
 }
 
 /**
- * Durable replay envelope for mutations emitted by the scoped offline queue.
+ * Durable replay envelope for scoped offline mutations and explicitly
+ * registered privileged online mutations.
  * A short transaction-level advisory lock serializes ledger admission without
  * reserving a shared pool connection for the whole HTTP operation. The durable
  * pending record has a heartbeat while the request is active. A stale pending
  * request is promoted to `ambiguous` and is never executed automatically again.
  */
-export async function enforceOfflineIdempotency(
+export async function enforceDurableIdempotency(
   req: Request,
   res: Response,
   next: NextFunction,
 ): Promise<void> {
   const method = req.method.toUpperCase();
+  const onlinePolicy = onlineIdempotencyPolicyForRequest(req);
   const offlineScope = req.get(OFFLINE_SCOPE_HEADER);
+  const mode: IdempotencyMode | null = onlinePolicy
+    ? "online-encrypted"
+    : MUTATION_METHODS.has(method) && offlineScope
+      ? "offline"
+      : null;
+  const ledgerScope = onlinePolicy?.scope ?? offlineScope;
   const idempotencyKey = req.get(IDEMPOTENCY_HEADER);
-  if (!MUTATION_METHODS.has(method) || !offlineScope) {
+  if (!mode || !ledgerScope) {
     next();
     return;
   }
   if (!idempotencyKey) {
     res.status(400).json({
-      error: "Offline mutace vyžaduje Idempotency-Key.",
+      error:
+        mode === "online-encrypted"
+          ? "Operace externího účtu vyžaduje Idempotency-Key."
+          : "Offline mutace vyžaduje Idempotency-Key.",
       code: "idempotency_key_required",
     });
     return;
@@ -128,7 +231,11 @@ export async function enforceOfflineIdempotency(
     });
     return;
   }
-  if (requiresOfflineContentDigest(req) && !offlineContentDigest(req)) {
+  if (
+    mode === "offline" &&
+    requiresOfflineContentDigest(req) &&
+    !offlineContentDigest(req)
+  ) {
     res.status(400).json({
       error: "Offline upload vyžaduje platný SHA-256 obsahu.",
       code: "offline_content_digest_required",
@@ -136,13 +243,41 @@ export async function enforceOfflineIdempotency(
     return;
   }
   if (!req.auth) {
-    res.status(401).json({ error: "Unauthorized", code: "offline_identity_unavailable" });
+    res
+      .status(401)
+      .json({ error: "Unauthorized", code: "offline_identity_unavailable" });
     return;
   }
 
   const path = pathWithoutQuery(req);
   const requestHash = fingerprintOfflineReplayRequest(req);
-  const lockIdentity = `${req.auth.userId}:${offlineScope}:${method}:${path}:${idempotencyKey}`;
+  const encryptionContext = ledgerEncryptionContext(
+    req.auth.userId,
+    ledgerScope,
+    method,
+    path,
+    idempotencyKey,
+  );
+  let persistedRequestHash: string;
+  try {
+    persistedRequestHash = storedRequestFingerprint(
+      mode,
+      requestHash,
+      encryptionContext,
+    );
+  } catch (error) {
+    req.log?.error(
+      { err: error },
+      "Idempotency request fingerprint encryption unavailable",
+    );
+    res.setHeader("Retry-After", "5");
+    res.status(503).json({
+      error: "Operaci nyní nelze bezpečně deduplikovat.",
+      code: "idempotency_unavailable",
+    });
+    return;
+  }
+  const lockIdentity = `${req.auth.userId}:${ledgerScope}:${method}:${path}:${idempotencyKey}`;
   let client: PoolClient | null = null;
 
   try {
@@ -157,7 +292,7 @@ export async function enforceOfflineIdempotency(
       client = null;
       res.setHeader("Retry-After", "2");
       res.status(409).json({
-        error: "Stejná offline operace se právě zpracovává.",
+        error: "Stejná operace se právě zpracovává.",
         code: "idempotency_in_progress",
       });
       return;
@@ -172,11 +307,37 @@ export async function enforceOfflineIdempotency(
           and method = $3
           and path = $4
           and idempotency_key = $5`,
-      [req.auth.userId, offlineScope, method, path, idempotencyKey],
+      [req.auth.userId, ledgerScope, method, path, idempotencyKey],
     );
     const existing = existingResult.rows[0];
     if (existing) {
-      if (existing.request_hash !== requestHash) {
+      let requestMatches: boolean;
+      try {
+        requestMatches = requestFingerprintMatches(
+          mode,
+          existing.request_hash,
+          requestHash,
+          encryptionContext,
+        );
+      } catch (error) {
+        req.log?.error(
+          { err: error, recordId: existing.id },
+          "Idempotency request fingerprint verification failed",
+        );
+        await client.query(
+          "update api_idempotency_records set state = 'ambiguous', last_seen_at = now() where id = $1",
+          [existing.id],
+        );
+        await finishTransaction(client, "COMMIT");
+        client = null;
+        res.status(409).json({
+          error:
+            "Výsledek předchozího pokusu nelze bezpečně určit. Operace nebyla zopakována.",
+          code: "idempotency_ambiguous",
+        });
+        return;
+      }
+      if (!requestMatches) {
         await finishTransaction(client, "ROLLBACK");
         client = null;
         res.status(409).json({
@@ -190,7 +351,7 @@ export async function enforceOfflineIdempotency(
         client = null;
         res.setHeader("Retry-After", "2");
         res.status(409).json({
-          error: "Stejná offline operace se právě zpracovává.",
+          error: "Stejná operace se právě zpracovává.",
           code: "idempotency_in_progress",
         });
         return;
@@ -203,12 +364,47 @@ export async function enforceOfflineIdempotency(
         await finishTransaction(client, "COMMIT");
         client = null;
         res.status(409).json({
-          error: "Výsledek předchozího pokusu nelze bezpečně určit. Operace nebyla zopakována.",
+          error:
+            "Výsledek předchozího pokusu nelze bezpečně určit. Operace nebyla zopakována.",
           code: "idempotency_ambiguous",
         });
         return;
       }
 
+      let replayBody = existing.response_body;
+      if (mode === "online-encrypted") {
+        try {
+          if (
+            existing.response_status === null ||
+            existing.response_content_type === null
+          ) {
+            throw new Error(
+              "Completed encrypted replay metadata is incomplete.",
+            );
+          }
+          replayBody = decryptReplayBody(
+            existing.response_body,
+            encryptionContext,
+          );
+        } catch (error) {
+          req.log?.error(
+            { err: error, recordId: existing.id },
+            "Idempotency replay decryption failed",
+          );
+          await client.query(
+            "update api_idempotency_records set state = 'ambiguous', last_seen_at = now() where id = $1",
+            [existing.id],
+          );
+          await finishTransaction(client, "COMMIT");
+          client = null;
+          res.status(409).json({
+            error:
+              "Výsledek předchozího pokusu nelze bezpečně určit. Operace nebyla zopakována.",
+            code: "idempotency_ambiguous",
+          });
+          return;
+        }
+      }
       await client.query(
         "update api_idempotency_records set last_seen_at = now() where id = $1",
         [existing.id],
@@ -220,8 +416,8 @@ export async function enforceOfflineIdempotency(
         res.setHeader("Content-Type", existing.response_content_type);
       }
       res.status(existing.response_status ?? 200);
-      if (existing.response_body === null) res.end();
-      else res.json(existing.response_body);
+      if (replayBody === null) res.end();
+      else res.json(replayBody);
       return;
     }
 
@@ -230,7 +426,14 @@ export async function enforceOfflineIdempotency(
         (user_id, offline_scope, idempotency_key, method, path, request_hash, state)
        values ($1, $2, $3, $4, $5, $6, 'pending')
        returning id`,
-      [req.auth.userId, offlineScope, idempotencyKey, method, path, requestHash],
+      [
+        req.auth.userId,
+        ledgerScope,
+        idempotencyKey,
+        method,
+        path,
+        persistedRequestHash,
+      ],
     );
     const recordId = inserted.rows[0]!.id;
     await finishTransaction(client, "COMMIT");
@@ -245,12 +448,17 @@ export async function enforceOfflineIdempotency(
 
     let finalized = false;
     const heartbeat = setInterval(() => {
-      void pool.query(
-        "update api_idempotency_records set last_seen_at = now() where id = $1 and state = 'pending'",
-        [recordId],
-      ).catch((error) => {
-        req.log?.error({ err: error, recordId }, "Failed to heartbeat offline idempotency record");
-      });
+      void pool
+        .query(
+          "update api_idempotency_records set last_seen_at = now() where id = $1 and state = 'pending'",
+          [recordId],
+        )
+        .catch((error) => {
+          req.log?.error(
+            { err: error, recordId },
+            "Failed to heartbeat idempotency record",
+          );
+        });
     }, PENDING_HEARTBEAT_MS);
     heartbeat.unref();
 
@@ -260,9 +468,31 @@ export async function enforceOfflineIdempotency(
       clearInterval(heartbeat);
       try {
         if (state === "completed" && [408, 425, 429].includes(res.statusCode)) {
-          await pool.query("delete from api_idempotency_records where id = $1", [recordId]);
+          await pool.query(
+            "delete from api_idempotency_records where id = $1",
+            [recordId],
+          );
         } else {
-          const finalState: LedgerState = res.statusCode >= 500 ? "ambiguous" : state;
+          let finalState: LedgerState =
+            res.statusCode >= 500 ? "ambiguous" : state;
+          let responseBody: unknown = null;
+          if (finalState === "completed") {
+            try {
+              responseBody =
+                mode === "online-encrypted"
+                  ? encryptReplayBody(jsonBody, encryptionContext)
+                  : capturedResponseBody(jsonBody);
+              if (mode === "online-encrypted" && responseBody === null) {
+                throw new Error("Encrypted replay body was not captured.");
+              }
+            } catch (error) {
+              finalState = "ambiguous";
+              req.log?.error(
+                { err: error, recordId },
+                "Idempotency replay serialization failed closed",
+              );
+            }
+          }
           await pool.query(
             `update api_idempotency_records
                 set state = $2,
@@ -276,17 +506,24 @@ export async function enforceOfflineIdempotency(
               recordId,
               finalState,
               finalState === "completed" ? res.statusCode : null,
-              finalState === "completed" ? String(res.getHeader("Content-Type") ?? "") || null : null,
-              finalState === "completed" ? capturedResponseBody(jsonBody) : null,
+              finalState === "completed"
+                ? String(res.getHeader("Content-Type") ?? "") || null
+                : null,
+              finalState === "completed" ? responseBody : null,
             ],
           );
         }
       } catch (error) {
-        req.log?.error({ err: error, recordId }, "Failed to finalize offline idempotency record");
+        req.log?.error(
+          { err: error, recordId },
+          "Failed to finalize idempotency record",
+        );
       }
     };
 
-    res.once("finish", () => { void finalize("completed"); });
+    res.once("finish", () => {
+      void finalize("completed");
+    });
     res.once("close", () => {
       if (!res.writableFinished) void finalize("ambiguous");
     });
@@ -295,11 +532,14 @@ export async function enforceOfflineIdempotency(
     if (client) {
       await finishTransaction(client, "ROLLBACK").catch(() => undefined);
     }
-    req.log?.error({ err: error }, "Offline idempotency ledger unavailable");
+    req.log?.error({ err: error }, "Idempotency ledger unavailable");
     res.setHeader("Retry-After", "5");
     res.status(503).json({
-      error: "Offline operaci nyní nelze bezpečně deduplikovat.",
+      error: "Operaci nyní nelze bezpečně deduplikovat.",
       code: "idempotency_unavailable",
     });
   }
 }
+
+/** Backward-compatible name for the existing offline DB contract tests. */
+export const enforceOfflineIdempotency = enforceDurableIdempotency;

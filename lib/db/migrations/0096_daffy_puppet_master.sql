@@ -1,1 +1,0 @@
-ALTER TABLE "users" ADD COLUMN "session_generation" integer DEFAULT 1 NOT NULL;

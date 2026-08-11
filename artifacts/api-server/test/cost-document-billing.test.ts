@@ -299,7 +299,11 @@ describe("cost-document line reservation roundtrip", () => {
       .set({ status: "issued", invoiceNumber: `${TAG}-1` })
       .where(eq(invoicesTable.id, draft.id));
 
-    await cancelInvoice(draft.id, false, actor);
+    await cancelInvoice(
+      draft.id,
+      { returnJobsToDone: false, reasonCode: "billing_error" },
+      actor,
+    );
 
     expect(await lineReservation(lineId!)).toBeNull();
     const after = await getApprovedLinesForCustomer(customerId);

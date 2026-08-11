@@ -363,6 +363,15 @@ function validateOneShotService(service, targetService) {
       profiles: ["exact-0104-backup"],
       dependsOn: false,
     },
+    "exact-0105-accounting-backup": {
+      command: ["node", "dist/accounting-schema-exact-0105-backup.mjs"],
+      cpus: 0.5,
+      memLimit: "1610612736",
+      memReservation: "402653184",
+      tmpfs: ["/tmp:size=536870912,mode=1777"],
+      profiles: ["exact-0105-accounting-backup"],
+      dependsOn: false,
+    },
     "exact-0104-recovery-gate": {
       command: ["node", "dist/external-schema-exact-0104-recovery.mjs"],
       cpus: 0.25,
@@ -374,6 +383,15 @@ function validateOneShotService(service, targetService) {
     },
     "external-schema-gate": {
       command: ["node", "dist/external-schema-gate.mjs"],
+      cpus: 0.25,
+      memLimit: "402653184",
+      memReservation: "201326592",
+      tmpfs: undefined,
+      profiles: undefined,
+      dependsOn: true,
+    },
+    "accounting-schema-gate": {
+      command: ["node", "dist/accounting-schema-gate.mjs"],
       cpus: 0.25,
       memLimit: "402653184",
       memReservation: "201326592",
@@ -440,7 +458,7 @@ function validateOneShotService(service, targetService) {
         postgres: "service_healthy",
         "staging-preflight": "service_completed_successfully",
       },
-      "external-schema-gate depends_on",
+      `${targetService} depends_on`,
     );
   }
   requireAbsentComposeKeys(
@@ -650,14 +668,20 @@ export function validateResolvedStagingComposeTarget(
     targetService,
     deploymentInputsSha256: expectedInputsSha256,
     recoveryInputsSha256,
+    accountingInputsSha256,
+    exact0105BackupExecutionSha256,
+    exact0105BackupMaxPayloadBytes,
+    exact0105BackupSizeBytes,
   },
 ) {
   const inputs = validateStagingDeploymentInputs(inputsValue);
   if (
     ![
       "exact-0104-backup",
+      "exact-0105-accounting-backup",
       "exact-0104-recovery-gate",
       "external-schema-gate",
+      "accounting-schema-gate",
     ].includes(targetService) ||
     !SHA256.test(String(expectedInputsSha256)) ||
     value?.name !== inputs.composeProjectName
@@ -726,15 +750,23 @@ export function validateResolvedStagingComposeTarget(
           "STAGING_PROVISIONING_MANIFEST_SHA256",
           "STAGING_SCHEMA_ACTION",
         ]
-      : targetService === "exact-0104-recovery-gate"
+      : targetService === "exact-0105-accounting-backup"
         ? [
+            "ACCOUNTING_SCHEMA_PREFLIGHT_CONFIRMATION",
+            "BACKUP_ENABLED",
+            "BACKUP_ENCRYPTION_ACTIVE_KEY_ID",
+            "BACKUP_ENCRYPTION_KEYRING",
             "DATABASE_URL",
             "EXTERNAL_ACCOUNTS_ENABLED",
-            "STAGING_API_IMAGE",
+            "S3_ACCESS_KEY_ID",
+            "S3_BUCKET",
+            "S3_ENDPOINT",
+            "S3_FORCE_PATH_STYLE",
+            "S3_PRIVATE_PREFIX",
+            "S3_REGION",
+            "S3_SECRET_ACCESS_KEY",
             "STAGING_BACKUP_EVIDENCE_ID",
             "STAGING_BACKUP_RESTORE_MAX_AGE_HOURS",
-            "STAGING_BASELINE_0104_EXECUTION_B64",
-            "STAGING_BASELINE_0104_EXECUTION_SHA256",
             "STAGING_BUILD_SHA",
             "STAGING_COMPOSE_PROJECT_NAME",
             "STAGING_DATABASE_HOST",
@@ -742,8 +774,8 @@ export function validateResolvedStagingComposeTarget(
             "STAGING_DATABASE_USER",
             "STAGING_DEPLOYMENT_INPUTS_SHA256",
             "STAGING_ENVIRONMENT_ID",
-            "STAGING_EXACT_0104_RECOVERY_INPUTS_B64",
-            "STAGING_EXACT_0104_RECOVERY_INPUTS_SHA256",
+            "STAGING_EXACT_0105_BACKUP_ACTION",
+            "STAGING_EXACT_0105_BACKUP_CONFIRMATION",
             "STAGING_EXTERNAL_ACCOUNTS_ENABLED",
             "STAGING_EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION",
             "STAGING_IMAGE_MANIFEST_SHA256",
@@ -751,21 +783,73 @@ export function validateResolvedStagingComposeTarget(
             "STAGING_PROVISIONING_MANIFEST_SHA256",
             "STAGING_SCHEMA_ACTION",
           ]
-        : [
-            "DATABASE_URL",
-            "EXTERNAL_ACCOUNTS_ENABLED",
-            "EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION",
-            "STAGING_BACKUP_EVIDENCE_ID",
-            "STAGING_BACKUP_RESTORE_MAX_AGE_HOURS",
-            "STAGING_BUILD_SHA",
-            "STAGING_DATABASE_HOST",
-            "STAGING_DATABASE_NAME",
-            "STAGING_DATABASE_USER",
-            "STAGING_DEPLOYMENT_INPUTS_SHA256",
-            "STAGING_ENVIRONMENT_ID",
-            "STAGING_IMAGE_MANIFEST_SOURCE_SHA",
-            "STAGING_SCHEMA_ACTION",
-          ],
+        : targetService === "exact-0104-recovery-gate"
+          ? [
+              "DATABASE_URL",
+              "EXTERNAL_ACCOUNTS_ENABLED",
+              "STAGING_API_IMAGE",
+              "STAGING_BACKUP_EVIDENCE_ID",
+              "STAGING_BACKUP_RESTORE_MAX_AGE_HOURS",
+              "STAGING_BASELINE_0104_EXECUTION_B64",
+              "STAGING_BASELINE_0104_EXECUTION_SHA256",
+              "STAGING_BUILD_SHA",
+              "STAGING_COMPOSE_PROJECT_NAME",
+              "STAGING_DATABASE_HOST",
+              "STAGING_DATABASE_NAME",
+              "STAGING_DATABASE_USER",
+              "STAGING_DEPLOYMENT_INPUTS_SHA256",
+              "STAGING_ENVIRONMENT_ID",
+              "STAGING_EXACT_0104_RECOVERY_INPUTS_B64",
+              "STAGING_EXACT_0104_RECOVERY_INPUTS_SHA256",
+              "STAGING_EXTERNAL_ACCOUNTS_ENABLED",
+              "STAGING_EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION",
+              "STAGING_IMAGE_MANIFEST_SHA256",
+              "STAGING_IMAGE_MANIFEST_SOURCE_SHA",
+              "STAGING_PROVISIONING_MANIFEST_SHA256",
+              "STAGING_SCHEMA_ACTION",
+            ]
+          : targetService === "accounting-schema-gate"
+            ? [
+                "ACCOUNTING_SCHEMA_PREFLIGHT_CONFIRMATION",
+                "DATABASE_URL",
+                "EXTERNAL_ACCOUNTS_ENABLED",
+                "STAGING_ACCOUNTING_DEPLOYMENT_INPUTS_SHA256",
+                "STAGING_ACCOUNTING_SCHEMA_ACTION",
+                "STAGING_API_IMAGE",
+                "STAGING_BACKUP_EVIDENCE_ID",
+                "STAGING_BACKUP_RESTORE_MAX_AGE_HOURS",
+                "STAGING_BUILD_SHA",
+                "STAGING_COMPOSE_PROJECT_NAME",
+                "STAGING_DATABASE_HOST",
+                "STAGING_DATABASE_NAME",
+                "STAGING_DATABASE_USER",
+                "STAGING_DEPLOYMENT_INPUTS_SHA256",
+                "STAGING_ENVIRONMENT_ID",
+                "STAGING_EXACT_0105_BACKUP_EXECUTION_SHA256",
+                "STAGING_EXACT_0105_BACKUP_MAX_PAYLOAD_BYTES",
+                "STAGING_EXACT_0105_BACKUP_SIZE_BYTES",
+                "STAGING_EXTERNAL_ACCOUNTS_ENABLED",
+                "STAGING_EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION",
+                "STAGING_IMAGE_MANIFEST_SHA256",
+                "STAGING_IMAGE_MANIFEST_SOURCE_SHA",
+                "STAGING_PROVISIONING_MANIFEST_SHA256",
+                "STAGING_SCHEMA_ACTION",
+              ]
+            : [
+                "DATABASE_URL",
+                "EXTERNAL_ACCOUNTS_ENABLED",
+                "EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION",
+                "STAGING_BACKUP_EVIDENCE_ID",
+                "STAGING_BACKUP_RESTORE_MAX_AGE_HOURS",
+                "STAGING_BUILD_SHA",
+                "STAGING_DATABASE_HOST",
+                "STAGING_DATABASE_NAME",
+                "STAGING_DATABASE_USER",
+                "STAGING_DEPLOYMENT_INPUTS_SHA256",
+                "STAGING_ENVIRONMENT_ID",
+                "STAGING_IMAGE_MANIFEST_SOURCE_SHA",
+                "STAGING_SCHEMA_ACTION",
+              ],
     `${targetService} environment`,
   );
   const common = [
@@ -854,7 +938,10 @@ export function validateResolvedStagingComposeTarget(
     );
   }
   validateDatabaseUrl(targetEnvironment.DATABASE_URL);
-  if (targetService === "exact-0104-backup") {
+  if (
+    targetService === "exact-0104-backup" ||
+    targetService === "exact-0105-accounting-backup"
+  ) {
     for (const [key, expected] of [
       ["STAGING_COMPOSE_PROJECT_NAME", inputs.composeProjectName],
       ["STAGING_IMAGE_MANIFEST_SHA256", inputs.imageManifestSha256],
@@ -890,6 +977,13 @@ export function validateResolvedStagingComposeTarget(
       ["S3_PRIVATE_PREFIX", "private"],
       ["STAGING_EXTERNAL_ACCOUNTS_ENABLED", "false"],
       ["STAGING_EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION", ""],
+      ...(targetService === "exact-0105-accounting-backup"
+        ? [
+            ["ACCOUNTING_SCHEMA_PREFLIGHT_CONFIRMATION", ""],
+            ["STAGING_EXACT_0105_BACKUP_ACTION", ""],
+            ["STAGING_EXACT_0105_BACKUP_CONFIRMATION", ""],
+          ]
+        : []),
     ]) {
       exactEnvironmentValue(targetEnvironment, key, expected, targetService);
     }
@@ -937,6 +1031,58 @@ export function validateResolvedStagingComposeTarget(
       fail(
         "DEPLOYMENT_COMPOSE_TARGET_MISMATCH",
         "The exact recovery target baseline execution checksum is invalid.",
+      );
+    }
+  } else if (targetService === "accounting-schema-gate") {
+    if (
+      !SHA256.test(String(accountingInputsSha256)) ||
+      !SHA256.test(String(exact0105BackupExecutionSha256)) ||
+      exact0105BackupMaxPayloadBytes !== 256 * 1024 * 1024 ||
+      !Number.isSafeInteger(exact0105BackupSizeBytes) ||
+      exact0105BackupSizeBytes < 1 ||
+      exact0105BackupSizeBytes > exact0105BackupMaxPayloadBytes
+    ) {
+      fail(
+        "DEPLOYMENT_COMPOSE_TARGET_INVALID",
+        "The exact accounting transition and backup execution bindings are required.",
+      );
+    }
+    for (const [key, expected] of [
+      ["STAGING_COMPOSE_PROJECT_NAME", inputs.composeProjectName],
+      ["STAGING_IMAGE_MANIFEST_SHA256", inputs.imageManifestSha256],
+      [
+        "STAGING_PROVISIONING_MANIFEST_SHA256",
+        inputs.provisioningManifestSha256,
+      ],
+      ["STAGING_API_IMAGE", inputs.images.api],
+      ["STAGING_EXTERNAL_ACCOUNTS_ENABLED", "false"],
+      ["STAGING_EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION", ""],
+      ["STAGING_ACCOUNTING_SCHEMA_ACTION", "steady-0106"],
+      ["ACCOUNTING_SCHEMA_PREFLIGHT_CONFIRMATION", ""],
+      ["STAGING_ACCOUNTING_DEPLOYMENT_INPUTS_SHA256", accountingInputsSha256],
+      [
+        "STAGING_EXACT_0105_BACKUP_EXECUTION_SHA256",
+        exact0105BackupExecutionSha256,
+      ],
+      [
+        "STAGING_EXACT_0105_BACKUP_MAX_PAYLOAD_BYTES",
+        String(exact0105BackupMaxPayloadBytes),
+      ],
+      [
+        "STAGING_EXACT_0105_BACKUP_SIZE_BYTES",
+        String(exact0105BackupSizeBytes),
+      ],
+    ]) {
+      exactEnvironmentValue(targetEnvironment, key, expected, targetService);
+    }
+    if (
+      Object.keys(targetEnvironment).some(
+        (key) => key.startsWith("S3_") || key.startsWith("STAGING_S3_"),
+      )
+    ) {
+      fail(
+        "DEPLOYMENT_COMPOSE_TARGET_MISMATCH",
+        "The accounting transition target must not receive an S3 write surface.",
       );
     }
   } else if (

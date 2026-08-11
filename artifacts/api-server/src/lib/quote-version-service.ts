@@ -11,10 +11,21 @@ import {
   type QuoteVersionSnapshot,
 } from "@workspace/db";
 import { randomUUID } from "node:crypto";
-import { evidenceSha256, normalizedUserAgentSha256, sha256Hex } from "./evidence-hash";
+import {
+  evidenceSha256,
+  normalizedUserAgentSha256,
+  sha256Hex,
+} from "./evidence-hash";
 import { ObjectStorageService } from "./objectStorage";
 import { generateQuotePdf, type QuotePdfData } from "./quote-pdf";
-import { issuePublicAccessToken, revokePublicAccessTokens } from "./public-access-token";
+import {
+  issuePublicAccessToken,
+  revokePublicAccessTokens,
+} from "./public-access-token";
+import {
+  computeQuoteItemTotals,
+  normalizeQuoteRowType,
+} from "./quote-calculations";
 import {
   assertQuoteDecisionStillValid,
   QuoteValidityError,
@@ -25,12 +36,16 @@ type DbClient = typeof db | DbTransaction;
 
 const objectStorage = new ObjectStorageService();
 const SETTINGS_ID = 1;
-export const QUOTE_RENDERER_VERSION = "quote-pdf-v1";
+export const QUOTE_RENDERER_VERSION = "quote-pdf-v2";
 export const QUOTE_DECISION_CONFIRMATION_TEXT =
   "Potvrzuji, že jsem se seznámil/a s touto konkrétní verzí nabídky a uvedené rozhodnutí se vztahuje k jejímu obsahu a ceně.";
 
 export class QuoteVersionError extends Error {
-  constructor(readonly statusCode: number, readonly code: string, message: string) {
+  constructor(
+    readonly statusCode: number,
+    readonly code: string,
+    message: string,
+  ) {
     super(message);
     this.name = "QuoteVersionError";
   }
@@ -51,7 +66,10 @@ function assertVersionDecisionValidity(validUntil: string | null): void {
   }
 }
 
-function numberValue(value: string | number | null | undefined, fallback = 0): number {
+function numberValue(
+  value: string | number | null | undefined,
+  fallback = 0,
+): number {
   if (value == null) return fallback;
   const parsed = typeof value === "number" ? value : Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -61,64 +79,102 @@ function round2(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
-function itemTotals(unitPrice: number, quantity: number, vatRate: number | null, vatPayer: boolean) {
-  const totalWithoutVat = round2(unitPrice * quantity);
-  const totalVat = vatPayer && vatRate != null
-    ? round2(totalWithoutVat * vatRate / 100)
-    : 0;
-  return {
-    totalWithoutVat,
-    totalVat,
-    totalWithVat: round2(totalWithoutVat + totalVat),
-  };
-}
-
 async function loadSnapshot(
   client: DbClient,
   quoteId: number,
   lock: boolean,
 ): Promise<QuoteVersionSnapshot> {
   const quoteRows = lock
-    ? await client.select().from(quotesTable).where(eq(quotesTable.id, quoteId)).limit(1).for("update")
-    : await client.select().from(quotesTable).where(eq(quotesTable.id, quoteId)).limit(1);
+    ? await client
+        .select()
+        .from(quotesTable)
+        .where(eq(quotesTable.id, quoteId))
+        .limit(1)
+        .for("update")
+    : await client
+        .select()
+        .from(quotesTable)
+        .where(eq(quotesTable.id, quoteId))
+        .limit(1);
   const quote = quoteRows[0];
-  if (!quote) throw new QuoteVersionError(404, "quote_not_found", "Nabídka nenalezena.");
+  if (!quote)
+    throw new QuoteVersionError(404, "quote_not_found", "Nabídka nenalezena.");
 
   const settingsRows = lock
-    ? await client.select().from(billingSettingsTable).where(eq(billingSettingsTable.id, SETTINGS_ID)).limit(1).for("share")
-    : await client.select().from(billingSettingsTable).where(eq(billingSettingsTable.id, SETTINGS_ID)).limit(1);
+    ? await client
+        .select()
+        .from(billingSettingsTable)
+        .where(eq(billingSettingsTable.id, SETTINGS_ID))
+        .limit(1)
+        .for("share")
+    : await client
+        .select()
+        .from(billingSettingsTable)
+        .where(eq(billingSettingsTable.id, SETTINGS_ID))
+        .limit(1);
   const settings = settingsRows[0];
-  if (!settings) throw new QuoteVersionError(500, "billing_settings_missing", "Nastavení fakturace nenalezeno.");
+  if (!settings)
+    throw new QuoteVersionError(
+      500,
+      "billing_settings_missing",
+      "Nastavení fakturace nenalezeno.",
+    );
 
   const itemRows = lock
-    ? await client.select().from(quoteItemsTable).where(eq(quoteItemsTable.quoteId, quote.id)).orderBy(asc(quoteItemsTable.position)).for("share")
-    : await client.select().from(quoteItemsTable).where(eq(quoteItemsTable.quoteId, quote.id)).orderBy(asc(quoteItemsTable.position));
+    ? await client
+        .select()
+        .from(quoteItemsTable)
+        .where(eq(quoteItemsTable.quoteId, quote.id))
+        .orderBy(asc(quoteItemsTable.position))
+        .for("share")
+    : await client
+        .select()
+        .from(quoteItemsTable)
+        .where(eq(quoteItemsTable.quoteId, quote.id))
+        .orderBy(asc(quoteItemsTable.position));
 
   let customer = null;
   if (quote.customerId) {
     const customerRows = lock
-      ? await client.select().from(customersTable).where(eq(customersTable.id, quote.customerId)).limit(1).for("share")
-      : await client.select().from(customersTable).where(eq(customersTable.id, quote.customerId)).limit(1);
+      ? await client
+          .select()
+          .from(customersTable)
+          .where(eq(customersTable.id, quote.customerId))
+          .limit(1)
+          .for("share")
+      : await client
+          .select()
+          .from(customersTable)
+          .where(eq(customersTable.id, quote.customerId))
+          .limit(1);
     customer = customerRows[0] ?? null;
   }
 
   const items = itemRows.map((item) => {
-    const quantity = numberValue(item.quantity, 1);
-    const unitPrice = numberValue(item.unitPrice);
-    const vatRate = item.vatRate == null ? null : numberValue(item.vatRate);
+    const rowType = normalizeQuoteRowType(item.rowType);
+    const quantity = rowType === "item" ? numberValue(item.quantity, 1) : 0;
+    const unitPrice = rowType === "item" ? numberValue(item.unitPrice) : 0;
+    const vatRate =
+      rowType === "item" && item.vatRate != null
+        ? numberValue(item.vatRate)
+        : null;
     return {
       lineId: item.id,
       position: item.position,
+      rowType,
       description: item.description,
       quantity,
       unit: item.unit,
       unitPrice,
       vatRate,
-      ...itemTotals(unitPrice, quantity, vatRate, settings.vatPayer),
+      ...computeQuoteItemTotals(
+        { rowType, quantity, unitPrice, vatRate },
+        settings.vatPayer,
+      ),
     };
   });
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     quote: {
       id: quote.id,
       quoteNumber: quote.quoteNumber,
@@ -146,9 +202,13 @@ async function loadSnapshot(
     },
     items,
     totals: {
-      subtotalWithoutVat: round2(items.reduce((sum, item) => sum + item.totalWithoutVat, 0)),
+      subtotalWithoutVat: round2(
+        items.reduce((sum, item) => sum + item.totalWithoutVat, 0),
+      ),
       totalVat: round2(items.reduce((sum, item) => sum + item.totalVat, 0)),
-      totalWithVat: round2(items.reduce((sum, item) => sum + item.totalWithVat, 0)),
+      totalWithVat: round2(
+        items.reduce((sum, item) => sum + item.totalWithVat, 0),
+      ),
       currency: "Kč",
     },
     confirmationText: QUOTE_DECISION_CONFIRMATION_TEXT,
@@ -167,6 +227,7 @@ function pdfData(snapshot: QuoteVersionSnapshot): QuotePdfData {
     notes: snapshot.quote.notes,
     items: snapshot.items.map((item) => ({
       description: item.description,
+      rowType: item.rowType,
       quantity: item.quantity,
       unit: item.unit,
       unitPrice: item.unitPrice,
@@ -210,7 +271,11 @@ export async function createQuoteVersionAndToken(input: {
         .from(quotesTable)
         .where(eq(quotesTable.id, input.quoteId));
       if (!current || !["draft", "sent"].includes(current.status)) {
-        throw new QuoteVersionError(409, "quote_not_sendable", "Nabídku v tomto stavu nelze odeslat.");
+        throw new QuoteVersionError(
+          409,
+          "quote_not_sendable",
+          "Nabídku v tomto stavu nelze odeslat.",
+        );
       }
       const [{ value: latestVersion }] = await tx
         .select({ value: max(quoteVersionsTable.version) })
@@ -256,7 +321,11 @@ export async function createQuoteVersionAndToken(input: {
           onIssue: async (inner) => {
             await inner
               .update(quotesTable)
-              .set({ shareToken: null, pdfObjectPath: objectPath, updatedAt: new Date() })
+              .set({
+                shareToken: null,
+                pdfObjectPath: objectPath,
+                updatedAt: new Date(),
+              })
               .where(eq(quotesTable.id, input.quoteId));
           },
         },
@@ -277,21 +346,30 @@ export async function publicQuoteVersion(record: PublicAccessToken) {
     record.artifactBindingStatus !== "bound" ||
     !record.quoteVersionId
   ) {
-    throw new QuoteVersionError(410, "quote_version_unbound", "Odkaz není svázán s neměnnou verzí nabídky.");
+    throw new QuoteVersionError(
+      410,
+      "quote_version_unbound",
+      "Odkaz není svázán s neměnnou verzí nabídky.",
+    );
   }
   const [version] = await db
     .select()
     .from(quoteVersionsTable)
     .where(eq(quoteVersionsTable.id, record.quoteVersionId));
   if (!version || version.quoteId !== record.resourceId) {
-    throw new QuoteVersionError(404, "quote_version_not_found", "Verze nabídky nebyla nalezena.");
+    throw new QuoteVersionError(
+      404,
+      "quote_version_not_found",
+      "Verze nabídky nebyla nalezena.",
+    );
   }
   assertVersionDecisionValidity(version.dataSnapshot.quote.validUntil);
   const [quote] = await db
     .select({ status: quotesTable.status })
     .from(quotesTable)
     .where(eq(quotesTable.id, version.quoteId));
-  if (!quote) throw new QuoteVersionError(404, "quote_not_found", "Nabídka nenalezena.");
+  if (!quote)
+    throw new QuoteVersionError(404, "quote_not_found", "Nabídka nenalezena.");
   return { version, status: quote.status };
 }
 
@@ -305,7 +383,11 @@ export async function recordPublicQuoteDecision(
   },
 ) {
   if (!input.record.quoteVersionId) {
-    throw new QuoteVersionError(410, "quote_version_unbound", "Odkaz není svázán s verzí nabídky.");
+    throw new QuoteVersionError(
+      410,
+      "quote_version_unbound",
+      "Odkaz není svázán s verzí nabídky.",
+    );
   }
   const [version] = await tx
     .select()
@@ -313,7 +395,11 @@ export async function recordPublicQuoteDecision(
     .where(eq(quoteVersionsTable.id, input.record.quoteVersionId))
     .for("share");
   if (!version || version.quoteId !== input.record.resourceId) {
-    throw new QuoteVersionError(404, "quote_version_not_found", "Verze nabídky nebyla nalezena.");
+    throw new QuoteVersionError(
+      404,
+      "quote_version_not_found",
+      "Verze nabídky nebyla nalezena.",
+    );
   }
   assertVersionDecisionValidity(version.dataSnapshot.quote.validUntil);
   const [quote] = await tx
@@ -321,9 +407,14 @@ export async function recordPublicQuoteDecision(
     .from(quotesTable)
     .where(eq(quotesTable.id, version.quoteId))
     .for("update");
-  if (!quote) throw new QuoteVersionError(404, "quote_not_found", "Nabídka nenalezena.");
+  if (!quote)
+    throw new QuoteVersionError(404, "quote_not_found", "Nabídka nenalezena.");
   if (quote.status !== "sent") {
-    throw new QuoteVersionError(409, "quote_not_decidable", "Rozhodnout lze pouze o odeslané nabídce.");
+    throw new QuoteVersionError(
+      409,
+      "quote_not_decidable",
+      "Rozhodnout lze pouze o odeslané nabídce.",
+    );
   }
   await tx
     .update(quotesTable)
@@ -352,8 +443,19 @@ export async function latestQuoteVersion(
   lock = false,
 ) {
   const rows = lock
-    ? await client.select().from(quoteVersionsTable).where(eq(quoteVersionsTable.quoteId, quoteId)).orderBy(desc(quoteVersionsTable.version)).limit(1).for("share")
-    : await client.select().from(quoteVersionsTable).where(eq(quoteVersionsTable.quoteId, quoteId)).orderBy(desc(quoteVersionsTable.version)).limit(1);
+    ? await client
+        .select()
+        .from(quoteVersionsTable)
+        .where(eq(quoteVersionsTable.quoteId, quoteId))
+        .orderBy(desc(quoteVersionsTable.version))
+        .limit(1)
+        .for("share")
+    : await client
+        .select()
+        .from(quoteVersionsTable)
+        .where(eq(quoteVersionsTable.quoteId, quoteId))
+        .orderBy(desc(quoteVersionsTable.version))
+        .limit(1);
   return rows[0] ?? null;
 }
 
@@ -368,7 +470,11 @@ export async function recordAdminQuoteDecision(
 ) {
   const version = await latestQuoteVersion(tx, input.quoteId, true);
   if (!version) {
-    throw new QuoteVersionError(409, "quote_version_missing", "Nabídku je nutné nejprve odeslat jako neměnnou verzi.");
+    throw new QuoteVersionError(
+      409,
+      "quote_version_missing",
+      "Nabídku je nutné nejprve odeslat jako neměnnou verzi.",
+    );
   }
   await tx.insert(quoteDecisionEventsTable).values({
     quoteId: input.quoteId,
@@ -378,9 +484,10 @@ export async function recordAdminQuoteDecision(
     actorUserId: input.actor.userId,
     actorName: input.actor.name,
     identityAssurance: "authenticated_user",
-    confirmationText: input.action === "accepted" || input.action === "rejected"
-      ? version.dataSnapshot.confirmationText
-      : null,
+    confirmationText:
+      input.action === "accepted" || input.action === "rejected"
+        ? version.dataSnapshot.confirmationText
+        : null,
     reason: input.reason ?? null,
   });
   return version;
@@ -403,11 +510,24 @@ export async function reopenQuoteRevision(input: {
       .from(quotesTable)
       .where(eq(quotesTable.id, input.quoteId))
       .for("update");
-    if (!quote) throw new QuoteVersionError(404, "quote_not_found", "Nabídka nenalezena.");
+    if (!quote)
+      throw new QuoteVersionError(
+        404,
+        "quote_not_found",
+        "Nabídka nenalezena.",
+      );
     if (quote.status === "draft") {
-      throw new QuoteVersionError(409, "quote_already_draft", "Nabídka je již koncept.");
+      throw new QuoteVersionError(
+        409,
+        "quote_already_draft",
+        "Nabídka je již koncept.",
+      );
     }
-    if (quote.convertedToJobId || quote.convertedToJobGroupId || quote.convertedToInvoiceId) {
+    if (
+      quote.convertedToJobId ||
+      quote.convertedToJobGroupId ||
+      quote.convertedToInvoiceId
+    ) {
       throw new QuoteVersionError(
         409,
         "quote_already_converted",
@@ -415,7 +535,12 @@ export async function reopenQuoteRevision(input: {
       );
     }
     const version = await latestQuoteVersion(tx, quote.id, true);
-    if (!version) throw new QuoteVersionError(409, "quote_version_missing", "Nabídka nemá zachovanou verzi.");
+    if (!version)
+      throw new QuoteVersionError(
+        409,
+        "quote_version_missing",
+        "Nabídka nemá zachovanou verzi.",
+      );
     await tx.insert(quoteDecisionEventsTable).values({
       quoteId: quote.id,
       quoteVersionId: version.id,
@@ -428,7 +553,12 @@ export async function reopenQuoteRevision(input: {
     });
     await tx
       .update(quotesTable)
-      .set({ status: "draft", pdfObjectPath: null, shareToken: null, updatedAt: new Date() })
+      .set({
+        status: "draft",
+        pdfObjectPath: null,
+        shareToken: null,
+        updatedAt: new Date(),
+      })
       .where(eq(quotesTable.id, quote.id));
     await revokePublicAccessTokens(
       {

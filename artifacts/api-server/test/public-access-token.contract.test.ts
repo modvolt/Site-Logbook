@@ -20,8 +20,12 @@ describe("public access token migration contract", () => {
     expect(migration).toContain("'ppe_confirmation'");
     expect(migration).toContain("'quote_decision'");
     expect(migration).toContain("sha256(convert_to");
-    expect(migration).not.toMatch(/UPDATE\s+"(?:jobs|ppe_assignments|quotes)"/i);
-    expect(migration).not.toMatch(/DELETE\s+FROM\s+"(?:jobs|ppe_assignments|quotes)"/i);
+    expect(migration).not.toMatch(
+      /UPDATE\s+"(?:jobs|ppe_assignments|quotes)"/i,
+    );
+    expect(migration).not.toMatch(
+      /DELETE\s+FROM\s+"(?:jobs|ppe_assignments|quotes)"/i,
+    );
   });
 
   it("permits only named terminal actions and blocks unsafe rollback", () => {
@@ -37,7 +41,7 @@ describe("public access token migration contract", () => {
     );
     expect(rollback).toContain("0101 rollback blocked");
     expect(rollback).toContain("legacy_imported_at IS NULL");
-    expect(rollback).toContain("created_at = 1785636000000");
+    expect(rollback).toContain("created_at = 1786383363000");
     expect(rollback).toContain("BEGIN;");
     expect(rollback).toContain("COMMIT;");
   });
@@ -50,7 +54,9 @@ describe("public access token migration contract", () => {
     expect(cleanup).toContain("CLEAR_PUBLIC_TOKEN_PLAINTEXT");
     expect(cleanup).toContain("--database=");
     expect(cleanup).toContain("unmatched");
-    expect(cleanup).not.toMatch(/console\.(?:log|error)\([^\n]*(?:rawToken|signatureToken|confirmToken|shareToken)/);
+    expect(cleanup).not.toMatch(
+      /console\.(?:log|error)\([^\n]*(?:rawToken|signatureToken|confirmToken|shareToken)/,
+    );
   });
 
   it("keeps the legacy PPE token readiness preflight read-only and isolated", () => {
@@ -60,7 +66,9 @@ describe("public access token migration contract", () => {
     const statements = preflight.match(/sql`[\s\S]*?`/g) ?? [];
 
     expect(preflight).toContain("PUBLIC_TOKEN_PREFLIGHT_CONFIRM_ISOLATED");
-    expect(preflight).toContain("--database=<exact DATABASE_URL database name>");
+    expect(preflight).toContain(
+      "--database=<exact DATABASE_URL database name>",
+    );
     expect(preflight).toContain("parseLegacyPpeMaxAgeDays(args)");
     expect(preflight).toContain("maxAgeDays.ppe_signature");
     expect(preflight).toContain("maxAgeDays.ppe_confirmation");
@@ -69,8 +77,12 @@ describe("public access token migration contract", () => {
     expect(statements).toHaveLength(1);
     expect(statements[0]).toMatch(/\bselect\b/i);
     expect(statements[0]).toContain("from ppe_assignments");
-    expect(statements[0]).not.toMatch(/\b(?:insert|update|delete|alter|drop|truncate)\b/i);
-    expect(preflight).not.toMatch(/console\.(?:log|error)\([^\n]*(?:signatureToken|confirmToken)/);
+    expect(statements[0]).not.toMatch(
+      /\b(?:insert|update|delete|alter|drop|truncate)\b/i,
+    );
+    expect(preflight).not.toMatch(
+      /console\.(?:log|error)\([^\n]*(?:signatureToken|confirmToken)/,
+    );
   });
 
   it("binds job and quote tokens to immutable versions without inventing legacy history", () => {
@@ -89,9 +101,11 @@ describe("public access token migration contract", () => {
     expect(migration).toContain("'legacy_unbound'");
     expect(migration).toContain("deny_immutable_evidence_mutation");
     expect(migration).toContain("guard_job_document_version_transition");
-    expect(migration).not.toMatch(/INSERT INTO\s+"(?:job_document_versions|quote_versions)"/i);
+    expect(migration).not.toMatch(
+      /INSERT INTO\s+"(?:job_document_versions|quote_versions)"/i,
+    );
     expect(rollback).toContain("0102 rollback blocked");
     expect(rollback).toContain("artifact_binding_status = 'bound'");
-    expect(rollback).toContain("created_at = 1785639600000");
+    expect(rollback).toContain("created_at = 1786383364000");
   });
 });

@@ -722,7 +722,11 @@ describe("job invoice lifecycle (issue / storno) end-to-end", () => {
     expect(afterIssue.jobs.map((j) => j.id)).not.toContain(jobId);
 
     // Storno the invoice — the job must revert to "done" and return to the pool.
-    const cancelled = await cancelInvoice(draft.id, true, actor);
+    const cancelled = await cancelInvoice(
+      draft.id,
+      { returnJobsToDone: true, reasonCode: "billing_error" },
+      actor,
+    );
     expect(cancelled.status).toBe("cancelled");
 
     const [afterCancelJob] = await db
@@ -753,7 +757,11 @@ describe("job invoice lifecycle (issue / storno) end-to-end", () => {
       .where(eq(invoiceSourceLinksTable.jobId, jobId));
     expect(liveBefore.some((l) => l.status !== "cancelled")).toBe(true);
 
-    await cancelInvoice(draft.id, true, actor);
+    await cancelInvoice(
+      draft.id,
+      { returnJobsToDone: true, reasonCode: "billing_error" },
+      actor,
+    );
 
     // After storno the only link points at a cancelled invoice — not billed.
     const liveAfter = await db

@@ -93,18 +93,18 @@ describe("R15-D dead-letter operator recovery contract", () => {
     );
   });
 
-  it("uses the global identity-scoped idempotency gate before the router", () => {
+  it("uses the global durable idempotency gate before the router", () => {
     const app = source("artifacts/api-server/src/app.ts");
     const idempotency = source(
       "artifacts/api-server/src/middlewares/offline-idempotency.ts",
     );
-    const gate = app.indexOf('app.use("/api", enforceOfflineIdempotency)');
+    const gate = app.indexOf('app.use("/api", enforceDurableIdempotency)');
     const router = app.indexOf('app.use("/api", router)');
 
     expect(gate).toBeGreaterThan(0);
     expect(router).toBeGreaterThan(gate);
     expect(idempotency).toContain(
-      "`${req.auth.userId}:${offlineScope}:${method}:${path}:${idempotencyKey}`",
+      "`${req.auth.userId}:${ledgerScope}:${method}:${path}:${idempotencyKey}`",
     );
     expect(idempotency).toContain('code: "idempotency_key_required"');
     expect(idempotency).toContain('code: "idempotency_key_reused"');

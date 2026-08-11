@@ -13,13 +13,13 @@ export const EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION =
 export const EXTERNAL_SCHEMA_MIGRATIONS = Object.freeze({
   predecessor: Object.freeze({
     idx: 104,
-    when: 1785899402886,
+    when: 1786383366000,
     tag: "0104_thin_sheva_callister",
     hash: "f35f5d418a7961ed34b5dc23bd563b83bf03cb911c74a0d0dca254f5bfef7e7a",
   }),
   target: Object.freeze({
     idx: 105,
-    when: 1785912730511,
+    when: 1786383367000,
     tag: "0105_smooth_nitro",
     hash: "a7ecbfc67e2d91885ac554e958d66922246ddc32383271cfc336d075acc31a71",
   }),
@@ -428,7 +428,7 @@ export function loadAndValidateExternalSchemaMigrationBundle(
   if (!Array.isArray(journal.entries)) {
     fail("JOURNAL_INVALID", "Migration journal entries must be an array.");
   }
-  const migrationSqlFileNames = readdirSync(migrationsDir)
+  let migrationSqlFileNames = readdirSync(migrationsDir)
     .filter((name) => /^\d{4}_.+\.sql$/i.test(name))
     .sort();
   const sqlByTag = new Map<string, string>();
@@ -438,20 +438,70 @@ export function loadAndValidateExternalSchemaMigrationBundle(
       readFileSync(path.join(migrationsDir, file), "utf8"),
     );
   }
+  let journalEntries = journal.entries as MigrationJournalEntry[];
+  const snapshot0104 = readJson(
+    path.join(migrationsDir, "meta", "0104_snapshot.json"),
+  ) as { id?: unknown };
+  const snapshot0105Path = path.join(
+    migrationsDir,
+    "meta",
+    "0105_snapshot.json",
+  );
+  const snapshot0105Bytes = readFileSync(snapshot0105Path, "utf8");
+  const snapshot0105 = readJson(snapshot0105Path) as {
+    id?: unknown;
+    prevId?: unknown;
+  };
+
+  // The separate accounting rollout may ship one exact follow-up migration.
+  // Preserve this module's historical 105-entry view only for that fully pinned
+  // continuation; never accept an arbitrary later journal entry here.
+  if (journalEntries.length === EXTERNAL_SCHEMA_EXPECTED_JOURNAL_COUNT + 1) {
+    const followup = journalEntries.at(-1);
+    const followupTag = "0106_graceful_frog_thor";
+    const followupSql = sqlByTag.get(followupTag);
+    const snapshot0106Path = path.join(
+      migrationsDir,
+      "meta",
+      "0106_snapshot.json",
+    );
+    const snapshot0106Bytes = readFileSync(snapshot0106Path, "utf8");
+    const snapshot0106 = readJson(snapshot0106Path) as {
+      id?: unknown;
+      prevId?: unknown;
+    };
+    if (
+      followup?.idx !== 106 ||
+      followup.when !== 1786459128910 ||
+      followup.tag !== followupTag ||
+      followupSql === undefined ||
+      sha256(followupSql) !==
+        "697c9fe4980821769b0c053b5e7061c204fa3ded8328a5aef3f18476f5720bbd" ||
+      sha256(snapshot0105Bytes) !==
+        "e64a0d3dc29f4d89f21d68afd6b539c952d5ed1af06406f06415bc229e953188" ||
+      snapshot0105.id !== "f51bb127-7c9e-4351-a1b5-5500f72424f9" ||
+      sha256(snapshot0106Bytes) !==
+        "32e6cca10d51d73ebd7262a896e55390e823c286e71853e4aa13c8842ae4ab24" ||
+      snapshot0106.id !== "18841ec6-0ec2-4ae8-8ac7-8ee8c1eb34cd" ||
+      snapshot0106.prevId !== snapshot0105.id
+    ) {
+      fail(
+        "FOLLOWUP_0106_INVALID",
+        "The external-schema 0105 view accepts only the pinned accounting 0106 continuation.",
+      );
+    }
+    journalEntries = journalEntries.slice(0, -1);
+    migrationSqlFileNames = migrationSqlFileNames.filter(
+      (file) => file !== `${followupTag}.sql`,
+    );
+    sqlByTag.delete(followupTag);
+  }
   return validateExternalSchemaMigrationBundle({
-    journalEntries: journal.entries as MigrationJournalEntry[],
+    journalEntries,
     sqlByTag,
     migrationSqlFileNames,
-    snapshot0104: readJson(
-      path.join(migrationsDir, "meta", "0104_snapshot.json"),
-    ) as {
-      id?: unknown;
-    },
-    snapshot0105: readJson(
-      path.join(migrationsDir, "meta", "0105_snapshot.json"),
-    ) as {
-      prevId?: unknown;
-    },
+    snapshot0104,
+    snapshot0105,
   });
 }
 
@@ -618,37 +668,49 @@ const EXPECTED_INDEXES = Object.freeze([
   "external_accounts_custodian_idx",
   "external_accounts_expiry_idx",
 ]);
-const EXPECTED_CONSTRAINTS = Object.freeze([
-  "external_account_events_pkey",
-  "external_account_events_type_chk",
-  "external_account_scopes_pkey",
-  "external_account_scopes_resource_chk",
-  "external_account_scopes_capability_chk",
-  "external_account_scopes_expiry_chk",
-  "external_account_scopes_revocation_chk",
-  "external_accounts_pkey",
-  "external_accounts_status_chk",
-  "external_accounts_version_chk",
-  "external_accounts_custodian_chk",
-  "external_accounts_review_window_chk",
-  "external_accounts_revocation_chk",
-  "users_account_type_chk",
-  "users_external_identity_shape_chk",
-  "external_account_events_external_user_id_external_accounts_user_id_fk",
-  "external_account_events_scope_id_external_account_scopes_id_fk",
-  "external_account_events_actor_user_id_users_id_fk",
-  "external_account_scopes_external_user_id_external_accounts_user_id_fk",
-  "external_account_scopes_job_id_jobs_id_fk",
-  "external_account_scopes_quote_id_quotes_id_fk",
-  "external_account_scopes_switchboard_id_switchboards_id_fk",
-  "external_account_scopes_created_by_user_id_users_id_fk",
-  "external_account_scopes_revoked_by_user_id_users_id_fk",
-  "external_accounts_user_id_users_id_fk",
-  "external_accounts_custodian_user_id_users_id_fk",
-  "external_accounts_created_by_user_id_users_id_fk",
-  "external_accounts_updated_by_user_id_users_id_fk",
-  "external_accounts_revoked_by_user_id_users_id_fk",
-]);
+function postgresIdentifier(value: string): string {
+  if (!/^[a-z0-9_]+$/.test(value)) {
+    fail(
+      "EXPECTED_IDENTIFIER_INVALID",
+      `Expected PostgreSQL identifier is invalid: ${value}.`,
+    );
+  }
+  return value.slice(0, 63);
+}
+
+const EXPECTED_CONSTRAINTS = Object.freeze(
+  [
+    "external_account_events_pkey",
+    "external_account_events_type_chk",
+    "external_account_scopes_pkey",
+    "external_account_scopes_resource_chk",
+    "external_account_scopes_capability_chk",
+    "external_account_scopes_expiry_chk",
+    "external_account_scopes_revocation_chk",
+    "external_accounts_pkey",
+    "external_accounts_status_chk",
+    "external_accounts_version_chk",
+    "external_accounts_custodian_chk",
+    "external_accounts_review_window_chk",
+    "external_accounts_revocation_chk",
+    "users_account_type_chk",
+    "users_external_identity_shape_chk",
+    "external_account_events_external_user_id_external_accounts_user_id_fk",
+    "external_account_events_scope_id_external_account_scopes_id_fk",
+    "external_account_events_actor_user_id_users_id_fk",
+    "external_account_scopes_external_user_id_external_accounts_user_id_fk",
+    "external_account_scopes_job_id_jobs_id_fk",
+    "external_account_scopes_quote_id_quotes_id_fk",
+    "external_account_scopes_switchboard_id_switchboards_id_fk",
+    "external_account_scopes_created_by_user_id_users_id_fk",
+    "external_account_scopes_revoked_by_user_id_users_id_fk",
+    "external_accounts_user_id_users_id_fk",
+    "external_accounts_custodian_user_id_users_id_fk",
+    "external_accounts_created_by_user_id_users_id_fk",
+    "external_accounts_updated_by_user_id_users_id_fk",
+    "external_accounts_revoked_by_user_id_users_id_fk",
+  ].map(postgresIdentifier),
+);
 
 export const EXTERNAL_SCHEMA_EXPECTED_OBJECTS = Object.freeze({
   tables: EXPECTED_TABLES,
@@ -1078,7 +1140,7 @@ async function readLatestBackupEvidence(
   return result.rows[0];
 }
 
-async function readDatabaseState(
+export async function readExternalSchemaDatabaseState(
   client: Queryable,
   mode: ExternalSchemaPreflightMode,
 ): Promise<ExternalSchemaDatabaseState> {
@@ -1200,7 +1262,7 @@ export interface ExternalSchemaInventorySummary extends ExternalSchemaInventoryC
 }
 
 export interface ExternalSchemaSteadyStateSummary {
-  decision: "ALREADY_0105";
+  decision: "ALREADY_0105" | "ALREADY_0106";
   environmentId: string;
   databaseName: string;
   databaseUser: string;
@@ -1208,6 +1270,42 @@ export interface ExternalSchemaSteadyStateSummary {
   expectedMigrations: number;
   latestExpectedTag: string;
   externalStateRows: number;
+}
+
+export function validateExternalSteadyAppliedMigrations(
+  rows: readonly AppliedMigrationRow[],
+  bundle: ValidatedExternalSchemaBundle,
+): Readonly<{
+  decision: "ALREADY_0105" | "ALREADY_0106";
+  expectedMigrations: number;
+  latestExpectedTag: string;
+}> {
+  if (rows.length === bundle.post.length) {
+    validateExactAppliedMigrationSet("post", rows, bundle);
+    return Object.freeze({
+      decision: "ALREADY_0105",
+      expectedMigrations: bundle.post.length,
+      latestExpectedTag: bundle.post.at(-1)?.tag ?? "",
+    });
+  }
+  const followup = rows.at(-1);
+  if (
+    rows.length !== bundle.post.length + 1 ||
+    Number(followup?.created_at) !== 1786459128910 ||
+    followup?.hash?.toLowerCase() !==
+      "697c9fe4980821769b0c053b5e7061c204fa3ded8328a5aef3f18476f5720bbd"
+  ) {
+    fail(
+      "STEADY_APPLIED_SET_MISMATCH",
+      "External steady state accepts only exact 0105 or the pinned accounting 0106 continuation.",
+    );
+  }
+  validateExactAppliedMigrationSet("post", rows.slice(0, -1), bundle);
+  return Object.freeze({
+    decision: "ALREADY_0106",
+    expectedMigrations: 106,
+    latestExpectedTag: "0106_graceful_frog_thor",
+  });
 }
 
 export interface ExternalSchemaExact0104RecoveryEnvironment extends ExternalSchemaEnvironment {
@@ -1260,7 +1358,7 @@ export async function runExternalSchemaExact0104Recovery(
         "SELECT created_at, hash FROM drizzle.__drizzle_migrations ORDER BY created_at, id",
       );
       validateExactAppliedMigrationSet("pre", applied.rows, bundle);
-      const state = await readDatabaseState(client, "pre");
+      const state = await readExternalSchemaDatabaseState(client, "pre");
       validateExternalSchemaDatabaseState("pre", state, config);
       const backup = validateExact0104RecoveryBackupEvidence(
         await readLatestBackupEvidence(client),
@@ -1333,7 +1431,7 @@ export async function runExternalSchemaInventory(
       );
       const stateMode =
         classification.decision === "ALREADY_0105" ? "post" : "pre";
-      const state = await readDatabaseState(client, stateMode);
+      const state = await readExternalSchemaDatabaseState(client, stateMode);
       validateExternalSchemaDatabaseState(stateMode, state, config);
 
       let backup: ValidatedStagingBackupEvidence | null = null;
@@ -1375,9 +1473,9 @@ export async function runExternalSchemaInventory(
 }
 
 /**
- * Steady-state restart gate. It proves exact 0105, schema completeness, dark
- * runtime and zero external rows without coupling routine restarts to the
- * historical transition backup ID or its freshness window.
+ * Steady-state restart gate. It proves exact 0105 or its single pinned 0106
+ * accounting continuation, schema completeness, dark runtime and zero
+ * external rows without coupling routine restarts to historical backup IDs.
  */
 export async function runExternalSchemaSteadyState(
   config: ExternalSchemaRuntimeEnvironment,
@@ -1400,19 +1498,22 @@ export async function runExternalSchemaSteadyState(
       const applied = await client.query<AppliedMigrationRow>(
         "SELECT created_at, hash FROM drizzle.__drizzle_migrations ORDER BY created_at, id",
       );
-      validateExactAppliedMigrationSet("post", applied.rows, bundle);
-      const state = await readDatabaseState(client, "post");
+      const appliedState = validateExternalSteadyAppliedMigrations(
+        applied.rows,
+        bundle,
+      );
+      const state = await readExternalSchemaDatabaseState(client, "post");
       validateExternalSchemaDatabaseState("post", state, config);
       await client.query("COMMIT");
       transactionOpen = false;
       return {
-        decision: "ALREADY_0105",
+        decision: appliedState.decision,
         environmentId: config.environmentId,
         databaseName: state.databaseName,
         databaseUser: state.databaseUser,
         buildSha: config.buildSha,
-        expectedMigrations: bundle.post.length,
-        latestExpectedTag: bundle.post.at(-1)?.tag ?? "",
+        expectedMigrations: appliedState.expectedMigrations,
+        latestExpectedTag: appliedState.latestExpectedTag,
         externalStateRows:
           state.externalUsers +
           state.externalAccounts +
@@ -1462,7 +1563,7 @@ export async function runExternalSchemaPreflight(
         backupRow,
         config,
       );
-      const state = await readDatabaseState(client, config.mode);
+      const state = await readExternalSchemaDatabaseState(client, config.mode);
       validateExternalSchemaDatabaseState(config.mode, state, config);
       await client.query("COMMIT");
       transactionOpen = false;

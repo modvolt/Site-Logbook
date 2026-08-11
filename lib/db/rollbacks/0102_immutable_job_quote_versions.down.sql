@@ -40,6 +40,6 @@ DROP TABLE IF EXISTS quote_versions;
 DROP TABLE IF EXISTS job_document_versions;
 
 DELETE FROM drizzle.__drizzle_migrations
-WHERE created_at = 1785639600000;
+WHERE created_at = 1786383364000;
 
 COMMIT;

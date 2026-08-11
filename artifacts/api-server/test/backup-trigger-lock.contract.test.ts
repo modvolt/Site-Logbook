@@ -43,7 +43,7 @@ describe("automatic backup trigger lock contract", () => {
     expect(reservationIndex).toBeGreaterThanOrEqual(0);
     expect(scheduleIndex).toBeGreaterThan(reservationIndex);
     expect(reserve).toContain("executeReservedBackup(attempt, lease)");
-    expect(reserve).toContain("await lease.release().catch");
+    expect(reserve).toMatch(/await\s+lease\s*\.\s*release\(\)\s*\.\s*catch/);
   });
 
   it("does not release and reacquire a second lock in the fallback scheduler", () => {
@@ -99,10 +99,16 @@ describe("automatic backup trigger lock contract", () => {
       "export async function createBackup",
     );
 
-    expect(execution.match(/lease\.isValid\(\)/g)?.length).toBeGreaterThanOrEqual(3);
+    expect(
+      execution.match(/lease\.isValid\(\)/g)?.length,
+    ).toBeGreaterThanOrEqual(3);
     expect(execution).toContain("BackupExecutionLeaseLostError");
-    expect(execution.match(/eq\(backupLogTable\.id, row\.id\)/g)).toHaveLength(2);
-    expect(execution.match(/eq\(backupLogTable\.status, \"running\"\)/g)).toHaveLength(2);
+    expect(execution.match(/eq\(backupLogTable\.id, row\.id\)/g)).toHaveLength(
+      2,
+    );
+    expect(
+      execution.match(/eq\(backupLogTable\.status, \"running\"\)/g),
+    ).toHaveLength(2);
   });
 
   it("terminates a timed-out restore process before forced database cleanup", () => {
@@ -115,6 +121,6 @@ describe("automatic backup trigger lock contract", () => {
     expect(restore).toContain('child.kill("SIGKILL")');
     expect(restore).toContain("await stopActiveRestoreProcess()");
     expect(restore).toContain("await restoreOperation.catch");
-    expect(restore).toContain('WITH (FORCE)');
+    expect(restore).toContain("WITH (FORCE)");
   });
 });

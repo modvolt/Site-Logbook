@@ -81,6 +81,7 @@ export const API_ROUTE_MANIFEST = [
   { method: "POST", template: "/billing/documents/:id/approve", source: "billing-documents.ts" },
   { method: "POST", template: "/billing/documents/:id/confirm-type", source: "billing-documents.ts" },
   { method: "POST", template: "/billing/documents/:id/delivery-note-resolution", source: "billing-documents.ts" },
+  { method: "POST", template: "/billing/documents/:id/disposition", source: "billing-documents.ts" },
   { method: "POST", template: "/billing/documents/:id/extract", source: "billing-documents.ts" },
   { method: "PATCH", template: "/billing/documents/:id/lines/:lineId", source: "billing-documents.ts" },
   { method: "POST", template: "/billing/documents/:id/lines/:lineId/split", source: "billing-documents.ts" },

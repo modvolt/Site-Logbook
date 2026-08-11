@@ -10,6 +10,7 @@ import {
   UpdateCustomerSiteParams,
   DeleteCustomerSiteParams,
 } from "@workspace/api-zod";
+import { blockDirectPrivacyDeletion } from "../middlewares/privacy-case-required";
 
 const router: IRouter = Router();
 
@@ -111,7 +112,10 @@ router.patch("/customer-sites/:id", async (req, res): Promise<void> => {
   res.json(serializeSite(site));
 });
 
-router.delete("/customer-sites/:id", async (req, res): Promise<void> => {
+router.delete(
+  "/customer-sites/:id",
+  blockDirectPrivacyDeletion("customer_site_hard_delete"),
+  async (req, res): Promise<void> => {
   const params = DeleteCustomerSiteParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -129,6 +133,7 @@ router.delete("/customer-sites/:id", async (req, res): Promise<void> => {
   }
 
   res.sendStatus(204);
-});
+  },
+);
 
 export default router;

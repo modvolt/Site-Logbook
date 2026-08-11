@@ -1525,8 +1525,15 @@ function main() {
     artifactBytes[key] = fs.readFileSync(path.resolve(file));
   }
   const absolutePath = path.resolve(evidencePath);
-  const evidence = JSON.parse(fs.readFileSync(absolutePath, "utf8"));
-  const summary = validateStagingReleaseEvidence(evidence, { artifactBytes });
+  const evidenceBytes = fs.readFileSync(absolutePath);
+  const evidence = JSON.parse(evidenceBytes.toString("utf8"));
+  const summary = {
+    ...validateStagingReleaseEvidence(evidence, { artifactBytes }),
+    releaseEvidenceFileSha256: crypto
+      .createHash("sha256")
+      .update(evidenceBytes)
+      .digest("hex"),
+  };
   process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
 }
 

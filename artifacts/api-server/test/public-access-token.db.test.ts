@@ -32,7 +32,10 @@ import {
 import { SESSION_ISSUANCE_LOCK_NAMESPACE } from "../src/lib/auth-session";
 
 const RESOURCE_BASE = 910_000 + Math.floor(Math.random() * 10_000);
-const resourceIds = Array.from({ length: 9 }, (_, index) => RESOURCE_BASE + index);
+const resourceIds = Array.from(
+  { length: 9 },
+  (_, index) => RESOURCE_BASE + index,
+);
 const quoteIds: number[] = [];
 let issuerId: number;
 let inactiveIssuerId: number;
@@ -81,33 +84,43 @@ beforeAll(async () => {
     .returning({ id: usersTable.id, isActive: usersTable.isActive });
   issuerId = users.find((user) => user.isActive)!.id;
   inactiveIssuerId = users.find((user) => !user.isActive)!.id;
-  permissionRaceIssuerId = users.find((user) =>
-    user.id !== issuerId && user.isActive
+  permissionRaceIssuerId = users.find(
+    (user) => user.id !== issuerId && user.isActive,
   )!.id;
 
-  const [person] = await db.insert(peopleTable).values({
-    name: `R16-B recipient ${RESOURCE_BASE}`,
-  }).returning();
-  const [item] = await db.insert(ppeItemsTable).values({
-    name: `R16-B helmet ${RESOURCE_BASE}`,
-    category: "hlava",
-    active: true,
-  }).returning();
+  const [person] = await db
+    .insert(peopleTable)
+    .values({
+      name: `R16-B recipient ${RESOURCE_BASE}`,
+    })
+    .returning();
+  const [item] = await db
+    .insert(ppeItemsTable)
+    .values({
+      name: `R16-B helmet ${RESOURCE_BASE}`,
+      category: "hlava",
+      active: true,
+    })
+    .returning();
   const fixtureIndexes = [0, 1, 2, 3, 5, 6, 7, 8] as const;
   for (const resourceIndex of fixtureIndexes) {
-    const [assignment] = await db.insert(ppeAssignmentsTable).values({
-      id: resourceIds[resourceIndex]!,
-      ppeItemId: item!.id,
-      personId: person!.id,
-      ppeNameSnapshot: item!.name,
-      personNameSnapshot: person!.name,
-      quantity: 1,
-      issuedAt: "2026-08-05",
-      status: "issued",
-    }).returning();
-    const purposes: PpePublicEvidencePurpose[] = resourceIndex === 6
-      ? ["ppe_signature", "ppe_confirmation"]
-      : [resourceIndex === 3 ? "ppe_signature" : "ppe_confirmation"];
+    const [assignment] = await db
+      .insert(ppeAssignmentsTable)
+      .values({
+        id: resourceIds[resourceIndex]!,
+        ppeItemId: item!.id,
+        personId: person!.id,
+        ppeNameSnapshot: item!.name,
+        personNameSnapshot: person!.name,
+        quantity: 1,
+        issuedAt: "2026-08-05",
+        status: "issued",
+      })
+      .returning();
+    const purposes: PpePublicEvidencePurpose[] =
+      resourceIndex === 6
+        ? ["ppe_signature", "ppe_confirmation"]
+        : [resourceIndex === 3 ? "ppe_signature" : "ppe_confirmation"];
     for (const [purposeIndex, purpose] of purposes.entries()) {
       const confirmationText = `R16-B ${purpose} confirmation`;
       const snapshot: PpePublicEvidenceSnapshot = {
@@ -130,15 +143,18 @@ beforeAll(async () => {
         },
         confirmationText,
       };
-      const [version] = await db.insert(ppePublicEvidenceVersionsTable).values({
-        assignmentId: assignment!.id,
-        purpose,
-        version: purposeIndex + 1,
-        dataSnapshot: snapshot,
-        snapshotSha256: evidenceSha256(snapshot),
-        confirmationText,
-        createdByUserId: issuerId,
-      }).returning();
+      const [version] = await db
+        .insert(ppePublicEvidenceVersionsTable)
+        .values({
+          assignmentId: assignment!.id,
+          purpose,
+          version: purposeIndex + 1,
+          dataSnapshot: snapshot,
+          snapshotSha256: evidenceSha256(snapshot),
+          confirmationText,
+          createdByUserId: issuerId,
+        })
+        .returning();
       ppeEvidenceVersionIds.set(`${resourceIndex}:${purpose}`, version!.id);
     }
   }
@@ -151,7 +167,13 @@ afterAll(async () => {
     .where(inArray(publicAccessTokensTable.resourceId, ids));
   await db
     .delete(usersTable)
-    .where(inArray(usersTable.id, [issuerId, inactiveIssuerId, permissionRaceIssuerId]));
+    .where(
+      inArray(usersTable.id, [
+        issuerId,
+        inactiveIssuerId,
+        permissionRaceIssuerId,
+      ]),
+    );
 });
 
 async function waitForTransactionBlockedBy(
@@ -171,7 +193,9 @@ async function waitForTransactionBlockedBy(
     if (result.rows[0]?.blocked) return;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
-  throw new Error("Timed out waiting for a transaction blocked by the fixture.");
+  throw new Error(
+    "Timed out waiting for a transaction blocked by the fixture.",
+  );
 }
 
 describe("hash-only public access token lifecycle", () => {
@@ -234,11 +258,13 @@ describe("hash-only public access token lifecycle", () => {
       expiresAt: future(),
       createdByUserId: issuerId,
     });
-    expect(await revokePublicAccessTokens({
-      purpose: "ppe_confirmation",
-      resourceId: resourceIds[2]!,
-      reason: "test_revoke",
-    })).toBe(1);
+    expect(
+      await revokePublicAccessTokens({
+        purpose: "ppe_confirmation",
+        resourceId: resourceIds[2]!,
+        reason: "test_revoke",
+      }),
+    ).toBe(1);
     await expect(
       resolvePublicAccessToken("ppe_confirmation", active.token),
     ).rejects.toMatchObject({ code: "revoked" });
@@ -252,14 +278,17 @@ describe("hash-only public access token lifecycle", () => {
       expiresAt: future(),
       createdByUserId: issuerId,
     });
-    const consume = () => consumePublicAccessToken({
-      purpose: "ppe_signature" as const,
-      token: issued.token,
-      action: "signed",
-      transition: async () => "ok",
-    });
+    const consume = () =>
+      consumePublicAccessToken({
+        purpose: "ppe_signature" as const,
+        token: issued.token,
+        action: "signed",
+        transition: async () => "ok",
+      });
     const results = await Promise.allSettled([consume(), consume()]);
-    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(
+      results.filter((result) => result.status === "fulfilled"),
+    ).toHaveLength(1);
     const rejected = results.find((result) => result.status === "rejected");
     expect(rejected).toBeDefined();
     expect((rejected as PromiseRejectedResult).reason).toBeInstanceOf(
@@ -281,14 +310,17 @@ describe("hash-only public access token lifecycle", () => {
     const legacyToken = "11111111-2222-4333-8444-555555555555";
     const [quote] = await db
       .insert(quotesTable)
-      .values({ title: `Legacy token ${RESOURCE_BASE}`, status: "sent", shareToken: legacyToken })
+      .values({
+        title: `Legacy token ${RESOURCE_BASE}`,
+        status: "sent",
+        shareToken: legacyToken,
+      })
       .returning();
     quoteIds.push(quote!.id);
 
-    await expect(resolvePublicAccessToken(
-      "quote_decision",
-      legacyToken,
-    )).rejects.toMatchObject({ code: "revoked" });
+    await expect(
+      resolvePublicAccessToken("quote_decision", legacyToken),
+    ).rejects.toMatchObject({ code: "revoked" });
     const [stored] = await db
       .select({ shareToken: quotesTable.shareToken })
       .from(quotesTable)
@@ -309,7 +341,7 @@ describe("hash-only public access token lifecycle", () => {
       .returning();
     quoteIds.push(quote!.id);
     const snapshot: QuoteVersionSnapshot = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       quote: {
         id: quote!.id,
         quoteNumber: null,
@@ -318,24 +350,44 @@ describe("hash-only public access token lifecycle", () => {
         notes: null,
         createdAt: quote!.createdAt.toISOString(),
       },
-      customer: { companyName: null, ic: null, dic: null, address: null, email: null },
+      customer: {
+        companyName: null,
+        ic: null,
+        dic: null,
+        address: null,
+        email: null,
+      },
       supplier: {
-        name: "Modvolt s.r.o.", ic: null, dic: null, address: null,
-        email: null, phone: null, footerNote: null, vatPayer: true,
+        name: "Modvolt s.r.o.",
+        ic: null,
+        dic: null,
+        address: null,
+        email: null,
+        phone: null,
+        footerNote: null,
+        vatPayer: true,
       },
       items: [],
-      totals: { subtotalWithoutVat: 0, totalVat: 0, totalWithVat: 0, currency: "Kč" },
+      totals: {
+        subtotalWithoutVat: 0,
+        totalVat: 0,
+        totalWithVat: 0,
+        currency: "Kč",
+      },
       confirmationText: "Testovací potvrzení konkrétní verze nabídky.",
     };
-    const [version] = await db.insert(quoteVersionsTable).values({
-      quoteId: quote!.id,
-      version: 1,
-      dataSnapshot: snapshot,
-      snapshotSha256: "a".repeat(64),
-      pdfObjectPath: `/objects/quotes/test-${quote!.id}.pdf`,
-      pdfSha256: "b".repeat(64),
-      rendererVersion: "test-v1",
-    }).returning();
+    const [version] = await db
+      .insert(quoteVersionsTable)
+      .values({
+        quoteId: quote!.id,
+        version: 1,
+        dataSnapshot: snapshot,
+        snapshotSha256: "a".repeat(64),
+        pdfObjectPath: `/objects/quotes/test-${quote!.id}.pdf`,
+        pdfSha256: "b".repeat(64),
+        rendererVersion: "test-v1",
+      })
+      .returning();
     const issued = await issuePublicAccessToken({
       purpose: "quote_decision",
       resourceId: quote!.id,
@@ -348,8 +400,12 @@ describe("hash-only public access token lifecycle", () => {
       acceptQuoteByToken(issued.token, { respondentName: "Test Accept" }),
       rejectQuoteByToken(issued.token, { respondentName: "Test Reject" }),
     ]);
-    expect(decisions.filter((result) => result.status === "fulfilled")).toHaveLength(1);
-    expect(decisions.filter((result) => result.status === "rejected")).toHaveLength(1);
+    expect(
+      decisions.filter((result) => result.status === "fulfilled"),
+    ).toHaveLength(1);
+    expect(
+      decisions.filter((result) => result.status === "rejected"),
+    ).toHaveLength(1);
     const [finalQuote] = await db
       .select({ status: quotesTable.status })
       .from(quotesTable)
@@ -380,9 +436,10 @@ describe("hash-only public access token lifecycle", () => {
     let transitionEntered = false;
     try {
       await holder.query("begin");
-      await holder.query("select id from ppe_assignments where id = $1 for update", [
-        resourceIds[8],
-      ]);
+      await holder.query(
+        "select id from ppe_assignments where id = $1 for update",
+        [resourceIds[8]],
+      );
       const pendingConsume = consumePublicAccessToken({
         purpose: "ppe_confirmation",
         token: issued.token,

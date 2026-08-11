@@ -3,12 +3,17 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 function source(relative: string): string {
-  return readFileSync(fileURLToPath(new URL(relative, import.meta.url)), "utf8");
+  return readFileSync(
+    fileURLToPath(new URL(relative, import.meta.url)),
+    "utf8",
+  );
 }
 
 describe("public Bearer OpenAPI and generated-client contract", () => {
   const spec = source("../../../lib/api-spec/openapi.yaml");
-  const reactClient = source("../../../lib/api-client-react/src/generated/api.ts");
+  const reactClient = source(
+    "../../../lib/api-client-react/src/generated/api.ts",
+  );
   const zodClient = source("../../../lib/api-zod/src/generated/api.ts");
 
   it("documents the canonical Bearer surface and deprecates legacy adapters", () => {
@@ -27,9 +32,11 @@ describe("public Bearer OpenAPI and generated-client contract", () => {
       "getPublicSwitchboard",
       "getPublicSwitchboardDocument",
     ]) {
-      expect(spec).toMatch(new RegExp(
-        `operationId: ${operationId}\\n[\\s\\S]{0,260}publicBearer: \\[\\]`,
-      ));
+      expect(spec).toMatch(
+        new RegExp(
+          `operationId: ${operationId}\\n[\\s\\S]{0,260}publicBearer: \\[\\]`,
+        ),
+      );
     }
     for (const operationId of [
       "getPublicJobDocumentForSignatureLegacy",
@@ -42,9 +49,9 @@ describe("public Bearer OpenAPI and generated-client contract", () => {
       "getPublicSwitchboardLegacy",
       "getPublicSwitchboardDocumentLegacy",
     ]) {
-      expect(spec).toMatch(new RegExp(
-        `operationId: ${operationId}\\n\\s+deprecated: true`,
-      ));
+      expect(spec).toMatch(
+        new RegExp(`operationId: ${operationId}\\n\\s+deprecated: true`),
+      );
     }
   });
 
@@ -53,14 +60,16 @@ describe("public Bearer OpenAPI and generated-client contract", () => {
     expect(reactClient).not.toContain("signPublicJobDocument");
     expect(reactClient).not.toContain("getPpeConfirmDetails");
     expect(reactClient).not.toContain("getPublicSwitchboard");
-    expect(reactClient).not.toMatch(/\/sign\/\$\{|\/quotes\/public\/\$\{|token=.*ppe\/confirm/);
+    expect(reactClient).not.toMatch(
+      /\/sign\/\$\{|\/quotes\/public\/\$\{|token=.*ppe\/confirm/,
+    );
   });
 
   it("still generates validation schemas with an optional deprecated PPE token", () => {
     expect(zodClient).toContain("export const GetPublicSwitchboardResponse");
     expect(zodClient).toContain("export const GetPublicPpeSignatureResponse");
     expect(zodClient).toMatch(
-      /ConfirmPpeAssignmentBody = zod\.object\(\{[\s\S]{0,160}"token": zod\.string\(\)\.optional\(\)/,
+      /ConfirmPpeAssignmentBody = zod\.object\(\{[\s\S]{0,300}\btoken:\s*zod\s*\.string\(\)\s*\.optional\(\)/,
     );
   });
 });

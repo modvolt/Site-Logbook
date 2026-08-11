@@ -2,7 +2,14 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import robotoRegular from "../assets/fonts/Roboto-Regular.ttf";
 import robotoBold from "../assets/fonts/Roboto-Bold.ttf";
-import { formatCzk, num, round2, vatBreakdown, type ComputedLine, type VatMode } from "./invoice-calc";
+import {
+  formatCzk,
+  num,
+  round2,
+  vatBreakdown,
+  type ComputedLine,
+  type VatMode,
+} from "./invoice-calc";
 
 // jsPDF's built-in fonts are WinAnsi-only and cannot render Czech diacritics
 // (ř, š, ě, ů…). We embed Roboto (regular + bold) — bundled into the server as
@@ -26,6 +33,11 @@ export interface InvoicePdfSupplier {
 export interface InvoicePdfData {
   invoiceNumber: string;
   status: string;
+  documentTitle?: string;
+  amountLabel?: string;
+  showPaymentDetails?: boolean;
+  deterministicFileId?: string;
+  deterministicCreatedAt?: string;
   customerName?: string | null;
   customerIc?: string | null;
   customerDic?: string | null;
@@ -41,7 +53,9 @@ export interface InvoicePdfData {
   specificSymbol?: string | null;
   vatModeDefault: VatMode;
   notes?: string | null;
-  lines: ReadonlyArray<ComputedLine & { description: string; unit?: string | null }>;
+  lines: ReadonlyArray<
+    ComputedLine & { description: string; unit?: string | null }
+  >;
   subtotalWithoutVat: number;
   totalVat: number;
   totalWithVat: number;
@@ -81,12 +95,17 @@ function paymentLabel(method?: string | null): string {
  */
 export function generateInvoicePdf(data: InvoicePdfData): Buffer {
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  if (data.deterministicFileId) doc.setFileId(data.deterministicFileId);
+  if (data.deterministicCreatedAt) {
+    doc.setCreationDate(new Date(data.deterministicCreatedAt));
+  }
   registerFonts(doc);
 
   const isReverseCharge =
     data.vatModeDefault === "reverse_charge" ||
     data.lines.some((l) => l.vatMode === "reverse_charge");
-  const taxDocument = data.supplier.vatPayer && data.vatModeDefault !== "non_vat";
+  const taxDocument =
+    data.supplier.vatPayer && data.vatModeDefault !== "non_vat";
 
   const pageWidth = doc.internal.pageSize.getWidth();
   const marginX = 14;
@@ -95,7 +114,11 @@ export function generateInvoicePdf(data: InvoicePdfData): Buffer {
   // ---- Title ----
   doc.setFont(PDF_FONT, "bold");
   doc.setFontSize(18);
-  doc.text(taxDocument ? "FAKTURA – daňový doklad" : "FAKTURA", marginX, y);
+  doc.text(
+    data.documentTitle ?? (taxDocument ? "FAKTURA – daňový doklad" : "FAKTURA"),
+    marginX,
+    y,
+  );
   doc.setFontSize(12);
   doc.text(data.invoiceNumber, pageWidth - marginX, y, { align: "right" });
   y += 10;
@@ -108,7 +131,11 @@ export function generateInvoicePdf(data: InvoicePdfData): Buffer {
     data.supplier.name,
     data.supplier.address || "",
     data.supplier.ic ? `IČ: ${data.supplier.ic}` : "",
-    data.supplier.dic ? `DIČ: ${data.supplier.dic}` : (taxDocument ? "" : "Neplátce DPH"),
+    data.supplier.dic
+      ? `DIČ: ${data.supplier.dic}`
+      : taxDocument
+        ? ""
+        : "Neplátce DPH",
     data.supplier.email || "",
     data.supplier.phone || "",
   ].filter((l) => l.length > 0);
@@ -149,14 +176,19 @@ export function generateInvoicePdf(data: InvoicePdfData): Buffer {
   if (taxDocument) {
     metaLeft.splice(1, 0, ["DUZP:", formatDate(data.taxableSupplyDate)]);
   }
-  const metaRight: Array<[string, string]> = [
-    ["Způsob úhrady:", paymentLabel(data.paymentMethod)],
-  ];
-  if (data.supplier.bankAccount) metaRight.push(["Bankovní účet:", data.supplier.bankAccount]);
-  if (data.supplier.iban) metaRight.push(["IBAN:", data.supplier.iban]);
-  if (data.variableSymbol) metaRight.push(["Variabilní symbol:", data.variableSymbol]);
-  if (data.constantSymbol) metaRight.push(["Konstantní symbol:", data.constantSymbol]);
-  if (data.specificSymbol) metaRight.push(["Specifický symbol:", data.specificSymbol]);
+  const metaRight: Array<[string, string]> = [];
+  if (data.showPaymentDetails !== false) {
+    metaRight.push(["Způsob úhrady:", paymentLabel(data.paymentMethod)]);
+    if (data.supplier.bankAccount)
+      metaRight.push(["Bankovní účet:", data.supplier.bankAccount]);
+    if (data.supplier.iban) metaRight.push(["IBAN:", data.supplier.iban]);
+    if (data.variableSymbol)
+      metaRight.push(["Variabilní symbol:", data.variableSymbol]);
+    if (data.constantSymbol)
+      metaRight.push(["Konstantní symbol:", data.constantSymbol]);
+    if (data.specificSymbol)
+      metaRight.push(["Specifický symbol:", data.specificSymbol]);
+  }
 
   const metaTop = y;
   let mly = metaTop;
@@ -211,8 +243,18 @@ export function generateInvoicePdf(data: InvoicePdfData): Buffer {
     head,
     body,
     margin: { left: marginX, right: marginX },
-    styles: { font: PDF_FONT, fontStyle: "normal", fontSize: 8, cellPadding: 1.6 },
-    headStyles: { font: PDF_FONT, fontStyle: "bold", fillColor: [37, 99, 235], textColor: 255 },
+    styles: {
+      font: PDF_FONT,
+      fontStyle: "normal",
+      fontSize: 8,
+      cellPadding: 1.6,
+    },
+    headStyles: {
+      font: PDF_FONT,
+      fontStyle: "bold",
+      fillColor: [37, 99, 235],
+      textColor: 255,
+    },
     columnStyles: showVat
       ? {
           0: { cellWidth: "auto" },
@@ -233,7 +275,8 @@ export function generateInvoicePdf(data: InvoicePdfData): Buffer {
         },
   });
 
-  const afterTable = (doc as unknown as { lastAutoTable?: { finalY?: number } }).lastAutoTable;
+  const afterTable = (doc as unknown as { lastAutoTable?: { finalY?: number } })
+    .lastAutoTable;
   y = (afterTable?.finalY ?? y + 20) + 8;
 
   // ---- Page-break guard: keep the totals + payment-QR + amount-due block whole.
@@ -260,31 +303,49 @@ export function generateInvoicePdf(data: InvoicePdfData): Buffer {
     doc.setFont(PDF_FONT, "normal");
     for (const b of breakdown) {
       doc.text(`Základ DPH ${b.rate} %:`, totalsX, y);
-      doc.text(formatCzk(b.base, data.currency), pageWidth - marginX, y, { align: "right" });
+      doc.text(formatCzk(b.base, data.currency), pageWidth - marginX, y, {
+        align: "right",
+      });
       y += 5;
       doc.text(`DPH ${b.rate} %:`, totalsX, y);
-      doc.text(formatCzk(b.vat, data.currency), pageWidth - marginX, y, { align: "right" });
+      doc.text(formatCzk(b.vat, data.currency), pageWidth - marginX, y, {
+        align: "right",
+      });
       y += 5;
     }
     if (pdpBase > 0) {
       doc.text("Základ – přenesení DPH:", totalsX, y);
-      doc.text(formatCzk(pdpBase, data.currency), pageWidth - marginX, y, { align: "right" });
+      doc.text(formatCzk(pdpBase, data.currency), pageWidth - marginX, y, {
+        align: "right",
+      });
       y += 5;
     }
     doc.text("Celkem bez DPH:", totalsX, y);
-    doc.text(formatCzk(data.subtotalWithoutVat, data.currency), pageWidth - marginX, y, {
-      align: "right",
-    });
+    doc.text(
+      formatCzk(data.subtotalWithoutVat, data.currency),
+      pageWidth - marginX,
+      y,
+      {
+        align: "right",
+      },
+    );
     y += 5;
     doc.text("DPH celkem:", totalsX, y);
-    doc.text(formatCzk(data.totalVat, data.currency), pageWidth - marginX, y, { align: "right" });
+    doc.text(formatCzk(data.totalVat, data.currency), pageWidth - marginX, y, {
+      align: "right",
+    });
     y += 5;
   } else {
     doc.setFont(PDF_FONT, "normal");
     doc.text("Mezisoučet:", totalsX, y);
-    doc.text(formatCzk(data.subtotalWithoutVat, data.currency), pageWidth - marginX, y, {
-      align: "right",
-    });
+    doc.text(
+      formatCzk(data.subtotalWithoutVat, data.currency),
+      pageWidth - marginX,
+      y,
+      {
+        align: "right",
+      },
+    );
     y += 5;
   }
 
@@ -293,10 +354,15 @@ export function generateInvoicePdf(data: InvoicePdfData): Buffer {
   y += 6;
   doc.setFont(PDF_FONT, "bold");
   doc.setFontSize(12);
-  doc.text("Celkem k úhradě:", totalsX, y);
-  doc.text(formatCzk(data.totalWithVat, data.currency), pageWidth - marginX, y, {
-    align: "right",
-  });
+  doc.text(data.amountLabel ?? "Celkem k úhradě:", totalsX, y);
+  doc.text(
+    formatCzk(data.totalWithVat, data.currency),
+    pageWidth - marginX,
+    y,
+    {
+      align: "right",
+    },
+  );
   y += 10;
 
   // ---- Payment QR (left column, aligned with the totals block) ----
@@ -306,7 +372,14 @@ export function generateInvoicePdf(data: InvoicePdfData): Buffer {
     doc.setFont(PDF_FONT, "bold");
     doc.setFontSize(9);
     doc.text("QR platba", qrX, totalsTop);
-    doc.addImage(data.paymentQrDataUrl, "PNG", qrX, totalsTop + 2, qrSize, qrSize);
+    doc.addImage(
+      data.paymentQrDataUrl,
+      "PNG",
+      qrX,
+      totalsTop + 2,
+      qrSize,
+      qrSize,
+    );
     doc.setFont(PDF_FONT, "normal");
     doc.setFontSize(7.5);
     doc.text("Naskenujte v bankovní aplikaci", qrX, totalsTop + qrSize + 6);
@@ -334,7 +407,10 @@ export function generateInvoicePdf(data: InvoicePdfData): Buffer {
     y += wrapped.length * 5 + 2;
   }
   if (data.supplier.footerNote) {
-    const wrapped = doc.splitTextToSize(data.supplier.footerNote, pageWidth - marginX * 2);
+    const wrapped = doc.splitTextToSize(
+      data.supplier.footerNote,
+      pageWidth - marginX * 2,
+    );
     doc.text(wrapped, marginX, y);
   }
 

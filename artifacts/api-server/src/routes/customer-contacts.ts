@@ -9,6 +9,7 @@ import {
   UpdateCustomerContactParams,
   DeleteCustomerContactParams,
 } from "@workspace/api-zod";
+import { blockDirectPrivacyDeletion } from "../middlewares/privacy-case-required";
 
 const router: IRouter = Router();
 
@@ -90,7 +91,10 @@ router.patch("/customer-contacts/:id", async (req, res): Promise<void> => {
   res.json(serializeContact(contact));
 });
 
-router.delete("/customer-contacts/:id", async (req, res): Promise<void> => {
+router.delete(
+  "/customer-contacts/:id",
+  blockDirectPrivacyDeletion("customer_contact_hard_delete"),
+  async (req, res): Promise<void> => {
   const params = DeleteCustomerContactParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -108,6 +112,7 @@ router.delete("/customer-contacts/:id", async (req, res): Promise<void> => {
   }
 
   res.sendStatus(204);
-});
+  },
+);
 
 export default router;

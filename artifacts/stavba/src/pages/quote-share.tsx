@@ -13,12 +13,16 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { fmtKc, fmtDate } from "@/lib/billing-format";
-import { clearPublicGrant, publicGrantToken } from "@/lib/public-grant-bootstrap";
+import {
+  clearPublicGrant,
+  publicGrantToken,
+} from "@/lib/public-grant-bootstrap";
 import { publicGrantFetch } from "@/lib/public-grant-fetch";
 
 interface PublicQuoteItem {
   id: number;
   position: number;
+  rowType: "item" | "section" | "spacer";
   description: string;
   quantity: number;
   unit: string | null;
@@ -52,7 +56,14 @@ interface PublicQuoteDetail {
   createdAt: string;
 }
 
-type PageState = "loading" | "error" | "loaded" | "confirming" | "accepted" | "rejected" | "already_done";
+type PageState =
+  | "loading"
+  | "error"
+  | "loaded"
+  | "confirming"
+  | "accepted"
+  | "rejected"
+  | "already_done";
 
 function StatusBanner({ status }: { status: PublicQuoteDetail["status"] }) {
   if (status === "accepted") {
@@ -97,7 +108,9 @@ export default function QuoteShare() {
       return;
     }
     const controller = new AbortController();
-    void publicGrantFetch("quote", "/api/quotes/public", { signal: controller.signal })
+    void publicGrantFetch("quote", "/api/quotes/public", {
+      signal: controller.signal,
+    })
       .then(async (r) => {
         if (!r.ok) {
           const body = await r.json().catch(() => ({}));
@@ -197,7 +210,8 @@ export default function QuoteShare() {
           <CheckCircle2 className="h-16 w-16 text-green-500 mx-auto" />
           <h1 className="text-2xl font-bold">Nabídka přijata</h1>
           <p className="text-muted-foreground">
-            Děkujeme za potvrzení. Budeme vás kontaktovat ohledně dalšího postupu.
+            Děkujeme za potvrzení. Budeme vás kontaktovat ohledně dalšího
+            postupu.
           </p>
         </div>
       </div>
@@ -211,7 +225,8 @@ export default function QuoteShare() {
           <XCircle className="h-16 w-16 text-muted-foreground mx-auto" />
           <h1 className="text-2xl font-bold">Nabídka odmítnuta</h1>
           <p className="text-muted-foreground">
-            Vaše odpověď byla zaznamenána. V případě dotazů nás neváhejte kontaktovat.
+            Vaše odpověď byla zaznamenána. V případě dotazů nás neváhejte
+            kontaktovat.
           </p>
         </div>
       </div>
@@ -228,7 +243,9 @@ export default function QuoteShare() {
         {/* Header */}
         <div className="space-y-1">
           {quote.supplierName && (
-            <p className="text-sm text-muted-foreground font-medium">{quote.supplierName}</p>
+            <p className="text-sm text-muted-foreground font-medium">
+              {quote.supplierName}
+            </p>
           )}
           <h1 className="text-2xl font-bold">{quote.title}</h1>
           {quote.quoteNumber && (
@@ -245,25 +262,33 @@ export default function QuoteShare() {
           <CardContent className="py-4 px-4 space-y-2 text-sm">
             {quote.customerCompanyName && (
               <div className="flex gap-2">
-                <span className="text-muted-foreground w-28 shrink-0">Zákazník:</span>
+                <span className="text-muted-foreground w-28 shrink-0">
+                  Zákazník:
+                </span>
                 <span className="font-medium">{quote.customerCompanyName}</span>
               </div>
             )}
             {quote.validUntil && (
               <div className="flex gap-2">
-                <span className="text-muted-foreground w-28 shrink-0">Platná do:</span>
+                <span className="text-muted-foreground w-28 shrink-0">
+                  Platná do:
+                </span>
                 <span className="font-medium">{fmtDate(quote.validUntil)}</span>
               </div>
             )}
             {quote.supplierEmail && (
               <div className="flex gap-2">
-                <span className="text-muted-foreground w-28 shrink-0">Kontakt:</span>
+                <span className="text-muted-foreground w-28 shrink-0">
+                  Kontakt:
+                </span>
                 <span>{quote.supplierEmail}</span>
               </div>
             )}
             {quote.supplierPhone && (
               <div className="flex gap-2">
-                <span className="text-muted-foreground w-28 shrink-0">Telefon:</span>
+                <span className="text-muted-foreground w-28 shrink-0">
+                  Telefon:
+                </span>
                 <span>{quote.supplierPhone}</span>
               </div>
             )}
@@ -285,49 +310,135 @@ export default function QuoteShare() {
             <CardTitle className="text-base">Položky nabídky</CardTitle>
           </CardHeader>
           <CardContent className="px-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Popis</TableHead>
-                  <TableHead className="text-right w-16">Množ.</TableHead>
-                  <TableHead className="w-12">MJ</TableHead>
-                  <TableHead className="text-right w-28">Cena/MJ</TableHead>
-                  {quote.vatPayer && <TableHead className="text-right w-16">DPH</TableHead>}
-                  <TableHead className="text-right w-28">Celkem</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {quote.items.map((item) => (
-                  <TableRow key={item.id}>
-                    <TableCell className="font-medium">{item.description}</TableCell>
-                    <TableCell className="text-right">{item.quantity}</TableCell>
-                    <TableCell>{item.unit ?? ""}</TableCell>
-                    <TableCell className="text-right">{fmtKc(item.unitPrice)}</TableCell>
+            <div className="hidden overflow-x-auto md:block">
+              <Table className="min-w-[680px]">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Popis</TableHead>
+                    <TableHead className="text-right w-16">Množ.</TableHead>
+                    <TableHead className="w-12">MJ</TableHead>
+                    <TableHead className="text-right w-28">Cena/MJ</TableHead>
                     {quote.vatPayer && (
-                      <TableCell className="text-right text-muted-foreground">
-                        {item.vatRate != null ? `${item.vatRate}%` : "—"}
-                      </TableCell>
+                      <TableHead className="text-right w-16">DPH</TableHead>
                     )}
-                    <TableCell className="text-right font-medium">{fmtKc(item.totalWithVat)}</TableCell>
+                    <TableHead className="text-right w-28">Celkem</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {quote.items.map((item) => {
+                    const colSpan = quote.vatPayer ? 6 : 5;
+                    if (item.rowType === "section") {
+                      return (
+                        <TableRow
+                          key={item.id}
+                          className="bg-muted/70 hover:bg-muted/70"
+                        >
+                          <TableCell
+                            colSpan={colSpan}
+                            className="py-3 font-semibold"
+                          >
+                            {item.description}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    }
+                    if (item.rowType === "spacer") {
+                      return (
+                        <TableRow
+                          key={item.id}
+                          className="h-7 border-0 hover:bg-transparent"
+                        >
+                          <TableCell colSpan={colSpan} className="p-0" />
+                        </TableRow>
+                      );
+                    }
+                    return (
+                      <TableRow key={item.id}>
+                        <TableCell className="font-medium">
+                          {item.description}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {item.quantity}
+                        </TableCell>
+                        <TableCell>{item.unit ?? ""}</TableCell>
+                        <TableCell className="text-right">
+                          {fmtKc(item.unitPrice)}
+                        </TableCell>
+                        {quote.vatPayer && (
+                          <TableCell className="text-right text-muted-foreground">
+                            {item.vatRate != null ? `${item.vatRate}%` : "—"}
+                          </TableCell>
+                        )}
+                        <TableCell className="text-right font-medium">
+                          {fmtKc(item.totalWithVat)}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+
+            <div className="md:hidden">
+              {quote.items.map((item) => {
+                if (item.rowType === "section") {
+                  return (
+                    <div
+                      key={item.id}
+                      className="border-t bg-muted/70 px-4 py-3 font-semibold"
+                    >
+                      {item.description}
+                    </div>
+                  );
+                }
+                if (item.rowType === "spacer") {
+                  return (
+                    <div
+                      key={item.id}
+                      className="h-6 border-t"
+                      aria-hidden="true"
+                    />
+                  );
+                }
+                return (
+                  <div key={item.id} className="space-y-2 border-t px-4 py-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <p className="font-medium">{item.description}</p>
+                      <p className="shrink-0 font-semibold">
+                        {fmtKc(item.totalWithVat)}
+                      </p>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {item.quantity} {item.unit ?? ""} ×{" "}
+                      {fmtKc(item.unitPrice)}
+                      {quote.vatPayer &&
+                        ` · DPH ${item.vatRate != null ? `${item.vatRate} %` : "—"}`}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
 
             {/* Totals */}
             <div className="px-4 py-3 border-t space-y-1 text-sm text-right">
               {quote.vatPayer && (
                 <>
                   <div className="text-muted-foreground">
-                    Celkem bez DPH: <span className="font-medium text-foreground">{fmtKc(quote.subtotalWithoutVat)}</span>
+                    Celkem bez DPH:{" "}
+                    <span className="font-medium text-foreground">
+                      {fmtKc(quote.subtotalWithoutVat)}
+                    </span>
                   </div>
                   <div className="text-muted-foreground">
-                    DPH: <span className="font-medium text-foreground">{fmtKc(quote.totalVat)}</span>
+                    DPH:{" "}
+                    <span className="font-medium text-foreground">
+                      {fmtKc(quote.totalVat)}
+                    </span>
                   </div>
                 </>
               )}
               <div className="text-lg font-bold">
-                Celkem: {fmtKc(quote.totalWithVat)} Kč
+                Celkem: {fmtKc(quote.totalWithVat)}
               </div>
             </div>
           </CardContent>
@@ -339,7 +450,9 @@ export default function QuoteShare() {
             <CardContent className="py-5 px-4">
               <div className="max-w-md mx-auto space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="quote-respondent-name">Jméno rozhodující osoby</Label>
+                  <Label htmlFor="quote-respondent-name">
+                    Jméno rozhodující osoby
+                  </Label>
                   <Input
                     id="quote-respondent-name"
                     value={respondentName}
@@ -353,7 +466,8 @@ export default function QuoteShare() {
                   {quote.confirmationText}
                 </p>
                 <p className="text-xs text-center text-muted-foreground">
-                  Rozhodnutí se uloží k verzi {quote.quoteVersion}; kontrolní otisk snapshotu začíná {quote.snapshotSha256.slice(0, 12)}.
+                  Rozhodnutí se uloží k verzi {quote.quoteVersion}; kontrolní
+                  otisk snapshotu začíná {quote.snapshotSha256.slice(0, 12)}.
                 </p>
               </div>
               <div className="flex gap-3 justify-center flex-wrap">
@@ -363,7 +477,11 @@ export default function QuoteShare() {
                   onClick={handleAccept}
                   disabled={actionPending || respondentName.trim().length < 2}
                 >
-                  {actionPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
+                  {actionPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : (
+                    <CheckCircle2 className="h-4 w-4 mr-2" />
+                  )}
                   Přijímám nabídku
                 </Button>
                 <Button
@@ -373,7 +491,11 @@ export default function QuoteShare() {
                   onClick={handleReject}
                   disabled={actionPending || respondentName.trim().length < 2}
                 >
-                  {actionPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <XCircle className="h-4 w-4 mr-2" />}
+                  {actionPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : (
+                    <XCircle className="h-4 w-4 mr-2" />
+                  )}
                   Odmítám nabídku
                 </Button>
               </div>
@@ -382,9 +504,10 @@ export default function QuoteShare() {
         )}
 
         {/* Already resolved notice */}
-        {pageState === "already_done" && !["accepted", "rejected", "expired"].includes(quote.status) && (
-          <StatusBanner status={quote.status} />
-        )}
+        {pageState === "already_done" &&
+          !["accepted", "rejected", "expired"].includes(quote.status) && (
+            <StatusBanner status={quote.status} />
+          )}
 
         {/* Footer */}
         <p className="text-xs text-center text-muted-foreground pt-2">

@@ -3,6 +3,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
 import {
+  EXTERNAL_SCHEMA_EXPECTED_JOURNAL_COUNT,
   EXTERNAL_SCHEMA_EXPECTED_OBJECTS,
   EXTERNAL_SCHEMA_MIGRATIONS,
   EXTERNAL_SCHEMA_MIGRATION_LOCK_KEY,
@@ -14,6 +15,7 @@ import {
   readExternalSchemaPreflightEnvironment,
   readExternalSchemaRuntimeEnvironment,
   validateExactAppliedMigrationSet,
+  validateExternalSteadyAppliedMigrations,
   bindExact0104RecoveryBackupExecution,
   validateExternalSchemaDatabaseState,
   validateExternalSchemaMigrationBundle,
@@ -323,8 +325,14 @@ function realBundleInput(): MigrationBundleInput {
   const journal = JSON.parse(
     readFileSync(path.join(migrationsDir, "meta", "_journal.json"), "utf8"),
   ) as { entries: MigrationBundleInput["journalEntries"] };
+  const journalEntries = journal.entries.slice(
+    0,
+    EXTERNAL_SCHEMA_EXPECTED_JOURNAL_COUNT,
+  );
+  const journalTags = new Set(journalEntries.map((entry) => entry.tag));
   const migrationSqlFileNames = readdirSync(migrationsDir)
     .filter((name) => /^\d{4}_.+\.sql$/i.test(name))
+    .filter((name) => journalTags.has(name.slice(0, -4)))
     .sort();
   const sqlByTag = new Map(
     migrationSqlFileNames.map((file) => [
@@ -333,7 +341,7 @@ function realBundleInput(): MigrationBundleInput {
     ]),
   );
   return {
-    journalEntries: journal.entries,
+    journalEntries,
     migrationSqlFileNames,
     sqlByTag,
     snapshot0104: JSON.parse(
@@ -925,6 +933,61 @@ describe("exact live migration set", () => {
     );
   });
 
+  it("allows only the pinned 0106 continuation in external steady state", () => {
+    const bundle = loadAndValidateExternalSchemaMigrationBundle(migrationsDir);
+    const postRows = bundle.post.map((migration) => ({
+      created_at: migration.when,
+      hash: migration.hash,
+    }));
+    assert.deepEqual(
+      validateExternalSteadyAppliedMigrations(postRows, bundle),
+      {
+        decision: "ALREADY_0105",
+        expectedMigrations: 105,
+        latestExpectedTag: "0105_smooth_nitro",
+      },
+    );
+    assert.deepEqual(
+      validateExternalSteadyAppliedMigrations(
+        [
+          ...postRows,
+          {
+            created_at: 1786459128910,
+            hash: "697c9fe4980821769b0c053b5e7061c204fa3ded8328a5aef3f18476f5720bbd",
+          },
+        ],
+        bundle,
+      ),
+      {
+        decision: "ALREADY_0106",
+        expectedMigrations: 106,
+        latestExpectedTag: "0106_graceful_frog_thor",
+      },
+    );
+    for (const invalid of [
+      [...postRows, { created_at: 1786459128910, hash: "0".repeat(64) }],
+      [
+        ...postRows,
+        {
+          created_at: 1786459128911,
+          hash: "697c9fe4980821769b0c053b5e7061c204fa3ded8328a5aef3f18476f5720bbd",
+        },
+      ],
+      [
+        ...postRows,
+        {
+          created_at: 1786459128910,
+          hash: "697c9fe4980821769b0c053b5e7061c204fa3ded8328a5aef3f18476f5720bbd",
+        },
+        { created_at: 1786459128911, hash: "f".repeat(64) },
+      ],
+    ]) {
+      expectCode("STEADY_APPLIED_SET_MISMATCH", () =>
+        validateExternalSteadyAppliedMigrations(invalid, bundle),
+      );
+    }
+  });
+
   it("classifies only an exact prefix as baseline, 0104-ready or 0105-ready", () => {
     const bundle = loadAndValidateExternalSchemaMigrationBundle(migrationsDir);
     const rows = bundle.post.map((migration) => ({
@@ -970,6 +1033,25 @@ describe("exact live migration set", () => {
 });
 
 describe("external schema database state", () => {
+  it("uses PostgreSQL's exact 63-byte identifiers for long foreign keys", () => {
+    assert.ok(
+      EXTERNAL_SCHEMA_EXPECTED_OBJECTS.constraints.includes(
+        "external_account_events_external_user_id_external_accounts_user",
+      ),
+    );
+    assert.ok(
+      EXTERNAL_SCHEMA_EXPECTED_OBJECTS.constraints.includes(
+        "external_account_scopes_external_user_id_external_accounts_user",
+      ),
+    );
+    assert.equal(
+      EXTERNAL_SCHEMA_EXPECTED_OBJECTS.constraints.some(
+        (name) => name.length > 63,
+      ),
+      false,
+    );
+  });
+
   it("requires complete absence before migration", () => {
     validateExternalSchemaDatabaseState(
       "pre",

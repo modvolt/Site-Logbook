@@ -17,9 +17,16 @@ import {
 } from "@workspace/db";
 import app from "../src/app";
 import {
+  decryptSecretValue,
+  SECRET_ACTIVE_KEY_ENV,
+  SECRET_KEYRING_ENV,
+} from "../src/lib/secret-envelope";
+import {
   enforceOfflineIdempotency,
+  enforceDurableIdempotency,
   fingerprintOfflineReplayRequest,
 } from "../src/middlewares/offline-idempotency";
+import { EXTERNAL_ACCOUNT_IDEMPOTENCY_SCOPE } from "../src/lib/online-idempotency-policy";
 
 if (process.env.AUTHORIZATION_DB_TEST_ENABLED !== "true") {
   throw new Error(
@@ -29,6 +36,9 @@ if (process.env.AUTHORIZATION_DB_TEST_ENABLED !== "true") {
 
 const TAG = `offline-idempotency-${Date.now()}`;
 const PASSWORD = "Offline-Idempotency-Test-42";
+const TEST_SECRET_KEY = Buffer.alloc(32, 0x71).toString("base64");
+const originalSecretKeyring = process.env[SECRET_KEYRING_ENV];
+const originalSecretActiveKey = process.env[SECRET_ACTIVE_KEY_ENV];
 let userId: number;
 let jobId: number;
 let offlineScope: string;
@@ -42,32 +52,57 @@ function offlineHeaders(key: string): Record<string, string> {
 }
 
 beforeAll(async () => {
-  const [user] = await db.insert(usersTable).values({
-    username: TAG,
-    passwordHash: await bcrypt.hash(PASSWORD, 4),
-    name: "Offline idempotency test",
-    role: "admin",
-    isActive: true,
-  }).returning();
+  process.env[SECRET_KEYRING_ENV] = JSON.stringify({
+    "idempotency-test": TEST_SECRET_KEY,
+  });
+  process.env[SECRET_ACTIVE_KEY_ENV] = "idempotency-test";
+  const [user] = await db
+    .insert(usersTable)
+    .values({
+      username: TAG,
+      passwordHash: await bcrypt.hash(PASSWORD, 4),
+      name: "Offline idempotency test",
+      role: "admin",
+      isActive: true,
+    })
+    .returning();
   userId = user.id;
-  const [job] = await db.insert(jobsTable).values({
-    title: TAG,
-    date: "2042-08-01",
-  }).returning();
+  const [job] = await db
+    .insert(jobsTable)
+    .values({
+      title: TAG,
+      date: "2042-08-01",
+    })
+    .returning();
   jobId = job.id;
   agent = request.agent(app);
-  expect((await agent.post("/api/auth/login").send({ username: TAG, password: PASSWORD })).status).toBe(200);
+  expect(
+    (
+      await agent
+        .post("/api/auth/login")
+        .send({ username: TAG, password: PASSWORD })
+    ).status,
+  ).toBe(200);
   const me = await agent.get("/api/auth/me");
   expect(me.status).toBe(200);
   offlineScope = me.body.offlineScope as string;
 });
 
 afterAll(async () => {
-  await db.delete(auditLogTable);
-  await db.delete(userSessionsTable);
-  await db.delete(jobsTable).where(eq(jobsTable.id, jobId));
-  await db.delete(usersTable).where(eq(usersTable.id, userId));
-  await pool.end();
+  try {
+    await db.delete(auditLogTable);
+    await db.delete(userSessionsTable);
+    await db.delete(jobsTable).where(eq(jobsTable.id, jobId));
+    await db.delete(usersTable).where(eq(usersTable.id, userId));
+    await pool.end();
+  } finally {
+    if (originalSecretKeyring === undefined)
+      delete process.env[SECRET_KEYRING_ENV];
+    else process.env[SECRET_KEYRING_ENV] = originalSecretKeyring;
+    if (originalSecretActiveKey === undefined)
+      delete process.env[SECRET_ACTIVE_KEY_ENV];
+    else process.env[SECRET_ACTIVE_KEY_ENV] = originalSecretActiveKey;
+  }
 });
 
 describe("durable offline idempotency ledger", () => {
@@ -82,7 +117,11 @@ describe("durable offline idempotency ledger", () => {
       .post(`/api/jobs/${jobId}/materials`)
       .set(offlineHeaders(key))
       .send(body);
-    for (let attempt = 0; replay.body.code === "idempotency_in_progress" && attempt < 20; attempt += 1) {
+    for (
+      let attempt = 0;
+      replay.body.code === "idempotency_in_progress" && attempt < 20;
+      attempt += 1
+    ) {
       await new Promise((resolve) => setTimeout(resolve, 10));
       replay = await agent
         .post(`/api/jobs/${jobId}/materials`)
@@ -97,7 +136,12 @@ describe("durable offline idempotency ledger", () => {
     const [materialCount] = await db
       .select({ value: count() })
       .from(materialsTable)
-      .where(and(eq(materialsTable.jobId, jobId), eq(materialsTable.name, body.name)));
+      .where(
+        and(
+          eq(materialsTable.jobId, jobId),
+          eq(materialsTable.name, body.name),
+        ),
+      );
     expect(materialCount.value).toBe(1);
   });
 
@@ -128,7 +172,12 @@ describe("durable offline idempotency ledger", () => {
     const [materialCount] = await db
       .select({ value: count() })
       .from(materialsTable)
-      .where(and(eq(materialsTable.jobId, jobId), eq(materialsTable.name, "Bez klíče")));
+      .where(
+        and(
+          eq(materialsTable.jobId, jobId),
+          eq(materialsTable.name, "Bez klíče"),
+        ),
+      );
     expect(materialCount.value).toBe(0);
   });
 
@@ -147,10 +196,14 @@ describe("durable offline idempotency ledger", () => {
       next();
     });
     probe.use(enforceOfflineIdempotency);
-    probe.post("/raw-probe", express.raw({ type: "image/jpeg" }), (_req, res) => {
-      sideEffects += 1;
-      res.status(201).json({ sideEffects });
-    });
+    probe.post(
+      "/raw-probe",
+      express.raw({ type: "image/jpeg" }),
+      (_req, res) => {
+        sideEffects += 1;
+        res.status(201).json({ sideEffects });
+      },
+    );
 
     const body = Buffer.from("raw upload");
     const missing = await request(probe)
@@ -201,13 +254,25 @@ describe("durable offline idempotency ledger", () => {
       request(probe).post("/probe").set(headers).send({ value: 1 }),
     ]);
     expect([left.status, right.status].sort()).toEqual([201, 409]);
-    expect([left.body.code, right.body.code]).toContain("idempotency_in_progress");
+    expect([left.body.code, right.body.code]).toContain(
+      "idempotency_in_progress",
+    );
     expect(sideEffects).toBe(1);
 
-    let replay = await request(probe).post("/probe").set(headers).send({ value: 1 });
-    for (let attempt = 0; replay.body.code === "idempotency_in_progress" && attempt < 20; attempt += 1) {
+    let replay = await request(probe)
+      .post("/probe")
+      .set(headers)
+      .send({ value: 1 });
+    for (
+      let attempt = 0;
+      replay.body.code === "idempotency_in_progress" && attempt < 20;
+      attempt += 1
+    ) {
       await new Promise((resolve) => setTimeout(resolve, 10));
-      replay = await request(probe).post("/probe").set(headers).send({ value: 1 });
+      replay = await request(probe)
+        .post("/probe")
+        .set(headers)
+        .send({ value: 1 });
     }
     expect(replay.status).toBe(201);
     expect(replay.headers["idempotency-replayed"]).toBe("true");
@@ -238,13 +303,21 @@ describe("durable offline idempotency ledger", () => {
     });
 
     const responses = await Promise.all(
-      Array.from({ length: 12 }, (_, index) => request(probe)
-        .post("/pool-probe")
-        .set(offlineHeaders(`offline-pool-probe-${String(index).padStart(4, "0")}`))
-        .send({ index })),
+      Array.from({ length: 12 }, (_, index) =>
+        request(probe)
+          .post("/pool-probe")
+          .set(
+            offlineHeaders(
+              `offline-pool-probe-${String(index).padStart(4, "0")}`,
+            ),
+          )
+          .send({ index }),
+      ),
     );
 
-    expect(responses.map((response) => response.status)).toEqual(Array(12).fill(201));
+    expect(responses.map((response) => response.status)).toEqual(
+      Array(12).fill(201),
+    );
     expect(sideEffects).toBe(12);
   });
 
@@ -289,9 +362,176 @@ describe("durable offline idempotency ledger", () => {
       res.status(201).json({ sideEffects });
     });
 
-    const response = await request(probe).post(path).set(offlineHeaders(key)).send(body);
+    const response = await request(probe)
+      .post(path)
+      .set(offlineHeaders(key))
+      .send(body);
     expect(response.status).toBe(409);
     expect(response.body.code).toBe("idempotency_ambiguous");
     expect(sideEffects).toBe(0);
+  });
+
+  it("encrypts privileged online fingerprints and replay bodies under a stable scope", async () => {
+    let sideEffects = 0;
+    const probe = express();
+    probe.use(express.json());
+    probe.use((req, _res, next) => {
+      req.auth = {
+        userId,
+        username: TAG,
+        role: "admin",
+        name: "Online idempotency test",
+        personId: null,
+        permissions: [...ROLE_PERMISSIONS.admin],
+      };
+      next();
+    });
+    probe.use(enforceDurableIdempotency);
+    probe.post("/external-accounts", (req, res) => {
+      sideEffects += 1;
+      res.status(201).json({
+        userId: 9001,
+        username: String(req.body.username),
+        sideEffects,
+      });
+    });
+
+    const key = "online-external-account-create-0001";
+    const body = {
+      username: "external-test",
+      password: "Secret-Password-That-Must-Not-Be-Offline-Verifiable",
+    };
+    const headers = {
+      "Idempotency-Key": key,
+      "X-Stavba-Offline-Scope": "attacker-controlled-offline-scope",
+    };
+    const first = await request(probe)
+      .post("/external-accounts")
+      .set(headers)
+      .send(body);
+    let replay = await request(probe)
+      .post("/external-accounts")
+      .set(headers)
+      .send(body);
+    for (
+      let attempt = 0;
+      replay.body.code === "idempotency_in_progress" && attempt < 20;
+      attempt += 1
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      replay = await request(probe)
+        .post("/external-accounts")
+        .set(headers)
+        .send(body);
+    }
+
+    expect(first.status).toBe(201);
+    expect(replay.status).toBe(201);
+    expect(replay.headers["idempotency-replayed"]).toBe("true");
+    expect(replay.body).toEqual(first.body);
+    expect(sideEffects).toBe(1);
+
+    const [record] = await db
+      .select()
+      .from(apiIdempotencyRecordsTable)
+      .where(
+        and(
+          eq(apiIdempotencyRecordsTable.userId, userId),
+          eq(
+            apiIdempotencyRecordsTable.offlineScope,
+            EXTERNAL_ACCOUNT_IDEMPOTENCY_SCOPE,
+          ),
+          eq(apiIdempotencyRecordsTable.idempotencyKey, key),
+        ),
+      );
+    expect(record).toBeDefined();
+    expect(record!.requestHash).toMatch(/^mve1\./);
+    expect(record!.requestHash).not.toContain(body.password);
+    expect(record!.responseBody).toMatchObject({
+      format: "mve1",
+      ciphertext: expect.stringMatching(/^mve1\./),
+    });
+    expect(JSON.stringify(record!.responseBody)).not.toContain(body.username);
+
+    const context = `api_idempotency:${userId}:${EXTERNAL_ACCOUNT_IDEMPOTENCY_SCOPE}:POST:/external-accounts:${key}`;
+    const expectedHash = fingerprintOfflineReplayRequest({
+      method: "POST",
+      originalUrl: "/external-accounts",
+      body,
+      headers: { "content-type": "application/json" },
+    } as never);
+    expect(
+      decryptSecretValue(record!.requestHash, `${context}:request-hash`),
+    ).toBe(expectedHash);
+    const encryptedResponse = record!.responseBody as {
+      ciphertext: string;
+    };
+    expect(
+      JSON.parse(
+        decryptSecretValue(
+          encryptedResponse.ciphertext,
+          `${context}:response-body`,
+        ),
+      ),
+    ).toEqual(first.body);
+
+    const changed = await request(probe)
+      .post("/external-accounts")
+      .set(headers)
+      .send({ ...body, password: "A-Different-Secret-Password-For-Same-Key" });
+    expect(changed.status).toBe(409);
+    expect(changed.body.code).toBe("idempotency_key_reused");
+    expect(sideEffects).toBe(1);
+
+    await db
+      .update(apiIdempotencyRecordsTable)
+      .set({ responseBody: { format: "mve1", ciphertext: "mve1.AA" } })
+      .where(eq(apiIdempotencyRecordsTable.id, record!.id));
+    const tampered = await request(probe)
+      .post("/external-accounts")
+      .set(headers)
+      .send(body);
+    expect(tampered.status).toBe(409);
+    expect(tampered.body.code).toBe("idempotency_ambiguous");
+    expect(sideEffects).toBe(1);
+  });
+
+  it("fails privileged online admission before side effects when encryption is unavailable", async () => {
+    const savedKeyring = process.env[SECRET_KEYRING_ENV];
+    const savedActiveKey = process.env[SECRET_ACTIVE_KEY_ENV];
+    delete process.env[SECRET_KEYRING_ENV];
+    delete process.env[SECRET_ACTIVE_KEY_ENV];
+    let sideEffects = 0;
+    try {
+      const probe = express();
+      probe.use(express.json());
+      probe.use((req, _res, next) => {
+        req.auth = {
+          userId,
+          username: TAG,
+          role: "admin",
+          name: "Online idempotency test",
+          personId: null,
+          permissions: [...ROLE_PERMISSIONS.admin],
+        };
+        next();
+      });
+      probe.use(enforceDurableIdempotency);
+      probe.post("/external-accounts", (_req, res) => {
+        sideEffects += 1;
+        res.status(201).json({ sideEffects });
+      });
+
+      const response = await request(probe)
+        .post("/external-accounts")
+        .set("Idempotency-Key", "online-encryption-missing-0001")
+        .send({ password: "never-executed-secret" });
+      expect(response.status).toBe(503);
+      expect(response.body.code).toBe("idempotency_unavailable");
+      expect(sideEffects).toBe(0);
+    } finally {
+      process.env[SECRET_KEYRING_ENV] = savedKeyring;
+      process.env[SECRET_ACTIVE_KEY_ENV] = savedActiveKey;
+    }
   });
 });

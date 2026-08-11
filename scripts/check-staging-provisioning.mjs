@@ -13,6 +13,7 @@ const SENSITIVE_VALUE =
   /(?:github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----|\bBearer\s+[A-Za-z0-9._~+/=-]{16,})/;
 const SAFE_PRIVATE_SERVICES = Object.freeze([
   "api",
+  "accounting-schema-gate",
   "external-schema-gate",
   "mailpit",
   "postgres",
@@ -22,6 +23,11 @@ const EXPECTED_LIMITS = Object.freeze({
   "staging-preflight": { cpus: 0.25, memoryMiB: 128, reservationMiB: 64 },
   postgres: { cpus: 0.5, memoryMiB: 768, reservationMiB: 512 },
   "external-schema-gate": { cpus: 0.25, memoryMiB: 384, reservationMiB: 192 },
+  "accounting-schema-gate": {
+    cpus: 0.25,
+    memoryMiB: 384,
+    reservationMiB: 192,
+  },
   mailpit: { cpus: 0.25, memoryMiB: 256, reservationMiB: 128 },
   api: { cpus: 1, memoryMiB: 1024, reservationMiB: 768 },
   "alert-receiver": { cpus: 0.25, memoryMiB: 128, reservationMiB: 64 },
@@ -622,9 +628,9 @@ export function validateStagingProvisioning(manifest, options = {}) {
   if (
     JSON.stringify(canonicalValue(limits.services)) !==
       JSON.stringify(canonicalValue(EXPECTED_LIMITS)) ||
-    limits.totalCpu !== 2.75 ||
-    limits.totalMemoryMiB !== 2816 ||
-    limits.totalReservationMiB !== 1792
+    limits.totalCpu !== 3 ||
+    limits.totalMemoryMiB !== 3200 ||
+    limits.totalReservationMiB !== 1984
   ) {
     fail(
       "RESOURCE_LIMIT_DRIFT",

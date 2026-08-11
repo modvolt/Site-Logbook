@@ -9,7 +9,10 @@ import {
   jobsTable,
   materialsTable,
 } from "@workspace/db";
-import { ExtractionResultSchema, normalizeResult } from "../src/lib/openai-extraction";
+import {
+  ExtractionResultSchema,
+  normalizeResult,
+} from "../src/lib/openai-extraction";
 import {
   applyAiSuggestion,
   approveDocument,
@@ -93,7 +96,9 @@ describe("ExtractionResultSchema multi-page completeness", () => {
     expect(parsed.finalTotalPresent).toBe(false);
 
     const normalized = normalizeResult(parsed, 0);
-    expect(normalized.warnings.join("\n")).toContain("NEUPLNY_VICESTRANKOVY_DOKLAD");
+    expect(normalized.warnings.join("\n")).toContain(
+      "NEUPLNY_VICESTRANKOVY_DOKLAD",
+    );
   });
 });
 
@@ -122,9 +127,7 @@ async function makeDoc(docType: string): Promise<number> {
   return doc.id;
 }
 
-function suggestion(
-  docType: string | null | undefined,
-): AiSuggestionInput {
+function suggestion(docType: string | null | undefined): AiSuggestionInput {
   return {
     docType,
     lines: [],
@@ -138,7 +141,9 @@ function suggestion(
 
 afterAll(async () => {
   if (materialIds.length) {
-    await db.delete(materialsTable).where(inArray(materialsTable.id, materialIds));
+    await db
+      .delete(materialsTable)
+      .where(inArray(materialsTable.id, materialIds));
     materialIds.length = 0;
   }
   if (docIds.length) {
@@ -218,9 +223,9 @@ describe("applyAiSuggestion docType", () => {
       .select()
       .from(billingDocumentReferencesTable)
       .where(eq(billingDocumentReferencesTable.documentId, id));
-    expect(references.map((reference) => reference.referenceNumber).sort()).toEqual(
-      [`DL-${TAG}-CONFIRMED`, `DL-${TAG}-REJECTED`].sort(),
-    );
+    expect(
+      references.map((reference) => reference.referenceNumber).sort(),
+    ).toEqual([`DL-${TAG}-CONFIRMED`, `DL-${TAG}-REJECTED`].sort());
   });
 
   it("keeps a low AI type confidence visible without auto-approving the document", async () => {
@@ -343,6 +348,28 @@ describe("applyAiSuggestion docType", () => {
     expect(doc?.document.mergeGroupId).toBeNull();
   });
 
+  it("never rewrites an approved document during forced AI replacement", async () => {
+    const id = await makeDoc("invoice");
+    await db
+      .update(billingDocumentsTable)
+      .set({ status: "approved" })
+      .where(eq(billingDocumentsTable.id, id));
+
+    await expect(
+      applyAiSuggestion(
+        id,
+        {
+          ...suggestion("invoice"),
+          lines: [{ description: `Zakazany prepis ${TAG}`, quantity: 1 }],
+        },
+        { replaceExisting: true },
+      ),
+    ).rejects.toThrow(/terminálním stavu/);
+
+    const doc = await getDocument(id);
+    expect(doc?.document.status).toBe("approved");
+  });
+
   it("blocks approving or ignoring an incomplete multi-page material page", async () => {
     const id = await makeDoc("invoice");
     await applyAiSuggestion(id, {
@@ -350,7 +377,9 @@ describe("applyAiSuggestion docType", () => {
       pageNumber: 1,
       pageCount: 2,
       finalTotalPresent: false,
-      lines: [{ description: `Jistic ${TAG}`, lineType: "material", quantity: 1 }],
+      lines: [
+        { description: `Jistic ${TAG}`, lineType: "material", quantity: 1 },
+      ],
     });
 
     await expect(
@@ -378,7 +407,9 @@ describe("applyAiSuggestion docType", () => {
     expect(conflict?.document.detectedDocType).toBe("delivery_note");
     expect(conflict?.document.detectedDocTypeConfidence).toBe(0.93);
     expect(conflict?.document.docTypeSource).toBe("conflict");
-    await expect(approveDocument(id, actor)).rejects.toMatchObject({ statusCode: 409 });
+    await expect(approveDocument(id, actor)).rejects.toMatchObject({
+      statusCode: 409,
+    });
 
     await confirmDocumentType(id, "delivery_note", actor);
     const confirmed = await getDocument(id);

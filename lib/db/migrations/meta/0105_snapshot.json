@@ -12562,6 +12562,19 @@
           "primaryKey": false,
           "notNull": false,
           "default": "'21'"
+        },
+        "row_type": {
+          "name": "row_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'item'"
+        },
+        "purchase_unit_price": {
+          "name": "purchase_unit_price",
+          "type": "numeric(12, 2)",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -12599,7 +12612,16 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "quote_items_row_type_check": {
+          "name": "quote_items_row_type_check",
+          "value": "\"quote_items\".\"row_type\" in ('item', 'section', 'spacer')"
+        },
+        "quote_items_purchase_unit_price_check": {
+          "name": "quote_items_purchase_unit_price_check",
+          "value": "\"quote_items\".\"purchase_unit_price\" is null or \"quote_items\".\"purchase_unit_price\" >= 0"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.quotes": {

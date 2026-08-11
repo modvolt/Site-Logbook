@@ -107,11 +107,26 @@ async function lockItem(
   tx: DbTx,
   warehouseItemId: number,
 ): Promise<{ purchasePrice: string | null }> {
+  // NO KEY UPDATE still serializes quantity/price writers, but remains
+  // compatible with the KEY SHARE lock acquired when a material FK is changed
+  // to this item before reconciliation begins.
   const res = (await tx.execute(sql`
     select purchase_price from ${warehouseItemsTable}
-    where ${warehouseItemsTable.id} = ${warehouseItemId} for update
+    where ${warehouseItemsTable.id} = ${warehouseItemId} for no key update
   `)) as unknown as { rows: Array<{ purchase_price: string | null }> };
   return { purchasePrice: res.rows[0]?.purchase_price ?? null };
+}
+
+async function lockItemsInAscendingOrder(
+  tx: DbTx,
+  warehouseItemIds: Iterable<number>,
+): Promise<void> {
+  const orderedIds = [...new Set(warehouseItemIds)].sort(
+    (left, right) => left - right,
+  );
+  for (const warehouseItemId of orderedIds) {
+    await lockItem(tx, warehouseItemId);
+  }
 }
 
 /**
@@ -127,7 +142,10 @@ async function latestHistoryPrice(
     .select({ purchasePrice: warehousePriceHistoryTable.purchasePrice })
     .from(warehousePriceHistoryTable)
     .where(eq(warehousePriceHistoryTable.warehouseItemId, warehouseItemId))
-    .orderBy(desc(warehousePriceHistoryTable.createdAt), desc(warehousePriceHistoryTable.id))
+    .orderBy(
+      desc(warehousePriceHistoryTable.createdAt),
+      desc(warehousePriceHistoryTable.id),
+    )
     .limit(1);
   return entry?.purchasePrice ?? null;
 }
@@ -156,14 +174,16 @@ async function appendDelta(
   // price-history entry so fewer movements end up with a NULL cost_price_at_time.
   let costPriceAtTime: string | null = null;
   if (isOut) {
-    const rawPrice = purchasePrice ?? await latestHistoryPrice(tx, params.warehouseItemId);
+    const rawPrice =
+      purchasePrice ?? (await latestHistoryPrice(tx, params.warehouseItemId));
     if (rawPrice != null) costPriceAtTime = String(round2(num(rawPrice)));
   }
   await tx.insert(warehouseMovementsTable).values({
     warehouseItemId: params.warehouseItemId,
     direction: isOut ? "out" : "in",
     quantity: String(round2(Math.abs(delta))),
-    unitPrice: params.unitPrice == null ? null : String(round2(params.unitPrice)),
+    unitPrice:
+      params.unitPrice == null ? null : String(round2(params.unitPrice)),
     costPriceAtTime,
     sourceType: params.sourceType,
     sourceId: params.sourceId,
@@ -208,7 +228,11 @@ export async function reconcileSourceMovements(
   // history views that filter movements by these foreign keys.
   const existing = new Map<
     number,
-    { warehouseItemId: number; billingDocumentId: number | null; jobId: number | null }
+    {
+      warehouseItemId: number;
+      billingDocumentId: number | null;
+      jobId: number | null;
+    }
   >();
   for (const row of existingRows) {
     const current = existing.get(row.warehouseItemId);
@@ -219,9 +243,30 @@ export async function reconcileSourceMovements(
     });
   }
 
-  for (const { warehouseItemId, billingDocumentId, jobId } of existing.values()) {
+  // Every reconcile transaction takes all item locks in the same order before
+  // reading any applied contribution. Without this pre-lock, concurrent A→B
+  // and B→A rematches can each hold their old item while waiting for the other.
+  // Taking the locks before appliedSignedFor also prevents stale applied reads
+  // for this already-discovered set of affected items. Serializing two
+  // reconciles of the same source that discover different new targets remains
+  // a separate source-identity concurrency concern.
+  await lockItemsInAscendingOrder(tx, [
+    ...existing.keys(),
+    ...(desired ? [desired.warehouseItemId] : []),
+  ]);
+
+  for (const {
+    warehouseItemId,
+    billingDocumentId,
+    jobId,
+  } of existing.values()) {
     if (desired && desired.warehouseItemId === warehouseItemId) continue;
-    const applied = await appliedSignedFor(tx, sourceType, sourceId, warehouseItemId);
+    const applied = await appliedSignedFor(
+      tx,
+      sourceType,
+      sourceId,
+      warehouseItemId,
+    );
     await appendDelta(tx, {
       warehouseItemId,
       delta: -applied,
@@ -275,9 +320,15 @@ function normalizeWarehouseName(name: string): string {
  * drills. Warehouse catalogues are small enough for this save-time scan, and
  * all later reconciliation remains ID-based.
  */
-async function itemsMatchingName(tx: DbTx, name: string): Promise<WarehouseItemRow[]> {
+async function itemsMatchingName(
+  tx: DbTx,
+  name: string,
+): Promise<WarehouseItemRow[]> {
   const key = normalizeWarehouseName(name);
-  const rows = await tx.select().from(warehouseItemsTable).orderBy(warehouseItemsTable.id);
+  const rows = await tx
+    .select()
+    .from(warehouseItemsTable)
+    .orderBy(warehouseItemsTable.id);
   return rows.filter((row) => normalizeWarehouseName(row.name) === key);
 }
 
@@ -336,20 +387,37 @@ export async function reconcileDocumentStockMovements(
       line.allocationType === "stock";
 
     if (!isStockReceipt) {
-      await reconcileSourceMovements(tx, "billing_document_line", line.id, null, actor);
+      await reconcileSourceMovements(
+        tx,
+        "billing_document_line",
+        line.id,
+        null,
+        actor,
+      );
       continue;
     }
 
     const item = await resolveOrCreateItemForLine(tx, line, maps!);
     const qty = round2(num(line.quantity));
-    await reconcileSourceMovements(tx, "billing_document_line", line.id, {
-      warehouseItemId: item.id,
-      signedQty: qty, // receipt → +
-      unitPrice: line.unitPriceWithoutVat == null ? null : num(line.unitPriceWithoutVat),
-      billingDocumentId: documentId,
-      jobId: line.jobId ?? doc.jobId ?? null,
-      note: doc.documentNumber ? `Příjem z dokladu ${doc.documentNumber}` : "Příjem z dokladu",
-    }, actor);
+    await reconcileSourceMovements(
+      tx,
+      "billing_document_line",
+      line.id,
+      {
+        warehouseItemId: item.id,
+        signedQty: qty, // receipt → +
+        unitPrice:
+          line.unitPriceWithoutVat == null
+            ? null
+            : num(line.unitPriceWithoutVat),
+        billingDocumentId: documentId,
+        jobId: line.jobId ?? doc.jobId ?? null,
+        note: doc.documentNumber
+          ? `Příjem z dokladu ${doc.documentNumber}`
+          : "Příjem z dokladu",
+      },
+      actor,
+    );
   }
 }
 
@@ -367,12 +435,18 @@ export async function reconcileDocumentStockMovements(
 export async function resolveOrCreateWarehouseItemByName(
   tx: DbTx,
   name: string,
-  opts: { code?: string | null; unit?: string | null; purchasePrice?: string | null },
+  opts: {
+    code?: string | null;
+    unit?: string | null;
+    purchasePrice?: string | null;
+  },
 ): Promise<WarehouseItemRow> {
   const normalizedName = normalizeWarehouseName(name);
 
   // Acquire advisory lock before the re-check to prevent concurrent duplicates.
-  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${normalizedName}))`);
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(hashtext(${normalizedName}))`,
+  );
 
   const [existing] = await itemsMatchingName(tx, name);
   if (existing) return existing;
@@ -393,7 +467,10 @@ export async function resolveOrCreateWarehouseItemByName(
 async function resolveOrCreateItemForLine(
   tx: DbTx,
   line: typeof billingDocumentLinesTable.$inferSelect,
-  maps: { byCode: Map<string, WarehouseItemRow>; byName: Map<string, WarehouseItemRow> },
+  maps: {
+    byCode: Map<string, WarehouseItemRow>;
+    byName: Map<string, WarehouseItemRow>;
+  },
 ): Promise<WarehouseItemRow> {
   const codeKeys = [line.supplierSku, line.ean]
     .filter((c): c is string => !!c)
@@ -403,12 +480,18 @@ async function resolveOrCreateItemForLine(
   if (item) return item;
 
   const code = (line.supplierSku ?? line.ean ?? "")?.trim() || null;
-  const created = await resolveOrCreateWarehouseItemByName(tx, line.description, {
-    code,
-    unit: line.unit ?? null,
-    purchasePrice:
-      line.unitPriceWithoutVat == null ? null : String(round2(num(line.unitPriceWithoutVat))),
-  });
+  const created = await resolveOrCreateWarehouseItemByName(
+    tx,
+    line.description,
+    {
+      code,
+      unit: line.unit ?? null,
+      purchasePrice:
+        line.unitPriceWithoutVat == null
+          ? null
+          : String(round2(num(line.unitPriceWithoutVat))),
+    },
+  );
   if (code) maps.byCode.set(code.toLowerCase(), created);
   maps.byName.set(normalizeWarehouseName(created.name), created);
   return created;
@@ -491,7 +574,8 @@ async function reconcileMaterialLike(
       ? {
           warehouseItemId: item.id,
           signedQty: -qty, // issue → −
-          unitPrice: material.pricePerUnit == null ? null : num(material.pricePerUnit),
+          unitPrice:
+            material.pricePerUnit == null ? null : num(material.pricePerUnit),
           billingDocumentId: null,
           jobId: material.jobId,
           note: "Výdej na zakázku",
@@ -597,7 +681,8 @@ export async function createManualMovement(
     // price-history entry so fewer OUT movements end up with a NULL cost_price_at_time.
     let costPriceAtTime: string | null = null;
     if (isOut) {
-      const rawPrice = item.purchasePrice ?? await latestHistoryPrice(tx, warehouseItemId);
+      const rawPrice =
+        item.purchasePrice ?? (await latestHistoryPrice(tx, warehouseItemId));
       if (rawPrice != null) costPriceAtTime = String(round2(num(rawPrice)));
     }
     const [movement] = await tx
@@ -629,7 +714,10 @@ export async function createManualMovement(
         .select({ purchasePrice: warehousePriceHistoryTable.purchasePrice })
         .from(warehousePriceHistoryTable)
         .where(eq(warehousePriceHistoryTable.warehouseItemId, warehouseItemId))
-        .orderBy(desc(warehousePriceHistoryTable.createdAt), desc(warehousePriceHistoryTable.id))
+        .orderBy(
+          desc(warehousePriceHistoryTable.createdAt),
+          desc(warehousePriceHistoryTable.id),
+        )
         .limit(1);
       const lastPrice = lastEntry ? num(lastEntry.purchasePrice) : null;
       if (lastPrice === null || Math.abs(lastPrice - newPrice) >= EPSILON) {
@@ -722,13 +810,31 @@ export async function listMovements(
 ): Promise<SerializedMovement[]> {
   const conds = [];
   if (filters.warehouseItemId != null)
-    conds.push(eq(warehouseMovementsTable.warehouseItemId, filters.warehouseItemId));
-  if (filters.jobId != null) conds.push(eq(warehouseMovementsTable.jobId, filters.jobId));
+    conds.push(
+      eq(warehouseMovementsTable.warehouseItemId, filters.warehouseItemId),
+    );
+  if (filters.jobId != null)
+    conds.push(eq(warehouseMovementsTable.jobId, filters.jobId));
   if (filters.billingDocumentId != null)
-    conds.push(eq(warehouseMovementsTable.billingDocumentId, filters.billingDocumentId));
-  if (filters.direction) conds.push(eq(warehouseMovementsTable.direction, filters.direction));
-  if (filters.from) conds.push(gte(warehouseMovementsTable.createdAt, new Date(`${filters.from}T00:00:00`)));
-  if (filters.to) conds.push(lte(warehouseMovementsTable.createdAt, new Date(`${filters.to}T23:59:59.999`)));
+    conds.push(
+      eq(warehouseMovementsTable.billingDocumentId, filters.billingDocumentId),
+    );
+  if (filters.direction)
+    conds.push(eq(warehouseMovementsTable.direction, filters.direction));
+  if (filters.from)
+    conds.push(
+      gte(
+        warehouseMovementsTable.createdAt,
+        new Date(`${filters.from}T00:00:00`),
+      ),
+    );
+  if (filters.to)
+    conds.push(
+      lte(
+        warehouseMovementsTable.createdAt,
+        new Date(`${filters.to}T23:59:59.999`),
+      ),
+    );
 
   const rows = await db
     .select({
@@ -748,7 +854,10 @@ export async function listMovements(
     )
     .leftJoin(jobsTable, eq(warehouseMovementsTable.jobId, jobsTable.id))
     .where(conds.length ? and(...conds) : undefined)
-    .orderBy(desc(warehouseMovementsTable.createdAt), desc(warehouseMovementsTable.id))
+    .orderBy(
+      desc(warehouseMovementsTable.createdAt),
+      desc(warehouseMovementsTable.id),
+    )
     .limit(Math.min(filters.limit ?? 500, 1000));
 
   return rows.map(serializeMovement);
@@ -769,7 +878,10 @@ export async function netSignedForSources(
 ): Promise<number> {
   if (!sourceIds.length) return 0;
   const rows = await db
-    .select({ direction: warehouseMovementsTable.direction, quantity: warehouseMovementsTable.quantity })
+    .select({
+      direction: warehouseMovementsTable.direction,
+      quantity: warehouseMovementsTable.quantity,
+    })
     .from(warehouseMovementsTable)
     .where(
       and(
@@ -778,6 +890,9 @@ export async function netSignedForSources(
       ),
     );
   return round2(
-    rows.reduce((s, r) => s + (r.direction === "in" ? num(r.quantity) : -num(r.quantity)), 0),
+    rows.reduce(
+      (s, r) => s + (r.direction === "in" ? num(r.quantity) : -num(r.quantity)),
+      0,
+    ),
   );
 }

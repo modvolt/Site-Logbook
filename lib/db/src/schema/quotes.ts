@@ -7,7 +7,9 @@ import {
   timestamp,
   index,
   uniqueIndex,
+  check,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { customersTable } from "./customers";
 import { jobsTable } from "./jobs";
 import { jobGroupsTable } from "./job-groups";
@@ -64,6 +66,7 @@ export const quoteItemsTable = pgTable(
       .notNull()
       .references(() => quotesTable.id, { onDelete: "cascade" }),
     position: integer("position").notNull().default(0),
+    rowType: text("row_type").notNull().default("item"),
     description: text("description").notNull(),
     quantity: numeric("quantity", { precision: 12, scale: 4 })
       .notNull()
@@ -72,9 +75,23 @@ export const quoteItemsTable = pgTable(
     unitPrice: numeric("unit_price", { precision: 12, scale: 2 })
       .notNull()
       .default("0"),
+    purchaseUnitPrice: numeric("purchase_unit_price", {
+      precision: 12,
+      scale: 2,
+    }),
     vatRate: numeric("vat_rate", { precision: 5, scale: 2 }).default("21"),
   },
-  (t) => [index("quote_items_quote_idx").on(t.quoteId)],
+  (t) => [
+    index("quote_items_quote_idx").on(t.quoteId),
+    check(
+      "quote_items_row_type_check",
+      sql`${t.rowType} in ('item', 'section', 'spacer')`,
+    ),
+    check(
+      "quote_items_purchase_unit_price_check",
+      sql`${t.purchaseUnitPrice} is null or ${t.purchaseUnitPrice} >= 0`,
+    ),
+  ],
 );
 
 export type QuoteItem = typeof quoteItemsTable.$inferSelect;

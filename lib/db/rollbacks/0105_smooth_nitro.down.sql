@@ -37,6 +37,6 @@ ALTER TABLE users DROP CONSTRAINT IF EXISTS users_account_type_chk;
 ALTER TABLE users DROP COLUMN IF EXISTS account_type;
 
 DELETE FROM drizzle.__drizzle_migrations
-WHERE created_at = 1785912730511;
+WHERE created_at = 1786383367000;
 
 COMMIT;

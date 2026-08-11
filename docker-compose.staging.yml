@@ -132,6 +132,58 @@ services:
       disable: true
     logging: *staging-logging
 
+  # Second-release gate. The manual runner overrides the default steady action
+  # only after binding a fresh exact-0105 backup. Normal API startup is allowed
+  # only after this service proves exact 0106 and dark external-account state.
+  accounting-schema-gate:
+    image: ${STAGING_API_IMAGE:?set immutable API image repository@sha256:<64 hex digest>}
+    pull_policy: always
+    restart: "no"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: "0.25"
+    mem_limit: 384m
+    mem_reservation: 192m
+    depends_on:
+      staging-preflight:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    environment:
+      STAGING_ACCOUNTING_SCHEMA_ACTION: ${STAGING_ACCOUNTING_SCHEMA_ACTION:?set steady-0106 after the separately approved transition}
+      ACCOUNTING_SCHEMA_PREFLIGHT_CONFIRMATION: ${ACCOUNTING_SCHEMA_PREFLIGHT_CONFIRMATION-}
+      STAGING_ACCOUNTING_DEPLOYMENT_INPUTS_SHA256: ${STAGING_ACCOUNTING_DEPLOYMENT_INPUTS_SHA256:?set the canonical accounting transition input checksum}
+      STAGING_EXACT_0105_BACKUP_EXECUTION_SHA256: ${STAGING_EXACT_0105_BACKUP_EXECUTION_SHA256:?set the exact-0105 backup execution checksum}
+      STAGING_EXACT_0105_BACKUP_MAX_PAYLOAD_BYTES: ${STAGING_EXACT_0105_BACKUP_MAX_PAYLOAD_BYTES:?set 268435456}
+      STAGING_EXACT_0105_BACKUP_SIZE_BYTES: ${STAGING_EXACT_0105_BACKUP_SIZE_BYTES:?set the reviewed encrypted backup size}
+      STAGING_SCHEMA_ACTION: ${STAGING_SCHEMA_ACTION:?keep inspect for the separately validated external schema boundary}
+      STAGING_EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION: ${STAGING_EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION-}
+      STAGING_ENVIRONMENT_ID: ${STAGING_ENVIRONMENT_ID:?set STAGING_ENVIRONMENT_ID}
+      STAGING_COMPOSE_PROJECT_NAME: ${STAGING_COMPOSE_PROJECT_NAME:-site-logbook-staging}
+      STAGING_BUILD_SHA: ${STAGING_BUILD_SHA:?set the exact 40-character deployed commit SHA}
+      STAGING_IMAGE_MANIFEST_SOURCE_SHA: ${STAGING_IMAGE_MANIFEST_SOURCE_SHA:?set sourceSha from the approved immutable image manifest}
+      STAGING_IMAGE_MANIFEST_SHA256: ${STAGING_IMAGE_MANIFEST_SHA256:?set the separately approved image manifest checksum}
+      STAGING_PROVISIONING_MANIFEST_SHA256: ${STAGING_PROVISIONING_MANIFEST_SHA256:?set the observed provisioning manifest checksum}
+      STAGING_DEPLOYMENT_INPUTS_SHA256: ${STAGING_DEPLOYMENT_INPUTS_SHA256:?set the derived canonical inspect input checksum}
+      STAGING_API_IMAGE: ${STAGING_API_IMAGE:?set immutable API image repository@sha256:<64 hex digest>}
+      STAGING_EXTERNAL_ACCOUNTS_ENABLED: ${STAGING_EXTERNAL_ACCOUNTS_ENABLED:?set false for the external account dark rollout}
+      EXTERNAL_ACCOUNTS_ENABLED: ${STAGING_EXTERNAL_ACCOUNTS_ENABLED:?set false for the external account dark rollout}
+      STAGING_DATABASE_HOST: postgres
+      STAGING_DATABASE_NAME: site_logbook_staging
+      STAGING_DATABASE_USER: site_logbook_staging
+      STAGING_BACKUP_EVIDENCE_ID: ${STAGING_BACKUP_EVIDENCE_ID-}
+      STAGING_BACKUP_RESTORE_MAX_AGE_HOURS: ${STAGING_BACKUP_RESTORE_MAX_AGE_HOURS-}
+      DATABASE_URL: postgres://site_logbook_staging:${STAGING_POSTGRES_PASSWORD:?set a staging-only PostgreSQL password}@postgres:5432/site_logbook_staging
+    command:
+      - node
+      - dist/accounting-schema-gate.mjs
+    healthcheck:
+      disable: true
+    logging: *staging-logging
+
   # Manual-only exact-0104 baseline path. These profile services are never part
   # of the normal Coolify runtime. The host runner requires postgres to be the
   # only running service, performs candidate pre/post checks and invokes the
@@ -322,6 +374,62 @@ services:
       disable: true
     logging: *staging-logging
 
+  # Manual-only fresh encrypted backup and non-destructive restore test while
+  # the database is exact 0105 and all 0106 accounting objects are absent.
+  # Retention pruning is disabled and this service never authorizes 0106.
+  exact-0105-accounting-backup:
+    profiles: ["exact-0105-accounting-backup"]
+    image: ${STAGING_API_IMAGE:?set immutable API image repository@sha256:<64 hex digest>}
+    pull_policy: always
+    restart: "no"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: "0.50"
+    mem_limit: 1536m
+    mem_reservation: 384m
+    tmpfs:
+      - /tmp:size=536870912,mode=1777
+    environment:
+      STAGING_EXACT_0105_BACKUP_ACTION: ${STAGING_EXACT_0105_BACKUP_ACTION-}
+      STAGING_EXACT_0105_BACKUP_CONFIRMATION: ${STAGING_EXACT_0105_BACKUP_CONFIRMATION-}
+      STAGING_SCHEMA_ACTION: ${STAGING_SCHEMA_ACTION:?keep inspect during exact-0105 backup creation}
+      STAGING_EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION: ${STAGING_EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION-}
+      ACCOUNTING_SCHEMA_PREFLIGHT_CONFIRMATION: ${ACCOUNTING_SCHEMA_PREFLIGHT_CONFIRMATION-}
+      STAGING_ENVIRONMENT_ID: ${STAGING_ENVIRONMENT_ID:?set STAGING_ENVIRONMENT_ID}
+      STAGING_COMPOSE_PROJECT_NAME: ${STAGING_COMPOSE_PROJECT_NAME:-site-logbook-staging}
+      STAGING_BUILD_SHA: ${STAGING_BUILD_SHA:?set the exact 40-character deployed commit SHA}
+      STAGING_IMAGE_MANIFEST_SOURCE_SHA: ${STAGING_IMAGE_MANIFEST_SOURCE_SHA:?set sourceSha from the approved immutable image manifest}
+      STAGING_IMAGE_MANIFEST_SHA256: ${STAGING_IMAGE_MANIFEST_SHA256:?set the separately approved image manifest checksum}
+      STAGING_PROVISIONING_MANIFEST_SHA256: ${STAGING_PROVISIONING_MANIFEST_SHA256:?set the observed provisioning manifest checksum}
+      STAGING_DEPLOYMENT_INPUTS_SHA256: ${STAGING_DEPLOYMENT_INPUTS_SHA256:?set the canonical inspect deployment input checksum}
+      STAGING_EXTERNAL_ACCOUNTS_ENABLED: ${STAGING_EXTERNAL_ACCOUNTS_ENABLED:?set false for the external account dark rollout}
+      EXTERNAL_ACCOUNTS_ENABLED: ${STAGING_EXTERNAL_ACCOUNTS_ENABLED:?set false for the external account dark rollout}
+      STAGING_DATABASE_HOST: postgres
+      STAGING_DATABASE_NAME: site_logbook_staging
+      STAGING_DATABASE_USER: site_logbook_staging
+      STAGING_BACKUP_EVIDENCE_ID: ${STAGING_BACKUP_EVIDENCE_ID-}
+      STAGING_BACKUP_RESTORE_MAX_AGE_HOURS: ${STAGING_BACKUP_RESTORE_MAX_AGE_HOURS-}
+      DATABASE_URL: postgres://site_logbook_staging:${STAGING_POSTGRES_PASSWORD:?set a staging-only PostgreSQL password}@postgres:5432/site_logbook_staging
+      S3_ENDPOINT: ${STAGING_S3_ENDPOINT:?set the staging S3 HTTPS endpoint}
+      S3_REGION: ${STAGING_S3_REGION:?set the staging S3 region}
+      S3_BUCKET: ${STAGING_S3_BUCKET:?set a staging-only S3 bucket}
+      S3_ACCESS_KEY_ID: ${STAGING_S3_ACCESS_KEY_ID:?set a staging-only S3 access key id}
+      S3_SECRET_ACCESS_KEY: ${STAGING_S3_SECRET_ACCESS_KEY:?set a staging-only S3 secret access key}
+      S3_FORCE_PATH_STYLE: ${STAGING_S3_FORCE_PATH_STYLE:?set true or false for the staging S3 provider}
+      S3_PRIVATE_PREFIX: private
+      BACKUP_ENCRYPTION_KEYRING: ${STAGING_BACKUP_ENCRYPTION_KEYRING:?set a separate staging backup keyring}
+      BACKUP_ENCRYPTION_ACTIVE_KEY_ID: ${STAGING_BACKUP_ENCRYPTION_ACTIVE_KEY_ID:?set the active staging backup key id}
+      BACKUP_ENABLED: "true"
+    command:
+      - node
+      - dist/accounting-schema-exact-0105-backup.mjs
+    healthcheck:
+      disable: true
+    logging: *staging-logging
+
   # Read-only evidence gate for the NEW backup made after baseline completion.
   # The host runner requires postgres to be the only running service. This gate
   # neither creates a backup nor starts API/web and never authorizes 0105.
@@ -405,6 +513,8 @@ services:
     mem_reservation: 768m
     depends_on:
       external-schema-gate:
+        condition: service_completed_successfully
+      accounting-schema-gate:
         condition: service_completed_successfully
       mailpit:
         condition: service_healthy

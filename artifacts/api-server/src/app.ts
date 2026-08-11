@@ -1,4 +1,9 @@
-import express, { type Express, type Request, type Response, type NextFunction } from "express";
+import express, {
+  type Express,
+  type Request,
+  type Response,
+  type NextFunction,
+} from "express";
 import cors from "cors";
 import helmet from "helmet";
 import session from "express-session";
@@ -16,14 +21,12 @@ import {
   attachOfflineResponseScope,
   enforceOfflineReplayScope,
 } from "./middlewares/offline-replay-scope";
-import { enforceOfflineIdempotency } from "./middlewares/offline-idempotency";
+import { enforceDurableIdempotency } from "./middlewares/offline-idempotency";
+import { requireOnlineIdempotencyStepUp } from "./middlewares/online-idempotency-step-up";
 import { record5xxError } from "./lib/server-errors";
 import { isPublicApiRequest } from "./lib/public-api-policy";
 import { SecretEncryptionError } from "./lib/secret-envelope";
-import {
-  PublicOriginConfigError,
-  publicAppOrigin,
-} from "./lib/public-origin";
+import { PublicOriginConfigError, publicAppOrigin } from "./lib/public-origin";
 import {
   redactPublicBearerPath,
   serializeRequestForLog,
@@ -184,10 +187,14 @@ app.use("/api", (req: Request, res: Response, next: NextFunction) => {
 
 // Authentication and permission checks run before any structured body is
 // buffered. Only named base64 workflows receive the larger authenticated cap.
+// Registered privileged online mutations additionally prove session step-up
+// before their encrypted durable ledger is touched. Route-local guards remain
+// in place as defense in depth.
+app.use("/api", requireOnlineIdempotencyStepUp);
 app.use("/api", limitPublicBearerRequests);
 app.use("/api", parseApiRequestBody);
 
-app.use("/api", enforceOfflineIdempotency);
+app.use("/api", enforceDurableIdempotency);
 
 // Record successful data mutations to the audit log (after auth so the actor is known)
 app.use("/api", auditMutations);
@@ -233,7 +240,8 @@ app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
     );
     if (!res.headersSent) {
       res.status(503).json({
-        error: "Šifrování citlivých údajů není dostupné. Kontaktujte správce systému.",
+        error:
+          "Šifrování citlivých údajů není dostupné. Kontaktujte správce systému.",
         code: "secret_encryption_unavailable",
         requestId,
       });
@@ -248,7 +256,8 @@ app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
     );
     if (!res.headersSent) {
       res.status(503).json({
-        error: "Veřejný odkaz nyní nelze bezpečně vytvořit. Kontaktujte správce systému.",
+        error:
+          "Veřejný odkaz nyní nelze bezpečně vytvořit. Kontaktujte správce systému.",
         code: "public_origin_unavailable",
         requestId,
       });
@@ -272,9 +281,15 @@ app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
   }
 
   if (err instanceof Error) {
-    req.log?.error({ requestId, method, path, stack: err.stack }, "Unhandled error");
+    req.log?.error(
+      { requestId, method, path, stack: err.stack },
+      "Unhandled error",
+    );
   } else {
-    req.log?.error({ requestId, method, path, err }, "Unhandled error (non-Error)");
+    req.log?.error(
+      { requestId, method, path, err },
+      "Unhandled error (non-Error)",
+    );
   }
 
   if (res.headersSent) return;

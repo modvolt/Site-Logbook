@@ -46,6 +46,11 @@ const EXPECTED_RESOURCES = Object.freeze({
     memLimit: "384m",
     memReservation: "192m",
   },
+  "accounting-schema-gate": {
+    cpus: "0.25",
+    memLimit: "384m",
+    memReservation: "192m",
+  },
   mailpit: {
     cpus: "0.25",
     memLimit: "256m",
@@ -88,6 +93,11 @@ const EXPECTED_RECOVERY_RESOURCES = Object.freeze({
 
 const EXPECTED_EXACT_0104_BACKUP_RESOURCES = Object.freeze({
   "exact-0104-backup": {
+    cpus: "0.50",
+    memLimit: "1536m",
+    memReservation: "384m",
+  },
+  "exact-0105-accounting-backup": {
     cpus: "0.50",
     memLimit: "1536m",
     memReservation: "384m",
@@ -378,20 +388,36 @@ export function validateStagingRuntimeContract(overrides = {}) {
       resources.memReservation,
       service,
     );
+    const exact0105 = service === "exact-0105-accounting-backup";
     for (const boundary of [
-      '    profiles: ["exact-0104-backup"]',
+      exact0105
+        ? '    profiles: ["exact-0105-accounting-backup"]'
+        : '    profiles: ["exact-0104-backup"]',
       "    read_only: true",
       "      - no-new-privileges:true",
       "      - /tmp:size=536870912,mode=1777",
-      "      STAGING_EXACT_0104_BACKUP_ACTION: ${STAGING_EXACT_0104_BACKUP_ACTION-}",
-      "      STAGING_EXACT_0104_BACKUP_CONFIRMATION: ${STAGING_EXACT_0104_BACKUP_CONFIRMATION-}",
-      "      STAGING_SCHEMA_ACTION: ${STAGING_SCHEMA_ACTION:?keep inspect during exact-0104 backup creation}",
+      exact0105
+        ? "      STAGING_EXACT_0105_BACKUP_ACTION: ${STAGING_EXACT_0105_BACKUP_ACTION-}"
+        : "      STAGING_EXACT_0104_BACKUP_ACTION: ${STAGING_EXACT_0104_BACKUP_ACTION-}",
+      exact0105
+        ? "      STAGING_EXACT_0105_BACKUP_CONFIRMATION: ${STAGING_EXACT_0105_BACKUP_CONFIRMATION-}"
+        : "      STAGING_EXACT_0104_BACKUP_CONFIRMATION: ${STAGING_EXACT_0104_BACKUP_CONFIRMATION-}",
+      exact0105
+        ? "      STAGING_SCHEMA_ACTION: ${STAGING_SCHEMA_ACTION:?keep inspect during exact-0105 backup creation}"
+        : "      STAGING_SCHEMA_ACTION: ${STAGING_SCHEMA_ACTION:?keep inspect during exact-0104 backup creation}",
       "      STAGING_COMPOSE_PROJECT_NAME: ${STAGING_COMPOSE_PROJECT_NAME:-site-logbook-staging}",
       "      STAGING_IMAGE_MANIFEST_SHA256: ${STAGING_IMAGE_MANIFEST_SHA256:?set the separately approved image manifest checksum}",
       "      STAGING_PROVISIONING_MANIFEST_SHA256: ${STAGING_PROVISIONING_MANIFEST_SHA256:?set the observed provisioning manifest checksum}",
       "      STAGING_DEPLOYMENT_INPUTS_SHA256: ${STAGING_DEPLOYMENT_INPUTS_SHA256:?set the canonical inspect deployment input checksum}",
+      ...(exact0105
+        ? [
+            "      ACCOUNTING_SCHEMA_PREFLIGHT_CONFIRMATION: ${ACCOUNTING_SCHEMA_PREFLIGHT_CONFIRMATION-}",
+          ]
+        : []),
       '      BACKUP_ENABLED: "true"',
-      "      - dist/external-schema-exact-0104-backup.mjs",
+      exact0105
+        ? "      - dist/accounting-schema-exact-0105-backup.mjs"
+        : "      - dist/external-schema-exact-0104-backup.mjs",
     ]) {
       requireText(block, boundary, `${service} boundary ${boundary}`);
     }
@@ -426,6 +452,10 @@ export function validateStagingRuntimeContract(overrides = {}) {
     "external-schema-gate.ts",
     "external-schema-baseline-0104.ts",
     "external-schema-exact-0104-backup.ts",
+    "accounting-schema-inventory.ts",
+    "accounting-schema-gate.ts",
+    "accounting-schema-steady-state.ts",
+    "accounting-schema-exact-0105-backup.ts",
   ]) {
     requireText(
       apiBuild,
@@ -601,6 +631,30 @@ export function validateStagingRuntimeContract(overrides = {}) {
       `external schema gate boundary ${boundary}`,
     );
   }
+  const accountingSchemaGateBlock = serviceBlock(
+    compose,
+    "accounting-schema-gate",
+  );
+  for (const boundary of [
+    "    read_only: true",
+    "      - ALL",
+    "      - no-new-privileges:true",
+    "      STAGING_ACCOUNTING_SCHEMA_ACTION: ${STAGING_ACCOUNTING_SCHEMA_ACTION:?set steady-0106 after the separately approved transition}",
+    "      ACCOUNTING_SCHEMA_PREFLIGHT_CONFIRMATION: ${ACCOUNTING_SCHEMA_PREFLIGHT_CONFIRMATION-}",
+    "      STAGING_ACCOUNTING_DEPLOYMENT_INPUTS_SHA256: ${STAGING_ACCOUNTING_DEPLOYMENT_INPUTS_SHA256:?set the canonical accounting transition input checksum}",
+    "      STAGING_EXACT_0105_BACKUP_EXECUTION_SHA256: ${STAGING_EXACT_0105_BACKUP_EXECUTION_SHA256:?set the exact-0105 backup execution checksum}",
+    "      STAGING_EXACT_0105_BACKUP_MAX_PAYLOAD_BYTES: ${STAGING_EXACT_0105_BACKUP_MAX_PAYLOAD_BYTES:?set 268435456}",
+    "      STAGING_EXACT_0105_BACKUP_SIZE_BYTES: ${STAGING_EXACT_0105_BACKUP_SIZE_BYTES:?set the reviewed encrypted backup size}",
+    "      STAGING_EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION: ${STAGING_EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION-}",
+    "      - dist/accounting-schema-gate.mjs",
+    "      disable: true",
+  ]) {
+    requireText(
+      accountingSchemaGateBlock,
+      boundary,
+      `accounting schema gate boundary ${boundary}`,
+    );
+  }
   const recoveryGateBlock = serviceBlock(compose, "exact-0104-recovery-gate");
   for (const boundary of [
     "    image: ${STAGING_API_IMAGE:?set immutable API image repository@sha256:<64 hex digest>}",
@@ -697,6 +751,7 @@ export function validateStagingRuntimeContract(overrides = {}) {
   }
   for (const boundary of [
     "      external-schema-gate:",
+    "      accounting-schema-gate:",
     "        condition: service_completed_successfully",
     "      STAGING_IMAGE_MANIFEST_SOURCE_SHA: ${STAGING_IMAGE_MANIFEST_SOURCE_SHA:?set sourceSha from the approved immutable image manifest}",
     "        node dist/external-schema-steady-state.mjs &&",
@@ -1679,7 +1734,7 @@ export function validateStagingRuntimeContract(overrides = {}) {
     "coolify-per-resource",
     "staging-bucket-only",
     "mailpit-only",
-    "totalMemoryMiB !== 2816",
+    "totalMemoryMiB !== 3200",
   ]) {
     requireText(
       provisioningValidator,
@@ -1711,6 +1766,8 @@ export function validateStagingRuntimeContract(overrides = {}) {
     "forbiddenPublicHost",
     "export function validateResolvedStagingComposeTarget",
     '"exact-0104-recovery-gate"',
+    '"exact-0105-accounting-backup"',
+    '"accounting-schema-gate"',
     "export const STAGING_POSTGRES_INSPECT_FORMAT",
     "export function validateRunningStagingPostgresContainer",
     "postgresVolumeName",
@@ -1747,6 +1804,7 @@ export function validateStagingRuntimeContract(overrides = {}) {
     "EVIDENCE_ARTIFACT_MISMATCH",
     '"--steady-inputs"',
     '"--bootstrap"',
+    "releaseEvidenceFileSha256",
   ]) {
     requireText(
       evidenceValidator,
@@ -1919,6 +1977,127 @@ export function validateStagingRuntimeContract(overrides = {}) {
       exact0104BackupRunner,
       boundary,
       `exact-0104 backup runner ${boundary}`,
+    );
+  }
+  const exact0105BackupEntrypoint = readSource(
+    "artifacts/api-server/src/accounting-schema-exact-0105-backup.ts",
+    overrides,
+  );
+  for (const boundary of [
+    "CREATE_FRESH_EXACT_0105_STAGING_BACKUP_AND_RESTORE_TEST_NO_0106",
+    "STAGING_EXACT_0105_BACKUP_MAX_PAYLOAD_BYTES = 256 * 1024 * 1024",
+    'inventory.decision !== "READY_0105"',
+    "inventory.latestAppliedTag !== LATEST_0105",
+    "inventory.externalStateRows !== 0",
+    "skipRetentionPrune: true",
+    "boundedPayload(row.sizeBytes",
+    "observedNewBackupId !== restored.id",
+    'nextGate: "accounting-0106-transition-binding-required"',
+    "authorizes0106: false",
+  ]) {
+    requireText(
+      exact0105BackupEntrypoint,
+      boundary,
+      `exact-0105 backup entrypoint ${boundary}`,
+    );
+  }
+  const exact0105BackupRunner = readSource(
+    "scripts/run-staging-exact-0105-backup.mjs",
+    overrides,
+  );
+  for (const boundary of [
+    'services.length !== 1 || services[0] !== "postgres"',
+    'targetService: "exact-0105-accounting-backup"',
+    '"config", "--format", "json"',
+    "STAGING_POSTGRES_INSPECT_FORMAT",
+    "validateRunningStagingPostgresContainer",
+    '"--no-deps"',
+    '"dist/accounting-schema-exact-0105-backup.mjs"',
+    "MAX_PAYLOAD_BYTES = 256 * 1024 * 1024",
+    'positiveInteger(value.sizeBytes, "backup size") > MAX_PAYLOAD_BYTES',
+    '"final quiescence check"',
+    'requiredArgument("--inspect-inputs")',
+    '"--expected-inspect-inputs-sha256"',
+    "inspectDeploymentInputsSha256",
+    "staging-exact-0105-backup-execution.sha256",
+    "accountingSchema0106GateStarted: false",
+    "authorizes0106: false",
+  ]) {
+    requireText(
+      exact0105BackupRunner,
+      boundary,
+      `exact-0105 backup runner ${boundary}`,
+    );
+  }
+  const accounting0106Binding = readSource(
+    "scripts/check-staging-accounting-0106-binding.mjs",
+    overrides,
+  );
+  for (const boundary of [
+    "staging-accounting-0106-transition.json",
+    "staging-accounting-0106-inspect.json",
+    "staging-accounting-0106.env",
+    "validateAccounting0106TransitionInputs",
+    "validateExact0105BackupExecution",
+    'tag: "0105_smooth_nitro"',
+    'tag: "0106_graceful_frog_thor"',
+    "697c9fe4980821769b0c053b5e7061c204fa3ded8328a5aef3f18476f5720bbd",
+    "maxPayloadBytes !== MAX_PAYLOAD_BYTES",
+    "productionTargetsTouched: false",
+  ]) {
+    requireText(
+      accounting0106Binding,
+      boundary,
+      `accounting 0106 binding ${boundary}`,
+    );
+  }
+  const accounting0106Runner = readSource(
+    "scripts/run-staging-accounting-0106-transition.mjs",
+    overrides,
+  );
+  for (const boundary of [
+    "staging-accounting-0106-intent.json",
+    "staging-accounting-0106-execution.json",
+    "dist/accounting-schema-inventory.mjs",
+    'value.decision === "READY_0105"',
+    'value.decision === "ALREADY_0106"',
+    "ACCOUNTING_0106_UNEXPECTED_NOOP",
+    'targetService: "accounting-schema-gate"',
+    '"config", "--format", "json"',
+    "STAGING_POSTGRES_INSPECT_FORMAT",
+    "validateRunningStagingPostgresContainer",
+    '"ACCOUNTING_SCHEMA_PREFLIGHT_CONFIRMATION="',
+    "`ACCOUNTING_SCHEMA_PREFLIGHT_CONFIRMATION=${CONFIRMATION}`",
+    '"dist/accounting-schema-gate.mjs"',
+    '"post-inventory quiescence check"',
+    '"pre-transition quiescence check"',
+    '"final quiescence check"',
+    "MAX_PAYLOAD_BYTES = 256 * 1024 * 1024",
+    "authorizesApplicationStart: false",
+  ]) {
+    requireText(
+      accounting0106Runner,
+      boundary,
+      `accounting 0106 transition runner ${boundary}`,
+    );
+  }
+  const accounting0106Verifier = readSource(
+    "scripts/verify-staging-accounting-0106-execution.mjs",
+    overrides,
+  );
+  for (const boundary of [
+    "verifyStagingAccounting0106Execution",
+    "validateStagingAccounting0106Execution",
+    "validateStagingAccounting0106TransitionArtifacts",
+    "staging-accounting-0106-execution.json",
+    "eligibleForStagingApplicationStartApproval: true",
+    "deployPerformed: false",
+    'nextGate: "separate-staging-application-start-approval"',
+  ]) {
+    requireText(
+      accounting0106Verifier,
+      boundary,
+      `accounting 0106 execution verifier ${boundary}`,
     );
   }
   const schemaTransitionRunner = readSource(
@@ -2469,6 +2648,13 @@ export function validateStagingRuntimeContract(overrides = {}) {
     "staging-exact-0104-backup-runner.test.mjs",
     "staging:apply-0105-transition",
     "staging-schema-transition-runner.test.mjs",
+    "staging:create-exact-0105-accounting-backup",
+    "gate:staging-accounting-0106-binding",
+    "staging:apply-accounting-0106-transition",
+    "gate:staging-accounting-0106-execution",
+    "staging-exact-0105-backup-runner.test.mjs",
+    "staging-accounting-0106-binding.test.mjs",
+    "staging-accounting-0106-transition-runner.test.mjs",
   ]) {
     requireText(packageJson, command, `exact-0104 package command ${command}`);
   }
@@ -2478,8 +2664,8 @@ export function validateStagingRuntimeContract(overrides = {}) {
     decision: "PASS",
     runtimeBuildDefinitions: 0,
     services: Object.keys(EXPECTED_RESOURCES),
-    totalCpuLimit: 2.75,
-    totalMemoryLimitMiB: 2816,
+    totalCpuLimit: 3,
+    totalMemoryLimitMiB: 3200,
     immutableCustomImages: REQUIRED_IMAGE_VARIABLES.length,
     pinnedBaseImageFamilies: 5,
     publicationMode: "private-caller-ghcr-no-deploy",
@@ -2489,6 +2675,9 @@ export function validateStagingRuntimeContract(overrides = {}) {
     exact0104RecoveryMode:
       "new-encrypted-backup-restore-evidence-read-only-no-0105",
     exact0104BackupMode: "one-shot-create-restore-test-no-prune-no-api-no-0105",
+    exact0105BackupMode: "one-shot-create-restore-test-no-prune-no-api-no-0106",
+    accounting0106TransitionMode:
+      "ready-0105-intent-live-postgres-bound-apply-or-reviewed-noop-no-app-start",
     schemaTransitionEvidenceMode:
       "ready-0104-intent-single-snapshot-atomic-finalization",
   });

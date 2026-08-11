@@ -35,8 +35,8 @@ test("accepts the immutable pull-only staging runtime", () => {
   const summary = validateStagingRuntimeContract();
   assert.equal(summary.decision, "PASS");
   assert.equal(summary.runtimeBuildDefinitions, 0);
-  assert.equal(summary.totalCpuLimit, 2.75);
-  assert.equal(summary.totalMemoryLimitMiB, 2816);
+  assert.equal(summary.totalCpuLimit, 3);
+  assert.equal(summary.totalMemoryLimitMiB, 3200);
   assert.equal(summary.immutableCustomImages, 5);
   assert.equal(summary.publicationMode, "private-caller-ghcr-no-deploy");
   assert.equal(
@@ -54,6 +54,14 @@ test("accepts the immutable pull-only staging runtime", () => {
   assert.equal(
     summary.exact0104BackupMode,
     "one-shot-create-restore-test-no-prune-no-api-no-0105",
+  );
+  assert.equal(
+    summary.exact0105BackupMode,
+    "one-shot-create-restore-test-no-prune-no-api-no-0106",
+  );
+  assert.equal(
+    summary.accounting0106TransitionMode,
+    "ready-0105-intent-live-postgres-bound-apply-or-reviewed-noop-no-app-start",
   );
   assert.equal(
     summary.schemaTransitionEvidenceMode,
@@ -149,6 +157,10 @@ test("requires the isolated exact-0104 backup and durable transition evidence pl
       "canonicalJsonArtifact",
       "permissiveJsonArtifact",
     ),
+    evidenceValidator.replaceAll(
+      "releaseEvidenceFileSha256",
+      "unboundReleaseEvidenceFileDigest",
+    ),
   ]) {
     assert.throws(
       () =>
@@ -228,6 +240,61 @@ test("requires the isolated exact-0104 backup and durable transition evidence pl
     );
   }
 
+  const exact0105Backup = source(
+    "artifacts/api-server/src/accounting-schema-exact-0105-backup.ts",
+  );
+  for (const mutated of [
+    exact0105Backup.replace(
+      "skipRetentionPrune: true",
+      "skipRetentionPrune: false",
+    ),
+    exact0105Backup.replace(
+      "STAGING_EXACT_0105_BACKUP_MAX_PAYLOAD_BYTES = 256 * 1024 * 1024",
+      "STAGING_EXACT_0105_BACKUP_MAX_PAYLOAD_BYTES = 2 * 1024 * 1024 * 1024",
+    ),
+    exact0105Backup.replace(
+      'inventory.decision !== "READY_0105"',
+      'inventory.decision !== "ALREADY_0106"',
+    ),
+  ]) {
+    assert.throws(
+      () =>
+        validateStagingRuntimeContract({
+          "artifacts/api-server/src/accounting-schema-exact-0105-backup.ts":
+            mutated,
+        }),
+      StagingRuntimeContractError,
+    );
+  }
+
+  const exact0105Runner = source("scripts/run-staging-exact-0105-backup.mjs");
+  for (const mutated of [
+    exact0105Runner.replace(
+      'targetService: "exact-0105-accounting-backup"',
+      'targetService: "external-schema-gate"',
+    ),
+    exact0105Runner.replace(
+      '"config", "--format", "json"',
+      '"config", "--format", "yaml"',
+    ),
+    exact0105Runner.replace(
+      '"final quiescence check"',
+      '"unverified completion"',
+    ),
+    exact0105Runner.replace(
+      "accountingSchema0106GateStarted: false",
+      "accountingSchema0106GateStarted: true",
+    ),
+  ]) {
+    assert.throws(
+      () =>
+        validateStagingRuntimeContract({
+          "scripts/run-staging-exact-0105-backup.mjs": mutated,
+        }),
+      StagingRuntimeContractError,
+    );
+  }
+
   const transitionRunner = source("scripts/run-staging-schema-transition.mjs");
   for (const mutated of [
     transitionRunner.replace(
@@ -248,6 +315,36 @@ test("requires the isolated exact-0104 backup and durable transition evidence pl
       () =>
         validateStagingRuntimeContract({
           "scripts/run-staging-schema-transition.mjs": mutated,
+        }),
+      StagingRuntimeContractError,
+    );
+  }
+
+  const accountingTransitionRunner = source(
+    "scripts/run-staging-accounting-0106-transition.mjs",
+  );
+  for (const mutated of [
+    accountingTransitionRunner.replace(
+      'targetService: "accounting-schema-gate"',
+      'targetService: "external-schema-gate"',
+    ),
+    accountingTransitionRunner.replace(
+      "ACCOUNTING_0106_UNEXPECTED_NOOP",
+      "ACCOUNTING_0106_ACCEPT_ANY_NOOP",
+    ),
+    accountingTransitionRunner.replace(
+      '"post-inventory quiescence check"',
+      '"unchecked inventory completion"',
+    ),
+    accountingTransitionRunner.replace(
+      "authorizesApplicationStart: false",
+      "authorizesApplicationStart: true",
+    ),
+  ]) {
+    assert.throws(
+      () =>
+        validateStagingRuntimeContract({
+          "scripts/run-staging-accounting-0106-transition.mjs": mutated,
         }),
       StagingRuntimeContractError,
     );

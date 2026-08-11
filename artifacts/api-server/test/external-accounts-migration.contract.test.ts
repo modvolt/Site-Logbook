@@ -7,13 +7,15 @@ const read = (path: string) => readFileSync(resolve(root, path), "utf8");
 const migrationPath = "lib/db/migrations/0105_smooth_nitro.sql";
 const rollbackPath = "lib/db/rollbacks/0105_smooth_nitro.down.sql";
 const snapshotPath = "lib/db/migrations/meta/0105_snapshot.json";
-const migrationWhen = 1785912730511;
+const migrationWhen = 1786383367000;
 
 describe("R16-C2 authenticated external account expand migration", () => {
   it("adds orthogonal identity, direct typed read scopes and an append-only ledger", () => {
     const migration = read(migrationPath);
 
-    expect(migration).toContain('ADD COLUMN "account_type" text DEFAULT \'internal\' NOT NULL');
+    expect(migration).toContain(
+      "ADD COLUMN \"account_type\" text DEFAULT 'internal' NOT NULL",
+    );
     expect(migration).toContain('CREATE TABLE "external_accounts"');
     expect(migration).toContain('CREATE TABLE "external_account_scopes"');
     expect(migration).toContain('CREATE TABLE "external_account_events"');
@@ -21,12 +23,16 @@ describe("R16-C2 authenticated external account expand migration", () => {
     expect(migration).toContain("capability\" = 'read'");
     expect(migration).toContain("external_account_scopes_active_job_uq");
     expect(migration).toContain("external_account_scopes_active_quote_uq");
-    expect(migration).toContain("external_account_scopes_active_switchboard_uq");
+    expect(migration).toContain(
+      "external_account_scopes_active_switchboard_uq",
+    );
     expect(migration).toContain("user_permission_overrides_external_guard_trg");
     expect(migration).toContain("users_external_identity_guard_trg");
     expect(migration).toContain("external_account_events_immutable_trg");
     expect(migration).toContain("external_account_scopes_no_delete_trg");
-    expect(migration).toContain("active external identity requires an active, unexpired profile");
+    expect(migration).toContain(
+      "active external identity requires an active, unexpired profile",
+    );
     expect(migration).not.toMatch(/^\s*(?:UPDATE|DELETE|INSERT)\s+/gim);
   });
 
@@ -35,15 +41,27 @@ describe("R16-C2 authenticated external account expand migration", () => {
       prevId: string;
       tables: Record<string, { columns: Record<string, unknown> }>;
     };
-    const previous = JSON.parse(read("lib/db/migrations/meta/0104_snapshot.json")) as {
+    const previous = JSON.parse(
+      read("lib/db/migrations/meta/0104_snapshot.json"),
+    ) as {
       id: string;
     };
-    const journal = JSON.parse(read("lib/db/migrations/meta/_journal.json")) as {
-      entries: Array<{ idx: number; version: string; when: number; tag: string; breakpoints: boolean }>;
+    const journal = JSON.parse(
+      read("lib/db/migrations/meta/_journal.json"),
+    ) as {
+      entries: Array<{
+        idx: number;
+        version: string;
+        when: number;
+        tag: string;
+        breakpoints: boolean;
+      }>;
     };
 
     expect(snapshot.prevId).toBe(previous.id);
-    expect(snapshot.tables["public.users"]?.columns).toHaveProperty("account_type");
+    expect(snapshot.tables["public.users"]?.columns).toHaveProperty(
+      "account_type",
+    );
     expect(snapshot.tables).toHaveProperty("public.external_accounts");
     expect(snapshot.tables).toHaveProperty("public.external_account_scopes");
     expect(snapshot.tables).toHaveProperty("public.external_account_events");

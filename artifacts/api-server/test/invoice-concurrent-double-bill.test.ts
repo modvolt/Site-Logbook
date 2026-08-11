@@ -420,7 +420,11 @@ describe("concurrent storno + rebill — double-bill guard", () => {
 
     // Storno A (returning the job to "done") races issuing B.
     const results = await Promise.allSettled([
-      cancelInvoice(draftA.id, true, actor),
+      cancelInvoice(
+        draftA.id,
+        { returnJobsToDone: true, reasonCode: "billing_error" },
+        actor,
+      ),
       issueInvoice(draftB.id, actor),
     ]);
     const { issued } = classify(
@@ -471,7 +475,11 @@ describe("concurrent storno + rebill — double-bill guard", () => {
     });
 
     const results = await Promise.allSettled([
-      cancelInvoice(draftA.id, true, actor),
+      cancelInvoice(
+        draftA.id,
+        { returnJobsToDone: true, reasonCode: "billing_error" },
+        actor,
+      ),
       issueInvoice(draftB.id, actor),
     ]);
     const { issued } = classify(

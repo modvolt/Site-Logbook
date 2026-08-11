@@ -8,7 +8,18 @@
  * by an admin during review. Matching is only ever a suggestion.
  */
 import { createHash, randomUUID } from "node:crypto";
-import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  ne,
+  or,
+  sql,
+} from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import {
   db,
@@ -30,14 +41,26 @@ import {
   warehousePriceHistoryTable,
   warehouseMovementsTable,
   auditLogTable,
+  accountingAggregateHeadsTable,
+  accountingDocumentVersionsTable,
+  accountingLifecycleEventsTable,
+  accountingWarehousePriceObservationsTable,
   type BillingDocument,
   type BillingDocumentLine,
   type BillingDocumentReference,
 } from "@workspace/db";
 import { computeLine, num, round2, type VatMode } from "./invoice-calc";
-import { parseIsdocBuffer, isParsableIsdoc, type ParsedDocument } from "./isdoc-parser";
+import {
+  parseIsdocBuffer,
+  isParsableIsdoc,
+  type ParsedDocument,
+} from "./isdoc-parser";
 import { ObjectStorageService } from "./objectStorage";
-import { classifyFee, normalizeUnit, computeDiscountPercent } from "./fee-classifier";
+import {
+  classifyFee,
+  normalizeUnit,
+  computeDiscountPercent,
+} from "./fee-classifier";
 import {
   recognizeSupplier,
   type SupplierProfile,
@@ -71,6 +94,54 @@ import {
   backfillOutMovementCostPrices,
   resolveWarehouseItemIdByName,
 } from "./warehouse-service";
+import {
+  buildApprovedCostDocumentAccountingEvidence,
+  isAccountingApproveDocumentDualWriteEnabled,
+} from "./accounting-cost-document-approval-evidence";
+import {
+  buildCorrectedCostDocumentAccountingEvidence,
+  buildCostDocumentReviewReopenEvidence,
+  isAccountingCostDocumentCorrectionDualWriteEnabled,
+} from "./accounting-cost-document-correction-evidence";
+import {
+  appendAccountingCorrectionBundleInTransaction,
+  appendAccountingLifecycleEventInTransaction,
+  appendInitialAccountingVersionInTransaction,
+} from "./accounting-persistence-contract";
+import {
+  accountingWarehousePriceObservationFromRow,
+  accountingVersionFromRow,
+  createAccountingPersistenceDbAdapter,
+} from "./accounting-persistence-db-adapter";
+import { appendAccountingReasonArtifactInTransaction } from "./accounting-reason-artifact-persistence";
+import {
+  buildReviewedCostDocumentRejectionEvidence,
+  isAccountingCostDocumentRejectionDualWriteEnabled,
+  type ReviewedCostDocumentRejectionReasonCode,
+} from "./accounting-cost-document-rejection-evidence";
+import {
+  evaluateCostDocumentDisposition,
+  type CostDocumentDispositionInput,
+  type CostDocumentDispositionFacts,
+  type CostDocumentDispositionReasonCode,
+} from "./cost-document-disposition-policy";
+import {
+  verifyCanonicalAccountingLifecycleEntryJsonBytes,
+  type AccountingLifecycleEventV1,
+} from "./accounting-lifecycle-event-contract";
+import type { AccountingDocumentVersionV1 } from "./accounting-document-version-contract";
+import {
+  appendAccountingWarehousePriceForVersionInTransaction,
+  appendAccountingWarehousePriceWithdrawalInTransaction,
+  isAccountingWarehousePriceDualWriteEnabled,
+} from "./accounting-warehouse-price-caller";
+import {
+  verifyAccountingWarehousePriceObservation,
+  type AccountingWarehousePriceObservationV1,
+} from "./accounting-warehouse-price-observation-contract";
+import { verifyAccountingWarehousePriceProjectionHeadBinding } from "./accounting-warehouse-price-projection-head";
+import { canonicalAccountingDecimal } from "./accounting-evidence-build-utils";
+import { canonicalEvidenceJson } from "./evidence-hash";
 
 const objectStorage = new ObjectStorageService();
 
@@ -88,14 +159,20 @@ export interface Actor {
   name: string;
 }
 
-type DbOrTx = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
+type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+type DbOrTx = typeof db | DbTransaction;
 
 const SYSTEM_ACTOR: Actor = { userId: null, name: "Systém" };
 const REBILL_ALLOC = "rebill";
 const VALID_ALLOC = new Set(["rebill", "internal", "stock", "not_rebilled"]);
 const INCOMPLETE_MULTIPAGE_WARNING_CODE = "NEUPLNY_VICESTRANKOVY_DOKLAD";
 const VALID_LINE_TYPE = new Set(["material", "work", "transport", "other"]);
-const VALID_DOC_TYPE = new Set(["receipt", "delivery_note", "invoice", "credit_note"]);
+const VALID_DOC_TYPE = new Set([
+  "receipt",
+  "delivery_note",
+  "invoice",
+  "credit_note",
+]);
 const MERGEABLE_DOCUMENT_STATUSES = new Set(["uploaded", "needs_review"]);
 const DOCUMENT_PAGE_MERGE_LOCK_CLASS = 894_612_306;
 const DELIVERY_NOTE_REFERENCE_TYPES = [
@@ -103,10 +180,17 @@ const DELIVERY_NOTE_REFERENCE_TYPES = [
   "summary_delivery_note",
   "delivery",
 ] as const;
-const DELIVERY_NOTE_REFERENCE_TYPE_SET = new Set<string>(DELIVERY_NOTE_REFERENCE_TYPES);
+const DELIVERY_NOTE_REFERENCE_TYPE_SET = new Set<string>(
+  DELIVERY_NOTE_REFERENCE_TYPES,
+);
 
-function logicalReferenceKey(referenceType: string, referenceNumber: string): string {
-  const family = DELIVERY_NOTE_REFERENCE_TYPE_SET.has(referenceType) ? "delivery_note" : referenceType;
+function logicalReferenceKey(
+  referenceType: string,
+  referenceNumber: string,
+): string {
+  const family = DELIVERY_NOTE_REFERENCE_TYPE_SET.has(referenceType)
+    ? "delivery_note"
+    : referenceType;
   const normalizedNumber = normalizeReferenceNumber(referenceNumber);
   return `${family}::${normalizedNumber || referenceNumber.trim().toLowerCase()}`;
 }
@@ -117,7 +201,9 @@ const DELIVERY_NOTE_RESOLUTIONS = new Set([
   "waived",
 ]);
 
-function looksLikeIncompleteMultipageDocument(doc: Pick<BillingDocument, "warnings" | "totalWithVat">): boolean {
+function looksLikeIncompleteMultipageDocument(
+  doc: Pick<BillingDocument, "warnings" | "totalWithVat">,
+): boolean {
   const warnings = doc.warnings ?? "";
   if (warnings.includes(INCOMPLETE_MULTIPAGE_WARNING_CODE)) return true;
   return (
@@ -127,7 +213,10 @@ function looksLikeIncompleteMultipageDocument(doc: Pick<BillingDocument, "warnin
   );
 }
 
-async function hasExtractedMaterialLines(tx: DbOrTx, documentId: number): Promise<boolean> {
+async function hasExtractedMaterialLines(
+  tx: DbOrTx,
+  documentId: number,
+): Promise<boolean> {
   const [line] = await tx
     .select({ id: billingDocumentLinesTable.id })
     .from(billingDocumentLinesTable)
@@ -161,7 +250,10 @@ async function assertCompleteBeforeTerminalAction(
   );
 }
 
-async function reconcileIncompleteMultipagePages(documentId: number, actor: Actor): Promise<void> {
+async function reconcileIncompleteMultipagePages(
+  documentId: number,
+  actor: Actor,
+): Promise<void> {
   const [doc] = await db
     .select()
     .from(billingDocumentsTable)
@@ -174,15 +266,22 @@ async function reconcileIncompleteMultipagePages(documentId: number, actor: Acto
     eq(billingDocumentsTable.documentNumber, doc.documentNumber),
   ];
   if (doc.jobId != null) conds.push(eq(billingDocumentsTable.jobId, doc.jobId));
-  if (doc.supplierIc) conds.push(eq(billingDocumentsTable.supplierIc, doc.supplierIc));
-  else if (doc.supplierName) conds.push(eq(billingDocumentsTable.supplierName, doc.supplierName));
+  if (doc.supplierIc)
+    conds.push(eq(billingDocumentsTable.supplierIc, doc.supplierIc));
+  else if (doc.supplierName)
+    conds.push(eq(billingDocumentsTable.supplierName, doc.supplierName));
 
-  const siblings = await db.select().from(billingDocumentsTable).where(and(...conds));
+  const siblings = await db
+    .select()
+    .from(billingDocumentsTable)
+    .where(and(...conds));
   const candidates = [doc, ...siblings].filter((candidate) =>
     MERGEABLE_DOCUMENT_STATUSES.has(candidate.status),
   );
   const primary = candidates.find(
-    (candidate) => !looksLikeIncompleteMultipageDocument(candidate) && candidate.totalWithVat != null,
+    (candidate) =>
+      !looksLikeIncompleteMultipageDocument(candidate) &&
+      candidate.totalWithVat != null,
   );
   if (!primary) return;
   const incompletePages: BillingDocument[] = [];
@@ -190,14 +289,19 @@ async function reconcileIncompleteMultipagePages(documentId: number, actor: Acto
     if (
       candidate.id !== primary.id &&
       looksLikeIncompleteMultipageDocument(candidate) &&
-      await hasExtractedMaterialLines(db, candidate.id)
+      (await hasExtractedMaterialLines(db, candidate.id))
     ) {
       incompletePages.push(candidate);
     }
   }
   if (!incompletePages.length) return;
   await mergeDocumentPages(
-    { orderedDocumentIds: [primary.id, ...incompletePages.map((candidate) => candidate.id)] },
+    {
+      orderedDocumentIds: [
+        primary.id,
+        ...incompletePages.map((candidate) => candidate.id),
+      ],
+    },
     actor,
   );
 }
@@ -209,7 +313,10 @@ export async function reconcileIncompleteMultipagePagesSafely(
   try {
     await reconcileIncompleteMultipagePages(documentId, actor);
   } catch (error) {
-    logger.warn({ err: error, documentId }, "Incomplete multi-page document reconciliation failed");
+    logger.warn(
+      { err: error, documentId },
+      "Incomplete multi-page document reconciliation failed",
+    );
   }
 }
 
@@ -235,7 +342,12 @@ function isDuplicateSha256Violation(err: unknown): boolean {
   // own DrizzleQueryError with the original attached as `.cause` — check both
   // so this works whether we see the raw pg error or the wrapped one.
   for (const candidate of [err, (err as { cause?: unknown } | null)?.cause]) {
-    if (typeof candidate !== "object" || candidate === null || !("code" in candidate)) continue;
+    if (
+      typeof candidate !== "object" ||
+      candidate === null ||
+      !("code" in candidate)
+    )
+      continue;
     if ((candidate as { code: unknown }).code !== "23505") continue;
     const constraint = (candidate as { constraint?: unknown }).constraint;
     if (constraint === "billing_documents_sha256_unique_idx") return true;
@@ -245,9 +357,17 @@ function isDuplicateSha256Violation(err: unknown): boolean {
 
 function isActiveExtractionViolation(err: unknown): boolean {
   for (const candidate of [err, (err as { cause?: unknown } | null)?.cause]) {
-    if (typeof candidate !== "object" || candidate === null || !("code" in candidate)) continue;
+    if (
+      typeof candidate !== "object" ||
+      candidate === null ||
+      !("code" in candidate)
+    )
+      continue;
     if ((candidate as { code: unknown }).code !== "23505") continue;
-    if ((candidate as { constraint?: unknown }).constraint === "extraction_jobs_one_active_per_document_idx") {
+    if (
+      (candidate as { constraint?: unknown }).constraint ===
+      "extraction_jobs_one_active_per_document_idx"
+    ) {
       return true;
     }
   }
@@ -256,9 +376,17 @@ function isActiveExtractionViolation(err: unknown): boolean {
 
 function isUploadGroupViolation(err: unknown): boolean {
   for (const candidate of [err, (err as { cause?: unknown } | null)?.cause]) {
-    if (typeof candidate !== "object" || candidate === null || !("code" in candidate)) continue;
+    if (
+      typeof candidate !== "object" ||
+      candidate === null ||
+      !("code" in candidate)
+    )
+      continue;
     if ((candidate as { code: unknown }).code !== "23505") continue;
-    if ((candidate as { constraint?: unknown }).constraint === "billing_documents_upload_group_token_unique_idx") {
+    if (
+      (candidate as { constraint?: unknown }).constraint ===
+      "billing_documents_upload_group_token_unique_idx"
+    ) {
       return true;
     }
   }
@@ -291,7 +419,9 @@ export interface DuplicateProbe {
  * weaker signals. Returns a de-duplicated list with the (strongest) reason each
  * was flagged. Callers warn the admin and let them import anyway.
  */
-export async function findDuplicates(probe: DuplicateProbe): Promise<DuplicateMatch[]> {
+export async function findDuplicates(
+  probe: DuplicateProbe,
+): Promise<DuplicateMatch[]> {
   const found = new Map<number, DuplicateMatch>();
   const totalStr =
     probe.totalWithVat != null ? String(round2(num(probe.totalWithVat))) : null;
@@ -432,7 +562,9 @@ async function getDeliveryNoteWorkflowMap(
   executor: DbOrTx = db,
 ): Promise<Map<number, DeliveryNoteWorkflow>> {
   const result = new Map<number, DeliveryNoteWorkflow>();
-  const invoices = documents.filter((document) => document.docType === "invoice");
+  const invoices = documents.filter(
+    (document) => document.docType === "invoice",
+  );
   for (const document of documents) {
     if (document.docType !== "invoice") {
       result.set(document.id, nonInvoiceDeliveryNoteWorkflow());
@@ -487,9 +619,15 @@ async function getDeliveryNoteWorkflowMap(
       (reference) =>
         reference.documentId === invoice.id && reference.rejected !== 1,
     );
-    const referenceGroups = new Map<string, (typeof activeReferences)[number][]>();
+    const referenceGroups = new Map<
+      string,
+      (typeof activeReferences)[number][]
+    >();
     for (const reference of activeReferences) {
-      const key = logicalReferenceKey(reference.referenceType, reference.referenceNumber);
+      const key = logicalReferenceKey(
+        reference.referenceType,
+        reference.referenceNumber,
+      );
       const group = referenceGroups.get(key) ?? [];
       group.push(reference);
       referenceGroups.set(key, group);
@@ -498,19 +636,27 @@ async function getDeliveryNoteWorkflowMap(
     const approvedReferences = logicalReferences.filter((group) => {
       const confirmedTargetIds = new Set(
         group
-          .filter((reference) => reference.matchConfirmed === 1 && reference.matchedDocumentId != null)
+          .filter(
+            (reference) =>
+              reference.matchConfirmed === 1 &&
+              reference.matchedDocumentId != null,
+          )
           .map((reference) => reference.matchedDocumentId as number),
       );
       if (confirmedTargetIds.size !== 1) return false;
       const targetId = confirmedTargetIds.values().next().value;
       const matched = targetId == null ? null : matchedById.get(targetId);
-      return matched?.docType === "delivery_note" && matched.status === "approved";
+      return (
+        matched?.docType === "delivery_note" && matched.status === "approved"
+      );
     });
     const approvedGroups = new Set(approvedReferences);
     const unresolvedReferenceNumbers = logicalReferences
       .filter((group) => !approvedGroups.has(group))
       .map((group) => group[0]?.referenceNumber)
-      .filter((referenceNumber): referenceNumber is string => !!referenceNumber);
+      .filter(
+        (referenceNumber): referenceNumber is string => !!referenceNumber,
+      );
 
     let state: DeliveryNoteWorkflowState;
     if (invoice.deliveryNoteResolution === "waived") {
@@ -548,9 +694,7 @@ function deriveMaterialState(
     approved: number;
   }[],
 ): MaterialState {
-  const material = lines.filter(
-    (l) => l.lineType === "material" && !l.feeType,
-  );
+  const material = lines.filter((l) => l.lineType === "material" && !l.feeType);
   if (material.length === 0) return null;
   if (material.every((l) => l.approved > 0)) return "approved";
   if (material.every((l) => l.matchConfirmed > 0)) return "assigned";
@@ -578,7 +722,9 @@ function serializeDocument(
     declaredDocType: row.declaredDocType,
     detectedDocType: row.detectedDocType,
     detectedDocTypeConfidence:
-      row.detectedDocTypeConfidence == null ? null : num(row.detectedDocTypeConfidence),
+      row.detectedDocTypeConfidence == null
+        ? null
+        : num(row.detectedDocTypeConfidence),
     docTypeSource: row.docTypeSource,
     docTypeConfirmedAt: row.docTypeConfirmedAt?.toISOString() ?? null,
     source: row.source,
@@ -597,7 +743,8 @@ function serializeDocument(
     taxableSupplyDate: row.taxableSupplyDate,
     dueDate: row.dueDate,
     currency: row.currency,
-    subtotalWithoutVat: row.subtotalWithoutVat == null ? null : num(row.subtotalWithoutVat),
+    subtotalWithoutVat:
+      row.subtotalWithoutVat == null ? null : num(row.subtotalWithoutVat),
     totalVat: row.totalVat == null ? null : num(row.totalVat),
     totalWithVat: row.totalWithVat == null ? null : num(row.totalWithVat),
     customerId: row.customerId,
@@ -609,7 +756,8 @@ function serializeDocument(
     supplierOrderNumber: row.supplierOrderNumber,
     deliveryNoteResolution: row.deliveryNoteResolution,
     deliveryNoteResolutionReason: row.deliveryNoteResolutionReason,
-    deliveryNoteResolutionAt: row.deliveryNoteResolutionAt?.toISOString() ?? null,
+    deliveryNoteResolutionAt:
+      row.deliveryNoteResolutionAt?.toISOString() ?? null,
     deliveryNoteWorkflow,
     constantSymbol: row.constantSymbol,
     specificSymbol: row.specificSymbol,
@@ -619,7 +767,9 @@ function serializeDocument(
     isdocUuid: row.isdocUuid,
     mergeGroupId: row.mergeGroupId,
     uploadGroupToken: row.uploadGroupToken,
-    uploadCompletedAt: row.uploadCompletedAt ? row.uploadCompletedAt.toISOString() : null,
+    uploadCompletedAt: row.uploadCompletedAt
+      ? row.uploadCompletedAt.toISOString()
+      : null,
     primaryDocumentId: row.primaryDocumentId,
     sourcePriority: row.sourcePriority,
     parsedBy: row.parsedBy,
@@ -652,7 +802,8 @@ function serializeLine(row: BillingDocumentLine) {
     jobId: row.jobId,
     activityId: row.activityId,
     allocationType: row.allocationType,
-    matchConfidence: row.matchConfidence == null ? null : num(row.matchConfidence),
+    matchConfidence:
+      row.matchConfidence == null ? null : num(row.matchConfidence),
     matchConfirmed: row.matchConfirmed === 1,
     approved: row.approved === 1,
     invoicedInvoiceId: row.invoicedInvoiceId,
@@ -661,13 +812,17 @@ function serializeLine(row: BillingDocumentLine) {
     ean: row.ean,
     manufacturer: row.manufacturer,
     sourceLineNumber: row.sourceLineNumber,
-    listPriceWithoutVat: row.listPriceWithoutVat == null ? null : num(row.listPriceWithoutVat),
-    discountPercent: row.discountPercent == null ? null : num(row.discountPercent),
-    priceBaseQuantity: row.priceBaseQuantity == null ? null : num(row.priceBaseQuantity),
+    listPriceWithoutVat:
+      row.listPriceWithoutVat == null ? null : num(row.listPriceWithoutVat),
+    discountPercent:
+      row.discountPercent == null ? null : num(row.discountPercent),
+    priceBaseQuantity:
+      row.priceBaseQuantity == null ? null : num(row.priceBaseQuantity),
     priceBaseUnit: row.priceBaseUnit,
     feeType: row.feeType,
     isEnvironmentalFee: row.isEnvironmentalFee === 1,
-    environmentalFee: row.environmentalFee == null ? null : num(row.environmentalFee),
+    environmentalFee:
+      row.environmentalFee == null ? null : num(row.environmentalFee),
     recyclingFee: row.recyclingFee == null ? null : num(row.recyclingFee),
     deliveryNoteNumber: row.deliveryNoteNumber,
     orderNumber: row.orderNumber,
@@ -689,7 +844,8 @@ function serializeReference(row: BillingDocumentReference) {
     matchedJobId: row.matchedJobId,
     matchedDocumentId: row.matchedDocumentId,
     matchedAttachmentId: row.matchedAttachmentId,
-    matchConfidence: row.matchConfidence == null ? null : num(row.matchConfidence),
+    matchConfidence:
+      row.matchConfidence == null ? null : num(row.matchConfidence),
     matchConfirmed: row.matchConfirmed === 1,
     rejected: row.rejected === 1,
     notes: row.notes,
@@ -733,7 +889,8 @@ function lineValues(
   parsed: ParsedLineInput,
   sortOrder: number,
 ) {
-  const vatMode: VatMode = parsed.vatRate != null && parsed.vatRate > 0 ? "standard" : "zero";
+  const vatMode: VatMode =
+    parsed.vatRate != null && parsed.vatRate > 0 ? "standard" : "zero";
   const c = computeLine(
     {
       quantity: parsed.quantity ?? 1,
@@ -755,17 +912,24 @@ function lineValues(
 
   const discountPercent =
     parsed.discountPercent ??
-    computeDiscountPercent(parsed.listPriceWithoutVat, parsed.unitPriceWithoutVat);
+    computeDiscountPercent(
+      parsed.listPriceWithoutVat,
+      parsed.unitPriceWithoutVat,
+    );
 
   // When the line itself IS an eco/recycling fee, record its amount in the
   // matching column so totals can be audited per fee type.
   const lineTotal = num(c.totalWithoutVat);
   const recyclingFee = feeType === "recycling" ? String(lineTotal) : null;
-  const environmentalFee = feeType === "environmental" ? String(lineTotal) : null;
+  const environmentalFee =
+    feeType === "environmental" ? String(lineTotal) : null;
 
   return {
     documentId,
-    lineType: parsed.lineType && VALID_LINE_TYPE.has(parsed.lineType) ? parsed.lineType : "material",
+    lineType:
+      parsed.lineType && VALID_LINE_TYPE.has(parsed.lineType)
+        ? parsed.lineType
+        : "material",
     description: parsed.description,
     quantity: String(c.quantity),
     unit: normalizedUnit ?? originalUnit,
@@ -781,10 +945,14 @@ function lineValues(
     manufacturer: parsed.manufacturer ?? null,
     sourceLineNumber: parsed.sourceLineNumber ?? null,
     listPriceWithoutVat:
-      parsed.listPriceWithoutVat != null ? String(round2(parsed.listPriceWithoutVat)) : null,
+      parsed.listPriceWithoutVat != null
+        ? String(round2(parsed.listPriceWithoutVat))
+        : null,
     discountPercent: discountPercent != null ? String(discountPercent) : null,
     priceBaseQuantity:
-      parsed.priceBaseQuantity != null ? String(round2(parsed.priceBaseQuantity)) : null,
+      parsed.priceBaseQuantity != null
+        ? String(round2(parsed.priceBaseQuantity))
+        : null,
     priceBaseUnit: parsed.priceBaseUnit ?? null,
     feeType: feeType ?? null,
     isEnvironmentalFee,
@@ -793,7 +961,8 @@ function lineValues(
     deliveryNoteNumber: parsed.deliveryNoteNumber ?? null,
     orderNumber: parsed.orderNumber ?? null,
     supplierOrderNumber: parsed.supplierOrderNumber ?? null,
-    confidence: parsed.confidence != null ? String(round2(parsed.confidence)) : null,
+    confidence:
+      parsed.confidence != null ? String(round2(parsed.confidence)) : null,
     sortOrder,
   };
 }
@@ -870,7 +1039,8 @@ async function toMatchableWithLines(
     id: doc.id,
     supplierIc: doc.supplierIc,
     documentNumber: doc.documentNumber,
-    totalWithoutVat: doc.subtotalWithoutVat != null ? num(doc.subtotalWithoutVat) : null,
+    totalWithoutVat:
+      doc.subtotalWithoutVat != null ? num(doc.subtotalWithoutVat) : null,
     totalWithVat: doc.totalWithVat != null ? num(doc.totalWithVat) : null,
     issueDate: doc.issueDate,
     lines: lines.map((l) => ({
@@ -889,7 +1059,8 @@ async function performMergeTx(
   secondary: BillingDocument,
   note: string,
 ): Promise<void> {
-  const groupId = primary.mergeGroupId ?? secondary.mergeGroupId ?? randomUUID();
+  const groupId =
+    primary.mergeGroupId ?? secondary.mergeGroupId ?? randomUUID();
 
   await tx
     .update(billingDocumentFilesTable)
@@ -929,7 +1100,8 @@ async function linkAsDuplicateTx(
   secondary: BillingDocument,
   warningNote: string,
 ): Promise<void> {
-  const groupId = primary.mergeGroupId ?? secondary.mergeGroupId ?? randomUUID();
+  const groupId =
+    primary.mergeGroupId ?? secondary.mergeGroupId ?? randomUUID();
 
   await tx
     .update(billingDocumentsTable)
@@ -1010,11 +1182,14 @@ async function mergeRelatedDocumentsTx(
     // we want to merge. Fall back to the first candidate otherwise.
     const other =
       mergeCandidates.find(
-        (c) => priorityRank(c.sourcePriority) !== priorityRank(doc.sourcePriority),
+        (c) =>
+          priorityRank(c.sourcePriority) !== priorityRank(doc.sourcePriority),
       ) ?? mergeCandidates[0];
     if (other) {
       const primary =
-        priorityRank(other.sourcePriority) >= priorityRank(doc.sourcePriority) ? other : doc;
+        priorityRank(other.sourcePriority) >= priorityRank(doc.sourcePriority)
+          ? other
+          : doc;
       const secondary = primary.id === doc.id ? other : doc;
       await performMergeTx(
         tx,
@@ -1060,8 +1235,10 @@ async function mergeRelatedDocumentsTx(
   if (!candidateSiblings.length) return;
 
   const docMatchable = await toMatchableWithLines(tx, doc);
-  let best: { sibling: BillingDocument; score: ReturnType<typeof scoreDocumentSimilarity> } | null =
-    null;
+  let best: {
+    sibling: BillingDocument;
+    score: ReturnType<typeof scoreDocumentSimilarity>;
+  } | null = null;
   for (const sibling of candidateSiblings) {
     const siblingMatchable = await toMatchableWithLines(tx, sibling);
     const score = scoreDocumentSimilarity(docMatchable, siblingMatchable);
@@ -1075,10 +1252,15 @@ async function mergeRelatedDocumentsTx(
   // match good enough to auto-merge must never absorb (or be absorbed by) an
   // already-APPROVED sibling — that would silently orphan its already-applied
   // price/warehouse effects. Flag for manual review instead.
-  if (best.score.score >= FUZZY_MERGE_AUTO_THRESHOLD && best.sibling.status !== "approved") {
+  if (
+    best.score.score >= FUZZY_MERGE_AUTO_THRESHOLD &&
+    best.sibling.status !== "approved"
+  ) {
     const other = best.sibling;
     const primary =
-      priorityRank(other.sourcePriority) >= priorityRank(doc.sourcePriority) ? other : doc;
+      priorityRank(other.sourcePriority) >= priorityRank(doc.sourcePriority)
+        ? other
+        : doc;
     const secondary = primary.id === doc.id ? other : doc;
     await performMergeTx(
       tx,
@@ -1088,7 +1270,10 @@ async function mergeRelatedDocumentsTx(
     );
     return;
   }
-  if (best.score.score >= FUZZY_MERGE_AUTO_THRESHOLD && best.sibling.status === "approved") {
+  if (
+    best.score.score >= FUZZY_MERGE_AUTO_THRESHOLD &&
+    best.sibling.status === "approved"
+  ) {
     const explanation = `Možná duplicita se schváleným dokladem #${best.sibling.id} – vyžaduje kontrolu (${best.score.reasons.join(", ")}; shoda ${Math.round(best.score.score * 100)} %). Schválený doklad nelze automaticky sloučit.`;
     await tx
       .update(billingDocumentsTable)
@@ -1119,7 +1304,9 @@ async function mergeRelatedDocumentsTx(
       .update(billingDocumentsTable)
       .set({
         status: "needs_review",
-        warnings: [best.sibling.warnings, siblingExplanation].filter(Boolean).join("\n"),
+        warnings: [best.sibling.warnings, siblingExplanation]
+          .filter(Boolean)
+          .join("\n"),
         updatedAt: new Date(),
       })
       .where(eq(billingDocumentsTable.id, best.sibling.id));
@@ -1155,10 +1342,16 @@ export async function markDocumentAsDuplicate(
     if (!doc) throw appError(404, "Doklad nenalezen.");
     if (!primary) throw appError(404, "Cílový doklad nenalezen.");
     if (doc.primaryDocumentId != null) {
-      throw appError(409, "Doklad je již spárován jako duplicita jiného dokladu.");
+      throw appError(
+        409,
+        "Doklad je již spárován jako duplicita jiného dokladu.",
+      );
     }
     if (primary.primaryDocumentId != null) {
-      throw appError(409, "Cílový doklad je sám duplicitou; použijte jeho primární doklad.");
+      throw appError(
+        409,
+        "Cílový doklad je sám duplicitou; použijte jeho primární doklad.",
+      );
     }
     if (doc.status === "approved" || primary.status === "approved") {
       throw appError(409, "Schválený doklad nelze označit jako duplicitu.");
@@ -1201,23 +1394,25 @@ export async function unmarkDocumentDuplicate(id: number, actor: Actor) {
     throw appError(409, "Doklad není spárován jako duplicita.");
   }
   await db.transaction(async (tx) => {
-    await tx.update(billingDocumentsTable).set({
-      status: "needs_review",
-      primaryDocumentId: null,
-      mergeGroupId: null,
-      warnings: [
-        doc.warnings,
-        doc.primaryDocumentId == null
-          ? "Doklad byl obnoven z chybneho stavu duplicity bez primarniho dokladu."
-          : "Parovani duplicity bylo zruseno.",
-      ]
-        .filter(Boolean)
-        .join("\n"),
-      reviewedByUserId: actor.userId,
-      reviewedAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .where(eq(billingDocumentsTable.id, id));
+    await tx
+      .update(billingDocumentsTable)
+      .set({
+        status: "needs_review",
+        primaryDocumentId: null,
+        mergeGroupId: null,
+        warnings: [
+          doc.warnings,
+          doc.primaryDocumentId == null
+            ? "Doklad byl obnoven z chybneho stavu duplicity bez primarniho dokladu."
+            : "Parovani duplicity bylo zruseno.",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+        reviewedByUserId: actor.userId,
+        reviewedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(billingDocumentsTable.id, id));
     await tx.insert(auditLogTable).values({
       actorUserId: actor.userId,
       actorName: actor.name,
@@ -1252,7 +1447,10 @@ async function assertDocumentsMergeable(
       !MERGEABLE_DOCUMENT_STATUSES.has(doc.status) &&
       !(options.allowMergedStatus && doc.status === "merged")
     ) {
-      throw appError(409, `Doklad #${doc.id} je ve stavu ${doc.status} a nelze jej sloučit.`);
+      throw appError(
+        409,
+        `Doklad #${doc.id} je ve stavu ${doc.status} a nelze jej sloučit.`,
+      );
     }
     if (
       doc.primaryDocumentId != null &&
@@ -1262,9 +1460,14 @@ async function assertDocumentsMergeable(
     }
   }
 
-  const jobIds = new Set(documents.map((doc) => doc.jobId).filter((id): id is number => id != null));
+  const jobIds = new Set(
+    documents.map((doc) => doc.jobId).filter((id): id is number => id != null),
+  );
   if (jobIds.size > 1) {
-    throw appError(409, "Stránky z různých zakázek nelze sloučit do jednoho dokladu.");
+    throw appError(
+      409,
+      "Stránky z různých zakázek nelze sloučit do jednoho dokladu.",
+    );
   }
 
   const documentIds = documents.map((doc) => doc.id);
@@ -1273,12 +1476,17 @@ async function assertDocumentsMergeable(
     .from(billingDocumentMergeMembersTable)
     .innerJoin(
       billingDocumentMergesTable,
-      eq(billingDocumentMergesTable.id, billingDocumentMergeMembersTable.mergeId),
+      eq(
+        billingDocumentMergesTable.id,
+        billingDocumentMergeMembersTable.mergeId,
+      ),
     )
-    .where(and(
-      inArray(billingDocumentMergeMembersTable.documentId, documentIds),
-      eq(billingDocumentMergesTable.status, "active"),
-    ))
+    .where(
+      and(
+        inArray(billingDocumentMergeMembersTable.documentId, documentIds),
+        eq(billingDocumentMergesTable.status, "active"),
+      ),
+    )
     .limit(1);
   if (activeMerge.some((row) => row.id !== options.allowActiveMergeId)) {
     throw appError(409, "Některý doklad už je součástí aktivního sloučení.");
@@ -1293,20 +1501,35 @@ async function assertDocumentsMergeable(
     })
     .from(billingDocumentLinesTable)
     .where(inArray(billingDocumentLinesTable.documentId, documentIds));
-  if (lines.some((line) => line.approved === 1 || line.matchConfirmed === 1 || line.invoicedInvoiceId != null)) {
-    throw appError(409, "Doklad obsahuje schválené, potvrzené nebo již fakturované položky.");
+  if (
+    lines.some(
+      (line) =>
+        line.approved === 1 ||
+        line.matchConfirmed === 1 ||
+        line.invoicedInvoiceId != null,
+    )
+  ) {
+    throw appError(
+      409,
+      "Doklad obsahuje schválené, potvrzené nebo již fakturované položky.",
+    );
   }
 
   const confirmedReference = await tx
     .select({ id: billingDocumentReferencesTable.id })
     .from(billingDocumentReferencesTable)
-    .where(and(
-      inArray(billingDocumentReferencesTable.documentId, documentIds),
-      eq(billingDocumentReferencesTable.matchConfirmed, 1),
-    ))
+    .where(
+      and(
+        inArray(billingDocumentReferencesTable.documentId, documentIds),
+        eq(billingDocumentReferencesTable.matchConfirmed, 1),
+      ),
+    )
     .limit(1);
   if (confirmedReference.length) {
-    throw appError(409, "Doklad má ručně potvrzené párování a nelze jej sloučit ani rozdělit.");
+    throw appError(
+      409,
+      "Doklad má ručně potvrzené párování a nelze jej sloučit ani rozdělit.",
+    );
   }
 
   const lineIds = lines.map((line) => line.id);
@@ -1315,22 +1538,29 @@ async function assertDocumentsMergeable(
       tx
         .select({ id: materialsTable.id })
         .from(materialsTable)
-        .where(and(
-          eq(materialsTable.sourceType, MATERIAL_SOURCE_TYPE),
-          inArray(materialsTable.sourceId, lineIds),
-        ))
+        .where(
+          and(
+            eq(materialsTable.sourceType, MATERIAL_SOURCE_TYPE),
+            inArray(materialsTable.sourceId, lineIds),
+          ),
+        )
         .limit(1),
       tx
         .select({ id: activityMaterialsTable.id })
         .from(activityMaterialsTable)
-        .where(and(
-          eq(activityMaterialsTable.sourceType, MATERIAL_SOURCE_TYPE),
-          inArray(activityMaterialsTable.sourceId, lineIds),
-        ))
+        .where(
+          and(
+            eq(activityMaterialsTable.sourceType, MATERIAL_SOURCE_TYPE),
+            inArray(activityMaterialsTable.sourceId, lineIds),
+          ),
+        )
         .limit(1),
     ]);
     if (material.length || activityMaterial.length) {
-      throw appError(409, "Doklad už vytvořil materiál v zakázce nebo dlouhodobé akci.");
+      throw appError(
+        409,
+        "Doklad už vytvořil materiál v zakázce nebo dlouhodobé akci.",
+      );
     }
   }
 
@@ -1356,20 +1586,27 @@ async function stopQueuedExtractionOrRejectRunning(
       finishedAt: new Date(),
       updatedAt: new Date(),
     })
-    .where(and(
-      inArray(extractionJobsTable.documentId, documentIds),
-      eq(extractionJobsTable.status, "queued"),
-    ));
+    .where(
+      and(
+        inArray(extractionJobsTable.documentId, documentIds),
+        eq(extractionJobsTable.status, "queued"),
+      ),
+    );
   const running = await tx
     .select({ id: extractionJobsTable.id })
     .from(extractionJobsTable)
-    .where(and(
-      inArray(extractionJobsTable.documentId, documentIds),
-      eq(extractionJobsTable.status, "running"),
-    ))
+    .where(
+      and(
+        inArray(extractionJobsTable.documentId, documentIds),
+        eq(extractionJobsTable.status, "running"),
+      ),
+    )
     .limit(1);
   if (running.length) {
-    throw appError(409, "Na nektere strance prave bezi AI analyza. Pockejte na jeji dokonceni a akci opakujte.");
+    throw appError(
+      409,
+      "Na nektere strance prave bezi AI analyza. Pockejte na jeji dokonceni a akci opakujte.",
+    );
   }
 }
 
@@ -1380,10 +1617,12 @@ async function invalidateExtractionForPageGrouping(
   const documentIds = documents.map((document) => document.id);
   await tx
     .delete(billingDocumentReferencesTable)
-    .where(and(
-      inArray(billingDocumentReferencesTable.documentId, documentIds),
-      eq(billingDocumentReferencesTable.source, "ai"),
-    ));
+    .where(
+      and(
+        inArray(billingDocumentReferencesTable.documentId, documentIds),
+        eq(billingDocumentReferencesTable.source, "ai"),
+      ),
+    );
   await tx
     .delete(billingDocumentLinesTable)
     .where(inArray(billingDocumentLinesTable.documentId, documentIds));
@@ -1415,7 +1654,10 @@ export interface MergeDocumentPagesInput {
   orderedAttachmentIds?: Array<number | null>;
 }
 
-export async function mergeDocumentPages(input: MergeDocumentPagesInput, actor: Actor) {
+export async function mergeDocumentPages(
+  input: MergeDocumentPagesInput,
+  actor: Actor,
+) {
   const orderedDocumentIds = input.orderedDocumentIds;
   if (orderedDocumentIds.length < 2 || orderedDocumentIds.length > 50) {
     throw appError(400, "Ke sloučení vyberte 2 až 50 stran.");
@@ -1432,7 +1674,9 @@ export async function mergeDocumentPages(input: MergeDocumentPagesInput, actor: 
 
   const result = await db.transaction(async (tx) => {
     for (const id of [...orderedDocumentIds].sort((a, b) => a - b)) {
-      await tx.execute(sql`select pg_advisory_xact_lock(${DOCUMENT_PAGE_MERGE_LOCK_CLASS}, ${id})`);
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(${DOCUMENT_PAGE_MERGE_LOCK_CLASS}, ${id})`,
+      );
     }
     const rows = await tx
       .select()
@@ -1456,23 +1700,37 @@ export async function mergeDocumentPages(input: MergeDocumentPagesInput, actor: 
       .from(billingDocumentMergeMembersTable)
       .innerJoin(
         billingDocumentMergesTable,
-        eq(billingDocumentMergesTable.id, billingDocumentMergeMembersTable.mergeId),
+        eq(
+          billingDocumentMergesTable.id,
+          billingDocumentMergeMembersTable.mergeId,
+        ),
       )
-      .where(and(
-        inArray(billingDocumentMergeMembersTable.documentId, orderedDocumentIds),
-        eq(billingDocumentMergesTable.status, "active"),
-      ))
+      .where(
+        and(
+          inArray(
+            billingDocumentMergeMembersTable.documentId,
+            orderedDocumentIds,
+          ),
+          eq(billingDocumentMergesTable.status, "active"),
+        ),
+      )
       .limit(1);
     if (existingActiveMerge) {
       const existingMembers = await tx
         .select()
         .from(billingDocumentMergeMembersTable)
-        .where(eq(billingDocumentMergeMembersTable.mergeId, existingActiveMerge.mergeId))
+        .where(
+          eq(
+            billingDocumentMergeMembersTable.mergeId,
+            existingActiveMerge.mergeId,
+          ),
+        )
         .orderBy(billingDocumentMergeMembersTable.pageOrder);
       const sameDocuments =
         existingMembers.length === orderedDocumentIds.length &&
         existingMembers.every(
-          (member, pageOrder) => member.documentId === orderedDocumentIds[pageOrder],
+          (member, pageOrder) =>
+            member.documentId === orderedDocumentIds[pageOrder],
         );
       const sameAttachments =
         !input.orderedAttachmentIds ||
@@ -1542,13 +1800,18 @@ export async function mergeDocumentPages(input: MergeDocumentPagesInput, actor: 
         finishedAt: new Date(),
         updatedAt: new Date(),
       })
-      .where(and(
-        inArray(extractionJobsTable.documentId, secondaryIds),
-        inArray(extractionJobsTable.status, ["queued", "running"]),
-      ));
+      .where(
+        and(
+          inArray(extractionJobsTable.documentId, secondaryIds),
+          inArray(extractionJobsTable.status, ["queued", "running"]),
+        ),
+      );
 
     if (input.orderedAttachmentIds) {
-      for (const [pageIndex, attachmentId] of input.orderedAttachmentIds.entries()) {
+      for (const [
+        pageIndex,
+        attachmentId,
+      ] of input.orderedAttachmentIds.entries()) {
         if (attachmentId == null) continue;
         await tx
           .update(attachmentsTable)
@@ -1590,8 +1853,11 @@ export async function reorderDocumentMerge(
       .select()
       .from(billingDocumentMergesTable)
       .where(eq(billingDocumentMergesTable.id, mergeId));
-    if (!merge || merge.status !== "active") throw appError(404, "Aktivní sloučení nebylo nalezeno.");
-    await tx.execute(sql`select pg_advisory_xact_lock(${DOCUMENT_PAGE_MERGE_LOCK_CLASS}, ${merge.primaryDocumentId})`);
+    if (!merge || merge.status !== "active")
+      throw appError(404, "Aktivní sloučení nebylo nalezeno.");
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(${DOCUMENT_PAGE_MERGE_LOCK_CLASS}, ${merge.primaryDocumentId})`,
+    );
     const members = await tx
       .select()
       .from(billingDocumentMergeMembersTable)
@@ -1602,21 +1868,28 @@ export async function reorderDocumentMerge(
       new Set(orderedDocumentIds).size !== members.length ||
       orderedDocumentIds.some((id) => !current.has(id))
     ) {
-      throw appError(400, "Nové pořadí neobsahuje přesně všechny strany sloučení.");
+      throw appError(
+        400,
+        "Nové pořadí neobsahuje přesně všechny strany sloučení.",
+      );
     }
     await stopQueuedExtractionOrRejectRunning(tx, orderedDocumentIds);
     await tx
       .update(billingDocumentMergeMembersTable)
-      .set({ pageOrder: sql`${billingDocumentMergeMembersTable.pageOrder} + 1000` })
+      .set({
+        pageOrder: sql`${billingDocumentMergeMembersTable.pageOrder} + 1000`,
+      })
       .where(eq(billingDocumentMergeMembersTable.mergeId, mergeId));
     for (const [pageOrder, documentId] of orderedDocumentIds.entries()) {
       await tx
         .update(billingDocumentMergeMembersTable)
         .set({ pageOrder })
-        .where(and(
-          eq(billingDocumentMergeMembersTable.mergeId, mergeId),
-          eq(billingDocumentMergeMembersTable.documentId, documentId),
-        ));
+        .where(
+          and(
+            eq(billingDocumentMergeMembersTable.mergeId, mergeId),
+            eq(billingDocumentMergeMembersTable.documentId, documentId),
+          ),
+        );
     }
     await tx.insert(auditLogTable).values({
       actorUserId: actor.userId,
@@ -1640,8 +1913,11 @@ export async function revertDocumentMerge(mergeId: number, actor: Actor) {
       .select()
       .from(billingDocumentMergesTable)
       .where(eq(billingDocumentMergesTable.id, mergeId));
-    if (!merge || merge.status !== "active") throw appError(404, "Aktivní sloučení nebylo nalezeno.");
-    await tx.execute(sql`select pg_advisory_xact_lock(${DOCUMENT_PAGE_MERGE_LOCK_CLASS}, ${merge.primaryDocumentId})`);
+    if (!merge || merge.status !== "active")
+      throw appError(404, "Aktivní sloučení nebylo nalezeno.");
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(${DOCUMENT_PAGE_MERGE_LOCK_CLASS}, ${merge.primaryDocumentId})`,
+    );
     const members = await tx
       .select()
       .from(billingDocumentMergeMembersTable)
@@ -1650,17 +1926,28 @@ export async function revertDocumentMerge(mergeId: number, actor: Actor) {
     const docs = await tx
       .select()
       .from(billingDocumentsTable)
-      .where(inArray(billingDocumentsTable.id, members.map((member) => member.documentId)));
+      .where(
+        inArray(
+          billingDocumentsTable.id,
+          members.map((member) => member.documentId),
+        ),
+      );
     const primary = docs.find((doc) => doc.id === merge.primaryDocumentId);
     if (!primary || primary.status !== "needs_review") {
-      throw appError(409, "Sloučení lze rozdělit pouze před kontrolou a schválením dokladu.");
+      throw appError(
+        409,
+        "Sloučení lze rozdělit pouze před kontrolou a schválením dokladu.",
+      );
     }
     await assertDocumentsMergeable(tx, docs, {
       allowActiveMergeId: mergeId,
       allowMergedStatus: true,
       allowPrimaryDocumentId: merge.primaryDocumentId,
     });
-    await stopQueuedExtractionOrRejectRunning(tx, members.map((member) => member.documentId));
+    await stopQueuedExtractionOrRejectRunning(
+      tx,
+      members.map((member) => member.documentId),
+    );
     await invalidateExtractionForPageGrouping(tx, docs);
     for (const member of members) {
       await tx
@@ -1681,7 +1968,11 @@ export async function revertDocumentMerge(mergeId: number, actor: Actor) {
     }
     await tx
       .update(billingDocumentMergesTable)
-      .set({ status: "reverted", revertedByUserId: actor.userId, revertedAt: new Date() })
+      .set({
+        status: "reverted",
+        revertedByUserId: actor.userId,
+        revertedAt: new Date(),
+      })
       .where(eq(billingDocumentMergesTable.id, mergeId));
     await tx.insert(auditLogTable).values({
       actorUserId: actor.userId,
@@ -1699,16 +1990,24 @@ export async function revertDocumentMerge(mergeId: number, actor: Actor) {
   return { mergeId, reverted: true, documentIds };
 }
 
-export async function confirmDocumentType(id: number, docType: string, actor: Actor) {
+export async function confirmDocumentType(
+  id: number,
+  docType: string,
+  actor: Actor,
+) {
   const [current] = await db
     .select({ status: billingDocumentsTable.status })
     .from(billingDocumentsTable)
     .where(eq(billingDocumentsTable.id, id));
   if (!current) throw appError(404, "Doklad nenalezen.");
   if (["approved", "duplicate", "merged", "ignored"].includes(current.status)) {
-    throw appError(409, "Typ dokladu lze potvrdit pouze pred jeho finalnim zpracovanim.");
+    throw appError(
+      409,
+      "Typ dokladu lze potvrdit pouze pred jeho finalnim zpracovanim.",
+    );
   }
-  if (!VALID_DOC_TYPE.has(docType)) throw appError(400, "Neplatný typ dokladu.");
+  if (!VALID_DOC_TYPE.has(docType))
+    throw appError(400, "Neplatný typ dokladu.");
   const [updated] = await db
     .update(billingDocumentsTable)
     .set({
@@ -1774,7 +2073,8 @@ export async function createDocument(
 ): Promise<SerializedDocument> {
   let parsed: ParsedDocument | null = null;
   const warnLines: string[] = [];
-  const isIsdoc = buffer != null && isParsableIsdoc(input.contentType, input.fileName);
+  const isIsdoc =
+    buffer != null && isParsableIsdoc(input.contentType, input.fileName);
   if (buffer && isIsdoc) {
     try {
       parsed = parseIsdocBuffer(buffer, input.fileName);
@@ -1796,7 +2096,11 @@ export async function createDocument(
 
   // Provenance: ISDOC wins over a visual PDF wins over AI wins over manual.
   const parsedBy = parsed ? "isdoc" : null;
-  const sourcePriority = parsed ? "isdoc" : isPdfLike(input.contentType) ? "pdf" : "manual";
+  const sourcePriority = parsed
+    ? "isdoc"
+    : isPdfLike(input.contentType)
+      ? "pdf"
+      : "manual";
 
   // A delivery note (`delivery_note`) is not a payment document: monetary totals
   // are normally absent, so payment-oriented reconciliation/warnings would only
@@ -1806,7 +2110,12 @@ export async function createDocument(
 
   // Sum-of-lines vs. document total reconciliation (warn → stays needs_review).
   // Skipped for delivery notes where a document total mismatch is expected.
-  if (isPaymentDoc && parsed && parsed.lines.length && parsed.subtotalWithoutVat != null) {
+  if (
+    isPaymentDoc &&
+    parsed &&
+    parsed.lines.length &&
+    parsed.subtotalWithoutVat != null
+  ) {
     const linesSum = round2(
       parsed.lines.reduce((a, l) => a + (l.totalWithoutVat ?? 0), 0),
     );
@@ -1855,9 +2164,12 @@ export async function createDocument(
         dueDate: parsed?.dueDate ?? null,
         currency: parsed?.currency ?? "CZK",
         subtotalWithoutVat:
-          parsed?.subtotalWithoutVat != null ? String(parsed.subtotalWithoutVat) : null,
+          parsed?.subtotalWithoutVat != null
+            ? String(parsed.subtotalWithoutVat)
+            : null,
         totalVat: parsed?.totalVat != null ? String(parsed.totalVat) : null,
-        totalWithVat: parsed?.totalWithVat != null ? String(parsed.totalWithVat) : null,
+        totalWithVat:
+          parsed?.totalWithVat != null ? String(parsed.totalWithVat) : null,
         deliveryNoteNumber: parsed?.deliveryNoteNumber ?? null,
         orderNumber: parsed?.orderNumber ?? null,
         constantSymbol: parsed?.constantSymbol ?? null,
@@ -1931,7 +2243,8 @@ export async function createDocument(
         confidence: "1.00",
       });
     }
-    if (refRows.length) await tx.insert(billingDocumentReferencesTable).values(refRows);
+    if (refRows.length)
+      await tx.insert(billingDocumentReferencesTable).values(refRows);
 
     // Merge a matching ISDOC↔PDF pair into one logical document, and enqueue
     // extraction — both skipped while more pages of the same group upload are
@@ -2014,7 +2327,10 @@ async function cleanupFailedDocumentUpload(objectPath: string): Promise<void> {
   try {
     await objectStorage.deletePrivateObject(objectPath);
   } catch (error) {
-    logger.error({ err: error, objectPath }, "Failed to remove orphaned document upload");
+    logger.error(
+      { err: error, objectPath },
+      "Failed to remove orphaned document upload",
+    );
   }
 }
 
@@ -2065,7 +2381,8 @@ export async function ingestFile(
       buffer,
       actor,
     );
-    if (result.status === "duplicate") await cleanupFailedDocumentUpload(objectPath);
+    if (result.status === "duplicate")
+      await cleanupFailedDocumentUpload(objectPath);
     return result;
   } catch (error) {
     await cleanupFailedDocumentUpload(objectPath);
@@ -2099,10 +2416,18 @@ export async function ingestGroupFile(
   actor: Actor,
   force = false,
 ): Promise<IngestFileResult> {
-  if (!Number.isInteger(input.pageIndex) || input.pageIndex < 0 || input.pageIndex >= 50) {
+  if (
+    !Number.isInteger(input.pageIndex) ||
+    input.pageIndex < 0 ||
+    input.pageIndex >= 50
+  ) {
     throw appError(400, "Neplatné pořadí stránky dokladu.");
   }
-  if (!Number.isInteger(input.pageCount) || input.pageCount < 1 || input.pageCount > 50) {
+  if (
+    !Number.isInteger(input.pageCount) ||
+    input.pageCount < 1 ||
+    input.pageCount > 50
+  ) {
     throw appError(400, "Neplatný počet stránek dokladu.");
   }
   if (input.pageIndex >= input.pageCount) {
@@ -2120,20 +2445,23 @@ export async function ingestGroupFile(
       billingDocumentsTable,
       eq(billingDocumentsTable.id, billingDocumentFilesTable.documentId),
     )
-    .where(and(
-      or(
-        eq(billingDocumentsTable.uploadGroupToken, input.groupToken),
-        and(
-          eq(billingDocumentsTable.mergeGroupId, input.groupToken),
-          isNull(billingDocumentsTable.uploadGroupToken),
+    .where(
+      and(
+        or(
+          eq(billingDocumentsTable.uploadGroupToken, input.groupToken),
+          and(
+            eq(billingDocumentsTable.mergeGroupId, input.groupToken),
+            isNull(billingDocumentsTable.uploadGroupToken),
+          ),
         ),
+        eq(billingDocumentFilesTable.pageIndex, input.pageIndex),
+        eq(billingDocumentFilesTable.sha256Hash, hash),
       ),
-      eq(billingDocumentFilesTable.pageIndex, input.pageIndex),
-      eq(billingDocumentFilesTable.sha256Hash, hash),
-    ));
+    );
   if (committedPage) {
     const detail = await getDocument(committedPage.documentId);
-    if (!detail) throw appError(404, "Doklad pro nahranou stránku nebyl nalezen.");
+    if (!detail)
+      throw appError(404, "Doklad pro nahranou stránku nebyl nalezen.");
     return { status: "created", document: detail.document };
   }
 
@@ -2161,9 +2489,15 @@ export async function ingestGroupFile(
     );
 
   if (!existing) {
-    if (input.groupComplete && (input.pageIndex !== 0 || input.pageCount !== 1)) {
+    if (
+      input.groupComplete &&
+      (input.pageIndex !== 0 || input.pageCount !== 1)
+    ) {
       await cleanupFailedDocumentUpload(objectPath);
-      throw appError(409, "Doklad nelze dokončit, protože některé předchozí stránky chybí.");
+      throw appError(
+        409,
+        "Doklad nelze dokončit, protože některé předchozí stránky chybí.",
+      );
     }
     try {
       const document = await createDocument(
@@ -2207,76 +2541,89 @@ export async function ingestGroupFile(
 
   try {
     await db.transaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${input.groupToken}))`);
-    const [current] = await tx
-      .select()
-      .from(billingDocumentsTable)
-      .where(eq(billingDocumentsTable.id, existing.id));
-    if (!current) throw appError(404, "Skupina stránek dokladu již neexistuje.");
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtext(${input.groupToken}))`,
+      );
+      const [current] = await tx
+        .select()
+        .from(billingDocumentsTable)
+        .where(eq(billingDocumentsTable.id, existing.id));
+      if (!current)
+        throw appError(404, "Skupina stránek dokladu již neexistuje.");
 
-    const [samePage] = await tx
-      .select()
-      .from(billingDocumentFilesTable)
-      .where(and(
-        eq(billingDocumentFilesTable.documentId, current.id),
-        eq(billingDocumentFilesTable.pageIndex, input.pageIndex),
-      ));
-    if (samePage) {
-      await cleanupFailedDocumentUpload(objectPath);
-      if (samePage.sha256Hash !== hash) {
-        throw appError(409, `Stránka ${input.pageIndex + 1} už obsahuje jiný soubor.`);
-      }
-      return;
-    }
-    if (current.uploadCompletedAt) {
-      await cleanupFailedDocumentUpload(objectPath);
-      throw appError(409, "Vícestránkový doklad už byl dokončen.");
-    }
-
-    await tx.insert(billingDocumentFilesTable).values({
-      documentId: current.id,
-      role: "attachment",
-      originalFileName: input.fileName,
-      mimeType: input.contentType,
-      objectPath,
-      sha256Hash: hash,
-      pageIndex: input.pageIndex,
-      sizeBytes: buffer.length,
-    });
-
-    await tx.insert(auditLogTable).values({
-      actorUserId: actor.userId,
-      actorName: actor.name,
-      action: "update",
-      entityType: "billing_documents",
-      entityId: current.id,
-      summary: `Přidána další strana dokladu: ${input.fileName}`,
-      method: "POST",
-      path: "/billing/documents/upload",
-    });
-
-    if (input.groupComplete) {
-      const pages = await tx
-        .select({ pageIndex: billingDocumentFilesTable.pageIndex })
+      const [samePage] = await tx
+        .select()
         .from(billingDocumentFilesTable)
-        .where(eq(billingDocumentFilesTable.documentId, current.id));
-      const uploaded = new Set(pages.map((page) => page.pageIndex));
-      const complete =
-        pages.length === input.pageCount &&
-        Array.from({ length: input.pageCount }, (_, index) => index).every((index) => uploaded.has(index));
-      if (!complete) {
-        throw appError(409, "Doklad nelze dokončit, protože některé stránky chybí.");
+        .where(
+          and(
+            eq(billingDocumentFilesTable.documentId, current.id),
+            eq(billingDocumentFilesTable.pageIndex, input.pageIndex),
+          ),
+        );
+      if (samePage) {
+        await cleanupFailedDocumentUpload(objectPath);
+        if (samePage.sha256Hash !== hash) {
+          throw appError(
+            409,
+            `Stránka ${input.pageIndex + 1} už obsahuje jiný soubor.`,
+          );
+        }
+        return;
       }
-      await tx
-        .update(billingDocumentsTable)
-        .set({ uploadCompletedAt: new Date(), updatedAt: new Date() })
-        .where(eq(billingDocumentsTable.id, current.id));
-      await mergeRelatedDocumentsTx(tx, current, null);
-      await tx
-        .insert(extractionJobsTable)
-        .values({ documentId: current.id })
-        .onConflictDoNothing();
-    }
+      if (current.uploadCompletedAt) {
+        await cleanupFailedDocumentUpload(objectPath);
+        throw appError(409, "Vícestránkový doklad už byl dokončen.");
+      }
+
+      await tx.insert(billingDocumentFilesTable).values({
+        documentId: current.id,
+        role: "attachment",
+        originalFileName: input.fileName,
+        mimeType: input.contentType,
+        objectPath,
+        sha256Hash: hash,
+        pageIndex: input.pageIndex,
+        sizeBytes: buffer.length,
+      });
+
+      await tx.insert(auditLogTable).values({
+        actorUserId: actor.userId,
+        actorName: actor.name,
+        action: "update",
+        entityType: "billing_documents",
+        entityId: current.id,
+        summary: `Přidána další strana dokladu: ${input.fileName}`,
+        method: "POST",
+        path: "/billing/documents/upload",
+      });
+
+      if (input.groupComplete) {
+        const pages = await tx
+          .select({ pageIndex: billingDocumentFilesTable.pageIndex })
+          .from(billingDocumentFilesTable)
+          .where(eq(billingDocumentFilesTable.documentId, current.id));
+        const uploaded = new Set(pages.map((page) => page.pageIndex));
+        const complete =
+          pages.length === input.pageCount &&
+          Array.from({ length: input.pageCount }, (_, index) => index).every(
+            (index) => uploaded.has(index),
+          );
+        if (!complete) {
+          throw appError(
+            409,
+            "Doklad nelze dokončit, protože některé stránky chybí.",
+          );
+        }
+        await tx
+          .update(billingDocumentsTable)
+          .set({ uploadCompletedAt: new Date(), updatedAt: new Date() })
+          .where(eq(billingDocumentsTable.id, current.id));
+        await mergeRelatedDocumentsTx(tx, current, null);
+        await tx
+          .insert(extractionJobsTable)
+          .values({ documentId: current.id })
+          .onConflictDoNothing();
+      }
     });
   } catch (error) {
     await cleanupFailedDocumentUpload(objectPath);
@@ -2308,7 +2655,10 @@ async function documentIdsLinkedToJob(jobId: number): Promise<number[]> {
   const ids = new Set<number>();
 
   const directRows = await db
-    .select({ id: billingDocumentsTable.id, primaryDocumentId: billingDocumentsTable.primaryDocumentId })
+    .select({
+      id: billingDocumentsTable.id,
+      primaryDocumentId: billingDocumentsTable.primaryDocumentId,
+    })
     .from(billingDocumentsTable)
     .where(eq(billingDocumentsTable.jobId, jobId));
   for (const row of directRows) {
@@ -2416,13 +2766,17 @@ export async function listDocuments(filters: DocumentFilters) {
   }
   if (filters.customerId != null)
     conds.push(eq(billingDocumentsTable.customerId, filters.customerId));
-  if (filters.aiOnly) conds.push(isNotNull(billingDocumentsTable.aiExtractedAt));
+  if (filters.aiOnly)
+    conds.push(isNotNull(billingDocumentsTable.aiExtractedAt));
 
   // confidence_asc surfaces the riskiest (lowest-confidence) suggestions first;
   // Postgres ASC places NULL confidence last, then ties broken by newest first.
   const orderBy =
     filters.sort === "confidence_asc"
-      ? [asc(billingDocumentsTable.aiConfidence), desc(billingDocumentsTable.createdAt)]
+      ? [
+          asc(billingDocumentsTable.aiConfidence),
+          desc(billingDocumentsTable.createdAt),
+        ]
       : [desc(billingDocumentsTable.createdAt)];
 
   const rows = await db
@@ -2512,15 +2866,20 @@ export async function getDocument(id: number) {
   const linkedDuplicateRows = await db
     .select()
     .from(billingDocumentsTable)
-    .where(and(
-      eq(billingDocumentsTable.primaryDocumentId, doc.id),
-      ne(billingDocumentsTable.status, "merged"),
-    ))
+    .where(
+      and(
+        eq(billingDocumentsTable.primaryDocumentId, doc.id),
+        ne(billingDocumentsTable.status, "merged"),
+      ),
+    )
     .orderBy(billingDocumentsTable.id);
 
   // Files for each linked duplicate, so they can be previewed inline on the
   // primary document's page without navigating away.
-  const linkedDuplicateFilesByDocId = new Map<number, (typeof billingDocumentFilesTable.$inferSelect)[]>();
+  const linkedDuplicateFilesByDocId = new Map<
+    number,
+    (typeof billingDocumentFilesTable.$inferSelect)[]
+  >();
   if (linkedDuplicateRows.length > 0) {
     const linkedDuplicateFileRows = await db
       .select()
@@ -2531,7 +2890,10 @@ export async function getDocument(id: number) {
           linkedDuplicateRows.map((d) => d.id),
         ),
       )
-      .orderBy(sql`${billingDocumentFilesTable.pageIndex} asc nulls last`, billingDocumentFilesTable.id);
+      .orderBy(
+        sql`${billingDocumentFilesTable.pageIndex} asc nulls last`,
+        billingDocumentFilesTable.id,
+      );
     for (const f of linkedDuplicateFileRows) {
       const list = linkedDuplicateFilesByDocId.get(f.documentId) ?? [];
       list.push(f);
@@ -2575,7 +2937,10 @@ export async function getDocument(id: number) {
         .select()
         .from(billingDocumentFilesTable)
         .where(eq(billingDocumentFilesTable.documentId, primaryDoc.id))
-        .orderBy(sql`${billingDocumentFilesTable.pageIndex} asc nulls last`, billingDocumentFilesTable.id);
+        .orderBy(
+          sql`${billingDocumentFilesTable.pageIndex} asc nulls last`,
+          billingDocumentFilesTable.id,
+        );
       duplicateOf = {
         id: primaryDoc.id,
         reason: "Primární doklad",
@@ -2600,20 +2965,29 @@ export async function getDocument(id: number) {
     .select()
     .from(billingDocumentFilesTable)
     .where(eq(billingDocumentFilesTable.documentId, id))
-    .orderBy(sql`${billingDocumentFilesTable.pageIndex} asc nulls last`, billingDocumentFilesTable.id);
+    .orderBy(
+      sql`${billingDocumentFilesTable.pageIndex} asc nulls last`,
+      billingDocumentFilesTable.id,
+    );
 
   const [activeMerge] = await db
     .select()
     .from(billingDocumentMergesTable)
-    .where(and(
-      eq(billingDocumentMergesTable.primaryDocumentId, id),
-      eq(billingDocumentMergesTable.status, "active"),
-    ))
+    .where(
+      and(
+        eq(billingDocumentMergesTable.primaryDocumentId, id),
+        eq(billingDocumentMergesTable.status, "active"),
+      ),
+    )
     .limit(1);
   let mergeInfo: {
     id: number;
     status: string;
-    members: Array<{ documentId: number; pageOrder: number; fileName: string | null }>;
+    members: Array<{
+      documentId: number;
+      pageOrder: number;
+      fileName: string | null;
+    }>;
   } | null = null;
   if (activeMerge) {
     const members = await db
@@ -2625,7 +2999,10 @@ export async function getDocument(id: number) {
       .from(billingDocumentMergeMembersTable)
       .innerJoin(
         billingDocumentsTable,
-        eq(billingDocumentsTable.id, billingDocumentMergeMembersTable.documentId),
+        eq(
+          billingDocumentsTable.id,
+          billingDocumentMergeMembersTable.documentId,
+        ),
       )
       .where(eq(billingDocumentMergeMembersTable.mergeId, activeMerge.id))
       .orderBy(billingDocumentMergeMembersTable.pageOrder);
@@ -2635,7 +3012,10 @@ export async function getDocument(id: number) {
         .select()
         .from(billingDocumentFilesTable)
         .where(eq(billingDocumentFilesTable.documentId, member.documentId))
-        .orderBy(sql`${billingDocumentFilesTable.pageIndex} asc nulls last`, billingDocumentFilesTable.id);
+        .orderBy(
+          sql`${billingDocumentFilesTable.pageIndex} asc nulls last`,
+          billingDocumentFilesTable.id,
+        );
       groupedFiles.push(...memberFiles);
     }
     files = groupedFiles;
@@ -2679,11 +3059,15 @@ export async function getDocument(id: number) {
       unit: m.unit,
       pricePerUnit: m.pricePerUnit != null ? Number(m.pricePerUnit) : null,
       priceSource: m.priceSource,
-      priceConfidence: m.priceConfidence != null ? Number(m.priceConfidence) : null,
+      priceConfidence:
+        m.priceConfidence != null ? Number(m.priceConfidence) : null,
       priceSourceLineId: m.priceSourceLineId,
       invoicedInvoiceId: m.invoicedInvoiceId,
     })),
-    files: files.map((file, pageIndex) => ({ ...serializeFile(file), pageIndex })),
+    files: files.map((file, pageIndex) => ({
+      ...serializeFile(file),
+      pageIndex,
+    })),
     pageMerge: mergeInfo,
   };
 }
@@ -2795,7 +3179,11 @@ export async function addReference(
       .where(eq(billingDocumentReferencesTable.documentId, documentId));
     const key = logicalReferenceKey(referenceType, refNum);
     const duplicate = existingReferences.find(
-      (reference) => logicalReferenceKey(reference.referenceType, reference.referenceNumber) === key,
+      (reference) =>
+        logicalReferenceKey(
+          reference.referenceType,
+          reference.referenceNumber,
+        ) === key,
     );
     if (duplicate) {
       if (duplicate.rejected === 1) {
@@ -2820,13 +3208,17 @@ export async function addReference(
       });
       return;
     }
-    const [created] = await tx.insert(billingDocumentReferencesTable).values({
-      documentId,
-      referenceType,
-      referenceNumber: refNum,
-      source: input.source ?? "manual",
-      confidence: input.confidence != null ? String(round2(input.confidence)) : null,
-    }).returning({ id: billingDocumentReferencesTable.id });
+    const [created] = await tx
+      .insert(billingDocumentReferencesTable)
+      .values({
+        documentId,
+        referenceType,
+        referenceNumber: refNum,
+        source: input.source ?? "manual",
+        confidence:
+          input.confidence != null ? String(round2(input.confidence)) : null,
+      })
+      .returning({ id: billingDocumentReferencesTable.id });
     await tx.insert(auditLogTable).values({
       actorUserId: actor.userId,
       actorName: actor.name,
@@ -2908,7 +3300,10 @@ export async function updateReference(
       );
     if (!ref) throw appError(404, "Reference nenalezena.");
     if (input.matchConfirmed === true) {
-      const matchedDocumentId = input.matchedDocumentId !== undefined ? input.matchedDocumentId : ref.matchedDocumentId;
+      const matchedDocumentId =
+        input.matchedDocumentId !== undefined
+          ? input.matchedDocumentId
+          : ref.matchedDocumentId;
       if (matchedDocumentId != null) {
         const [matchedDocument] = await tx
           .select()
@@ -2918,12 +3313,25 @@ export async function updateReference(
           throw appError(409, "Párovaný doklad již neexistuje.");
         }
         if (matchedDocument.docType !== "delivery_note") {
-          throw appError(409, "Fakturu lze tímto způsobem spárovat pouze s dodacím listem.");
+          throw appError(
+            409,
+            "Fakturu lze tímto způsobem spárovat pouze s dodacím listem.",
+          );
         }
         const derivedJobId = await deliveryNoteJobId(tx, matchedDocument);
-        const selectedJobId = input.matchedJobId !== undefined ? input.matchedJobId : ref.matchedJobId;
-        if (derivedJobId != null && selectedJobId != null && selectedJobId !== derivedJobId) {
-          throw appError(409, "Vybraná zakázka neodpovídá jednoznačné zakázce dodacího listu.");
+        const selectedJobId =
+          input.matchedJobId !== undefined
+            ? input.matchedJobId
+            : ref.matchedJobId;
+        if (
+          derivedJobId != null &&
+          selectedJobId != null &&
+          selectedJobId !== derivedJobId
+        ) {
+          throw appError(
+            409,
+            "Vybraná zakázka neodpovídá jednoznačné zakázce dodacího listu.",
+          );
         }
         if (derivedJobId != null) patch.matchedJobId = derivedJobId;
       }
@@ -2935,11 +3343,12 @@ export async function updateReference(
     await tx.insert(auditLogTable).values({
       actorUserId: actor.userId,
       actorName: actor.name,
-      action: input.rejected === true
-        ? "document_reference_rejected"
-        : input.matchConfirmed === true
-          ? "document_reference_confirmed"
-          : "document_reference_updated",
+      action:
+        input.rejected === true
+          ? "document_reference_rejected"
+          : input.matchConfirmed === true
+            ? "document_reference_confirmed"
+            : "document_reference_updated",
       entityType: "billing_document_references",
       entityId: referenceId,
       summary: `Reference dokladu #${documentId} změněna; původní vazba zakázka=${ref.matchedJobId ?? "-"}, doklad=${ref.matchedDocumentId ?? "-"}, potvrzeno=${ref.matchConfirmed}, odmítnuto=${ref.rejected}.`,
@@ -3021,7 +3430,13 @@ export async function matchDocumentReferences(documentId: number) {
 
   const candidatesByRef: Record<
     number,
-    { jobId: number; jobTitle: string | null; score: number; strength: string; reasons: string[] }[]
+    {
+      jobId: number;
+      jobTitle: string | null;
+      score: number;
+      strength: string;
+      reasons: string[];
+    }[]
   > = {};
   const pendingUpdates: {
     referenceId: number;
@@ -3050,7 +3465,8 @@ export async function matchDocumentReferences(documentId: number) {
       // and the score clears the (higher) confirm threshold. Otherwise the
       // suggestion is recorded as confidence only, leaving the link for an
       // admin to confirm.
-      const linkable = cfg.autoLinkEnabled && best.match.score >= cfg.autoLinkMinScore;
+      const linkable =
+        cfg.autoLinkEnabled && best.match.score >= cfg.autoLinkMinScore;
       const confirmable =
         linkable &&
         cfg.autoConfirmEnabled &&
@@ -3138,7 +3554,10 @@ async function findDocumentMatchSuggestions(
     .from(billingDocumentsTable)
     .where(eq(billingDocumentsTable.id, documentId));
   if (!doc) throw appError(404, "Doklad nenalezen.");
-  if (doc.primaryDocumentId != null || EXCLUDED_MATCH_STATUSES.has(doc.status)) {
+  if (
+    doc.primaryDocumentId != null ||
+    EXCLUDED_MATCH_STATUSES.has(doc.status)
+  ) {
     return [];
   }
   const docIsInvoice = INVOICE_DOCUMENT_TYPES.has(doc.docType);
@@ -3191,7 +3610,9 @@ async function findDocumentMatchSuggestions(
     deliveryNoteNumber: candidate.deliveryNoteNumber,
     orderNumber: candidate.orderNumber,
     totalWithoutVat:
-      candidate.subtotalWithoutVat == null ? null : num(candidate.subtotalWithoutVat),
+      candidate.subtotalWithoutVat == null
+        ? null
+        : num(candidate.subtotalWithoutVat),
     totalWithVat:
       candidate.totalWithVat == null ? null : num(candidate.totalWithVat),
     issueDate: candidate.issueDate,
@@ -3272,7 +3693,9 @@ async function persistDocumentRelationship(
     const rows = await tx
       .select()
       .from(billingDocumentsTable)
-      .where(inArray(billingDocumentsTable.id, [documentId, suggestion.documentId]));
+      .where(
+        inArray(billingDocumentsTable.id, [documentId, suggestion.documentId]),
+      );
     const current = rows.find((row) => row.id === documentId);
     const other = rows.find((row) => row.id === suggestion.documentId);
     if (!current || !other) return { linked: false, confirmed: false };
@@ -3323,7 +3746,8 @@ async function persistDocumentRelationship(
 
     const existing =
       relevantRefs.find(
-        (ref) => ref.matchedDocumentId === deliveryNote.id && ref.matchConfirmed === 1,
+        (ref) =>
+          ref.matchedDocumentId === deliveryNote.id && ref.matchConfirmed === 1,
       ) ??
       relevantRefs.find((ref) => ref.matchedDocumentId === deliveryNote.id) ??
       relevantRefs[0];
@@ -3418,7 +3842,11 @@ export async function reconcileDocumentRelationships(
   const confirmedDocumentIds: number[] = [];
 
   for (const suggestion of selected) {
-    const result = await persistDocumentRelationship(documentId, suggestion, actor);
+    const result = await persistDocumentRelationship(
+      documentId,
+      suggestion,
+      actor,
+    );
     if (result.linked) linkedDocumentIds.push(suggestion.documentId);
     if (result.confirmed) {
       confirmedDocumentIds.push(suggestion.documentId);
@@ -3512,74 +3940,99 @@ export interface UpdateDocumentInput {
   notes?: string | null;
 }
 
-export async function updateDocument(id: number, input: UpdateDocumentInput, actor: Actor = SYSTEM_ACTOR) {
-  const [doc] = await db
-    .select()
-    .from(billingDocumentsTable)
-    .where(eq(billingDocumentsTable.id, id));
-  if (!doc) throw appError(404, "Doklad nenalezen.");
-  if (doc.status === "approved") {
-    throw appError(409, "Schválený doklad nelze upravovat. Nejprve zrušte schválení.");
-  }
-
-  if (input.jobId != null) {
-    const [job] = await db
-      .select({ id: jobsTable.id })
-      .from(jobsTable)
-      .where(eq(jobsTable.id, input.jobId));
-    if (!job)
+export async function updateDocument(
+  id: number,
+  input: UpdateDocumentInput,
+  actor: Actor = SYSTEM_ACTOR,
+) {
+  await db.transaction(async (tx) => {
+    const [doc] = await tx
+      .select()
+      .from(billingDocumentsTable)
+      .where(eq(billingDocumentsTable.id, id))
+      .for("update");
+    if (!doc) throw appError(404, "Doklad nenalezen.");
+    if (doc.status === "approved") {
       throw appError(
-        400,
-        "Vybraná zakázka již neexistuje. Obnovte stránku a vyberte ji znovu.",
+        409,
+        "Schválený doklad nelze upravovat. Nejprve zrušte schválení.",
       );
-  }
-  if (input.customerId != null) {
-    const [customer] = await db
-      .select({ id: customersTable.id })
-      .from(customersTable)
-      .where(eq(customersTable.id, input.customerId));
-    if (!customer)
-      throw appError(
-        400,
-        "Vybraný zákazník již neexistuje. Obnovte stránku a vyberte ho znovu.",
-      );
-  }
-
-  const patch: Partial<typeof billingDocumentsTable.$inferInsert> = {
-    updatedAt: new Date(),
-  };
-  if (input.docType !== undefined && input.docType && VALID_DOC_TYPE.has(input.docType)) {
-    patch.docType = input.docType;
-    if (input.docType !== doc.docType || doc.docTypeSource === "conflict") {
-      patch.docTypeSource = "admin";
-      patch.docTypeConfirmedByUserId = actor.userId;
-      patch.docTypeConfirmedAt = new Date();
     }
-  }
-  if (input.supplierName !== undefined) patch.supplierName = input.supplierName;
-  if (input.supplierIc !== undefined) patch.supplierIc = input.supplierIc;
-  if (input.supplierDic !== undefined) patch.supplierDic = input.supplierDic;
-  if (input.supplierAddress !== undefined) patch.supplierAddress = input.supplierAddress;
-  if (input.documentNumber !== undefined) patch.documentNumber = input.documentNumber;
-  if (input.variableSymbol !== undefined) patch.variableSymbol = input.variableSymbol;
-  if (input.issueDate !== undefined) patch.issueDate = input.issueDate;
-  if (input.taxableSupplyDate !== undefined)
-    patch.taxableSupplyDate = input.taxableSupplyDate;
-  if (input.dueDate !== undefined) patch.dueDate = input.dueDate;
-  if (input.currency !== undefined && input.currency) patch.currency = input.currency;
-  if (input.subtotalWithoutVat !== undefined)
-    patch.subtotalWithoutVat =
-      input.subtotalWithoutVat == null ? null : String(round2(input.subtotalWithoutVat));
-  if (input.totalVat !== undefined)
-    patch.totalVat = input.totalVat == null ? null : String(round2(input.totalVat));
-  if (input.totalWithVat !== undefined)
-    patch.totalWithVat =
-      input.totalWithVat == null ? null : String(round2(input.totalWithVat));
-  if (input.customerId !== undefined) patch.customerId = input.customerId;
-  if (input.jobId !== undefined) patch.jobId = input.jobId;
-  if (input.notes !== undefined) patch.notes = input.notes;
 
-  await db.update(billingDocumentsTable).set(patch).where(eq(billingDocumentsTable.id, id));
+    if (input.jobId != null) {
+      const [job] = await tx
+        .select({ id: jobsTable.id })
+        .from(jobsTable)
+        .where(eq(jobsTable.id, input.jobId));
+      if (!job)
+        throw appError(
+          400,
+          "Vybraná zakázka již neexistuje. Obnovte stránku a vyberte ji znovu.",
+        );
+    }
+    if (input.customerId != null) {
+      const [customer] = await tx
+        .select({ id: customersTable.id })
+        .from(customersTable)
+        .where(eq(customersTable.id, input.customerId));
+      if (!customer)
+        throw appError(
+          400,
+          "Vybraný zákazník již neexistuje. Obnovte stránku a vyberte ho znovu.",
+        );
+    }
+
+    const patch: Partial<typeof billingDocumentsTable.$inferInsert> = {
+      updatedAt: new Date(),
+    };
+    if (
+      input.docType !== undefined &&
+      input.docType &&
+      VALID_DOC_TYPE.has(input.docType)
+    ) {
+      patch.docType = input.docType;
+      if (input.docType !== doc.docType || doc.docTypeSource === "conflict") {
+        patch.docTypeSource = "admin";
+        patch.docTypeConfirmedByUserId = actor.userId;
+        patch.docTypeConfirmedAt = new Date();
+      }
+    }
+    if (input.supplierName !== undefined)
+      patch.supplierName = input.supplierName;
+    if (input.supplierIc !== undefined) patch.supplierIc = input.supplierIc;
+    if (input.supplierDic !== undefined) patch.supplierDic = input.supplierDic;
+    if (input.supplierAddress !== undefined)
+      patch.supplierAddress = input.supplierAddress;
+    if (input.documentNumber !== undefined)
+      patch.documentNumber = input.documentNumber;
+    if (input.variableSymbol !== undefined)
+      patch.variableSymbol = input.variableSymbol;
+    if (input.issueDate !== undefined) patch.issueDate = input.issueDate;
+    if (input.taxableSupplyDate !== undefined)
+      patch.taxableSupplyDate = input.taxableSupplyDate;
+    if (input.dueDate !== undefined) patch.dueDate = input.dueDate;
+    if (input.currency !== undefined && input.currency)
+      patch.currency = input.currency;
+    if (input.subtotalWithoutVat !== undefined)
+      patch.subtotalWithoutVat =
+        input.subtotalWithoutVat == null
+          ? null
+          : String(round2(input.subtotalWithoutVat));
+    if (input.totalVat !== undefined)
+      patch.totalVat =
+        input.totalVat == null ? null : String(round2(input.totalVat));
+    if (input.totalWithVat !== undefined)
+      patch.totalWithVat =
+        input.totalWithVat == null ? null : String(round2(input.totalWithVat));
+    if (input.customerId !== undefined) patch.customerId = input.customerId;
+    if (input.jobId !== undefined) patch.jobId = input.jobId;
+    if (input.notes !== undefined) patch.notes = input.notes;
+
+    await tx
+      .update(billingDocumentsTable)
+      .set(patch)
+      .where(eq(billingDocumentsTable.id, id));
+  });
   await reconcileDocumentRelationshipsSafely(id, SYSTEM_ACTOR);
   return getDocument(id);
 }
@@ -3637,106 +4090,127 @@ export async function updateLine(
   input: LineUpdateInput,
   actor: Actor = SYSTEM_ACTOR,
 ) {
-  return db.transaction(async (tx) => {
-    await tx.execute(sql`select id from billing_documents where id = ${documentId} for update`);
-    const [document] = await tx
-      .select({ status: billingDocumentsTable.status })
-      .from(billingDocumentsTable)
-      .where(eq(billingDocumentsTable.id, documentId));
-    if (!document) throw appError(404, "Doklad nenalezen.");
-    if (document.status === "approved") {
-      throw appError(409, "Schválený doklad nelze upravovat. Nejprve jej vraťte ke kontrole.");
-    }
-    if (input.approved !== undefined) {
-      throw appError(400, "Schválení položky řídí pouze akce Schválit doklad.");
-    }
-    const [line] = await tx
-      .select()
-      .from(billingDocumentLinesTable)
-      .where(
-        and(
-          eq(billingDocumentLinesTable.id, lineId),
-          eq(billingDocumentLinesTable.documentId, documentId),
-        ),
+  return db
+    .transaction(async (tx) => {
+      await tx.execute(
+        sql`select id from billing_documents where id = ${documentId} for update`,
       );
-    if (!line) throw appError(404, "Položka nenalezena.");
-    if (line.invoicedInvoiceId != null) {
-      throw appError(409, "Položka je již na faktuře a nelze ji měnit.");
-    }
-
-    const patch: Partial<typeof billingDocumentLinesTable.$inferInsert> = {
-      updatedAt: new Date(),
-    };
-    let recompute = false;
-    if (input.lineType !== undefined && input.lineType && VALID_LINE_TYPE.has(input.lineType))
-      patch.lineType = input.lineType;
-    if (input.description !== undefined && input.description)
-      patch.description = input.description;
-    if (input.quantity !== undefined) {
-      patch.quantity = String(round2(num(input.quantity)));
-      recompute = true;
-    }
-    if (input.unit !== undefined) patch.unit = input.unit;
-    if (input.unitPriceWithoutVat !== undefined) {
-      patch.unitPriceWithoutVat = String(round2(num(input.unitPriceWithoutVat)));
-      recompute = true;
-    }
-    if (input.vatRate !== undefined) {
-      patch.vatRate = input.vatRate == null ? null : String(round2(num(input.vatRate)));
-      recompute = true;
-    }
-    if (input.jobId !== undefined) {
-      patch.jobId = input.jobId;
-      // Mutually exclusive: setting a job clears the activity assignment.
-      if (input.jobId != null) patch.activityId = null;
-    }
-    if (input.activityId !== undefined) {
-      patch.activityId = input.activityId;
-      // Mutually exclusive: setting an activity clears the job assignment.
-      if (input.activityId != null) patch.jobId = null;
-    }
-    if (input.allocationType !== undefined && input.allocationType && VALID_ALLOC.has(input.allocationType))
-      patch.allocationType = input.allocationType;
-    if (input.matchConfirmed !== undefined && input.matchConfirmed != null)
-      patch.matchConfirmed = input.matchConfirmed ? 1 : 0;
-
-    await tx
-      .update(billingDocumentLinesTable)
-      .set(patch)
-      .where(eq(billingDocumentLinesTable.id, lineId));
-
-    if (recompute) {
-      const [updated] = await tx
+      const [document] = await tx
+        .select({ status: billingDocumentsTable.status })
+        .from(billingDocumentsTable)
+        .where(eq(billingDocumentsTable.id, documentId));
+      if (!document) throw appError(404, "Doklad nenalezen.");
+      if (document.status === "approved") {
+        throw appError(
+          409,
+          "Schválený doklad nelze upravovat. Nejprve jej vraťte ke kontrole.",
+        );
+      }
+      if (input.approved !== undefined) {
+        throw appError(
+          400,
+          "Schválení položky řídí pouze akce Schválit doklad.",
+        );
+      }
+      const [line] = await tx
         .select()
         .from(billingDocumentLinesTable)
+        .where(
+          and(
+            eq(billingDocumentLinesTable.id, lineId),
+            eq(billingDocumentLinesTable.documentId, documentId),
+          ),
+        );
+      if (!line) throw appError(404, "Položka nenalezena.");
+      if (line.invoicedInvoiceId != null) {
+        throw appError(409, "Položka je již na faktuře a nelze ji měnit.");
+      }
+
+      const patch: Partial<typeof billingDocumentLinesTable.$inferInsert> = {
+        updatedAt: new Date(),
+      };
+      let recompute = false;
+      if (
+        input.lineType !== undefined &&
+        input.lineType &&
+        VALID_LINE_TYPE.has(input.lineType)
+      )
+        patch.lineType = input.lineType;
+      if (input.description !== undefined && input.description)
+        patch.description = input.description;
+      if (input.quantity !== undefined) {
+        patch.quantity = String(round2(num(input.quantity)));
+        recompute = true;
+      }
+      if (input.unit !== undefined) patch.unit = input.unit;
+      if (input.unitPriceWithoutVat !== undefined) {
+        patch.unitPriceWithoutVat = String(
+          round2(num(input.unitPriceWithoutVat)),
+        );
+        recompute = true;
+      }
+      if (input.vatRate !== undefined) {
+        patch.vatRate =
+          input.vatRate == null ? null : String(round2(num(input.vatRate)));
+        recompute = true;
+      }
+      if (input.jobId !== undefined) {
+        patch.jobId = input.jobId;
+        // Mutually exclusive: setting a job clears the activity assignment.
+        if (input.jobId != null) patch.activityId = null;
+      }
+      if (input.activityId !== undefined) {
+        patch.activityId = input.activityId;
+        // Mutually exclusive: setting an activity clears the job assignment.
+        if (input.activityId != null) patch.jobId = null;
+      }
+      if (
+        input.allocationType !== undefined &&
+        input.allocationType &&
+        VALID_ALLOC.has(input.allocationType)
+      )
+        patch.allocationType = input.allocationType;
+      if (input.matchConfirmed !== undefined && input.matchConfirmed != null)
+        patch.matchConfirmed = input.matchConfirmed ? 1 : 0;
+
+      await tx
+        .update(billingDocumentLinesTable)
+        .set(patch)
         .where(eq(billingDocumentLinesTable.id, lineId));
-      await recomputeLineTotals(tx, updated);
-    }
-    // Undo any invoice-price fill this document previously made onto another
-    // document's (delivery-note) material before recomputing from the current
-    // line data — an edited price/quantity/job must not leave a stale fill
-    // hanging, and a line that drops out of eligibility (price zeroed,
-    // reassigned, etc.) must revert its target back to "awaiting invoice"
-    // (NULL price, see revertInvoicePricePropagation). Cheap no-op when this
-    // document never filled anything.
-    await revertInvoicePricePropagation(tx, documentId, actor);
-    const { consumedLineIds } = await propagateInvoicePricesToJobMaterials(
-      tx,
-      documentId,
-      actor,
-    );
-    // Keep the job's materials in sync when editing a line of an approved doc;
-    // exclude the lines just consumed above so this document's own sync does
-    // not also create a duplicate material for the same line.
-    await syncJobMaterialsForDocument(tx, documentId, actor, {
-      excludeSourceLineIds: consumedLineIds,
-    });
-    // The line id persists across an edit, so re-reconciling the document's stock
-    // receipts updates this line's movement (quantity / allocation change, or
-    // reverses it if it stopped being a stock line).
-    await reconcileDocumentStockMovements(tx, documentId, actor);
-    return undefined;
-  }).then(() => getDocument(documentId));
+
+      if (recompute) {
+        const [updated] = await tx
+          .select()
+          .from(billingDocumentLinesTable)
+          .where(eq(billingDocumentLinesTable.id, lineId));
+        await recomputeLineTotals(tx, updated);
+      }
+      // Undo any invoice-price fill this document previously made onto another
+      // document's (delivery-note) material before recomputing from the current
+      // line data — an edited price/quantity/job must not leave a stale fill
+      // hanging, and a line that drops out of eligibility (price zeroed,
+      // reassigned, etc.) must revert its target back to "awaiting invoice"
+      // (NULL price, see revertInvoicePricePropagation). Cheap no-op when this
+      // document never filled anything.
+      await revertInvoicePricePropagation(tx, documentId, actor);
+      const { consumedLineIds } = await propagateInvoicePricesToJobMaterials(
+        tx,
+        documentId,
+        actor,
+      );
+      // Keep the job's materials in sync when editing a line of an approved doc;
+      // exclude the lines just consumed above so this document's own sync does
+      // not also create a duplicate material for the same line.
+      await syncJobMaterialsForDocument(tx, documentId, actor, {
+        excludeSourceLineIds: consumedLineIds,
+      });
+      // The line id persists across an edit, so re-reconciling the document's stock
+      // receipts updates this line's movement (quantity / allocation change, or
+      // reverses it if it stopped being a stock line).
+      await reconcileDocumentStockMovements(tx, documentId, actor);
+      return undefined;
+    })
+    .then(() => getDocument(documentId));
 }
 
 export interface SplitPart {
@@ -3762,130 +4236,172 @@ export async function splitLine(
   parts: SplitPart[],
   actor: Actor = SYSTEM_ACTOR,
 ) {
-  if (parts.length < 2) throw appError(400, "Rozdělení vyžaduje alespoň dvě části.");
-  return db.transaction(async (tx) => {
-    const [line] = await tx
-      .select()
-      .from(billingDocumentLinesTable)
-      .where(
-        and(
-          eq(billingDocumentLinesTable.id, lineId),
-          eq(billingDocumentLinesTable.documentId, documentId),
-        ),
+  if (parts.length < 2)
+    throw appError(400, "Rozdělení vyžaduje alespoň dvě části.");
+  return db
+    .transaction(async (tx) => {
+      await tx.execute(
+        sql`select id from billing_documents where id = ${documentId} for update`,
       );
-    if (!line) throw appError(404, "Položka nenalezena.");
-    if (line.invoicedInvoiceId != null) {
-      throw appError(409, "Položka je již na faktuře a nelze ji rozdělit.");
-    }
-    if (line.parentLineId != null) {
-      throw appError(409, "Rozdělenou položku nelze dále dělit.");
-    }
+      const [document] = await tx
+        .select({ status: billingDocumentsTable.status })
+        .from(billingDocumentsTable)
+        .where(eq(billingDocumentsTable.id, documentId));
+      if (!document) throw appError(404, "Doklad nenalezen.");
+      if (document.status === "approved") {
+        throw appError(
+          409,
+          "Schválený doklad nelze rozdělením měnit. Nejprve jej vraťte ke kontrole.",
+        );
+      }
+      const [line] = await tx
+        .select()
+        .from(billingDocumentLinesTable)
+        .where(
+          and(
+            eq(billingDocumentLinesTable.id, lineId),
+            eq(billingDocumentLinesTable.documentId, documentId),
+          ),
+        );
+      if (!line) throw appError(404, "Položka nenalezena.");
+      if (line.invoicedInvoiceId != null) {
+        throw appError(409, "Položka je již na faktuře a nelze ji rozdělit.");
+      }
+      if (line.parentLineId != null) {
+        throw appError(409, "Rozdělenou položku nelze dále dělit.");
+      }
 
-    const origQty = num(line.quantity);
-    const sumParts = round2(parts.reduce((a, p) => a + num(p.quantity), 0));
-    if (Math.abs(sumParts - round2(origQty)) > 0.01) {
-      throw appError(
-        400,
-        `Součet množství částí (${sumParts}) se musí rovnat původnímu množství (${round2(origQty)}).`,
+      const origQty = num(line.quantity);
+      const sumParts = round2(parts.reduce((a, p) => a + num(p.quantity), 0));
+      if (Math.abs(sumParts - round2(origQty)) > 0.01) {
+        throw appError(
+          400,
+          `Součet množství částí (${sumParts}) se musí rovnat původnímu množství (${round2(origQty)}).`,
+        );
+      }
+
+      const unitPrice = num(line.unitPriceWithoutVat);
+      const vatRate = line.vatRate == null ? null : num(line.vatRate);
+      const baseSort = line.sortOrder;
+
+      // The original line id is about to disappear, so the reconciles below (which
+      // key off the document's *current* line ids) can no longer see this line's
+      // movements. Reverse them explicitly first, or they orphan permanently:
+      //  - the line's own stock receipt (billing_document_line), and
+      //  - any propagated job material's stock issue (material) before its row is
+      //    deleted.
+      await reconcileSourceMovements(
+        tx,
+        "billing_document_line",
+        lineId,
+        null,
+        actor,
       );
-    }
+      const orphanMaterials = await tx
+        .select({ id: materialsTable.id })
+        .from(materialsTable)
+        .where(
+          and(
+            eq(materialsTable.sourceType, MATERIAL_SOURCE_TYPE),
+            eq(materialsTable.sourceId, lineId),
+          ),
+        );
+      for (const m of orphanMaterials) {
+        await reconcileSourceMovements(tx, "material", m.id, null, actor);
+      }
+      const orphanActivityMaterials = await tx
+        .select({ id: activityMaterialsTable.id })
+        .from(activityMaterialsTable)
+        .where(
+          and(
+            eq(activityMaterialsTable.sourceType, MATERIAL_SOURCE_TYPE),
+            eq(activityMaterialsTable.sourceId, lineId),
+          ),
+        );
+      for (const m of orphanActivityMaterials) {
+        await reconcileSourceMovements(
+          tx,
+          "activity_material",
+          m.id,
+          null,
+          actor,
+        );
+      }
 
-    const unitPrice = num(line.unitPriceWithoutVat);
-    const vatRate = line.vatRate == null ? null : num(line.vatRate);
-    const baseSort = line.sortOrder;
+      // Delete the original, insert the parts in its place.
+      await tx
+        .delete(billingDocumentLinesTable)
+        .where(eq(billingDocumentLinesTable.id, lineId));
+      await tx
+        .delete(materialsTable)
+        .where(
+          and(
+            eq(materialsTable.sourceType, MATERIAL_SOURCE_TYPE),
+            eq(materialsTable.sourceId, lineId),
+          ),
+        );
+      await tx
+        .delete(activityMaterialsTable)
+        .where(
+          and(
+            eq(activityMaterialsTable.sourceType, MATERIAL_SOURCE_TYPE),
+            eq(activityMaterialsTable.sourceId, lineId),
+          ),
+        );
 
-    // The original line id is about to disappear, so the reconciles below (which
-    // key off the document's *current* line ids) can no longer see this line's
-    // movements. Reverse them explicitly first, or they orphan permanently:
-    //  - the line's own stock receipt (billing_document_line), and
-    //  - any propagated job material's stock issue (material) before its row is
-    //    deleted.
-    await reconcileSourceMovements(tx, "billing_document_line", lineId, null, actor);
-    const orphanMaterials = await tx
-      .select({ id: materialsTable.id })
-      .from(materialsTable)
-      .where(
-        and(
-          eq(materialsTable.sourceType, MATERIAL_SOURCE_TYPE),
-          eq(materialsTable.sourceId, lineId),
-        ),
-      );
-    for (const m of orphanMaterials) {
-      await reconcileSourceMovements(tx, "material", m.id, null, actor);
-    }
-    const orphanActivityMaterials = await tx
-      .select({ id: activityMaterialsTable.id })
-      .from(activityMaterialsTable)
-      .where(
-        and(
-          eq(activityMaterialsTable.sourceType, MATERIAL_SOURCE_TYPE),
-          eq(activityMaterialsTable.sourceId, lineId),
-        ),
-      );
-    for (const m of orphanActivityMaterials) {
-      await reconcileSourceMovements(tx, "activity_material", m.id, null, actor);
-    }
-
-    // Delete the original, insert the parts in its place.
-    await tx
-      .delete(billingDocumentLinesTable)
-      .where(eq(billingDocumentLinesTable.id, lineId));
-    await tx.delete(materialsTable).where(
-      and(
-        eq(materialsTable.sourceType, MATERIAL_SOURCE_TYPE),
-        eq(materialsTable.sourceId, lineId),
-      ),
-    );
-    await tx.delete(activityMaterialsTable).where(
-      and(
-        eq(activityMaterialsTable.sourceType, MATERIAL_SOURCE_TYPE),
-        eq(activityMaterialsTable.sourceId, lineId),
-      ),
-    );
-
-    const values = parts.map((p, idx) => {
-      const vals = lineValues(
-        documentId,
-        {
-          description: line.description,
-          quantity: num(p.quantity),
-          unit: line.unit,
-          unitPriceWithoutVat: unitPrice,
-          vatRate,
-          lineType: line.lineType,
-        },
-        baseSort,
-      );
-      // Resolve jobId / activityId with mutual exclusion.
-      // Part-level setting takes priority; fall back to the original line's values
-      // only when the part carries neither override.
-      const hasPartJobOrActivity = p.jobId !== undefined || p.activityId !== undefined;
-      const resolvedJobId = hasPartJobOrActivity
-        ? (p.activityId != null ? null : (p.jobId ?? null))
-        : (line.activityId != null ? null : (line.jobId ?? null));
-      const resolvedActivityId = hasPartJobOrActivity
-        ? (p.jobId != null ? null : (p.activityId ?? null))
-        : (line.jobId != null ? null : (line.activityId ?? null));
-      return {
-        ...vals,
-        parentLineId: null,
-        jobId: resolvedJobId,
-        activityId: resolvedActivityId,
-        allocationType:
-          p.allocationType && VALID_ALLOC.has(p.allocationType)
-            ? p.allocationType
-            : line.allocationType,
-        sortOrder: baseSort + idx,
-      };
-    });
-    await tx.insert(billingDocumentLinesTable).values(values);
-    // The original line was replaced; re-sync sourced materials for the doc and
-    // reconcile the document's stock receipts so the new part lines naskladní
-    // (the old line's movements were already reversed above).
-    await syncJobMaterialsForDocument(tx, documentId, actor);
-    await reconcileDocumentStockMovements(tx, documentId, actor);
-    return undefined;
-  }).then(() => getDocument(documentId));
+      const values = parts.map((p, idx) => {
+        const vals = lineValues(
+          documentId,
+          {
+            description: line.description,
+            quantity: num(p.quantity),
+            unit: line.unit,
+            unitPriceWithoutVat: unitPrice,
+            vatRate,
+            lineType: line.lineType,
+          },
+          baseSort,
+        );
+        // Resolve jobId / activityId with mutual exclusion.
+        // Part-level setting takes priority; fall back to the original line's values
+        // only when the part carries neither override.
+        const hasPartJobOrActivity =
+          p.jobId !== undefined || p.activityId !== undefined;
+        const resolvedJobId = hasPartJobOrActivity
+          ? p.activityId != null
+            ? null
+            : (p.jobId ?? null)
+          : line.activityId != null
+            ? null
+            : (line.jobId ?? null);
+        const resolvedActivityId = hasPartJobOrActivity
+          ? p.jobId != null
+            ? null
+            : (p.activityId ?? null)
+          : line.jobId != null
+            ? null
+            : (line.activityId ?? null);
+        return {
+          ...vals,
+          parentLineId: null,
+          jobId: resolvedJobId,
+          activityId: resolvedActivityId,
+          allocationType:
+            p.allocationType && VALID_ALLOC.has(p.allocationType)
+              ? p.allocationType
+              : line.allocationType,
+          sortOrder: baseSort + idx,
+        };
+      });
+      await tx.insert(billingDocumentLinesTable).values(values);
+      // The original line was replaced; re-sync sourced materials for the doc and
+      // reconcile the document's stock receipts so the new part lines naskladní
+      // (the old line's movements were already reversed above).
+      await syncJobMaterialsForDocument(tx, documentId, actor);
+      await reconcileDocumentStockMovements(tx, documentId, actor);
+      return undefined;
+    })
+    .then(() => getDocument(documentId));
 }
 
 // ---------------------------------------------------------------------------
@@ -3898,13 +4414,22 @@ async function resolveSingleAttachmentJobIdTx(
   tx: DbOrTx,
   doc: BillingDocument,
 ): Promise<number | null> {
-  const lookup = async (condition: SQL): Promise<{ found: boolean; jobId: number | null }> => {
+  const lookup = async (
+    condition: SQL,
+  ): Promise<{ found: boolean; jobId: number | null }> => {
     const rows = await tx
       .select({ jobId: attachmentsTable.jobId })
       .from(attachmentsTable)
-      .where(and(inArray(attachmentsTable.type, Array.from(DOKLAD_TYPES)), condition));
+      .where(
+        and(
+          inArray(attachmentsTable.type, Array.from(DOKLAD_TYPES)),
+          condition,
+        ),
+      );
     const jobIds = Array.from(
-      new Set(rows.map((row) => row.jobId).filter((id): id is number => id != null)),
+      new Set(
+        rows.map((row) => row.jobId).filter((id): id is number => id != null),
+      ),
     );
     return {
       found: rows.length > 0,
@@ -3923,7 +4448,9 @@ async function resolveSingleAttachmentJobIdTx(
     if (byUrl.found) return byUrl.jobId;
   }
   if (doc.fileName) {
-    const byFileName = await lookup(eq(attachmentsTable.fileName, doc.fileName));
+    const byFileName = await lookup(
+      eq(attachmentsTable.fileName, doc.fileName),
+    );
     if (byFileName.found) return byFileName.jobId;
   }
   return null;
@@ -3986,7 +4513,11 @@ async function confirmedTargetJobIds(
   doc: BillingDocument,
   opts: { includeOwnLineJobs?: boolean } = {},
 ): Promise<Set<number>> {
-  const jobIds = await directDocumentJobIdsTx(tx, doc, opts.includeOwnLineJobs ?? true);
+  const jobIds = await directDocumentJobIdsTx(
+    tx,
+    doc,
+    opts.includeOwnLineJobs ?? true,
+  );
   const refs = await tx
     .select()
     .from(billingDocumentReferencesTable)
@@ -3995,7 +4526,8 @@ async function confirmedTargetJobIds(
   for (const ref of refs) {
     if (ref.matchConfirmed !== 1 || ref.rejected === 1) continue;
     if (ref.matchedJobId != null) jobIds.add(ref.matchedJobId);
-    if (ref.matchedDocumentId != null) linkedDocumentIds.push(ref.matchedDocumentId);
+    if (ref.matchedDocumentId != null)
+      linkedDocumentIds.push(ref.matchedDocumentId);
   }
   if (linkedDocumentIds.length === 0) return jobIds;
 
@@ -4047,7 +4579,8 @@ export async function syncJobMaterialsForDocument(
   if (!doc) return;
   // An invoice/credit note prices its own lines authoritatively; a delivery note
   // (or other) only provisionally — with no price it is "awaiting invoice".
-  const isInvoiceDoc = doc.docType === "invoice" || doc.docType === "credit_note";
+  const isInvoiceDoc =
+    doc.docType === "invoice" || doc.docType === "credit_note";
 
   // Fallback job for lines that carry no own `jobId` and a document with no
   // header `jobId`: a SINGLE confirmed reference (matchConfirmed=1) is the link,
@@ -4101,7 +4634,9 @@ export async function syncJobMaterialsForDocument(
   // document) must never rewrite their price nor delete them, even though
   // their sourceId still ties them to this document's line.
   const invoicedBySourceId = new Map(
-    existing.filter((m) => m.invoicedInvoiceId != null).map((m) => [m.sourceId, m]),
+    existing
+      .filter((m) => m.invoicedInvoiceId != null)
+      .map((m) => [m.sourceId, m]),
   );
 
   // Only an approved document propagates; otherwise the loop is skipped and any
@@ -4122,7 +4657,10 @@ export async function syncJobMaterialsForDocument(
         const priceNum =
           line.unitPriceWithoutVat == null ? 0 : num(line.unitPriceWithoutVat);
         const hasPrice = priceNum > 0;
-        const warehouseItemId = await resolveWarehouseItemIdByName(tx, line.description);
+        const warehouseItemId = await resolveWarehouseItemIdByName(
+          tx,
+          line.description,
+        );
         const actValues = {
           activityId: line.activityId,
           name: line.description,
@@ -4141,7 +4679,10 @@ export async function syncJobMaterialsForDocument(
             sourceId: line.id,
           })
           .onConflictDoUpdate({
-            target: [activityMaterialsTable.sourceType, activityMaterialsTable.sourceId],
+            target: [
+              activityMaterialsTable.sourceType,
+              activityMaterialsTable.sourceId,
+            ],
             targetWhere: isNotNull(activityMaterialsTable.sourceType),
             set: actValues,
           })
@@ -4173,7 +4714,10 @@ export async function syncJobMaterialsForDocument(
           ? "delivery_note"
           : "awaiting_invoice";
       // Resolve stable FK to warehouse card for unambiguous matches.
-      const warehouseItemId = await resolveWarehouseItemIdByName(tx, line.description);
+      const warehouseItemId = await resolveWarehouseItemIdByName(
+        tx,
+        line.description,
+      );
       const values = {
         jobId,
         name: line.description,
@@ -4221,7 +4765,8 @@ export async function syncJobMaterialsForDocument(
   const toDelete = existing
     .filter(
       (m) =>
-        m.invoicedInvoiceId == null && (m.sourceId == null || !desired.has(m.sourceId)),
+        m.invoicedInvoiceId == null &&
+        (m.sourceId == null || !desired.has(m.sourceId)),
     )
     .map((m) => m.id);
   if (toDelete.length) {
@@ -4238,7 +4783,13 @@ export async function syncJobMaterialsForDocument(
     .map((m) => m.id);
   if (activityToDelete.length) {
     for (const materialId of activityToDelete) {
-      await reconcileSourceMovements(tx, "activity_material", materialId, null, actor);
+      await reconcileSourceMovements(
+        tx,
+        "activity_material",
+        materialId,
+        null,
+        actor,
+      );
     }
     await tx
       .delete(activityMaterialsTable)
@@ -4398,7 +4949,9 @@ export async function propagateInvoicePricesToJobMaterials(
   });
   if (candidateMaterials.length === 0) return empty;
 
-  const materialMatchable = (m: (typeof candidateMaterials)[number]): MatchableLine => {
+  const materialMatchable = (
+    m: (typeof candidateMaterials)[number],
+  ): MatchableLine => {
     const src = m.sourceId != null ? sourceLineById.get(m.sourceId) : undefined;
     return {
       ean: src?.ean ?? null,
@@ -4413,7 +4966,8 @@ export async function propagateInvoicePricesToJobMaterials(
   let filled = 0;
 
   for (const line of invoiceLines) {
-    const lineTargetJobIds = line.jobId != null ? new Set([line.jobId]) : fallbackTargetJobIds;
+    const lineTargetJobIds =
+      line.jobId != null ? new Set([line.jobId]) : fallbackTargetJobIds;
     if (lineTargetJobIds.size !== 1) continue;
     const lineMatchable: MatchableLine = {
       ean: line.ean,
@@ -4422,8 +4976,10 @@ export async function propagateInvoicePricesToJobMaterials(
       quantity: line.quantity == null ? null : num(line.quantity),
     };
 
-    let best: { material: (typeof candidateMaterials)[number]; score: number } | null =
-      null;
+    let best: {
+      material: (typeof candidateMaterials)[number];
+      score: number;
+    } | null = null;
     for (const m of candidateMaterials) {
       if (usedMaterialIds.has(m.id)) continue;
       if (!lineTargetJobIds.has(m.jobId)) continue;
@@ -4753,7 +5309,10 @@ async function assertInvoiceDeliveryNotesReady(
   );
 }
 
-async function assertRebillTargetsReady(tx: DbOrTx, doc: BillingDocument): Promise<void> {
+async function assertRebillTargetsReady(
+  tx: DbOrTx,
+  doc: BillingDocument,
+): Promise<void> {
   const materialLines = (
     await tx
       .select({
@@ -4794,7 +5353,295 @@ async function assertRebillTargetsReady(tx: DbOrTx, doc: BillingDocument): Promi
   }
 }
 
+async function buildApprovedDocumentEvidenceFromDb(
+  tx: DbOrTx,
+  document: BillingDocument,
+  actor: Actor,
+) {
+  const lines = await tx
+    .select()
+    .from(billingDocumentLinesTable)
+    .where(eq(billingDocumentLinesTable.documentId, document.id))
+    .orderBy(billingDocumentLinesTable.sortOrder, billingDocumentLinesTable.id);
+  const files = await tx
+    .select()
+    .from(billingDocumentFilesTable)
+    .where(eq(billingDocumentFilesTable.documentId, document.id))
+    .orderBy(billingDocumentFilesTable.id);
+  const references = await tx
+    .select()
+    .from(billingDocumentReferencesTable)
+    .where(eq(billingDocumentReferencesTable.documentId, document.id))
+    .orderBy(billingDocumentReferencesTable.id);
+  const [latestCompletedExtractionJob] = await tx
+    .select({ id: extractionJobsTable.id })
+    .from(extractionJobsTable)
+    .where(
+      and(
+        eq(extractionJobsTable.documentId, document.id),
+        eq(extractionJobsTable.status, "done"),
+      ),
+    )
+    .orderBy(desc(extractionJobsTable.id))
+    .limit(1);
+  try {
+    return buildApprovedCostDocumentAccountingEvidence({
+      document,
+      lines,
+      files,
+      references,
+      latestCompletedExtractionJobId: latestCompletedExtractionJob?.id ?? null,
+      actor,
+    });
+  } catch (error) {
+    throw appError(
+      409,
+      `Účetní evidenci schválení nelze bezpečně vytvořit: ${error instanceof Error ? error.message : "neznámá chyba"}`,
+    );
+  }
+}
+
+async function buildCorrectedDocumentEvidenceFromDb(
+  tx: DbOrTx,
+  document: BillingDocument,
+  actor: Actor,
+  context: NativeCostDocumentAccountingContext,
+) {
+  const lines = await tx
+    .select()
+    .from(billingDocumentLinesTable)
+    .where(eq(billingDocumentLinesTable.documentId, document.id))
+    .orderBy(billingDocumentLinesTable.sortOrder, billingDocumentLinesTable.id);
+  const files = await tx
+    .select()
+    .from(billingDocumentFilesTable)
+    .where(eq(billingDocumentFilesTable.documentId, document.id))
+    .orderBy(billingDocumentFilesTable.id);
+  const references = await tx
+    .select()
+    .from(billingDocumentReferencesTable)
+    .where(eq(billingDocumentReferencesTable.documentId, document.id))
+    .orderBy(billingDocumentReferencesTable.id);
+  const [latestCompletedExtractionJob] = await tx
+    .select({ id: extractionJobsTable.id })
+    .from(extractionJobsTable)
+    .where(
+      and(
+        eq(extractionJobsTable.documentId, document.id),
+        eq(extractionJobsTable.status, "done"),
+      ),
+    )
+    .orderBy(desc(extractionJobsTable.id))
+    .limit(1);
+  try {
+    return buildCorrectedCostDocumentAccountingEvidence({
+      document,
+      lines,
+      files,
+      references,
+      latestCompletedExtractionJobId: latestCompletedExtractionJob?.id ?? null,
+      actor,
+      targetVersion: context.version,
+      reopenEvent: context.lifecycleEvent,
+    });
+  } catch (error) {
+    throw appError(
+      409,
+      `Účetní correction chain nelze bezpečně vytvořit: ${error instanceof Error ? error.message : "neznámá chyba"}`,
+    );
+  }
+}
+
+type NativeCostDocumentAccountingContext = {
+  version: AccountingDocumentVersionV1;
+  lifecycleEvent: AccountingLifecycleEventV1;
+  lifecycleSequence: bigint;
+  lifecycleSha256: string;
+};
+
+async function loadNativeCostDocumentAccountingContext(
+  tx: DbOrTx,
+  documentId: number,
+): Promise<NativeCostDocumentAccountingContext | null> {
+  const [head] = await tx
+    .select({
+      versionHeadVersion: accountingAggregateHeadsTable.versionHeadVersion,
+      versionHeadId: accountingAggregateHeadsTable.versionHeadId,
+      versionHeadSha256: accountingAggregateHeadsTable.versionHeadSha256,
+      lifecycleHeadSequence:
+        accountingAggregateHeadsTable.lifecycleHeadSequence,
+      lifecycleHeadId: accountingAggregateHeadsTable.lifecycleHeadId,
+      lifecycleHeadSha256: accountingAggregateHeadsTable.lifecycleHeadSha256,
+      paymentHeadSequence: accountingAggregateHeadsTable.paymentHeadSequence,
+      paymentHeadId: accountingAggregateHeadsTable.paymentHeadId,
+      paymentHeadSha256: accountingAggregateHeadsTable.paymentHeadSha256,
+    })
+    .from(accountingAggregateHeadsTable)
+    .where(eq(accountingAggregateHeadsTable.billingDocumentId, documentId))
+    .limit(1);
+  if (!head) return null;
+  if (
+    head.versionHeadVersion === null ||
+    !head.versionHeadId ||
+    !head.versionHeadSha256 ||
+    head.lifecycleHeadSequence === null ||
+    !head.lifecycleHeadId ||
+    !head.lifecycleHeadSha256
+  ) {
+    throw appError(409, "Účetní hlava nákladového dokladu je neúplná.");
+  }
+  if (
+    head.paymentHeadSequence !== null ||
+    head.paymentHeadId !== null ||
+    head.paymentHeadSha256 !== null
+  ) {
+    throw appError(
+      409,
+      "Nákladový doklad obsahuje neočekávanou platební účetní hlavu.",
+    );
+  }
+
+  const [versionRow] = await tx
+    .select()
+    .from(accountingDocumentVersionsTable)
+    .where(eq(accountingDocumentVersionsTable.id, head.versionHeadId))
+    .limit(1);
+  if (!versionRow) {
+    throw appError(409, "Účetní hlava odkazuje na chybějící verzi dokladu.");
+  }
+  const version = accountingVersionFromRow(versionRow);
+  if (
+    version.aggregate.kind !== "incoming-cost-document" ||
+    version.aggregate.id !== String(documentId) ||
+    !new Set(["approved", "correction"]).has(version.purpose) ||
+    version.version !== head.versionHeadVersion.toString() ||
+    version.versionId !== head.versionHeadId ||
+    version.integrity.versionSha256 !== head.versionHeadSha256
+  ) {
+    throw appError(
+      409,
+      "Aktuální účetní verze neodpovídá nákladovému dokladu.",
+    );
+  }
+
+  const [lifecycleRow] = await tx
+    .select({
+      id: accountingLifecycleEventsTable.id,
+      entrySha256: accountingLifecycleEventsTable.entrySha256,
+      canonicalJson: accountingLifecycleEventsTable.canonicalJson,
+    })
+    .from(accountingLifecycleEventsTable)
+    .where(eq(accountingLifecycleEventsTable.id, head.lifecycleHeadId))
+    .limit(1);
+  if (!lifecycleRow) {
+    throw appError(
+      409,
+      "Účetní hlava odkazuje na chybějící lifecycle událost dokladu.",
+    );
+  }
+  const lifecycleValue = verifyCanonicalAccountingLifecycleEntryJsonBytes(
+    lifecycleRow.canonicalJson,
+  );
+  if (!("eventId" in lifecycleValue)) {
+    throw appError(409, "Účetní lifecycle hlava odkazuje na jiný typ důkazu.");
+  }
+  const lifecycleEvent = lifecycleValue as AccountingLifecycleEventV1;
+  if (
+    lifecycleEvent.eventId !== lifecycleRow.id ||
+    lifecycleEvent.integrity.entrySha256 !== lifecycleRow.entrySha256 ||
+    lifecycleEvent.integrity.entrySha256 !== head.lifecycleHeadSha256 ||
+    lifecycleEvent.sequence !== head.lifecycleHeadSequence.toString() ||
+    lifecycleEvent.aggregate.kind !== "incoming-cost-document" ||
+    lifecycleEvent.aggregate.id !== String(documentId) ||
+    lifecycleEvent.aggregate.versionId !== version.versionId
+  ) {
+    throw appError(
+      409,
+      "Účetní lifecycle hlava nákladového dokladu je nekonzistentní.",
+    );
+  }
+  return {
+    version,
+    lifecycleEvent,
+    lifecycleSequence: head.lifecycleHeadSequence,
+    lifecycleSha256: head.lifecycleHeadSha256,
+  };
+}
+
+function requireNativeCostDocumentAccountingContext(
+  context: NativeCostDocumentAccountingContext | null,
+): NativeCostDocumentAccountingContext {
+  if (!context) {
+    throw appError(
+      409,
+      "Doklad nemá nativní účetní evidenci. Nejdříve jej zařaďte do řízeného legacy backfillu.",
+    );
+  }
+  return context;
+}
+
+function assertCostDocumentAccountingFlags(
+  approvalEnabled: boolean,
+  correctionEnabled: boolean,
+): void {
+  if (correctionEnabled && !approvalEnabled) {
+    throw appError(
+      503,
+      "Correction dual-write vyžaduje současně zapnutý approval dual-write.",
+    );
+  }
+}
+
+function assertAccountingWarehousePriceFlags(
+  warehousePriceEnabled: boolean,
+  approvalEnabled: boolean,
+  correctionEnabled: boolean,
+): void {
+  if (warehousePriceEnabled && (!approvalEnabled || !correctionEnabled)) {
+    throw appError(
+      503,
+      "Warehouse-price dual-write requires both approval and correction dual-write.",
+    );
+  }
+}
+
+async function currentApprovedMaterialMatchesVersion(
+  tx: DbOrTx,
+  document: BillingDocument,
+  version: AccountingDocumentVersionV1,
+): Promise<boolean> {
+  const currentEvidence = await buildApprovedDocumentEvidenceFromDb(
+    tx,
+    document,
+    {
+      userId: document.reviewedByUserId,
+      name: "Recorded approver",
+    },
+  );
+  return (
+    canonicalEvidenceJson(currentEvidence.version.snapshot) ===
+      canonicalEvidenceJson(version.snapshot) &&
+    canonicalEvidenceJson(currentEvidence.version.artifacts) ===
+      canonicalEvidenceJson(version.artifacts)
+  );
+}
+
 export async function approveDocument(id: number, actor: Actor) {
+  const accountingDualWriteEnabled =
+    isAccountingApproveDocumentDualWriteEnabled();
+  const accountingCorrectionDualWriteEnabled =
+    isAccountingCostDocumentCorrectionDualWriteEnabled();
+  const accountingWarehousePriceDualWriteEnabled =
+    isAccountingWarehousePriceDualWriteEnabled();
+  assertCostDocumentAccountingFlags(
+    accountingDualWriteEnabled,
+    accountingCorrectionDualWriteEnabled,
+  );
+  assertAccountingWarehousePriceFlags(
+    accountingWarehousePriceDualWriteEnabled,
+    accountingDualWriteEnabled,
+    accountingCorrectionDualWriteEnabled,
+  );
   await db.transaction(async (tx) => {
     await tx.execute(
       sql`select id from billing_documents where id = ${id} for update`,
@@ -4804,6 +5651,54 @@ export async function approveDocument(id: number, actor: Actor) {
       .from(billingDocumentsTable)
       .where(eq(billingDocumentsTable.id, id));
     if (!doc) throw appError(404, "Doklad nenalezen.");
+    let correctionContext: NativeCostDocumentAccountingContext | null = null;
+    if (accountingDualWriteEnabled) {
+      const accountingContext = await loadNativeCostDocumentAccountingContext(
+        tx,
+        id,
+      );
+      if (doc.status === "approved") {
+        const current =
+          requireNativeCostDocumentAccountingContext(accountingContext);
+        if (
+          !new Set(["approved", "correction_linked"]).has(
+            current.lifecycleEvent.eventType,
+          )
+        ) {
+          throw appError(
+            409,
+            "Schválený stav dokladu neodpovídá jeho poslední lifecycle události.",
+          );
+        }
+        if (
+          await currentApprovedMaterialMatchesVersion(tx, doc, current.version)
+        ) {
+          return;
+        }
+        throw appError(
+          409,
+          "Obsah schváleného dokladu se od neměnné účetní verze liší. Je nutný řízený correction chain.",
+        );
+      }
+      if (accountingContext) {
+        if (!accountingCorrectionDualWriteEnabled) {
+          throw appError(
+            409,
+            "Doklad už má neměnnou účetní verzi. Další změna vyžaduje zapnutý řízený correction chain.",
+          );
+        }
+        if (
+          !new Set(["needs_review", "reviewed"]).has(doc.status) ||
+          accountingContext.lifecycleEvent.eventType !== "review_reopened"
+        ) {
+          throw appError(
+            409,
+            "Nové schválení musí navazovat na poslední řízené vrácení dokladu ke kontrole.",
+          );
+        }
+        correctionContext = accountingContext;
+      }
+    }
     // Task #685 (risk #5): a document already merged away as a duplicate
     // (status="duplicate", primaryDocumentId set) must never be approved
     // directly — its lines are dead weight kept only for traceability. If it
@@ -4835,16 +5730,19 @@ export async function approveDocument(id: number, actor: Actor) {
     await assertCompleteBeforeTerminalAction(tx, doc, "approve");
     await assertInvoiceDeliveryNotesReady(tx, doc);
     await assertRebillTargetsReady(tx, doc);
-    await tx
+    const approvalNow = new Date();
+    const [approvedDocument] = await tx
       .update(billingDocumentsTable)
       .set({
         status: "approved",
         ...(attachmentJobId != null ? { jobId: attachmentJobId } : {}),
         reviewedByUserId: actor.userId,
-        reviewedAt: new Date(),
-        updatedAt: new Date(),
+        reviewedAt: approvalNow,
+        updatedAt: approvalNow,
       })
-      .where(eq(billingDocumentsTable.id, id));
+      .where(eq(billingDocumentsTable.id, id))
+      .returning();
+    if (!approvedDocument) throw appError(404, "Doklad nenalezen.");
     // Document approval is the single human confirmation step. Preserve the
     // legacy line flag for compatibility, but do not require a second click on
     // every default-rebill material row.
@@ -4862,6 +5760,34 @@ export async function approveDocument(id: number, actor: Actor) {
           eq(billingDocumentLinesTable.allocationType, REBILL_ALLOC),
         ),
       );
+    if (accountingDualWriteEnabled) {
+      const adapter = createAccountingPersistenceDbAdapter(tx);
+      if (correctionContext) {
+        const correction = await buildCorrectedDocumentEvidenceFromDb(
+          tx,
+          approvedDocument,
+          actor,
+          correctionContext,
+        );
+        await appendAccountingCorrectionBundleInTransaction(adapter, {
+          sourceVersion: correction.correctionVersion,
+          targetVersion: correction.targetVersion,
+          relation: correction.relation,
+          lifecycleEvent: correction.event,
+        });
+      } else {
+        const evidence = await buildApprovedDocumentEvidenceFromDb(
+          tx,
+          approvedDocument,
+          actor,
+        );
+        await appendInitialAccountingVersionInTransaction(
+          adapter,
+          evidence.version,
+          evidence.event,
+        );
+      }
+    }
     // Fill prices onto pre-existing (delivery-note) materials when this is a
     // confirmed-linked invoice; capture which lines were consumed so sync does
     // not also create a duplicate invoice-sourced material for them.
@@ -4896,9 +5822,14 @@ export async function approveDocument(id: number, actor: Actor) {
     if (doc.issueDate && priceUpdates.length > 0) {
       await backfillOutMovementCostPrices(
         tx,
-        priceUpdates.map((u) => ({ warehouseItemId: u.warehouseItemId, purchasePrice: u.newPrice })),
+        priceUpdates.map((u) => ({
+          warehouseItemId: u.warehouseItemId,
+          purchasePrice: u.newPrice,
+        })),
         new Date(doc.issueDate),
-        doc.documentNumber ? `dokladu ${doc.documentNumber}` : "schváleného nákladového dokladu",
+        doc.documentNumber
+          ? `dokladu ${doc.documentNumber}`
+          : "schváleného nákladového dokladu",
       );
     }
     await tx.insert(auditLogTable).values({
@@ -4928,6 +5859,34 @@ export interface WarehousePriceUpdate {
   matchedBy: "code" | "name" | "created";
 }
 
+type WarehousePricePlan = {
+  line: BillingDocumentLine;
+  item: typeof warehouseItemsTable.$inferSelect;
+  newPrice: number;
+  matchedBy: "code" | "name" | "created";
+};
+
+function warehousePricePlanStillMatches(
+  line: BillingDocumentLine,
+  item: typeof warehouseItemsTable.$inferSelect,
+  matchedBy: WarehousePricePlan["matchedBy"],
+): boolean {
+  if (matchedBy === "created") return true;
+  if (matchedBy === "name") {
+    return (
+      item.name.trim().toLowerCase() === line.description.trim().toLowerCase()
+    );
+  }
+  const lineCodes = new Set(
+    [line.supplierSku, line.ean]
+      .filter((value): value is string => Boolean(value))
+      .map((value) => value.trim().toLowerCase()),
+  );
+  return [item.code, item.ean, item.supplierSku]
+    .filter((value): value is string => Boolean(value))
+    .some((value) => lineCodes.has(value.trim().toLowerCase()));
+}
+
 /**
  * Shared core (transaction-aware): push the purchase prices from an APPROVED
  * document's product lines onto the matching warehouse items, enrich the item's
@@ -4943,10 +5902,15 @@ export interface WarehousePriceUpdate {
  * movement — only item metadata + history.
  */
 async function applyWarehouseCatalogAndPriceHistory(
-  tx: DbOrTx,
+  tx: DbTransaction,
   documentId: number,
   actor: Actor,
-): Promise<{ updated: WarehousePriceUpdate[]; skipped: number; created: number }> {
+  accountingContext: NativeCostDocumentAccountingContext | null = null,
+): Promise<{
+  updated: WarehousePriceUpdate[];
+  skipped: number;
+  created: number;
+}> {
   const [doc] = await tx
     .select()
     .from(billingDocumentsTable)
@@ -4955,11 +5919,31 @@ async function applyWarehouseCatalogAndPriceHistory(
   let skipped = 0;
   let created = 0;
   if (!doc || doc.status !== "approved") return { updated, skipped, created };
+  const accountingSnapshot = accountingContext?.version.snapshot ?? null;
+  if (
+    accountingSnapshot &&
+    accountingSnapshot.kind !== "incoming-cost-document"
+  ) {
+    throw appError(
+      409,
+      "Warehouse-price dual-write requires an incoming cost-document version.",
+    );
+  }
+  if (
+    accountingSnapshot?.document.currency !== undefined &&
+    accountingSnapshot.document.currency !== "CZK"
+  ) {
+    throw appError(
+      409,
+      "Warehouse-price dual-write cannot write a currency-less legacy current price for a non-CZK source. No implicit FX conversion is allowed.",
+    );
+  }
 
   const lines = await tx
     .select()
     .from(billingDocumentLinesTable)
-    .where(eq(billingDocumentLinesTable.documentId, documentId));
+    .where(eq(billingDocumentLinesTable.documentId, documentId))
+    .orderBy(billingDocumentLinesTable.sortOrder, billingDocumentLinesTable.id);
 
   const items = await tx.select().from(warehouseItemsTable);
   const byCode = new Map<string, (typeof items)[number]>();
@@ -4971,6 +5955,7 @@ async function applyWarehouseCatalogAndPriceHistory(
     byName.set(it.name.trim().toLowerCase(), it);
   }
 
+  const plans: WarehousePricePlan[] = [];
   for (const line of lines) {
     // Skip fees, discounts and non-material lines — they are not stock items.
     if (line.feeType || line.lineType !== "material") {
@@ -4987,27 +5972,7 @@ async function applyWarehouseCatalogAndPriceHistory(
       matchedBy = "name";
     }
     const newPrice = round2(num(line.unitPriceWithoutVat));
-    let oldPrice: number | null = null;
-    if (item) {
-      oldPrice = item.purchasePrice == null ? null : num(item.purchasePrice);
-      // Fill catalogue fields only when empty (never clobber operator data).
-      const catalogue: Record<string, string> = {};
-      if (!item.ean && line.ean) catalogue.ean = line.ean;
-      if (!item.supplierSku && line.supplierSku)
-        catalogue.supplierSku = line.supplierSku;
-      if (!item.supplierName && doc.supplierName)
-        catalogue.supplierName = doc.supplierName;
-      if (!item.supplierIc && doc.supplierIc)
-        catalogue.supplierIc = doc.supplierIc;
-      if (!item.manufacturer && line.manufacturer)
-        catalogue.manufacturer = line.manufacturer;
-      if (!item.normalizedName)
-        catalogue.normalizedName = normalizeItemName(item.name);
-      await tx
-        .update(warehouseItemsTable)
-        .set({ purchasePrice: String(newPrice), ...catalogue })
-        .where(eq(warehouseItemsTable.id, item.id));
-    } else {
+    if (!item) {
       // No matching warehouse card yet — auto-create one so "Aktualizovat ceny"
       // also zakládá chybějící skladové karty instead of silently skipping the
       // line. Catalogue card only: quantity stays 0 and NO stock movement is
@@ -5022,7 +5987,7 @@ async function applyWarehouseCatalogAndPriceHistory(
           code,
           unit: line.unit ?? null,
           quantity: "0",
-          purchasePrice: String(newPrice),
+          purchasePrice: null,
           ean: line.ean ?? null,
           supplierSku: line.supplierSku ?? null,
           supplierName: doc.supplierName ?? null,
@@ -5042,6 +6007,71 @@ async function applyWarehouseCatalogAndPriceHistory(
       byName.set(createdItem.name.trim().toLowerCase(), createdItem);
       created++;
     }
+    plans.push({ line, item, newPrice, matchedBy });
+  }
+
+  plans.sort(
+    (left, right) =>
+      left.item.id - right.item.id || left.line.id - right.line.id,
+  );
+  if (accountingContext) {
+    for (const warehouseItemId of [
+      ...new Set(plans.map((plan) => plan.item.id)),
+    ]) {
+      await assertWarehousePriceCurrentProjectionParity(tx, warehouseItemId);
+    }
+  }
+
+  for (const plan of plans) {
+    const { line, item, newPrice, matchedBy } = plan;
+    const [lockedItem] = await tx
+      .select()
+      .from(warehouseItemsTable)
+      .where(eq(warehouseItemsTable.id, item.id))
+      .limit(1);
+    if (
+      !lockedItem ||
+      !warehousePricePlanStillMatches(line, lockedItem, matchedBy)
+    ) {
+      throw appError(
+        409,
+        "Warehouse catalogue match changed while the reviewed price write was waiting for its lock.",
+      );
+    }
+    const oldPrice =
+      lockedItem.purchasePrice === null ? null : num(lockedItem.purchasePrice);
+    if (accountingContext) {
+      const sourceLine = accountingSnapshot!.lines.find(
+        (candidate) => candidate.sourceLineId === String(line.id),
+      );
+      if (
+        !sourceLine ||
+        sourceLine.lineType !== "material" ||
+        canonicalAccountingDecimal(String(newPrice)) !==
+          sourceLine.unitPriceWithoutVat
+      ) {
+        throw appError(
+          409,
+          "Warehouse-price source precision cannot be represented by the legacy two-decimal projection without loss.",
+        );
+      }
+    }
+    const catalogue: Record<string, string> = {};
+    if (!lockedItem.ean && line.ean) catalogue.ean = line.ean;
+    if (!lockedItem.supplierSku && line.supplierSku)
+      catalogue.supplierSku = line.supplierSku;
+    if (!lockedItem.supplierName && doc.supplierName)
+      catalogue.supplierName = doc.supplierName;
+    if (!lockedItem.supplierIc && doc.supplierIc)
+      catalogue.supplierIc = doc.supplierIc;
+    if (!lockedItem.manufacturer && line.manufacturer)
+      catalogue.manufacturer = line.manufacturer;
+    if (!lockedItem.normalizedName)
+      catalogue.normalizedName = normalizeItemName(lockedItem.name);
+    await tx
+      .update(warehouseItemsTable)
+      .set({ purchasePrice: String(newPrice), ...catalogue })
+      .where(eq(warehouseItemsTable.id, item.id));
     // Mark the line as having flowed to stock for audit.
     await tx
       .update(billingDocumentLinesTable)
@@ -5068,7 +6098,9 @@ async function applyWarehouseCatalogAndPriceHistory(
       .values(historyValues)
       .onConflictDoUpdate({
         target: warehousePriceHistoryTable.billingDocumentLineId,
-        targetWhere: isNotNull(warehousePriceHistoryTable.billingDocumentLineId),
+        targetWhere: isNotNull(
+          warehousePriceHistoryTable.billingDocumentLineId,
+        ),
         set: {
           warehouseItemId: historyValues.warehouseItemId,
           billingDocumentId: historyValues.billingDocumentId,
@@ -5082,14 +6114,67 @@ async function applyWarehouseCatalogAndPriceHistory(
           documentDate: historyValues.documentDate,
         },
       });
+    if (accountingContext) {
+      const [withdrawalRow] =
+        accountingContext.version.purpose === "correction"
+          ? await tx
+              .select()
+              .from(accountingWarehousePriceObservationsTable)
+              .where(
+                and(
+                  eq(
+                    accountingWarehousePriceObservationsTable.billingDocumentId,
+                    documentId,
+                  ),
+                  eq(
+                    accountingWarehousePriceObservationsTable.sourceLineId,
+                    line.id,
+                  ),
+                  eq(
+                    accountingWarehousePriceObservationsTable.warehouseItemId,
+                    item.id,
+                  ),
+                  eq(
+                    accountingWarehousePriceObservationsTable.transition,
+                    "withdrawn",
+                  ),
+                ),
+              )
+              .orderBy(desc(accountingWarehousePriceObservationsTable.sequence))
+              .limit(1)
+          : [];
+      await appendAccountingWarehousePriceForVersionInTransaction(
+        createAccountingPersistenceDbAdapter(tx),
+        {
+          version: accountingContext.version,
+          lifecycleEvent: accountingContext.lifecycleEvent,
+          warehouseItemId: item.id,
+          sourceLineId: line.id,
+          matchMode: matchedBy,
+          supersedesWithdrawal: withdrawalRow
+            ? verifyAccountingWarehousePriceObservation(
+                accountingWarehousePriceObservationFromRow(withdrawalRow),
+              )
+            : null,
+        },
+      );
+    }
     updated.push({
       lineId: line.id,
       warehouseItemId: item.id,
-      itemName: item.name,
+      itemName: lockedItem.name,
       oldPrice,
       newPrice,
       matchedBy,
     });
+  }
+
+  if (accountingContext) {
+    for (const warehouseItemId of [
+      ...new Set(plans.map((plan) => plan.item.id)),
+    ]) {
+      await assertWarehousePriceCurrentProjectionParity(tx, warehouseItemId);
+    }
   }
 
   if (updated.length) {
@@ -5115,23 +6200,70 @@ async function applyWarehouseCatalogAndPriceHistory(
 /**
  * Explicit admin action: push purchase prices + catalogue + price history from
  * an approved document to the warehouse. Wraps the shared core in a transaction
- * and enforces the approved-status precondition (the automatic call on approve
- * runs the same core inside the approve transaction).
+ * and enforces the approved-status precondition. When the accounting price
+ * plane is enabled, this explicit action is the only caller that appends the
+ * approved/correction observation; approval itself does not silently mutate
+ * warehouse catalogue prices.
  */
 export async function updateWarehousePricesFromDocument(
   documentId: number,
   actor: Actor,
-): Promise<{ updated: WarehousePriceUpdate[]; skipped: number; created: number }> {
-  const [doc] = await db
-    .select()
-    .from(billingDocumentsTable)
-    .where(eq(billingDocumentsTable.id, documentId));
-  if (!doc) throw appError(404, "Doklad nenalezen.");
-  if (doc.status !== "approved") {
-    throw appError(409, "Ceny do skladu lze přenést až po schválení dokladu.");
-  }
+): Promise<{
+  updated: WarehousePriceUpdate[];
+  skipped: number;
+  created: number;
+}> {
+  const warehousePriceEnabled = isAccountingWarehousePriceDualWriteEnabled();
+  const approvalEnabled = isAccountingApproveDocumentDualWriteEnabled();
+  const correctionEnabled =
+    isAccountingCostDocumentCorrectionDualWriteEnabled();
+  assertAccountingWarehousePriceFlags(
+    warehousePriceEnabled,
+    approvalEnabled,
+    correctionEnabled,
+  );
   return db.transaction(async (tx) => {
-    const result = await applyWarehouseCatalogAndPriceHistory(tx, documentId, actor);
+    await tx.execute(
+      sql`select id from billing_documents where id = ${documentId} for update`,
+    );
+    const [doc] = await tx
+      .select()
+      .from(billingDocumentsTable)
+      .where(eq(billingDocumentsTable.id, documentId));
+    if (!doc) throw appError(404, "Doklad nenalezen.");
+    if (doc.status !== "approved") {
+      throw appError(
+        409,
+        "Ceny do skladu lze přenést až po schválení dokladu.",
+      );
+    }
+    let accountingContext: NativeCostDocumentAccountingContext | null = null;
+    if (warehousePriceEnabled) {
+      accountingContext = requireNativeCostDocumentAccountingContext(
+        await loadNativeCostDocumentAccountingContext(tx, documentId),
+      );
+      if (
+        !new Set(["approved", "correction_linked"]).has(
+          accountingContext.lifecycleEvent.eventType,
+        ) ||
+        !(await currentApprovedMaterialMatchesVersion(
+          tx,
+          doc,
+          accountingContext.version,
+        ))
+      ) {
+        throw appError(
+          409,
+          "Warehouse-price write is not bound to the current immutable approved document version.",
+        );
+      }
+    }
+    const result = await applyWarehouseCatalogAndPriceHistory(
+      tx,
+      documentId,
+      actor,
+      accountingContext,
+    );
     // "Aktualizovat ceny" can be the first thing to run price propagation for a
     // document that was approved before its job link was confirmed (or before
     // a price correction) — keep job material pricing consistent with what
@@ -5196,11 +6328,491 @@ async function assertDeliveryNoteCanLeaveApproved(
   }
 }
 
+function sameCanonicalWarehousePrice(
+  left: string | null,
+  right: string | null,
+): boolean {
+  if (left === null || right === null) return left === right;
+  return canonicalAccountingDecimal(left) === canonicalAccountingDecimal(right);
+}
+
+async function assertWarehousePriceCurrentProjectionParity(
+  tx: DbTransaction,
+  warehouseItemId: number,
+): Promise<void> {
+  const adapter = createAccountingPersistenceDbAdapter(tx);
+  const stream =
+    await adapter.lockAndLoadWarehousePriceObservationStreamForProjection(
+      String(warehouseItemId),
+    );
+  const head = await adapter.loadWarehousePriceProjectionHeadForUpdate(
+    String(warehouseItemId),
+  );
+  const [item] = await tx
+    .select({ purchasePrice: warehouseItemsTable.purchasePrice })
+    .from(warehouseItemsTable)
+    .where(eq(warehouseItemsTable.id, warehouseItemId))
+    .limit(1);
+  const [latestHistory] = await tx
+    .select({
+      purchasePrice: warehousePriceHistoryTable.purchasePrice,
+      currency: warehousePriceHistoryTable.currency,
+    })
+    .from(warehousePriceHistoryTable)
+    .where(eq(warehousePriceHistoryTable.warehouseItemId, warehouseItemId))
+    .orderBy(
+      desc(warehousePriceHistoryTable.createdAt),
+      desc(warehousePriceHistoryTable.id),
+    )
+    .limit(1);
+  if (!item) {
+    throw appError(409, "Warehouse-price projection item is missing.");
+  }
+  if (stream.length === 0) {
+    if (head !== null) {
+      throw appError(
+        409,
+        "Warehouse-price projection exists without an immutable observation stream.",
+      );
+    }
+    if (item.purchasePrice !== null || latestHistory) {
+      throw appError(
+        409,
+        "Warehouse item has legacy price state without a native projection. A reviewed bootstrap is required before dual-write.",
+      );
+    }
+    return;
+  }
+  if (head === null) {
+    throw appError(
+      409,
+      "Warehouse-price observation stream is missing its explicit-currency projection head.",
+    );
+  }
+  try {
+    verifyAccountingWarehousePriceProjectionHeadBinding(head, stream);
+  } catch (error) {
+    throw appError(
+      409,
+      `Warehouse-price projection binding is invalid: ${error instanceof Error ? error.message : "unknown error"}`,
+    );
+  }
+  const effective = head.effectivePrice;
+  if (effective === null) {
+    if (item.purchasePrice !== null || latestHistory) {
+      throw appError(
+        409,
+        "Legacy warehouse price remains after the native projection became empty.",
+      );
+    }
+    return;
+  }
+  if (
+    !latestHistory ||
+    latestHistory.currency !== effective.currency ||
+    !sameCanonicalWarehousePrice(
+      latestHistory.purchasePrice,
+      effective.purchasePrice,
+    ) ||
+    !sameCanonicalWarehousePrice(item.purchasePrice, effective.purchasePrice)
+  ) {
+    throw appError(
+      409,
+      "Legacy warehouse current/history does not match the immutable explicit-currency projection.",
+    );
+  }
+}
+
+type WarehousePriceReopenCoverage = {
+  targets: AccountingWarehousePriceObservationV1[];
+  warehouseItemIds: number[];
+};
+
+async function loadWarehousePriceReopenCoverage(
+  tx: DbTransaction,
+  documentId: number,
+  context: NativeCostDocumentAccountingContext,
+  warehousePriceEnabled: boolean,
+): Promise<WarehousePriceReopenCoverage> {
+  const lineRows = await tx
+    .select({ id: billingDocumentLinesTable.id })
+    .from(billingDocumentLinesTable)
+    .where(eq(billingDocumentLinesTable.documentId, documentId));
+  const lineIds = lineRows.map((row) => row.id);
+  const historyWhere = lineIds.length
+    ? or(
+        eq(warehousePriceHistoryTable.billingDocumentId, documentId),
+        inArray(warehousePriceHistoryTable.billingDocumentLineId, lineIds),
+      )!
+    : eq(warehousePriceHistoryTable.billingDocumentId, documentId);
+  const historyRows = await tx
+    .select({
+      warehouseItemId: warehousePriceHistoryTable.warehouseItemId,
+      billingDocumentId: warehousePriceHistoryTable.billingDocumentId,
+      billingDocumentLineId: warehousePriceHistoryTable.billingDocumentLineId,
+      purchasePrice: warehousePriceHistoryTable.purchasePrice,
+      currency: warehousePriceHistoryTable.currency,
+    })
+    .from(warehousePriceHistoryTable)
+    .where(historyWhere);
+  const observationRows = await tx
+    .select()
+    .from(accountingWarehousePriceObservationsTable)
+    .where(
+      and(
+        eq(
+          accountingWarehousePriceObservationsTable.billingDocumentId,
+          documentId,
+        ),
+        eq(
+          accountingWarehousePriceObservationsTable.accountingVersionId,
+          context.version.versionId,
+        ),
+        inArray(accountingWarehousePriceObservationsTable.transition, [
+          "observed",
+          "corrected",
+        ]),
+      ),
+    );
+  if (!warehousePriceEnabled) {
+    if (historyRows.length > 0 || observationRows.length > 0) {
+      throw appError(
+        409,
+        "Doklad už ovlivnil nákupní cenu skladu. Reopen vyžaduje aktivní append-only warehouse-price correction path.",
+      );
+    }
+    return { targets: [], warehouseItemIds: [] };
+  }
+  if (
+    context.version.snapshot.kind !== "incoming-cost-document" ||
+    context.version.snapshot.document.currency !== "CZK"
+  ) {
+    throw appError(
+      409,
+      "Warehouse-price correction cannot project a non-CZK source into the currency-less legacy current column.",
+    );
+  }
+  const targets = observationRows.map(
+    (row) =>
+      verifyAccountingWarehousePriceObservation(
+        accountingWarehousePriceObservationFromRow(row),
+      ),
+  );
+  if (targets.length !== historyRows.length) {
+    throw appError(
+      409,
+      "Legacy warehouse-price rows are not fully covered by the current immutable accounting version.",
+    );
+  }
+  const historyByLine = new Map(
+    historyRows.map((row) => [row.billingDocumentLineId, row]),
+  );
+  if (
+    historyByLine.size !== historyRows.length ||
+    historyRows.some(
+      (row) =>
+        row.billingDocumentId !== documentId ||
+        row.billingDocumentLineId === null,
+    )
+  ) {
+    throw appError(
+      409,
+      "Legacy warehouse-price coverage contains an ambiguous document or line binding.",
+    );
+  }
+  for (const target of targets) {
+    const history = historyByLine.get(Number(target.source.sourceLineId));
+    if (
+      !history ||
+      history.warehouseItemId !== Number(target.warehouseItemId) ||
+      history.currency !== target.currency ||
+      !sameCanonicalWarehousePrice(history.purchasePrice, target.purchasePrice)
+    ) {
+      throw appError(
+        409,
+        "Legacy warehouse-price row does not match its immutable source observation.",
+      );
+    }
+  }
+  if (targets.length > 0) {
+    const [existingWithdrawal] = await tx
+      .select({ id: accountingWarehousePriceObservationsTable.id })
+      .from(accountingWarehousePriceObservationsTable)
+      .where(
+        and(
+          eq(accountingWarehousePriceObservationsTable.transition, "withdrawn"),
+          inArray(
+            accountingWarehousePriceObservationsTable.supersedesObservationId,
+            targets.map((target) => target.observationId),
+          ),
+        ),
+      )
+      .limit(1);
+    if (existingWithdrawal) {
+      throw appError(
+        409,
+        "The current approved document price was already withdrawn.",
+      );
+    }
+  }
+  const warehouseItemIds = [
+    ...new Set(targets.map((target) => Number(target.warehouseItemId))),
+  ].sort((left, right) => left - right);
+  for (const warehouseItemId of warehouseItemIds) {
+    await assertWarehousePriceCurrentProjectionParity(tx, warehouseItemId);
+  }
+  targets.sort(
+    (left, right) =>
+      Number(left.warehouseItemId) - Number(right.warehouseItemId) ||
+      Number(left.source.sourceLineId) - Number(right.source.sourceLineId),
+  );
+  return { targets, warehouseItemIds };
+}
+
+async function loadCostDocumentDispositionFacts(
+  tx: DbOrTx,
+  document: BillingDocument,
+): Promise<CostDocumentDispositionFacts> {
+  const [lineFacts] = await tx
+    .select({
+      count: sql<number>`count(*)::int`,
+      invoicedCount: sql<number>`count(*) filter (where ${billingDocumentLinesTable.invoicedInvoiceId} is not null)::int`,
+    })
+    .from(billingDocumentLinesTable)
+    .where(eq(billingDocumentLinesTable.documentId, document.id));
+  const [referenceFacts] = await tx
+    .select({
+      count: sql<number>`count(*)::int`,
+      linkedCount: sql<number>`count(*) filter (where ${billingDocumentReferencesTable.matchedAttachmentId} is not null or ${billingDocumentReferencesTable.matchedDocumentId} is not null or ${billingDocumentReferencesTable.matchedJobId} is not null)::int`,
+    })
+    .from(billingDocumentReferencesTable)
+    .where(eq(billingDocumentReferencesTable.documentId, document.id));
+  const [fileFacts] = await tx
+    .select({ count: sql<number>`count(*)::int` })
+    .from(billingDocumentFilesTable)
+    .where(eq(billingDocumentFilesTable.documentId, document.id));
+  const [head] = await tx
+    .select({ id: accountingAggregateHeadsTable.id })
+    .from(accountingAggregateHeadsTable)
+    .where(eq(accountingAggregateHeadsTable.billingDocumentId, document.id))
+    .limit(1);
+  const [priceHistory] = await tx
+    .select({ id: warehousePriceHistoryTable.id })
+    .from(warehousePriceHistoryTable)
+    .where(eq(warehousePriceHistoryTable.billingDocumentId, document.id))
+    .limit(1);
+  const [mergeMember] = await tx
+    .select({ id: billingDocumentMergeMembersTable.id })
+    .from(billingDocumentMergeMembersTable)
+    .where(eq(billingDocumentMergeMembersTable.documentId, document.id))
+    .limit(1);
+
+  return {
+    status: document.status,
+    reviewedAtPresent: document.reviewedAt !== null,
+    reviewedByPresent: document.reviewedByUserId !== null,
+    aiExtractionPresent:
+      document.aiRawJson !== null ||
+      document.aiModel !== null ||
+      document.aiExtractedAt !== null,
+    documentTypeDecisionPresent:
+      document.docTypeConfirmedByUserId !== null ||
+      document.docTypeConfirmedAt !== null ||
+      new Set(["admin", "user"]).has(document.docTypeSource),
+    domainLinkPresent:
+      document.customerId !== null ||
+      document.jobId !== null ||
+      Number(referenceFacts?.linkedCount ?? 0) > 0,
+    mergeDecisionPresent:
+      document.primaryDocumentId !== null ||
+      document.mergeGroupId !== null ||
+      mergeMember !== undefined,
+    lineCount: Number(lineFacts?.count ?? 0),
+    referenceCount: Number(referenceFacts?.count ?? 0),
+    accountingHeadPresent: head !== undefined,
+    warehousePriceHistoryPresent: priceHistory !== undefined,
+    invoicedLinePresent: Number(lineFacts?.invoicedCount ?? 0) > 0,
+    sourceArtifactCount: Number(fileFacts?.count ?? 0),
+  };
+}
+
+async function buildReviewedRejectionEvidenceFromDb(
+  tx: DbOrTx,
+  document: BillingDocument,
+  actor: Actor,
+  reasonCode: ReviewedCostDocumentRejectionReasonCode,
+  reason: string,
+  recordedAt: Date,
+) {
+  const lines = await tx
+    .select()
+    .from(billingDocumentLinesTable)
+    .where(eq(billingDocumentLinesTable.documentId, document.id))
+    .orderBy(billingDocumentLinesTable.sortOrder, billingDocumentLinesTable.id);
+  const files = await tx
+    .select()
+    .from(billingDocumentFilesTable)
+    .where(eq(billingDocumentFilesTable.documentId, document.id))
+    .orderBy(billingDocumentFilesTable.id);
+  const references = await tx
+    .select()
+    .from(billingDocumentReferencesTable)
+    .where(eq(billingDocumentReferencesTable.documentId, document.id))
+    .orderBy(billingDocumentReferencesTable.id);
+  const latestCompletedExtractionJobs = await tx
+    .select({ id: extractionJobsTable.id })
+    .from(extractionJobsTable)
+    .where(
+      and(
+        eq(extractionJobsTable.documentId, document.id),
+        eq(extractionJobsTable.status, "done"),
+      ),
+    )
+    .orderBy(desc(extractionJobsTable.id))
+    .limit(1);
+  try {
+    return buildReviewedCostDocumentRejectionEvidence({
+      document,
+      lines,
+      files,
+      references,
+      latestCompletedExtractionJobId:
+        latestCompletedExtractionJobs[0]?.id ?? null,
+      actor,
+      reasonCode,
+      reasonText: reason,
+      recordedAt,
+    });
+  } catch (error) {
+    throw appError(
+      409,
+      `Neměnnou evidenci zamítnutí nelze bezpečně vytvořit: ${error instanceof Error ? error.message : "neznámá chyba"}`,
+    );
+  }
+}
+
+export async function disposeCostDocument(
+  id: number,
+  input: CostDocumentDispositionInput,
+  actor: Actor,
+) {
+  const rejectionEnabled = isAccountingCostDocumentRejectionDualWriteEnabled();
+  const approvalEnabled = isAccountingApproveDocumentDualWriteEnabled();
+  if (rejectionEnabled && !approvalEnabled) {
+    throw appError(
+      503,
+      "Reviewed-rejection evidence requires the accounting approval persistence plane.",
+    );
+  }
+
+  await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select id from billing_documents where id = ${id} for update`,
+    );
+    const [document] = await tx
+      .select()
+      .from(billingDocumentsTable)
+      .where(eq(billingDocumentsTable.id, id));
+    if (!document) throw appError(404, "Doklad nenalezen.");
+    if (document.status === "ignored") {
+      throw appError(409, "Doklad už byl vyřazen.");
+    }
+    const facts = await loadCostDocumentDispositionFacts(tx, document);
+    const decision = evaluateCostDocumentDisposition(
+      input.mode,
+      input.reasonCode as CostDocumentDispositionReasonCode,
+      facts,
+    );
+    if (!decision.allowed) {
+      throw appError(409, decision.message);
+    }
+
+    const recordedAt = new Date();
+    if (input.mode === "reviewed_rejection") {
+      if (!rejectionEnabled) {
+        throw appError(
+          503,
+          "Neměnná evidence zamítnutí zatím není aktivovaná.",
+        );
+      }
+      const evidence = await buildReviewedRejectionEvidenceFromDb(
+        tx,
+        document,
+        actor,
+        input.reasonCode,
+        input.reason,
+        recordedAt,
+      );
+      const adapter = createAccountingPersistenceDbAdapter(tx);
+      await appendInitialAccountingVersionInTransaction(
+        adapter,
+        evidence.version,
+        evidence.event,
+      );
+      await appendAccountingReasonArtifactInTransaction(
+        adapter,
+        evidence.reasonArtifact,
+        evidence.event,
+      );
+    }
+
+    await tx
+      .update(billingDocumentsTable)
+      .set({
+        status: "ignored",
+        reviewedByUserId:
+          input.mode === "reviewed_rejection" ? actor.userId : null,
+        reviewedAt: input.mode === "reviewed_rejection" ? recordedAt : null,
+        updatedAt: recordedAt,
+      })
+      .where(eq(billingDocumentsTable.id, id));
+    await tx.insert(auditLogTable).values({
+      actorUserId: actor.userId,
+      actorName: actor.name,
+      action:
+        input.mode === "early_discard"
+          ? "cost_document_early_discarded"
+          : "cost_document_reviewed_rejected",
+      entityType: "billing_documents",
+      entityId: id,
+      summary: `${input.mode}:${input.reasonCode}`,
+      method: "POST",
+      path: `/billing/documents/${id}/disposition`,
+    });
+  });
+  return getDocument(id);
+}
+
 export async function setDocumentStatus(
   id: number,
   status: "needs_review" | "reviewed" | "ignored" | "duplicate",
   actor: Actor,
+  reason: string | null = null,
 ) {
+  const accountingDualWriteEnabled =
+    isAccountingApproveDocumentDualWriteEnabled();
+  const accountingCorrectionDualWriteEnabled =
+    isAccountingCostDocumentCorrectionDualWriteEnabled();
+  const accountingWarehousePriceDualWriteEnabled =
+    isAccountingWarehousePriceDualWriteEnabled();
+  if (
+    status === "ignored" &&
+    isAccountingCostDocumentRejectionDualWriteEnabled()
+  ) {
+    throw appError(
+      409,
+      "Přímé označení dokladu jako ignorovaného je po aktivaci evidence zakázané. Použijte explicitní early discard nebo reviewed rejection.",
+    );
+  }
+  assertCostDocumentAccountingFlags(
+    accountingDualWriteEnabled,
+    accountingCorrectionDualWriteEnabled,
+  );
+  assertAccountingWarehousePriceFlags(
+    accountingWarehousePriceDualWriteEnabled,
+    accountingDualWriteEnabled,
+    accountingCorrectionDualWriteEnabled,
+  );
   const [doc] = await db
     .select()
     .from(billingDocumentsTable)
@@ -5221,6 +6833,98 @@ export async function setDocumentStatus(
       .from(billingDocumentsTable)
       .where(eq(billingDocumentsTable.id, id));
     if (!currentDoc) throw appError(404, "Doklad nenalezen.");
+    if (currentDoc.status === status) return;
+    let warehousePriceReopenCoverage: WarehousePriceReopenCoverage = {
+      targets: [],
+      warehouseItemIds: [],
+    };
+    if (accountingDualWriteEnabled) {
+      const accountingContext = await loadNativeCostDocumentAccountingContext(
+        tx,
+        id,
+      );
+      if (currentDoc.status === "approved") {
+        const current =
+          requireNativeCostDocumentAccountingContext(accountingContext);
+        if (!accountingCorrectionDualWriteEnabled) {
+          throw appError(
+            409,
+            "Schválený doklad s neměnnou účetní verzí nelze znovu otevřít bez zapnutého řízeného correction chainu.",
+          );
+        }
+        if (status !== "needs_review") {
+          throw appError(
+            409,
+            "Schválený doklad lze nejprve pouze vrátit ke kontrole s uvedením důvodu.",
+          );
+        }
+        if (
+          !new Set(["approved", "correction_linked"]).has(
+            current.lifecycleEvent.eventType,
+          )
+        ) {
+          throw appError(
+            409,
+            "Schválený stav dokladu neodpovídá jeho poslední lifecycle události.",
+          );
+        }
+        warehousePriceReopenCoverage = await loadWarehousePriceReopenCoverage(
+          tx,
+          id,
+          current,
+          accountingWarehousePriceDualWriteEnabled,
+        );
+        let reopenEvidence;
+        try {
+          reopenEvidence = buildCostDocumentReviewReopenEvidence({
+            currentVersion: current.version,
+            nextLifecycleSequence: current.lifecycleSequence + 1n,
+            previousLifecycleEventSha256: current.lifecycleSha256,
+            actor,
+            reason: reason ?? "",
+            recordedAt: new Date(),
+          });
+        } catch (error) {
+          throw appError(
+            400,
+            `Uveďte platný důvod vrácení dokladu ke kontrole: ${error instanceof Error ? error.message : "neznámá chyba"}`,
+          );
+        }
+        const accountingAdapter = createAccountingPersistenceDbAdapter(tx);
+        await appendAccountingLifecycleEventInTransaction(
+          accountingAdapter,
+          reopenEvidence.event,
+          current.version,
+        );
+        await appendAccountingReasonArtifactInTransaction(
+          accountingAdapter,
+          reopenEvidence.reasonArtifact,
+          reopenEvidence.event,
+        );
+        for (const target of warehousePriceReopenCoverage.targets) {
+          await appendAccountingWarehousePriceWithdrawalInTransaction(
+            accountingAdapter,
+            {
+              version: current.version,
+              lifecycleEvent: reopenEvidence.event,
+              target,
+            },
+          );
+        }
+      } else if (accountingContext) {
+        if (
+          !accountingCorrectionDualWriteEnabled ||
+          accountingContext.lifecycleEvent.eventType !== "review_reopened" ||
+          !new Set(["needs_review", "reviewed"]).has(currentDoc.status) ||
+          !new Set(["needs_review", "reviewed"]).has(status)
+        ) {
+          throw appError(
+            409,
+            "Rozpracovanou účetní opravu lze pouze ponechat ke kontrole, označit jako zkontrolovanou nebo znovu schválit.",
+          );
+        }
+      }
+    }
     await assertDeliveryNoteCanLeaveApproved(tx, currentDoc);
     if (status === "ignored") {
       await assertCompleteBeforeTerminalAction(tx, currentDoc, "ignore");
@@ -5261,6 +6965,9 @@ export async function setDocumentStatus(
         id,
         lines.map((l) => l.id),
       );
+      for (const warehouseItemId of warehousePriceReopenCoverage.warehouseItemIds) {
+        await assertWarehousePriceCurrentProjectionParity(tx, warehouseItemId);
+      }
     }
     if (currentDoc.status === "approved") {
       // Reconcile job materials only when leaving "approved". Open documents
@@ -5270,6 +6977,16 @@ export async function setDocumentStatus(
       // Reverse warehouse receipts only when leaving "approved" (storno příjmu).
       await reconcileDocumentStockMovements(tx, id, actor);
     }
+    await tx.insert(auditLogTable).values({
+      actorUserId: actor.userId,
+      actorName: actor.name,
+      action: "cost_document_status_changed",
+      entityType: "billing_documents",
+      entityId: id,
+      summary: `status:${currentDoc.status}->${status}`,
+      method: "POST",
+      path: `/billing/documents/${id}/status`,
+    });
   });
   return getDocument(id);
 }
@@ -5303,9 +7020,12 @@ async function removeWarehousePriceHistoryForDocument(
     deletedPricesByItem.set(row.warehouseItemId, prices);
   }
 
-  await tx
-    .delete(warehousePriceHistoryTable)
-    .where(inArray(warehousePriceHistoryTable.id, rows.map((r) => r.id)));
+  await tx.delete(warehousePriceHistoryTable).where(
+    inArray(
+      warehousePriceHistoryTable.id,
+      rows.map((r) => r.id),
+    ),
+  );
 
   for (const [warehouseItemId, deletedPrices] of deletedPricesByItem) {
     const [item] = await tx
@@ -5324,13 +7044,18 @@ async function removeWarehousePriceHistoryForDocument(
       .select({ purchasePrice: warehousePriceHistoryTable.purchasePrice })
       .from(warehousePriceHistoryTable)
       .where(eq(warehousePriceHistoryTable.warehouseItemId, warehouseItemId))
-      .orderBy(desc(warehousePriceHistoryTable.createdAt), desc(warehousePriceHistoryTable.id))
+      .orderBy(
+        desc(warehousePriceHistoryTable.createdAt),
+        desc(warehousePriceHistoryTable.id),
+      )
       .limit(1);
 
     await tx
       .update(warehouseItemsTable)
       .set({
-        purchasePrice: latest ? String(round2(num(latest.purchasePrice))) : null,
+        purchasePrice: latest
+          ? String(round2(num(latest.purchasePrice)))
+          : null,
       })
       .where(eq(warehouseItemsTable.id, warehouseItemId));
   }
@@ -5350,22 +7075,30 @@ export interface RequeueExtractionOptions {
   force?: boolean;
 }
 
-export async function requeueExtraction(id: number, options: RequeueExtractionOptions = {}) {
+export async function requeueExtraction(
+  id: number,
+  options: RequeueExtractionOptions = {},
+) {
   const [doc] = await db
     .select()
     .from(billingDocumentsTable)
     .where(eq(billingDocumentsTable.id, id));
   if (!doc) throw appError(404, "Doklad nenalezen.");
   if (options.force && EXTRACTION_REQUEUE_TERMINAL_STATUSES.has(doc.status)) {
-    throw appError(409, "Doklad je ve finálním stavu a hromadná AI analýza jej nepřepíše.");
+    throw appError(
+      409,
+      "Doklad je ve finálním stavu a hromadná AI analýza jej nepřepíše.",
+    );
   }
   const [active] = await db
     .select({ id: extractionJobsTable.id, status: extractionJobsTable.status })
     .from(extractionJobsTable)
-    .where(and(
-      eq(extractionJobsTable.documentId, id),
-      inArray(extractionJobsTable.status, ["queued", "running"]),
-    ))
+    .where(
+      and(
+        eq(extractionJobsTable.documentId, id),
+        inArray(extractionJobsTable.status, ["queued", "running"]),
+      ),
+    )
     .orderBy(desc(extractionJobsTable.id))
     .limit(1);
 
@@ -5422,23 +7155,24 @@ type LockedPropagatedMaterialCandidate = {
   documentId: number;
 };
 
-export async function requeueAllExtractions(actor: Actor): Promise<RequeueAllExtractionsResult> {
+export async function requeueAllExtractions(
+  actor: Actor,
+): Promise<RequeueAllExtractionsResult> {
   return db.transaction(async (tx) => {
-    const docs = await tx
+    const docs = (await tx
       .select({
         id: billingDocumentsTable.id,
         status: billingDocumentsTable.status,
       })
       .from(billingDocumentsTable)
-      .orderBy(billingDocumentsTable.id) as RequeueDocumentCandidate[];
+      .orderBy(billingDocumentsTable.id)) as RequeueDocumentCandidate[];
 
-    const activeJobs = await tx
+    const activeJobs = (await tx
       .select({ documentId: extractionJobsTable.documentId })
       .from(extractionJobsTable)
-      .where(inArray(extractionJobsTable.status, ["queued", "running"])) as Pick<
-        ActiveExtractionJobCandidate,
-        "documentId"
-      >[];
+      .where(
+        inArray(extractionJobsTable.status, ["queued", "running"]),
+      )) as Pick<ActiveExtractionJobCandidate, "documentId">[];
     const activeDocumentIds = new Set(activeJobs.map((job) => job.documentId));
 
     const idsToQueue: number[] = [];
@@ -5500,18 +7234,22 @@ export interface ReanalyzeJobAttachmentDocumentsResult {
 export async function reanalyzeJobAttachmentDocuments(
   actor: Actor,
 ): Promise<ReanalyzeJobAttachmentDocumentsResult> {
-  const dokladAttachments = (
-    await db
-      .select({
-        jobId: attachmentsTable.jobId,
-        url: attachmentsTable.url,
-      })
-      .from(attachmentsTable)
-      .where(inArray(attachmentsTable.type, Array.from(DOKLAD_TYPES)))
-  ) as JobAttachmentDocumentCandidate[];
-  const storedDokladAttachments = dokladAttachments.filter((att) => att.url?.startsWith("/objects/"));
+  const dokladAttachments = (await db
+    .select({
+      jobId: attachmentsTable.jobId,
+      url: attachmentsTable.url,
+    })
+    .from(attachmentsTable)
+    .where(
+      inArray(attachmentsTable.type, Array.from(DOKLAD_TYPES)),
+    )) as JobAttachmentDocumentCandidate[];
+  const storedDokladAttachments = dokladAttachments.filter((att) =>
+    att.url?.startsWith("/objects/"),
+  );
 
-  const jobIds = Array.from(new Set(storedDokladAttachments.map((att) => att.jobId)));
+  const jobIds = Array.from(
+    new Set(storedDokladAttachments.map((att) => att.jobId)),
+  );
   let created = 0;
   let skippedAttachments = 0;
   for (const jobId of jobIds) {
@@ -5521,16 +7259,16 @@ export async function reanalyzeJobAttachmentDocuments(
   }
 
   const queueResult = await db.transaction(async (tx) => {
-    const docs = await tx
+    const docs = (await tx
       .select({
         id: billingDocumentsTable.id,
         status: billingDocumentsTable.status,
       })
       .from(billingDocumentsTable)
       .where(eq(billingDocumentsTable.source, "job_attachment"))
-      .orderBy(billingDocumentsTable.id) as RequeueDocumentCandidate[];
+      .orderBy(billingDocumentsTable.id)) as RequeueDocumentCandidate[];
 
-    const activeJobs = await tx
+    const activeJobs = (await tx
       .select({
         id: extractionJobsTable.id,
         documentId: extractionJobsTable.documentId,
@@ -5538,18 +7276,25 @@ export async function reanalyzeJobAttachmentDocuments(
         force: extractionJobsTable.force,
       })
       .from(extractionJobsTable)
-      .where(inArray(extractionJobsTable.status, ["queued", "running"])) as ActiveExtractionJobCandidate[];
-    const activeByDocumentId = new Map<number, ActiveExtractionJobCandidate[]>();
+      .where(
+        inArray(extractionJobsTable.status, ["queued", "running"]),
+      )) as ActiveExtractionJobCandidate[];
+    const activeByDocumentId = new Map<
+      number,
+      ActiveExtractionJobCandidate[]
+    >();
     for (const job of activeJobs) {
       const jobs = activeByDocumentId.get(job.documentId) ?? [];
       jobs.push(job);
       activeByDocumentId.set(job.documentId, jobs);
     }
-    const lockedLines = await tx
+    const lockedLines = (await tx
       .select({ documentId: billingDocumentLinesTable.documentId })
       .from(billingDocumentLinesTable)
-      .where(isNotNull(billingDocumentLinesTable.invoicedInvoiceId)) as LockedBillingDocumentLineCandidate[];
-    const lockedMaterials = await tx
+      .where(
+        isNotNull(billingDocumentLinesTable.invoicedInvoiceId),
+      )) as LockedBillingDocumentLineCandidate[];
+    const lockedMaterials = (await tx
       .select({ documentId: billingDocumentLinesTable.documentId })
       .from(materialsTable)
       .innerJoin(
@@ -5561,7 +7306,7 @@ export async function reanalyzeJobAttachmentDocuments(
           eq(materialsTable.sourceType, MATERIAL_SOURCE_TYPE),
           isNotNull(materialsTable.invoicedInvoiceId),
         ),
-      ) as LockedPropagatedMaterialCandidate[];
+      )) as LockedPropagatedMaterialCandidate[];
     const lockedDocumentIds = new Set([
       ...lockedLines.map((line) => line.documentId),
       ...lockedMaterials.map((material) => material.documentId),
@@ -5639,28 +7384,54 @@ export async function reanalyzeJobAttachmentDocuments(
 }
 
 export async function deleteDocument(id: number, actor: Actor) {
-  const [doc] = await db
-    .select()
-    .from(billingDocumentsTable)
-    .where(eq(billingDocumentsTable.id, id));
-  if (!doc) throw appError(404, "Doklad nenalezen.");
-  const [invoiced] = await db
-    .select({ id: billingDocumentLinesTable.id })
-    .from(billingDocumentLinesTable)
-    .where(
-      and(
-        eq(billingDocumentLinesTable.documentId, id),
-        ne(billingDocumentLinesTable.invoicedInvoiceId, 0),
-      ),
-    )
-    .limit(1);
-  if (invoiced) {
-    throw appError(409, "Doklad má položky na faktuře a nelze jej smazat.");
-  }
+  const accountingDualWriteEnabled =
+    isAccountingApproveDocumentDualWriteEnabled();
+  const accountingCorrectionDualWriteEnabled =
+    isAccountingCostDocumentCorrectionDualWriteEnabled();
+  assertCostDocumentAccountingFlags(
+    accountingDualWriteEnabled,
+    accountingCorrectionDualWriteEnabled,
+  );
   // Atomic: remove propagated job materials, delete the document (cascading its
   // lines), and audit — all or nothing. Materials must go first while the lines
   // still exist (materials reference lines by id, not via FK).
   await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select id from billing_documents where id = ${id} for update`,
+    );
+    const [doc] = await tx
+      .select()
+      .from(billingDocumentsTable)
+      .where(eq(billingDocumentsTable.id, id));
+    if (!doc) throw appError(404, "Doklad nenalezen.");
+    if (doc.status === "approved") {
+      throw appError(
+        409,
+        "Schválený doklad nelze smazat. Nejprve jej vraťte ke kontrole.",
+      );
+    }
+    if (
+      accountingDualWriteEnabled &&
+      (await loadNativeCostDocumentAccountingContext(tx, id))
+    ) {
+      throw appError(
+        409,
+        "Doklad už má neměnnou účetní evidenci a nelze jej smazat. Opravu dokončete novou verzí nebo použijte budoucí append-only abandon postup.",
+      );
+    }
+    const [invoiced] = await tx
+      .select({ id: billingDocumentLinesTable.id })
+      .from(billingDocumentLinesTable)
+      .where(
+        and(
+          eq(billingDocumentLinesTable.documentId, id),
+          ne(billingDocumentLinesTable.invoicedInvoiceId, 0),
+        ),
+      )
+      .limit(1);
+    if (invoiced) {
+      throw appError(409, "Doklad má položky na faktuře a nelze jej smazat.");
+    }
     const lines = await tx
       .select({ id: billingDocumentLinesTable.id })
       .from(billingDocumentLinesTable)
@@ -5669,7 +7440,13 @@ export async function deleteDocument(id: number, actor: Actor) {
     // Reverse the warehouse receipts of this document's stock lines (storno
     // příjmu) — append reversing movements, never delete ledger history.
     for (const lineId of lineIds) {
-      await reconcileSourceMovements(tx, "billing_document_line", lineId, null, actor);
+      await reconcileSourceMovements(
+        tx,
+        "billing_document_line",
+        lineId,
+        null,
+        actor,
+      );
     }
     // Reverse + remove the propagated job materials (and their stock issues).
     const propagated = lineIds.length
@@ -5687,9 +7464,12 @@ export async function deleteDocument(id: number, actor: Actor) {
       await reconcileSourceMovements(tx, "material", m.id, null, actor);
     }
     if (propagated.length) {
-      await tx
-        .delete(materialsTable)
-        .where(inArray(materialsTable.id, propagated.map((m) => m.id)));
+      await tx.delete(materialsTable).where(
+        inArray(
+          materialsTable.id,
+          propagated.map((m) => m.id),
+        ),
+      );
     }
     const propagatedActivity = lineIds.length
       ? await tx
@@ -5703,12 +7483,21 @@ export async function deleteDocument(id: number, actor: Actor) {
           )
       : [];
     for (const m of propagatedActivity) {
-      await reconcileSourceMovements(tx, "activity_material", m.id, null, actor);
+      await reconcileSourceMovements(
+        tx,
+        "activity_material",
+        m.id,
+        null,
+        actor,
+      );
     }
     if (propagatedActivity.length) {
-      await tx
-        .delete(activityMaterialsTable)
-        .where(inArray(activityMaterialsTable.id, propagatedActivity.map((m) => m.id)));
+      await tx.delete(activityMaterialsTable).where(
+        inArray(
+          activityMaterialsTable.id,
+          propagatedActivity.map((m) => m.id),
+        ),
+      );
     }
     // Remove purchase-price history written by this document before the
     // document/line FKs are nulled by ON DELETE SET NULL. If the warehouse
@@ -5718,7 +7507,9 @@ export async function deleteDocument(id: number, actor: Actor) {
     // Roll back any prices this document filled onto OTHER documents' materials
     // (delivery-note fills) so a deleted invoice never leaves a stale price.
     await revertInvoicePricePropagation(tx, id, actor);
-    await tx.delete(billingDocumentsTable).where(eq(billingDocumentsTable.id, id));
+    await tx
+      .delete(billingDocumentsTable)
+      .where(eq(billingDocumentsTable.id, id));
     await tx.insert(auditLogTable).values({
       actorUserId: actor.userId,
       actorName: actor.name,
@@ -5736,7 +7527,13 @@ export async function deleteDocument(id: number, actor: Actor) {
 // Analyze a job's attachments → cost documents
 // ---------------------------------------------------------------------------
 
-const DOKLAD_TYPES = new Set(["document", "invoice", "receipt", "delivery_note", "credit_note"]);
+const DOKLAD_TYPES = new Set([
+  "document",
+  "invoice",
+  "receipt",
+  "delivery_note",
+  "credit_note",
+]);
 
 // Namespace for the Postgres advisory lock keyed by (class, jobId) that
 // serializes concurrent "Analyzovat doklady" runs for the same job (e.g. a
@@ -5824,7 +7621,10 @@ export async function analyzeJobDocuments(jobId: number, actor: Actor) {
       sql`select pg_advisory_xact_lock(${ANALYZE_JOB_DOCUMENTS_LOCK_CLASS}, ${jobId})`,
     );
 
-    const [job] = await tx.select().from(jobsTable).where(eq(jobsTable.id, jobId));
+    const [job] = await tx
+      .select()
+      .from(jobsTable)
+      .where(eq(jobsTable.id, jobId));
     if (!job) throw appError(404, "Zakázka nenalezena.");
 
     const attachments = await tx
@@ -5854,7 +7654,10 @@ export async function analyzeJobDocuments(jobId: number, actor: Actor) {
       if (existing) {
         await tx
           .update(attachmentsTable)
-          .set({ billingDocumentId: existing.id, pageIndex: att.pageIndex ?? 0 })
+          .set({
+            billingDocumentId: existing.id,
+            pageIndex: att.pageIndex ?? 0,
+          })
           .where(eq(attachmentsTable.id, att.id));
         await linkExistingDocumentToJobAttachmentTx(
           tx,
@@ -5894,7 +7697,10 @@ export async function analyzeJobDocuments(jobId: number, actor: Actor) {
         if (duplicateId != null) {
           await tx
             .update(attachmentsTable)
-            .set({ billingDocumentId: duplicateId, pageIndex: att.pageIndex ?? 0 })
+            .set({
+              billingDocumentId: duplicateId,
+              pageIndex: att.pageIndex ?? 0,
+            })
             .where(eq(attachmentsTable.id, att.id));
         }
         skipped++;
@@ -5902,7 +7708,10 @@ export async function analyzeJobDocuments(jobId: number, actor: Actor) {
       }
       await tx
         .update(attachmentsTable)
-        .set({ billingDocumentId: result.document.id, pageIndex: att.pageIndex ?? 0 })
+        .set({
+          billingDocumentId: result.document.id,
+          pageIndex: att.pageIndex ?? 0,
+        })
         .where(eq(attachmentsTable.id, att.id));
       created.push(result.document);
     }
@@ -5925,24 +7734,36 @@ export async function mergeJobDocumentPages(
   const attachments = await db
     .select()
     .from(attachmentsTable)
-    .where(and(
-      eq(attachmentsTable.jobId, jobId),
-      inArray(attachmentsTable.id, orderedAttachmentIds),
-    ));
+    .where(
+      and(
+        eq(attachmentsTable.jobId, jobId),
+        inArray(attachmentsTable.id, orderedAttachmentIds),
+      ),
+    );
   if (attachments.length !== orderedAttachmentIds.length) {
     throw appError(404, "Některá vybraná stránka nebyla v zakázce nalezena.");
   }
-  const byId = new Map(attachments.map((attachment) => [attachment.id, attachment]));
+  const byId = new Map(
+    attachments.map((attachment) => [attachment.id, attachment]),
+  );
   const ordered = orderedAttachmentIds.map((id) => byId.get(id)!);
   if (ordered.some((attachment) => !DOKLAD_TYPES.has(attachment.type))) {
-    throw appError(400, "Sloučit lze pouze účetní doklady, nikoli fotodokumentaci.");
+    throw appError(
+      400,
+      "Sloučit lze pouze účetní doklady, nikoli fotodokumentaci.",
+    );
   }
   if (ordered.some((attachment) => attachment.billingDocumentId == null)) {
-    throw appError(409, "Některou stránku se nepodařilo připravit k AI analýze.");
+    throw appError(
+      409,
+      "Některou stránku se nepodařilo připravit k AI analýze.",
+    );
   }
   return mergeDocumentPages(
     {
-      orderedDocumentIds: ordered.map((attachment) => attachment.billingDocumentId!),
+      orderedDocumentIds: ordered.map(
+        (attachment) => attachment.billingDocumentId!,
+      ),
       orderedAttachmentIds,
     },
     actor,
@@ -6182,7 +8003,10 @@ export interface ApplyAiSuggestionOptions {
 }
 
 /** Only fill a header field from AI when the document doesn't already have one. */
-function fillIfEmpty<T>(current: T | null, suggestion: T | null | undefined): T | null {
+function fillIfEmpty<T>(
+  current: T | null,
+  suggestion: T | null | undefined,
+): T | null {
   if (current != null && current !== ("" as unknown as T)) return current;
   return suggestion ?? null;
 }
@@ -6192,7 +8016,9 @@ function fillFromAi<T>(
   suggestion: T | null | undefined,
   replaceExisting: boolean,
 ): T | null {
-  return replaceExisting ? (suggestion ?? null) : fillIfEmpty(current, suggestion);
+  return replaceExisting
+    ? (suggestion ?? null)
+    : fillIfEmpty(current, suggestion);
 }
 
 async function cleanupBeforeForcedAiLineReplacement(
@@ -6207,7 +8033,13 @@ async function cleanupBeforeForcedAiLineReplacement(
   await syncJobMaterialsForDocument(tx, documentId, actor);
   await reconcileDocumentStockMovements(tx, documentId, actor);
   for (const lineId of lineIds) {
-    await reconcileSourceMovements(tx, "billing_document_line", lineId, null, actor);
+    await reconcileSourceMovements(
+      tx,
+      "billing_document_line",
+      lineId,
+      null,
+      actor,
+    );
   }
 }
 
@@ -6219,6 +8051,13 @@ async function cleanupBeforeForcedAiLineReplacement(
  * response, confidence and model name are stored for audit, and any warnings
  * (incl. the low-confidence flag) are merged into the document's warnings.
  */
+const AI_SUGGESTION_TERMINAL_STATUSES = new Set([
+  "approved",
+  "ignored",
+  "reviewed",
+  "merged",
+]);
+
 export async function applyAiSuggestion(
   documentId: number,
   suggestion: AiSuggestionInput,
@@ -6237,6 +8076,15 @@ export async function applyAiSuggestion(
       .where(eq(billingDocumentsTable.id, documentId));
     if (!doc) throw appError(404, "Doklad nenalezen.");
     const replaceExisting = options.replaceExisting === true;
+    if (
+      AI_SUGGESTION_TERMINAL_STATUSES.has(doc.status) ||
+      (doc.status === "duplicate" && !replaceExisting)
+    ) {
+      throw appError(
+        409,
+        "Doklad je v terminálním stavu a AI návrh jej nesmí přepsat.",
+      );
+    }
     const actor = SYSTEM_ACTOR;
 
     const existingLines = await tx
@@ -6246,7 +8094,10 @@ export async function applyAiSuggestion(
       })
       .from(billingDocumentLinesTable)
       .where(eq(billingDocumentLinesTable.documentId, documentId));
-    if (replaceExisting && existingLines.some((line) => line.invoicedInvoiceId != null)) {
+    if (
+      replaceExisting &&
+      existingLines.some((line) => line.invoicedInvoiceId != null)
+    ) {
       throw appError(
         409,
         "Doklad má položky použité ve faktuře. AI analýzu nelze vynuceně přepsat.",
@@ -6312,7 +8163,7 @@ export async function applyAiSuggestion(
       ? doc.docType
       : typeConflict
         ? "unknown"
-        : detectedDocType ?? doc.declaredDocType ?? doc.docType;
+        : (detectedDocType ?? doc.declaredDocType ?? doc.docType);
     const docTypeSource = typeWasConfirmed
       ? "admin"
       : typeConflict
@@ -6336,31 +8187,67 @@ export async function applyAiSuggestion(
         docTypeSource,
         primaryDocumentId: replaceExisting ? null : doc.primaryDocumentId,
         mergeGroupId: replaceExisting ? null : doc.mergeGroupId,
-        supplierName: fillFromAi(doc.supplierName, suggestion.supplierName, replaceExisting),
-        supplierIc: fillFromAi(doc.supplierIc, suggestion.supplierIc, replaceExisting),
-        supplierDic: fillFromAi(doc.supplierDic, suggestion.supplierDic, replaceExisting),
-        supplierAddress: fillFromAi(doc.supplierAddress, suggestion.supplierAddress, replaceExisting),
-        documentNumber: fillFromAi(doc.documentNumber, suggestion.documentNumber, replaceExisting),
-        variableSymbol: fillFromAi(doc.variableSymbol, suggestion.variableSymbol, replaceExisting),
-        issueDate: fillFromAi(doc.issueDate, suggestion.issueDate, replaceExisting),
-        taxableSupplyDate: fillFromAi(doc.taxableSupplyDate, suggestion.taxableSupplyDate, replaceExisting),
+        supplierName: fillFromAi(
+          doc.supplierName,
+          suggestion.supplierName,
+          replaceExisting,
+        ),
+        supplierIc: fillFromAi(
+          doc.supplierIc,
+          suggestion.supplierIc,
+          replaceExisting,
+        ),
+        supplierDic: fillFromAi(
+          doc.supplierDic,
+          suggestion.supplierDic,
+          replaceExisting,
+        ),
+        supplierAddress: fillFromAi(
+          doc.supplierAddress,
+          suggestion.supplierAddress,
+          replaceExisting,
+        ),
+        documentNumber: fillFromAi(
+          doc.documentNumber,
+          suggestion.documentNumber,
+          replaceExisting,
+        ),
+        variableSymbol: fillFromAi(
+          doc.variableSymbol,
+          suggestion.variableSymbol,
+          replaceExisting,
+        ),
+        issueDate: fillFromAi(
+          doc.issueDate,
+          suggestion.issueDate,
+          replaceExisting,
+        ),
+        taxableSupplyDate: fillFromAi(
+          doc.taxableSupplyDate,
+          suggestion.taxableSupplyDate,
+          replaceExisting,
+        ),
         dueDate: fillFromAi(doc.dueDate, suggestion.dueDate, replaceExisting),
-        currency: replaceExisting ? (suggestion.currency || "CZK") : (doc.currency || suggestion.currency || "CZK"),
+        currency: replaceExisting
+          ? suggestion.currency || "CZK"
+          : doc.currency || suggestion.currency || "CZK",
         subtotalWithoutVat:
           replaceExisting || doc.subtotalWithoutVat == null
-            ? (suggestion.subtotalWithoutVat != null
-                ? String(round2(suggestion.subtotalWithoutVat))
-                : null)
+            ? suggestion.subtotalWithoutVat != null
+              ? String(round2(suggestion.subtotalWithoutVat))
+              : null
             : doc.subtotalWithoutVat,
         totalVat:
           replaceExisting || doc.totalVat == null
-            ? (suggestion.totalVat != null ? String(round2(suggestion.totalVat)) : null)
+            ? suggestion.totalVat != null
+              ? String(round2(suggestion.totalVat))
+              : null
             : doc.totalVat,
         totalWithVat:
           replaceExisting || doc.totalWithVat == null
-            ? (suggestion.totalWithVat != null
-                ? String(round2(suggestion.totalWithVat))
-                : null)
+            ? suggestion.totalWithVat != null
+              ? String(round2(suggestion.totalWithVat))
+              : null
             : doc.totalWithVat,
         warnings,
         aiRawJson: suggestion.rawJson,
@@ -6436,7 +8323,9 @@ export async function applyAiSuggestion(
         .from(billingDocumentReferencesTable)
         .where(eq(billingDocumentReferencesTable.documentId, documentId));
       const seen = new Set(
-        existingRefs.map((r) => logicalReferenceKey(r.referenceType, r.referenceNumber)),
+        existingRefs.map((r) =>
+          logicalReferenceKey(r.referenceType, r.referenceNumber),
+        ),
       );
       const toInsert = suggestion.relatedDocuments
         .filter((r) => r.referenceNumber.trim())
@@ -6528,7 +8417,11 @@ const OPEN_DOC_STATUSES = ["uploaded", "needs_review", "reviewed"] as const;
 // Shared helper: batch-load all warehouse items into lookup maps
 // ---------------------------------------------------------------------------
 
-type WarehouseLookupItem = { id: number; name: string; purchasePrice: string | null };
+type WarehouseLookupItem = {
+  id: number;
+  name: string;
+  purchasePrice: string | null;
+};
 
 async function loadWarehouseLookupMaps(): Promise<{
   byEan: Map<string, WarehouseLookupItem>;
@@ -6563,7 +8456,11 @@ function matchLineToWarehouse(
     supplierSku: string | null;
     description: string;
   },
-  maps: { byEan: Map<string, WarehouseLookupItem>; bySku: Map<string, WarehouseLookupItem>; byNorm: Map<string, WarehouseLookupItem> },
+  maps: {
+    byEan: Map<string, WarehouseLookupItem>;
+    bySku: Map<string, WarehouseLookupItem>;
+    byNorm: Map<string, WarehouseLookupItem>;
+  },
 ): WarehouseLookupItem | null {
   if (line.ean) {
     const m = maps.byEan.get(line.ean);
@@ -6594,30 +8491,47 @@ function computeReasons(
   confirmedReferenceJobId: number | null,
   warehouseMatch: WarehouseLookupItem | null,
   unitPrice: number,
-): { reasons: ReviewReason[]; priceChangePercent: number | null; previousPrice: number | null } {
+): {
+  reasons: ReviewReason[];
+  priceChangePercent: number | null;
+  previousPrice: number | null;
+} {
   let previousPrice: number | null = null;
   let priceChangePercent: number | null = null;
   if (warehouseMatch?.purchasePrice != null) {
     previousPrice = num(warehouseMatch.purchasePrice);
     if (previousPrice > 0 && unitPrice > 0) {
-      priceChangePercent = round2(((unitPrice - previousPrice) / previousPrice) * 100);
+      priceChangePercent = round2(
+        ((unitPrice - previousPrice) / previousPrice) * 100,
+      );
     }
   }
 
   const isMaterial = line.lineType === "material" && !line.feeType;
-  const hasEffectiveJob = line.jobId != null || doc.jobId != null || confirmedReferenceJobId != null;
+  const hasEffectiveJob =
+    line.jobId != null || doc.jobId != null || confirmedReferenceJobId != null;
 
   const reasons: ReviewReason[] = [];
-  if (line.confidence != null && num(line.confidence) < REVIEW_CONFIDENCE_THRESHOLD) {
+  if (
+    line.confidence != null &&
+    num(line.confidence) < REVIEW_CONFIDENCE_THRESHOLD
+  ) {
     reasons.push("low_confidence");
   }
   if (isMaterial && line.allocationType === "rebill" && !hasEffectiveJob) {
     reasons.push("missing_job");
   }
-  if (isMaterial && line.allocationType === "stock" && warehouseMatch === null) {
+  if (
+    isMaterial &&
+    line.allocationType === "stock" &&
+    warehouseMatch === null
+  ) {
     reasons.push("missing_warehouse_item");
   }
-  if (priceChangePercent !== null && Math.abs(priceChangePercent) >= PRICE_JUMP_THRESHOLD_PERCENT) {
+  if (
+    priceChangePercent !== null &&
+    Math.abs(priceChangePercent) >= PRICE_JUMP_THRESHOLD_PERCENT
+  ) {
     reasons.push("price_jump");
   }
 
@@ -6661,14 +8575,20 @@ export async function listReviewQueue(opts: {
         inArray(billingDocumentsTable.status, [...OPEN_DOC_STATUSES]),
       ),
     )
-    .orderBy(asc(billingDocumentsTable.id), asc(billingDocumentLinesTable.sortOrder));
+    .orderBy(
+      asc(billingDocumentsTable.id),
+      asc(billingDocumentLinesTable.sortOrder),
+    );
 
   // Batch-load warehouse catalogue for matching
   const warehouseMaps = await loadWarehouseLookupMaps();
 
   // Batch-query confirmed/suggested jobs from document references
   const allDocIds = [...new Set(allRows.map((r) => r.doc.id))];
-  const suggestedJobByDocId = new Map<number, { jobId: number; jobTitle: string }>();
+  const suggestedJobByDocId = new Map<
+    number,
+    { jobId: number; jobTitle: string }
+  >();
   const confirmedJobIdsByDocId = new Map<number, Set<number>>();
 
   if (allDocIds.length > 0) {
@@ -6681,7 +8601,10 @@ export async function listReviewQueue(opts: {
         jobTitle: jobsTable.title,
       })
       .from(billingDocumentReferencesTable)
-      .innerJoin(jobsTable, eq(billingDocumentReferencesTable.matchedJobId, jobsTable.id))
+      .innerJoin(
+        jobsTable,
+        eq(billingDocumentReferencesTable.matchedJobId, jobsTable.id),
+      )
       .where(
         and(
           inArray(billingDocumentReferencesTable.documentId, allDocIds),
@@ -6702,7 +8625,8 @@ export async function listReviewQueue(opts: {
         });
       }
       if (ref.matchedJobId && ref.matchConfirmed === 1) {
-        const jobIds = confirmedJobIdsByDocId.get(ref.documentId) ?? new Set<number>();
+        const jobIds =
+          confirmedJobIdsByDocId.get(ref.documentId) ?? new Set<number>();
         jobIds.add(ref.matchedJobId);
         confirmedJobIdsByDocId.set(ref.documentId, jobIds);
       }
@@ -6717,9 +8641,12 @@ export async function listReviewQueue(opts: {
     const doc = r.doc;
     const unitPrice = num(line.unitPriceWithoutVat);
     const warehouseMatch = matchLineToWarehouse(line, warehouseMaps);
-    const confirmedJobIds = confirmedJobIdsByDocId.get(doc.id) ?? new Set<number>();
+    const confirmedJobIds =
+      confirmedJobIdsByDocId.get(doc.id) ?? new Set<number>();
     const confirmedReferenceJobId =
-      confirmedJobIds.size === 1 ? (confirmedJobIds.values().next().value ?? null) : null;
+      confirmedJobIds.size === 1
+        ? (confirmedJobIds.values().next().value ?? null)
+        : null;
 
     const { reasons, priceChangePercent, previousPrice } = computeReasons(
       line,
@@ -6771,7 +8698,9 @@ export async function listReviewQueue(opts: {
 
   // Optional reason filter (after in-memory enrichment)
   const filtered = opts.reason
-    ? allItems.filter((item) => item.reasons.includes(opts.reason as ReviewReason))
+    ? allItems.filter((item) =>
+        item.reasons.includes(opts.reason as ReviewReason),
+      )
     : allItems;
 
   const total = filtered.length;
@@ -6856,7 +8785,8 @@ export async function bulkConfirmReviewLines(
       );
     for (const ref of refs) {
       if (ref.matchedJobId == null) continue;
-      const jobIds = confirmedJobIdsByDocId.get(ref.documentId) ?? new Set<number>();
+      const jobIds =
+        confirmedJobIdsByDocId.get(ref.documentId) ?? new Set<number>();
       jobIds.add(ref.matchedJobId);
       confirmedJobIdsByDocId.set(ref.documentId, jobIds);
     }
@@ -6868,7 +8798,9 @@ export async function bulkConfirmReviewLines(
   // primary's already-applied stock/price effects. Silently drop them
   // (never count as toConfirm) rather than 500 the whole batch over stale
   // line ids a client happened to still have selected.
-  const liveLines = lines.filter((line) => docById.get(line.documentId)?.status !== "duplicate");
+  const liveLines = lines.filter(
+    (line) => docById.get(line.documentId)?.status !== "duplicate",
+  );
 
   // Resolve warehouse matches to compute accurate diff fields
   const warehouseMaps = await loadWarehouseLookupMaps();
@@ -6887,9 +8819,12 @@ export async function bulkConfirmReviewLines(
       status: "",
       jobId: null,
     };
-    const confirmedJobIds = confirmedJobIdsByDocId.get(l.documentId) ?? new Set<number>();
+    const confirmedJobIds =
+      confirmedJobIdsByDocId.get(l.documentId) ?? new Set<number>();
     const confirmedReferenceJobId =
-      confirmedJobIds.size === 1 ? (confirmedJobIds.values().next().value ?? null) : null;
+      confirmedJobIds.size === 1
+        ? (confirmedJobIds.values().next().value ?? null)
+        : null;
     const { reasons } = computeReasons(
       l,
       document,
@@ -6929,7 +8864,9 @@ export async function bulkConfirmReviewLines(
       // material — the same thing approveDocument does at approval time. Redo
       // it per affected document so bulk-confirming lines refreshes material
       // prices on their target jobs, not just the confirmation flag.
-      const affectedDocIds = [...new Set(toConfirmLines.map((l) => l.documentId))];
+      const affectedDocIds = [
+        ...new Set(toConfirmLines.map((l) => l.documentId)),
+      ];
       for (const docId of affectedDocIds) {
         await revertInvoicePricePropagation(tx, docId, actor);
         const { consumedLineIds } = await propagateInvoicePricesToJobMaterials(
@@ -6985,7 +8922,11 @@ export async function skipReviewLines(
   if (lineIds.length === 0) return { skipped: 0, alreadySkipped: 0 };
 
   const lines = await db
-    .select({ id: billingDocumentLinesTable.id, allocationType: billingDocumentLinesTable.allocationType, matchConfirmed: billingDocumentLinesTable.matchConfirmed })
+    .select({
+      id: billingDocumentLinesTable.id,
+      allocationType: billingDocumentLinesTable.allocationType,
+      matchConfirmed: billingDocumentLinesTable.matchConfirmed,
+    })
     .from(billingDocumentLinesTable)
     .where(
       and(
@@ -7008,7 +8949,11 @@ export async function skipReviewLines(
     await db.transaction(async (tx) => {
       await tx
         .update(billingDocumentLinesTable)
-        .set({ allocationType: "not_rebilled", matchConfirmed: 1, updatedAt: new Date() })
+        .set({
+          allocationType: "not_rebilled",
+          matchConfirmed: 1,
+          updatedAt: new Date(),
+        })
         .where(inArray(billingDocumentLinesTable.id, toSkipIds));
 
       await tx.insert(auditLogTable).values({
@@ -7042,7 +8987,11 @@ export async function returnReviewLines(
   if (lineIds.length === 0) return { returned: 0, alreadyUnconfirmed: 0 };
 
   const lines = await db
-    .select({ id: billingDocumentLinesTable.id, matchConfirmed: billingDocumentLinesTable.matchConfirmed, allocationType: billingDocumentLinesTable.allocationType })
+    .select({
+      id: billingDocumentLinesTable.id,
+      matchConfirmed: billingDocumentLinesTable.matchConfirmed,
+      allocationType: billingDocumentLinesTable.allocationType,
+    })
     .from(billingDocumentLinesTable)
     .where(inArray(billingDocumentLinesTable.id, lineIds));
 
@@ -7061,7 +9010,9 @@ export async function returnReviewLines(
           .update(billingDocumentLinesTable)
           .set({
             matchConfirmed: 0,
-            ...(l.allocationType === "not_rebilled" ? { allocationType: "rebill" } : {}),
+            ...(l.allocationType === "not_rebilled"
+              ? { allocationType: "rebill" }
+              : {}),
             updatedAt: new Date(),
           })
           .where(eq(billingDocumentLinesTable.id, l.id));
@@ -7103,13 +9054,17 @@ export async function assignWarehouseItemToLine(
     .select()
     .from(billingDocumentLinesTable)
     .where(eq(billingDocumentLinesTable.id, lineId));
-  if (!line) throw Object.assign(new Error("Řádek nenalezen."), { status: 404 });
+  if (!line)
+    throw Object.assign(new Error("Řádek nenalezen."), { status: 404 });
 
   const [item] = await db
     .select()
     .from(warehouseItemsTable)
     .where(eq(warehouseItemsTable.id, warehouseItemId));
-  if (!item) throw Object.assign(new Error("Skladová položka nenalezena."), { status: 404 });
+  if (!item)
+    throw Object.assign(new Error("Skladová položka nenalezena."), {
+      status: 404,
+    });
 
   // Determine the best linking field (EAN > SKU > name).
   // This ensures future matchLineToWarehouse calls resolve the same item.
@@ -7148,9 +9103,11 @@ export async function assignWarehouseItemToLine(
 }
 
 /** Fetch a document's stored file bytes (or null when it has no object). */
-export async function getDocumentFileBuffer(
-  documentId: number,
-): Promise<{ buffer: Buffer; contentType: string | null; fileName: string | null } | null> {
+export async function getDocumentFileBuffer(documentId: number): Promise<{
+  buffer: Buffer;
+  contentType: string | null;
+  fileName: string | null;
+} | null> {
   const [doc] = await db
     .select()
     .from(billingDocumentsTable)
@@ -7174,10 +9131,12 @@ export async function getDocumentAllFileBuffers(
   const [activeMerge] = await db
     .select({ id: billingDocumentMergesTable.id })
     .from(billingDocumentMergesTable)
-    .where(and(
-      eq(billingDocumentMergesTable.primaryDocumentId, documentId),
-      eq(billingDocumentMergesTable.status, "active"),
-    ))
+    .where(
+      and(
+        eq(billingDocumentMergesTable.primaryDocumentId, documentId),
+        eq(billingDocumentMergesTable.status, "active"),
+      ),
+    )
     .limit(1);
   let rows: (typeof billingDocumentFilesTable.$inferSelect)[];
   if (activeMerge) {
@@ -7192,7 +9151,10 @@ export async function getDocumentAllFileBuffers(
         .select()
         .from(billingDocumentFilesTable)
         .where(eq(billingDocumentFilesTable.documentId, member.documentId))
-        .orderBy(sql`${billingDocumentFilesTable.pageIndex} asc nulls last`, billingDocumentFilesTable.id);
+        .orderBy(
+          sql`${billingDocumentFilesTable.pageIndex} asc nulls last`,
+          billingDocumentFilesTable.id,
+        );
       rows.push(...memberRows);
     }
   } else {
@@ -7200,7 +9162,10 @@ export async function getDocumentAllFileBuffers(
       .select()
       .from(billingDocumentFilesTable)
       .where(eq(billingDocumentFilesTable.documentId, documentId))
-      .orderBy(sql`${billingDocumentFilesTable.pageIndex} asc nulls last`, billingDocumentFilesTable.id);
+      .orderBy(
+        sql`${billingDocumentFilesTable.pageIndex} asc nulls last`,
+        billingDocumentFilesTable.id,
+      );
   }
   const supported = rows.filter(
     (r): r is typeof r & { objectPath: string } =>
@@ -7209,7 +9174,11 @@ export async function getDocumentAllFileBuffers(
   const files: ExtractionFileInput[] = [];
   for (const row of supported) {
     const buffer = await objectStorage.getPrivateObjectBuffer(row.objectPath);
-    files.push({ buffer, contentType: row.mimeType, fileName: row.originalFileName });
+    files.push({
+      buffer,
+      contentType: row.mimeType,
+      fileName: row.originalFileName,
+    });
   }
   return files;
 }

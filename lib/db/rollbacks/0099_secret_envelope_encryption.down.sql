@@ -36,6 +36,6 @@ ALTER TABLE email_settings DROP COLUMN IF EXISTS password_encrypted_at, DROP COL
 ALTER TABLE device_credentials DROP COLUMN IF EXISTS secret_encrypted_at, DROP COLUMN IF EXISTS secret_key_id, DROP COLUMN IF EXISTS secret_ciphertext;
 
 DELETE FROM drizzle.__drizzle_migrations
-WHERE created_at = 1785623741083;
+WHERE created_at = 1786383362000;
 
 COMMIT;
