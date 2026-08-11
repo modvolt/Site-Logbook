@@ -3102,25 +3102,11 @@ export interface WarehouseMaterialBackfillReport {
   ambiguousGroups: WarehouseMaterialBackfillAmbiguousGroup[];
 }
 
-export interface WarehouseMaterialBackfillResult {
-  /** Number of job material rows that had warehouse_item_id set by this run */
-  materialsLinked: number;
-  /** Number of activity material rows that had warehouse_item_id set by this run */
-  activityMaterialsLinked: number;
-}
-
 export interface AssignWarehouseMaterialGroupBody {
   /** The ambiguous material name (case-insensitive match used server-side) */
   name: string;
   /** ID of the warehouse card to assign all unlinked materials in this group to */
   warehouseItemId: number;
-}
-
-export interface AssignWarehouseMaterialGroupResult {
-  /** Number of job material rows updated */
-  materialsAssigned: number;
-  /** Number of activity material rows updated */
-  activityMaterialsAssigned: number;
 }
 
 export interface DashboardSummary {
@@ -7653,6 +7639,32 @@ export const GetWarehouseJobMarginTrendGranularity = {
 
 export type GetWarehouseActivityMarginTrendParams = {
   activityId: number;
+};
+
+export type RunWarehouseMaterialBackfill409Code =
+  (typeof RunWarehouseMaterialBackfill409Code)[keyof typeof RunWarehouseMaterialBackfill409Code];
+
+export const RunWarehouseMaterialBackfill409Code = {
+  warehouse_material_backfill_maintenance_required:
+    "warehouse_material_backfill_maintenance_required",
+} as const;
+
+export type RunWarehouseMaterialBackfill409 = {
+  code: RunWarehouseMaterialBackfill409Code;
+  error: string;
+};
+
+export type AssignWarehouseMaterialGroup409Code =
+  (typeof AssignWarehouseMaterialGroup409Code)[keyof typeof AssignWarehouseMaterialGroup409Code];
+
+export const AssignWarehouseMaterialGroup409Code = {
+  warehouse_material_backfill_maintenance_required:
+    "warehouse_material_backfill_maintenance_required",
+} as const;
+
+export type AssignWarehouseMaterialGroup409 = {
+  code: AssignWarehouseMaterialGroup409Code;
+  error: string;
 };
 
 export type ListWarehouseMovementsParams = {

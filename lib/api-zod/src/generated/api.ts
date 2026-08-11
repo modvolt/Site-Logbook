@@ -4926,23 +4926,8 @@ export const GetWarehouseMaterialBackfillReportResponse = zod.object({
 });
 
 /**
- * @summary Re-run the safe name-based backfill for unlinked materials (admin only)
- */
-export const RunWarehouseMaterialBackfillResponse = zod.object({
-  materialsLinked: zod
-    .number()
-    .describe(
-      "Number of job material rows that had warehouse_item_id set by this run",
-    ),
-  activityMaterialsLinked: zod
-    .number()
-    .describe(
-      "Number of activity material rows that had warehouse_item_id set by this run",
-    ),
-});
-
-/**
- * @summary Manually assign all unlinked materials in an ambiguous group to a chosen warehouse card (admin only)
+ * @deprecated
+ * @summary Disabled legacy bulk assignment; use reviewed individual ID changes or an approved maintenance plan
  */
 export const AssignWarehouseMaterialGroupBody = zod.object({
   name: zod
@@ -4955,15 +4940,6 @@ export const AssignWarehouseMaterialGroupBody = zod.object({
     .describe(
       "ID of the warehouse card to assign all unlinked materials in this group to",
     ),
-});
-
-export const AssignWarehouseMaterialGroupResponse = zod.object({
-  materialsAssigned: zod
-    .number()
-    .describe("Number of job material rows updated"),
-  activityMaterialsAssigned: zod
-    .number()
-    .describe("Number of activity material rows updated"),
 });
 
 /**

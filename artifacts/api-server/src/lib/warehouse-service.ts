@@ -29,11 +29,19 @@ import {
 import { num, round2 } from "./invoice-calc";
 import { materialShouldIssueStock } from "./material-consumption-policy";
 
-export type AppError = Error & { statusCode: number };
+export class WarehouseAppError extends Error {
+  readonly statusCode: number;
+
+  constructor(statusCode: number, message: string) {
+    super(message);
+    this.name = "WarehouseAppError";
+    this.statusCode = statusCode;
+  }
+}
+
+export type AppError = WarehouseAppError;
 function appError(statusCode: number, message: string): AppError {
-  const err = new Error(message) as AppError;
-  err.statusCode = statusCode;
-  return err;
+  return new WarehouseAppError(statusCode, message);
 }
 
 export interface Actor {
@@ -176,6 +184,51 @@ async function lockItemsInAscendingOrder(
   );
   for (const warehouseItemId of orderedIds) {
     await lockItem(tx, warehouseItemId);
+  }
+}
+
+const SOURCE_LOCK_ORDER: Record<MovementSourceType, number> = {
+  activity_material: 1,
+  billing_document_line: 2,
+  manual: 3,
+  material: 4,
+};
+
+// Explicit int32 advisory-lock classes avoid hash collisions and keep the
+// warehouse source lock namespace separate from every other advisory lock.
+const SOURCE_LOCK_CLASS: Record<MovementSourceType, number> = {
+  activity_material: 1_397_500_101,
+  billing_document_line: 1_397_500_102,
+  manual: 1_397_500_103,
+  material: 1_397_500_104,
+};
+
+async function lockSourcesInStableOrder(
+  tx: DbTx,
+  requests: readonly SourceMovementReconcileRequest[],
+): Promise<void> {
+  const ordered = [...requests].sort(
+    (left, right) =>
+      SOURCE_LOCK_ORDER[left.sourceType] -
+        SOURCE_LOCK_ORDER[right.sourceType] || left.sourceId - right.sourceId,
+  );
+  for (const request of ordered) {
+    if (
+      !Number.isInteger(request.sourceId) ||
+      request.sourceId <= 0 ||
+      request.sourceId > 2_147_483_647
+    ) {
+      throw appError(500, "Warehouse reconcile source ID is invalid.");
+    }
+    const result = (await tx.execute(sql`
+      select pg_try_advisory_xact_lock(${SOURCE_LOCK_CLASS[request.sourceType]}, ${request.sourceId}) as locked
+    `)) as unknown as { rows: Array<{ locked: boolean }> };
+    if (result.rows[0]?.locked !== true) {
+      throw appError(
+        409,
+        "Skladový zdroj právě zpracovává jiná operace. Žádná změna nebyla uložena; opakujte požadavek.",
+      );
+    }
   }
 }
 
@@ -373,6 +426,18 @@ export async function reconcileSourceMovementBatch(
         `Duplicate warehouse reconcile source: ${sourceKey}.`,
       );
     }
+    protectedBySource.set(sourceKey, new Set<number>());
+  }
+
+  // A source lock closes the empty-ledger race: two first reconciles of the
+  // same source may target disjoint item rows and would otherwise never
+  // contend. Try-locks fail closed instead of waiting, so callers that still
+  // invoke multiple reconcile batches cannot introduce a new advisory-lock
+  // deadlock through opposite source order.
+  await lockSourcesInStableOrder(tx, requests);
+
+  for (const request of requests) {
+    const sourceKey = `${request.sourceType}:${request.sourceId}`;
     const existingRows = await loadSourceMovementRows(
       tx,
       request.sourceType,
@@ -736,89 +801,13 @@ export async function reconcileActivityMaterialStockMovement(
 }
 
 export async function runUnambiguousWarehouseMaterialBackfill(
-  db: AnyDb,
-  actor: Actor,
+  _db: AnyDb,
+  _actor: Actor,
 ): Promise<{ materialsLinked: number; activityMaterialsLinked: number }> {
-  return db.transaction(async (tx) => {
-    // This is an operator-triggered bounded transaction, not a startup task.
-    // Refuse prolonged contention and keep the name→item mapping stable while
-    // the candidate rows are linked and their stock movements are reconciled.
-    await tx.execute(sql.raw("set local lock_timeout = '5s'"));
-    await tx.execute(sql.raw("set local statement_timeout = '30s'"));
-    await tx.execute(sql.raw("lock table warehouse_items in share mode"));
-
-    const materialUpdate = (await tx.execute(sql`
-      with unique_items as (
-        select lower(${warehouseItemsTable.name}) as normalized_name,
-               min(${warehouseItemsTable.id}) as warehouse_item_id
-        from ${warehouseItemsTable}
-        group by lower(${warehouseItemsTable.name})
-        having count(*) = 1
-      )
-      update ${materialsTable} as material
-      set warehouse_item_id = unique_items.warehouse_item_id
-      from unique_items
-      where material.warehouse_item_id is null
-        and lower(material.name) = unique_items.normalized_name
-      returning material.id
-    `)) as unknown as { rows: Array<{ id: number }> };
-
-    const activityUpdate = (await tx.execute(sql`
-      with unique_items as (
-        select lower(${warehouseItemsTable.name}) as normalized_name,
-               min(${warehouseItemsTable.id}) as warehouse_item_id
-        from ${warehouseItemsTable}
-        group by lower(${warehouseItemsTable.name})
-        having count(*) = 1
-      )
-      update ${activityMaterialsTable} as material
-      set warehouse_item_id = unique_items.warehouse_item_id
-      from unique_items
-      where material.warehouse_item_id is null
-        and lower(material.name) = unique_items.normalized_name
-      returning material.id
-    `)) as unknown as { rows: Array<{ id: number }> };
-
-    const materialIds = materialUpdate.rows.map((row) => row.id);
-    const activityMaterialIds = activityUpdate.rows.map((row) => row.id);
-    const materials = materialIds.length
-      ? await tx
-          .select()
-          .from(materialsTable)
-          .where(inArray(materialsTable.id, materialIds))
-      : [];
-    const activityMaterials = activityMaterialIds.length
-      ? await tx
-          .select()
-          .from(activityMaterialsTable)
-          .where(inArray(activityMaterialsTable.id, activityMaterialIds))
-      : [];
-
-    const requests: SourceMovementReconcileRequest[] = [];
-    for (const material of materials) {
-      requests.push(
-        await buildMaterialSourceMovementRequest(tx, "material", material),
-      );
-    }
-    for (const material of activityMaterials) {
-      requests.push(
-        await buildMaterialSourceMovementRequest(tx, "activity_material", {
-          id: material.id,
-          name: material.name,
-          quantity: material.quantity,
-          pricePerUnit: material.pricePerUnit,
-          jobId: null,
-          warehouseItemId: material.warehouseItemId,
-        }),
-      );
-    }
-    await reconcileSourceMovementBatch(tx, requests, actor);
-
-    return {
-      materialsLinked: materialIds.length,
-      activityMaterialsLinked: activityMaterialIds.length,
-    };
-  });
+  throw appError(
+    409,
+    "Automatický skladový backfill vyžaduje řízený maintenance plán s přesným NFKC manifestem.",
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -963,6 +952,65 @@ export async function createManualMovement(
   });
 }
 
+/**
+ * Append a reversal for the latest manual movement under the same item lock
+ * used by every other stock writer. Selecting the candidate only after the
+ * lock prevents two concurrent requests from reversing the same movement.
+ */
+export async function cancelLastManualMovement(
+  tx: DbTx,
+  warehouseItemId: number,
+  actor: Actor,
+): Promise<WarehouseMovement> {
+  await lockItem(tx, warehouseItemId);
+  const [last] = await tx
+    .select()
+    .from(warehouseMovementsTable)
+    .where(
+      and(
+        eq(warehouseMovementsTable.warehouseItemId, warehouseItemId),
+        eq(warehouseMovementsTable.sourceType, "manual"),
+      ),
+    )
+    .orderBy(
+      desc(warehouseMovementsTable.createdAt),
+      desc(warehouseMovementsTable.id),
+    )
+    .limit(1);
+
+  if (!last) {
+    throw appError(404, "Žádný ruční pohyb ke stornování.");
+  }
+  if (last.note && /^Storno pohybu #\d+/.test(last.note)) {
+    throw appError(
+      409,
+      "Poslední pohyb je již storno — nelze stornovat znovu.",
+    );
+  }
+
+  const signedDelta =
+    last.direction === "in" ? -num(last.quantity) : num(last.quantity);
+  await assertNormalMovementNonnegative(tx, warehouseItemId, signedDelta);
+  const reverseDirection: "in" | "out" = last.direction === "in" ? "out" : "in";
+  const [reversal] = await tx
+    .insert(warehouseMovementsTable)
+    .values({
+      warehouseItemId,
+      direction: reverseDirection,
+      quantity: last.quantity,
+      unitPrice: last.unitPrice,
+      costPriceAtTime: null,
+      sourceType: "manual",
+      sourceId: null,
+      note: `Storno pohybu #${last.id}`,
+      createdByUserId: actor.userId,
+      createdByName: actor.name,
+    })
+    .returning();
+  await recomputeItemQuantity(tx, warehouseItemId);
+  return reversal;
+}
+
 // ---------------------------------------------------------------------------
 // Reads
 // ---------------------------------------------------------------------------
@@ -1019,6 +1067,7 @@ function serializeMovement(row: MovementJoinRow): SerializedMovement {
 }
 
 export interface MovementFilters {
+  movementId?: number;
   warehouseItemId?: number;
   jobId?: number;
   billingDocumentId?: number;
@@ -1033,6 +1082,8 @@ export async function listMovements(
   filters: MovementFilters,
 ): Promise<SerializedMovement[]> {
   const conds = [];
+  if (filters.movementId != null)
+    conds.push(eq(warehouseMovementsTable.id, filters.movementId));
   if (filters.warehouseItemId != null)
     conds.push(
       eq(warehouseMovementsTable.warehouseItemId, filters.warehouseItemId),

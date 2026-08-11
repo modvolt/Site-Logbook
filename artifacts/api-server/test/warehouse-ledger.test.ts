@@ -14,6 +14,7 @@ import {
 } from "@workspace/db";
 import {
   createManualMovement,
+  cancelLastManualMovement,
   reconcileMaterialStockMovement,
   reconcileActivityMaterialStockMovement,
   reconcileSourceMovements,
@@ -23,7 +24,11 @@ import {
   netSignedForSources,
   listItemMovements,
 } from "../src/lib/warehouse-service";
-import { approveDocument, setDocumentStatus, splitLine } from "../src/lib/cost-document-service";
+import {
+  approveDocument,
+  setDocumentStatus,
+  splitLine,
+} from "../src/lib/cost-document-service";
 
 /**
  * Stock-movement ledger engine (DB-backed).
@@ -62,9 +67,7 @@ async function itemQty(itemId: number): Promise<number> {
 /** Recompute the signed sum of an item's movements straight from the ledger. */
 async function ledgerSum(itemId: number): Promise<number> {
   const movements = await listItemMovements(db, itemId);
-  return Number(
-    movements.reduce((s, m) => s + m.signedQuantity, 0).toFixed(2),
-  );
+  return Number(movements.reduce((s, m) => s + m.signedQuantity, 0).toFixed(2));
 }
 
 /** Assert the cached quantity equals the signed sum of the ledger. */
@@ -187,13 +190,28 @@ describe("manual movements", () => {
   it("accumulates signed in/out movements into the cached quantity", async () => {
     const itemId = await makeItem({ name: `Cement ${TAG}` });
 
-    await createManualMovement(db, itemId, { direction: "in", quantity: 50 }, actor);
+    await createManualMovement(
+      db,
+      itemId,
+      { direction: "in", quantity: 50 },
+      actor,
+    );
     expect(await expectConsistent(itemId)).toBeCloseTo(50, 2);
 
-    await createManualMovement(db, itemId, { direction: "out", quantity: 20 }, actor);
+    await createManualMovement(
+      db,
+      itemId,
+      { direction: "out", quantity: 20 },
+      actor,
+    );
     expect(await expectConsistent(itemId)).toBeCloseTo(30, 2);
 
-    await createManualMovement(db, itemId, { direction: "in", quantity: 5.5 }, actor);
+    await createManualMovement(
+      db,
+      itemId,
+      { direction: "in", quantity: 5.5 },
+      actor,
+    );
     expect(await expectConsistent(itemId)).toBeCloseTo(35.5, 2);
 
     // Three immutable rows, nothing deleted.
@@ -255,9 +273,9 @@ describe("manual movements", () => {
       ),
     ]);
 
-    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(
-      1,
-    );
+    expect(
+      results.filter((result) => result.status === "fulfilled"),
+    ).toHaveLength(1);
     const [rejected] = results.filter(
       (result): result is PromiseRejectedResult => result.status === "rejected",
     );
@@ -265,10 +283,86 @@ describe("manual movements", () => {
     expect(await expectConsistent(itemId)).toBeCloseTo(3, 2);
     expect(await listItemMovements(db, itemId)).toHaveLength(2);
   });
+
+  it("permits exactly one concurrent cancellation of the latest manual movement", async () => {
+    const itemId = await makeItem({ name: `Storno souběh ${TAG}` });
+    await createManualMovement(
+      db,
+      itemId,
+      { direction: "in", quantity: 10, unitPrice: 25 },
+      actor,
+    );
+
+    const results = await Promise.allSettled([
+      db.transaction((tx) => cancelLastManualMovement(tx, itemId, actor)),
+      db.transaction((tx) => cancelLastManualMovement(tx, itemId, actor)),
+    ]);
+
+    expect(
+      results.filter((result) => result.status === "fulfilled"),
+    ).toHaveLength(1);
+    const [rejected] = results.filter(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    expect(rejected?.reason).toMatchObject({ statusCode: 409 });
+    expect(await expectConsistent(itemId)).toBeCloseTo(0, 2);
+    const movements = await listItemMovements(db, itemId);
+    expect(movements).toHaveLength(2);
+    expect(movements[0]).toMatchObject({
+      direction: "out",
+      quantity: 10,
+      costPriceAtTime: null,
+    });
+    expect(movements[0]?.note).toMatch(/^Storno pohybu #\d+$/);
+  });
+
+  it("refuses to cancel a consumed manual receipt into negative stock", async () => {
+    const itemId = await makeItem({ name: `Storno spotřeby ${TAG}` });
+    await createManualMovement(
+      db,
+      itemId,
+      { direction: "in", quantity: 10 },
+      actor,
+    );
+    const jobId = await makeJob();
+    const [material] = await db
+      .insert(materialsTable)
+      .values({
+        jobId,
+        name: `Storno spotřeby ${TAG}`,
+        quantity: "7",
+        pricePerUnit: "10",
+        warehouseItemId: itemId,
+        done: true,
+      })
+      .returning();
+    await db.transaction((tx) =>
+      reconcileSourceMovements(
+        tx,
+        "material",
+        material.id,
+        {
+          warehouseItemId: itemId,
+          signedQty: -7,
+          unitPrice: 10,
+          billingDocumentId: null,
+          jobId,
+          note: "Výdej na zakázku",
+        },
+        actor,
+      ),
+    );
+
+    await expect(
+      db.transaction((tx) => cancelLastManualMovement(tx, itemId, actor)),
+    ).rejects.toMatchObject({ statusCode: 409 });
+    expect(await expectConsistent(itemId)).toBeCloseTo(3, 2);
+    expect(await listItemMovements(db, itemId)).toHaveLength(2);
+  });
 });
 
 describe("warehouse material backfill", () => {
-  it("links and reconciles unambiguous sources atomically and idempotently", async () => {
+  it("fails closed before any legacy bulk assignment can mutate stock", async () => {
     const targetName = `Backfill target ${TAG}`;
     const ambiguousName = `Backfill ambiguous ${TAG}`;
     const targetItemId = await makeItem({ name: targetName });
@@ -322,7 +416,7 @@ describe("warehouse material backfill", () => {
 
     await expect(
       runUnambiguousWarehouseMaterialBackfill(db, actor),
-    ).resolves.toEqual({ materialsLinked: 1, activityMaterialsLinked: 1 });
+    ).rejects.toMatchObject({ statusCode: 409 });
 
     const [storedJobMaterial] = await db
       .select({ warehouseItemId: materialsTable.warehouseItemId })
@@ -336,19 +430,14 @@ describe("warehouse material backfill", () => {
       .select({ warehouseItemId: materialsTable.warehouseItemId })
       .from(materialsTable)
       .where(eq(materialsTable.id, ambiguousMaterial.id));
-    expect(storedJobMaterial?.warehouseItemId).toBe(targetItemId);
-    expect(storedActivityMaterial?.warehouseItemId).toBe(targetItemId);
+    expect(storedJobMaterial?.warehouseItemId).toBeNull();
+    expect(storedActivityMaterial?.warehouseItemId).toBeNull();
     expect(storedAmbiguousMaterial?.warehouseItemId).toBeNull();
-    expect(await expectConsistent(targetItemId)).toBeCloseTo(11, 2);
-
-    await expect(
-      runUnambiguousWarehouseMaterialBackfill(db, actor),
-    ).resolves.toEqual({ materialsLinked: 0, activityMaterialsLinked: 0 });
-    expect(await expectConsistent(targetItemId)).toBeCloseTo(11, 2);
-    expect(await listItemMovements(db, targetItemId)).toHaveLength(3);
+    expect(await expectConsistent(targetItemId)).toBeCloseTo(20, 2);
+    expect(await listItemMovements(db, targetItemId)).toHaveLength(1);
   });
 
-  it("rolls back newly linked rows when their stock issue is not covered", async () => {
+  it("fails closed without linking rows or creating movements", async () => {
     const targetName = `Backfill no stock ${TAG}`;
     const targetItemId = await makeItem({ name: targetName });
     const jobId = await makeJob();
@@ -380,7 +469,10 @@ describe("warehouse material backfill", () => {
 
 describe("cost-document receipt lifecycle", () => {
   it("approve receives stock, un-approve reverses it back to zero", async () => {
-    const itemId = await makeItem({ name: `Hřebíky ${TAG}`, code: `SKU-${TAG}` });
+    const itemId = await makeItem({
+      name: `Hřebíky ${TAG}`,
+      code: `SKU-${TAG}`,
+    });
     const { docId, lineId } = await makeStockDoc({
       description: `Hřebíky ${TAG}`,
       quantity: "40",
@@ -390,12 +482,16 @@ describe("cost-document receipt lifecycle", () => {
     // Approve → příjem: the matched item gains the line quantity.
     await approveDocument(docId, actor);
     expect(await expectConsistent(itemId)).toBeCloseTo(40, 2);
-    expect(await netSignedForSources(db, "billing_document_line", [lineId])).toBeCloseTo(40, 2);
+    expect(
+      await netSignedForSources(db, "billing_document_line", [lineId]),
+    ).toBeCloseTo(40, 2);
 
     // Un-approve → storno: contribution reverses to zero, history preserved.
     await setDocumentStatus(docId, "needs_review", actor);
     expect(await expectConsistent(itemId)).toBeCloseTo(0, 2);
-    expect(await netSignedForSources(db, "billing_document_line", [lineId])).toBeCloseTo(0, 2);
+    expect(
+      await netSignedForSources(db, "billing_document_line", [lineId]),
+    ).toBeCloseTo(0, 2);
 
     // The reversal is an appended row, not a deletion: 2 movements remain.
     const movements = await listItemMovements(db, itemId);
@@ -419,7 +515,9 @@ describe("cost-document receipt lifecycle", () => {
     itemIds.push(created.id);
 
     expect(await expectConsistent(created.id)).toBeCloseTo(12, 2);
-    expect(await netSignedForSources(db, "billing_document_line", [lineId])).toBeCloseTo(12, 2);
+    expect(
+      await netSignedForSources(db, "billing_document_line", [lineId]),
+    ).toBeCloseTo(12, 2);
   });
 
   it("rolls back un-approval when reversing the receipt would make stock negative", async () => {
@@ -473,7 +571,14 @@ describe("job material issue lifecycle", () => {
       const warehouseItemId = await resolveWarehouseItemIdByName(tx, name);
       return tx
         .insert(materialsTable)
-        .values({ jobId, name, quantity, pricePerUnit: "10", warehouseItemId, done: true })
+        .values({
+          jobId,
+          name,
+          quantity,
+          pricePerUnit: "10",
+          warehouseItemId,
+          done: true,
+        })
         .returning();
     });
     return m.id;
@@ -524,7 +629,12 @@ describe("job material issue lifecycle", () => {
   it("issue → edit → delete keeps stock consistent and nets to zero on delete", async () => {
     const itemId = await makeItem({ name: `Kabel ${TAG}` });
     // Opening balance of 100 via a manual receipt.
-    await createManualMovement(db, itemId, { direction: "in", quantity: 100 }, actor);
+    await createManualMovement(
+      db,
+      itemId,
+      { direction: "in", quantity: 100 },
+      actor,
+    );
     const jobId = await makeJob();
 
     // Issue 10 → −10.
@@ -555,14 +665,27 @@ describe("job material issue lifecycle", () => {
       await reconcileSourceMovements(tx, "material", materialId, null, actor);
     });
     expect(await expectConsistent(itemId)).toBeCloseTo(100, 2);
-    expect(await netSignedForSources(db, "material", [materialId])).toBeCloseTo(0, 2);
+    expect(await netSignedForSources(db, "material", [materialId])).toBeCloseTo(
+      0,
+      2,
+    );
   });
 
   it("re-matching a material to a different item moves stock between both", async () => {
     const itemA = await makeItem({ name: `Šroub A ${TAG}` });
     const itemB = await makeItem({ name: `Šroub B ${TAG}` });
-    await createManualMovement(db, itemA, { direction: "in", quantity: 100 }, actor);
-    await createManualMovement(db, itemB, { direction: "in", quantity: 100 }, actor);
+    await createManualMovement(
+      db,
+      itemA,
+      { direction: "in", quantity: 100 },
+      actor,
+    );
+    await createManualMovement(
+      db,
+      itemB,
+      { direction: "in", quantity: 100 },
+      actor,
+    );
     const jobId = await makeJob();
 
     // Issue 30 against A (matched by name).
@@ -581,7 +704,10 @@ describe("job material issue lifecycle", () => {
     // route re-resolves warehouseItemId whenever the name changes (see
     // routes/materials.ts) — mirror that here before reconciling.
     await db.transaction(async (tx) => {
-      const warehouseItemId = await resolveWarehouseItemIdByName(tx, `Šroub B ${TAG}`);
+      const warehouseItemId = await resolveWarehouseItemIdByName(
+        tx,
+        `Šroub B ${TAG}`,
+      );
       const [m] = await tx
         .update(materialsTable)
         .set({ name: `Šroub B ${TAG}`, warehouseItemId })
@@ -593,20 +719,36 @@ describe("job material issue lifecycle", () => {
     expect(await expectConsistent(itemB)).toBeCloseTo(70, 2);
 
     // The source's net contribution is fully on B now.
-    expect(await netSignedForSources(db, "material", [materialId])).toBeCloseTo(-30, 2);
+    expect(await netSignedForSources(db, "material", [materialId])).toBeCloseTo(
+      -30,
+      2,
+    );
   });
   it("serializes opposite A→B and B→A rematches without a lock-order deadlock", async () => {
     const itemA = await makeItem({ name: `Souběh A ${TAG}` });
     const itemB = await makeItem({ name: `Souběh B ${TAG}` });
-    await createManualMovement(db, itemA, { direction: "in", quantity: 100 }, actor);
-    await createManualMovement(db, itemB, { direction: "in", quantity: 100 }, actor);
+    await createManualMovement(
+      db,
+      itemA,
+      { direction: "in", quantity: 100 },
+      actor,
+    );
+    await createManualMovement(
+      db,
+      itemB,
+      { direction: "in", quantity: 100 },
+      actor,
+    );
     const jobId = await makeJob();
     const sourceA = await insertMaterial(jobId, `Souběh A ${TAG}`, "30");
     const sourceB = await insertMaterial(jobId, `Souběh B ${TAG}`, "30");
 
     for (const sourceId of [sourceA, sourceB]) {
       await db.transaction(async (tx) => {
-        const [material] = await tx.select().from(materialsTable).where(eq(materialsTable.id, sourceId));
+        const [material] = await tx
+          .select()
+          .from(materialsTable)
+          .where(eq(materialsTable.id, sourceId));
         await reconcileMaterialStockMovement(tx, material, actor);
       });
     }
@@ -628,7 +770,8 @@ describe("job material issue lifecycle", () => {
       };
     });
     const barrierTimeout = setTimeout(
-      () => rejectBarrier(new Error("Warehouse rematch test barrier timed out.")),
+      () =>
+        rejectBarrier(new Error("Warehouse rematch test barrier timed out.")),
       3_000,
     );
     const synchronize = async () => {
@@ -661,7 +804,11 @@ describe("job material issue lifecycle", () => {
         $$;
       `),
       );
-      await db.execute(sql.raw("drop trigger if exists test_warehouse_storno_delay_trg on warehouse_movements"));
+      await db.execute(
+        sql.raw(
+          "drop trigger if exists test_warehouse_storno_delay_trg on warehouse_movements",
+        ),
+      );
       await db.execute(
         sql.raw(`
         create trigger test_warehouse_storno_delay_trg
@@ -706,8 +853,14 @@ describe("job material issue lifecycle", () => {
       clearTimeout(barrierTimeout);
       releaseBarrier();
       try {
-        await db.execute(sql.raw("drop trigger if exists test_warehouse_storno_delay_trg on warehouse_movements"));
-        await db.execute(sql.raw("drop function if exists test_warehouse_storno_delay()"));
+        await db.execute(
+          sql.raw(
+            "drop trigger if exists test_warehouse_storno_delay_trg on warehouse_movements",
+          ),
+        );
+        await db.execute(
+          sql.raw("drop function if exists test_warehouse_storno_delay()"),
+        );
       } catch (error) {
         cleanupError = error;
       }
@@ -720,20 +873,138 @@ describe("job material issue lifecycle", () => {
 
     expect(await expectConsistent(itemA)).toBeCloseTo(70, 2);
     expect(await expectConsistent(itemB)).toBeCloseTo(70, 2);
-    expect(await netSignedForSources(db, "material", [sourceA])).toBeCloseTo(-30, 2);
-    expect(await netSignedForSources(db, "material", [sourceB])).toBeCloseTo(-30, 2);
+    expect(await netSignedForSources(db, "material", [sourceA])).toBeCloseTo(
+      -30,
+      2,
+    );
+    expect(await netSignedForSources(db, "material", [sourceB])).toBeCloseTo(
+      -30,
+      2,
+    );
 
     const movementsA = await listItemMovements(db, itemA);
     const movementsB = await listItemMovements(db, itemB);
     const signedFor = (sourceId: number, movements: typeof movementsA) =>
       movements
-        .filter((movement) => movement.sourceType === "material" && movement.sourceId === sourceId)
+        .filter(
+          (movement) =>
+            movement.sourceType === "material" &&
+            movement.sourceId === sourceId,
+        )
         .reduce((sum, movement) => sum + movement.signedQuantity, 0);
     expect(signedFor(sourceA, movementsB)).toBeCloseTo(-30, 2);
     expect(signedFor(sourceB, movementsA)).toBeCloseTo(-30, 2);
   });
 
-  it("fails closed on an unseen same-source target and converges after retry", async () => {
+  it("fails closed when two first reconciles of an empty source target disjoint items", async () => {
+    const itemA = await makeItem({ name: `Prázdný zdroj A ${TAG}` });
+    const itemB = await makeItem({ name: `Prázdný zdroj B ${TAG}` });
+    await createManualMovement(
+      db,
+      itemA,
+      { direction: "in", quantity: 100 },
+      actor,
+    );
+    await createManualMovement(
+      db,
+      itemB,
+      { direction: "in", quantity: 100 },
+      actor,
+    );
+    const jobId = await makeJob();
+    const sourceId = await insertMaterial(jobId, `Prázdný zdroj ${TAG}`, "30");
+    const desiredFor = (warehouseItemId: number) => ({
+      warehouseItemId,
+      signedQty: -30,
+      unitPrice: 10,
+      billingDocumentId: null,
+      jobId,
+      note: "Výdej na zakázku",
+    });
+
+    let releaseFirst!: () => void;
+    const holdFirst = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let signalFirstReady!: () => void;
+    let rejectFirstReady!: (error: unknown) => void;
+    const firstReady = new Promise<void>((resolve, reject) => {
+      signalFirstReady = resolve;
+      rejectFirstReady = reject;
+    });
+    const first = db.transaction(async (tx) => {
+      try {
+        await reconcileSourceMovements(
+          tx,
+          "material",
+          sourceId,
+          desiredFor(itemA),
+          actor,
+        );
+        signalFirstReady();
+        await holdFirst;
+      } catch (error) {
+        rejectFirstReady(error);
+        throw error;
+      }
+    });
+    const readyTimeout = setTimeout(
+      () => rejectFirstReady(new Error("Empty-source reconcile timed out.")),
+      3_000,
+    );
+
+    let secondResult: PromiseSettledResult<void>;
+    try {
+      await firstReady.finally(() => clearTimeout(readyTimeout));
+      secondResult = (
+        await Promise.allSettled([
+          db.transaction(async (tx) => {
+            await tx.execute(sql.raw("set local statement_timeout = '3s'"));
+            return reconcileSourceMovements(
+              tx,
+              "material",
+              sourceId,
+              desiredFor(itemB),
+              actor,
+            );
+          }),
+        ])
+      )[0];
+    } finally {
+      clearTimeout(readyTimeout);
+      releaseFirst();
+    }
+    await first;
+
+    expect(secondResult).toMatchObject({
+      status: "rejected",
+      reason: { statusCode: 409 },
+    });
+    expect(await expectConsistent(itemA)).toBeCloseTo(70, 2);
+    expect(await expectConsistent(itemB)).toBeCloseTo(100, 2);
+    expect(await netSignedForSources(db, "material", [sourceId])).toBeCloseTo(
+      -30,
+      2,
+    );
+
+    await db.transaction((tx) =>
+      reconcileSourceMovements(
+        tx,
+        "material",
+        sourceId,
+        desiredFor(itemB),
+        actor,
+      ),
+    );
+    expect(await expectConsistent(itemA)).toBeCloseTo(100, 2);
+    expect(await expectConsistent(itemB)).toBeCloseTo(70, 2);
+    expect(await netSignedForSources(db, "material", [sourceId])).toBeCloseTo(
+      -30,
+      2,
+    );
+  });
+
+  it("fails closed on a concurrent same-source rematch and converges after retry", async () => {
     const itemA = await makeItem({ name: `Stejný zdroj A ${TAG}` });
     const itemB = await makeItem({ name: `Stejný zdroj B ${TAG}` });
     const itemC = await makeItem({ name: `Stejný zdroj C ${TAG}` });
@@ -795,54 +1066,32 @@ describe("job material issue lifecycle", () => {
     });
 
     const firstReadyTimeout = setTimeout(
-      () => rejectFirstReady(new Error("First same-source reconcile timed out.")),
+      () =>
+        rejectFirstReady(new Error("First same-source reconcile timed out.")),
       3_000,
     );
     await firstReady.finally(() => clearTimeout(firstReadyTimeout));
 
-    const waiterName = `warehouse-same-source-${Date.now()}`;
-    const second = db.transaction(async (tx) => {
-      await tx.execute(
-        sql`select set_config('application_name', ${waiterName}, true)`,
-      );
-      await reconcileSourceMovements(
-        tx,
-        "material",
-        sourceId,
-        desiredFor(itemC),
-        actor,
-      );
-    });
-
-    let waitingOnItemLock = false;
-    let observationError: unknown = null;
+    let secondResult: PromiseSettledResult<void> | undefined;
     try {
-      const deadline = Date.now() + 3_000;
-      while (Date.now() < deadline) {
-        const activity = (await db.execute(sql`
-          select wait_event_type
-          from pg_stat_activity
-          where application_name = ${waiterName}
-        `)) as unknown as {
-          rows: Array<{ wait_event_type: string | null }>;
-        };
-        if (activity.rows.some((row) => row.wait_event_type === "Lock")) {
-          waitingOnItemLock = true;
-          break;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 20));
-      }
-    } catch (error) {
-      observationError = error;
+      [secondResult] = await Promise.allSettled([
+        db.transaction(async (tx) => {
+          await tx.execute(sql.raw("set local statement_timeout = '3s'"));
+          return reconcileSourceMovements(
+            tx,
+            "material",
+            sourceId,
+            desiredFor(itemC),
+            actor,
+          );
+        }),
+      ]);
     } finally {
       releaseFirstCommit();
     }
 
-    const results = await Promise.allSettled([first, second]);
-    if (observationError) throw observationError;
-    expect(waitingOnItemLock).toBe(true);
-    expect(results[0]).toEqual({ status: "fulfilled", value: undefined });
-    expect(results[1]).toMatchObject({
+    await expect(first).resolves.toBeUndefined();
+    expect(secondResult).toMatchObject({
       status: "rejected",
       reason: { statusCode: 409 },
     });
@@ -1022,7 +1271,9 @@ describe("multi-source batch lock planning", () => {
           request(sources[3].id, itemA),
         ]),
       ]);
-      expect(results.every((result) => result.status === "fulfilled")).toBe(true);
+      expect(results.every((result) => result.status === "fulfilled")).toBe(
+        true,
+      );
     } catch (error) {
       primaryError = error;
     } finally {
@@ -1084,7 +1335,13 @@ describe("activity material issue lifecycle", () => {
       const warehouseItemId = await resolveWarehouseItemIdByName(tx, name);
       return tx
         .insert(activityMaterialsTable)
-        .values({ activityId, name, quantity, pricePerUnit: "10", warehouseItemId })
+        .values({
+          activityId,
+          name,
+          quantity,
+          pricePerUnit: "10",
+          warehouseItemId,
+        })
         .returning();
     });
     return m.id;
@@ -1093,11 +1350,20 @@ describe("activity material issue lifecycle", () => {
   it("issue → edit → delete keeps stock consistent and nets to zero on delete", async () => {
     const itemId = await makeItem({ name: `Trubka ${TAG}` });
     // Opening balance of 100 via a manual receipt.
-    await createManualMovement(db, itemId, { direction: "in", quantity: 100 }, actor);
+    await createManualMovement(
+      db,
+      itemId,
+      { direction: "in", quantity: 100 },
+      actor,
+    );
     const activityId = await makeActivity();
 
     // Issue 10 → −10. The route always passes jobId: null for activity materials.
-    const materialId = await insertActivityMaterial(activityId, `Trubka ${TAG}`, "10");
+    const materialId = await insertActivityMaterial(
+      activityId,
+      `Trubka ${TAG}`,
+      "10",
+    );
     await db.transaction(async (tx) => {
       const [m] = await tx
         .select()
@@ -1105,7 +1371,14 @@ describe("activity material issue lifecycle", () => {
         .where(eq(activityMaterialsTable.id, materialId));
       await reconcileActivityMaterialStockMovement(
         tx,
-        { id: m.id, name: m.name, quantity: m.quantity, pricePerUnit: m.pricePerUnit, jobId: null, warehouseItemId: m.warehouseItemId },
+        {
+          id: m.id,
+          name: m.name,
+          quantity: m.quantity,
+          pricePerUnit: m.pricePerUnit,
+          jobId: null,
+          warehouseItemId: m.warehouseItemId,
+        },
         actor,
       );
     });
@@ -1120,7 +1393,14 @@ describe("activity material issue lifecycle", () => {
         .returning();
       await reconcileActivityMaterialStockMovement(
         tx,
-        { id: m.id, name: m.name, quantity: m.quantity, pricePerUnit: m.pricePerUnit, jobId: null, warehouseItemId: m.warehouseItemId },
+        {
+          id: m.id,
+          name: m.name,
+          quantity: m.quantity,
+          pricePerUnit: m.pricePerUnit,
+          jobId: null,
+          warehouseItemId: m.warehouseItemId,
+        },
         actor,
       );
     });
@@ -1132,21 +1412,43 @@ describe("activity material issue lifecycle", () => {
       await tx
         .delete(activityMaterialsTable)
         .where(eq(activityMaterialsTable.id, materialId));
-      await reconcileSourceMovements(tx, "activity_material", materialId, null, actor);
+      await reconcileSourceMovements(
+        tx,
+        "activity_material",
+        materialId,
+        null,
+        actor,
+      );
     });
     expect(await expectConsistent(itemId)).toBeCloseTo(100, 2);
-    expect(await netSignedForSources(db, "activity_material", [materialId])).toBeCloseTo(0, 2);
+    expect(
+      await netSignedForSources(db, "activity_material", [materialId]),
+    ).toBeCloseTo(0, 2);
   });
 
   it("re-matching an activity material to a different item moves stock between both", async () => {
     const itemA = await makeItem({ name: `Spojka A ${TAG}` });
     const itemB = await makeItem({ name: `Spojka B ${TAG}` });
-    await createManualMovement(db, itemA, { direction: "in", quantity: 100 }, actor);
-    await createManualMovement(db, itemB, { direction: "in", quantity: 100 }, actor);
+    await createManualMovement(
+      db,
+      itemA,
+      { direction: "in", quantity: 100 },
+      actor,
+    );
+    await createManualMovement(
+      db,
+      itemB,
+      { direction: "in", quantity: 100 },
+      actor,
+    );
     const activityId = await makeActivity();
 
     // Issue 30 against A (matched by name).
-    const materialId = await insertActivityMaterial(activityId, `Spojka A ${TAG}`, "30");
+    const materialId = await insertActivityMaterial(
+      activityId,
+      `Spojka A ${TAG}`,
+      "30",
+    );
     await db.transaction(async (tx) => {
       const [m] = await tx
         .select()
@@ -1154,7 +1456,14 @@ describe("activity material issue lifecycle", () => {
         .where(eq(activityMaterialsTable.id, materialId));
       await reconcileActivityMaterialStockMovement(
         tx,
-        { id: m.id, name: m.name, quantity: m.quantity, pricePerUnit: m.pricePerUnit, jobId: null, warehouseItemId: m.warehouseItemId },
+        {
+          id: m.id,
+          name: m.name,
+          quantity: m.quantity,
+          pricePerUnit: m.pricePerUnit,
+          jobId: null,
+          warehouseItemId: m.warehouseItemId,
+        },
         actor,
       );
     });
@@ -1165,7 +1474,10 @@ describe("activity material issue lifecycle", () => {
     // route re-resolves warehouseItemId whenever the name changes (see
     // routes/activities.ts) — mirror that here before reconciling.
     await db.transaction(async (tx) => {
-      const warehouseItemId = await resolveWarehouseItemIdByName(tx, `Spojka B ${TAG}`);
+      const warehouseItemId = await resolveWarehouseItemIdByName(
+        tx,
+        `Spojka B ${TAG}`,
+      );
       const [m] = await tx
         .update(activityMaterialsTable)
         .set({ name: `Spojka B ${TAG}`, warehouseItemId })
@@ -1173,7 +1485,14 @@ describe("activity material issue lifecycle", () => {
         .returning();
       await reconcileActivityMaterialStockMovement(
         tx,
-        { id: m.id, name: m.name, quantity: m.quantity, pricePerUnit: m.pricePerUnit, jobId: null, warehouseItemId: m.warehouseItemId },
+        {
+          id: m.id,
+          name: m.name,
+          quantity: m.quantity,
+          pricePerUnit: m.pricePerUnit,
+          jobId: null,
+          warehouseItemId: m.warehouseItemId,
+        },
         actor,
       );
     });
@@ -1181,7 +1500,9 @@ describe("activity material issue lifecycle", () => {
     expect(await expectConsistent(itemB)).toBeCloseTo(70, 2);
 
     // The source's net contribution is fully on B now.
-    expect(await netSignedForSources(db, "activity_material", [materialId])).toBeCloseTo(-30, 2);
+    expect(
+      await netSignedForSources(db, "activity_material", [materialId]),
+    ).toBeCloseTo(-30, 2);
   });
 });
 
@@ -1192,12 +1513,18 @@ describe("cost-document line split", () => {
       .select({ id: billingDocumentLinesTable.id })
       .from(billingDocumentLinesTable)
       .where(eq(billingDocumentLinesTable.documentId, documentId))
-      .orderBy(billingDocumentLinesTable.sortOrder, billingDocumentLinesTable.id);
+      .orderBy(
+        billingDocumentLinesTable.sortOrder,
+        billingDocumentLinesTable.id,
+      );
     return rows.map((r) => r.id);
   }
 
   it("rejects splitting an approved stock line without changing its ledger", async () => {
-    const itemId = await makeItem({ name: `Trubka ${TAG}`, code: `SKU-SPLIT-${TAG}` });
+    const itemId = await makeItem({
+      name: `Trubka ${TAG}`,
+      code: `SKU-SPLIT-${TAG}`,
+    });
     const { docId, lineId } = await makeStockDoc({
       description: `Trubka ${TAG}`,
       quantity: "40",
@@ -1225,7 +1552,10 @@ describe("cost-document line split", () => {
   });
 
   it("allows splitting an unapproved line into three parts", async () => {
-    const itemId = await makeItem({ name: `Kabel3 ${TAG}`, code: `SKU-3-${TAG}` });
+    const itemId = await makeItem({
+      name: `Kabel3 ${TAG}`,
+      code: `SKU-3-${TAG}`,
+    });
     const { docId, lineId } = await makeStockDoc({
       description: `Kabel3 ${TAG}`,
       quantity: "12.5",

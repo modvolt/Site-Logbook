@@ -3,6 +3,11 @@
 Datum: 2026-08-11
 Stav: **LOCAL CODE + DISPOSABLE DB PASS / NOT PUSHED / NOT DEPLOYED**
 
+> **Nahrazeno checkpointem `17-au-r11-source-cancel-backfill-containment.md`.**
+> Následné review doložilo Unicode, bounded-execution a lock-order mezery.
+> Popsaná write cesta proto není schválena pro runtime; legacy bulk endpointy
+> jsou v novějším řezu fail-closed 409.
+
 ## Nalezená mezera
 
 Admin endpoint `warehouse-material-backfill/run` prováděl dvě samostatné raw SQL
