@@ -62,7 +62,16 @@ describe("R13 accounting evidence expand artifacts", () => {
       migrationSql.slice(migrationSql.indexOf(TRIGGER_TAIL_MARKER)).trim(),
     ).toBe(sqlTemplate.slice(sqlTemplate.indexOf(TRIGGER_TAIL_MARKER)).trim());
     expect(rollbackSql).toContain(
-      "0106 rollback blocked: accounting evidence exists; use roll-forward recovery",
+      "0106 rollback blocked: a later migration or accounting evidence exists; use roll-forward recovery",
+    );
+    expect(rollbackSql).toContain("pg_advisory_xact_lock(911072468)");
+    expect(rollbackSql).toContain(
+      "LOCK TABLE drizzle.__drizzle_migrations IN ACCESS EXCLUSIVE MODE",
+    );
+    expect(rollbackSql).toContain("later.id > exact_migration_id");
+    expect(rollbackSql).toContain("later.created_at >= 1786459128910");
+    expect(rollbackSql).toContain(
+      "697c9fe4980821769b0c053b5e7061c204fa3ded8328a5aef3f18476f5720bbd",
     );
     for (const table of TABLES) {
       expect(rollbackSql).toContain(`DROP TABLE ${table};`);
@@ -143,8 +152,8 @@ describe("R13 accounting evidence expand artifacts", () => {
   });
 
   it("keeps the adapter transaction-owned and binds every canonical evidence write", () => {
-    expect(adapterSource).toContain(
-      "createAccountingPersistenceDbAdapter(\n  tx: Tx",
+    expect(adapterSource).toMatch(
+      /createAccountingPersistenceDbAdapter\(\s*tx: Tx,?\s*\)/,
     );
     expect(adapterSource).not.toMatch(/db\.transaction\s*\(/);
     for (const marker of [

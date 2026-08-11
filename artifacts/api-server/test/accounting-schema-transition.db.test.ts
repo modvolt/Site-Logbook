@@ -11,6 +11,10 @@ import { runExternalSchemaSteadyState } from "@workspace/db/external-schema-pref
 import { runMigrations } from "@workspace/db/migrate";
 import pg from "pg";
 import { describe, expect, it } from "vitest";
+import {
+  createHistorical0106MigrationsDirectory,
+  rollbackAuditEvidence0107ToExact0106,
+} from "./accounting-evidence-migration-helper";
 
 const { Pool } = pg;
 
@@ -19,16 +23,23 @@ describe("accounting schema exact 0105 to 0106 transition", () => {
     const databaseUrl = process.env.DATABASE_URL;
     if (!databaseUrl) throw new Error("DATABASE_URL is required.");
     const parsed = new URL(databaseUrl);
-    const migrationsDir = path.resolve(
+    const currentMigrationsDir = path.resolve(
       import.meta.dirname,
       "../../../lib/db/migrations",
     );
+    const historical =
+      createHistorical0106MigrationsDirectory(currentMigrationsDir);
+    const migrationsDir = historical.directory;
     const rollbackSql = readFileSync(
-      path.join(migrationsDir, "../rollbacks/0106_graceful_frog_thor.down.sql"),
+      path.join(
+        currentMigrationsDir,
+        "../rollbacks/0106_graceful_frog_thor.down.sql",
+      ),
       "utf8",
     );
     const pool = new Pool({ connectionString: databaseUrl, max: 1 });
     try {
+      await rollbackAuditEvidence0107ToExact0106(pool, currentMigrationsDir);
       const inserted = await pool.query<{
         id: number;
       }>(`INSERT INTO backup_log (
@@ -93,7 +104,15 @@ describe("accounting schema exact 0105 to 0106 transition", () => {
         },
       );
 
-      const migration = await runMigrations(databaseUrl);
+      const previousMigrationsDir = process.env.MIGRATIONS_DIR;
+      process.env.MIGRATIONS_DIR = migrationsDir;
+      const migration = await runMigrations(databaseUrl).finally(() => {
+        if (previousMigrationsDir === undefined) {
+          delete process.env.MIGRATIONS_DIR;
+        } else {
+          process.env.MIGRATIONS_DIR = previousMigrationsDir;
+        }
+      });
       expect(migration).toMatchObject({
         expectedCount: 106,
         appliedBefore: 105,
@@ -129,6 +148,7 @@ describe("accounting schema exact 0105 to 0106 transition", () => {
         externalStateRows: 0,
       });
     } finally {
+      historical.cleanup();
       await pool.end();
     }
   });

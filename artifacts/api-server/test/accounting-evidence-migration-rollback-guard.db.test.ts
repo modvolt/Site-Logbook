@@ -7,7 +7,10 @@ import {
   invoicesTable,
   pool,
 } from "@workspace/db";
-import { assertAccountingEvidenceMigrationInstalled } from "./accounting-evidence-migration-helper";
+import {
+  assertAccountingEvidenceMigrationInstalled,
+  rollbackAuditEvidence0107ToExact0106,
+} from "./accounting-evidence-migration-helper";
 
 const ROLLBACK = readFileSync(
   resolve(
@@ -18,6 +21,7 @@ const ROLLBACK = readFileSync(
 );
 
 beforeAll(async () => {
+  await rollbackAuditEvidence0107ToExact0106(pool);
   await assertAccountingEvidenceMigrationInstalled(pool);
 });
 
@@ -33,7 +37,7 @@ describe("R13 accounting evidence used 0106 rollback", () => {
       .values({ invoiceId: invoice!.id });
 
     await expect(pool.query(ROLLBACK)).rejects.toThrow(
-      /0106 rollback blocked: accounting evidence exists/i,
+      /0106 rollback blocked: a later migration or accounting evidence exists/i,
     );
     await assertAccountingEvidenceMigrationInstalled(pool);
     const journal = await pool.query<{ count: number }>(`
