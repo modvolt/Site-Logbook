@@ -486,6 +486,147 @@ describe("job material issue lifecycle", () => {
     expect(signedFor(sourceA, movementsB)).toBeCloseTo(-30, 2);
     expect(signedFor(sourceB, movementsA)).toBeCloseTo(-30, 2);
   });
+
+  it("fails closed on an unseen same-source target and converges after retry", async () => {
+    const itemA = await makeItem({ name: `Stejný zdroj A ${TAG}` });
+    const itemB = await makeItem({ name: `Stejný zdroj B ${TAG}` });
+    const itemC = await makeItem({ name: `Stejný zdroj C ${TAG}` });
+    for (const itemId of [itemA, itemB, itemC]) {
+      await createManualMovement(
+        db,
+        itemId,
+        { direction: "in", quantity: 100 },
+        actor,
+      );
+    }
+    const jobId = await makeJob();
+    const sourceId = await insertMaterial(jobId, `Stejný zdroj A ${TAG}`, "30");
+    const desiredFor = (warehouseItemId: number) => ({
+      warehouseItemId,
+      signedQty: -30,
+      unitPrice: 10,
+      billingDocumentId: null,
+      jobId,
+      note: "Výdej na zakázku",
+    });
+
+    await db.transaction((tx) =>
+      reconcileSourceMovements(
+        tx,
+        "material",
+        sourceId,
+        desiredFor(itemA),
+        actor,
+      ),
+    );
+
+    let releaseFirstCommit!: () => void;
+    const firstCommitGate = new Promise<void>((resolve) => {
+      releaseFirstCommit = resolve;
+    });
+    let resolveFirstReady!: () => void;
+    let rejectFirstReady!: (error: unknown) => void;
+    const firstReady = new Promise<void>((resolve, reject) => {
+      resolveFirstReady = resolve;
+      rejectFirstReady = reject;
+    });
+
+    const first = db.transaction(async (tx) => {
+      try {
+        await reconcileSourceMovements(
+          tx,
+          "material",
+          sourceId,
+          desiredFor(itemB),
+          actor,
+        );
+        resolveFirstReady();
+        await firstCommitGate;
+      } catch (error) {
+        rejectFirstReady(error);
+        throw error;
+      }
+    });
+
+    const firstReadyTimeout = setTimeout(
+      () => rejectFirstReady(new Error("First same-source reconcile timed out.")),
+      3_000,
+    );
+    await firstReady.finally(() => clearTimeout(firstReadyTimeout));
+
+    const waiterName = `warehouse-same-source-${Date.now()}`;
+    const second = db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select set_config('application_name', ${waiterName}, true)`,
+      );
+      await reconcileSourceMovements(
+        tx,
+        "material",
+        sourceId,
+        desiredFor(itemC),
+        actor,
+      );
+    });
+
+    let waitingOnItemLock = false;
+    let observationError: unknown = null;
+    try {
+      const deadline = Date.now() + 3_000;
+      while (Date.now() < deadline) {
+        const activity = (await db.execute(sql`
+          select wait_event_type
+          from pg_stat_activity
+          where application_name = ${waiterName}
+        `)) as unknown as {
+          rows: Array<{ wait_event_type: string | null }>;
+        };
+        if (activity.rows.some((row) => row.wait_event_type === "Lock")) {
+          waitingOnItemLock = true;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+    } catch (error) {
+      observationError = error;
+    } finally {
+      releaseFirstCommit();
+    }
+
+    const results = await Promise.allSettled([first, second]);
+    if (observationError) throw observationError;
+    expect(waitingOnItemLock).toBe(true);
+    expect(results[0]).toEqual({ status: "fulfilled", value: undefined });
+    expect(results[1]).toMatchObject({
+      status: "rejected",
+      reason: { statusCode: 409 },
+    });
+
+    await db.transaction((tx) =>
+      reconcileSourceMovements(
+        tx,
+        "material",
+        sourceId,
+        desiredFor(itemC),
+        actor,
+      ),
+    );
+
+    expect(await expectConsistent(itemA)).toBeCloseTo(100, 2);
+    expect(await expectConsistent(itemB)).toBeCloseTo(100, 2);
+    expect(await expectConsistent(itemC)).toBeCloseTo(70, 2);
+    expect(await netSignedForSources(db, "material", [sourceId])).toBeCloseTo(
+      -30,
+      2,
+    );
+    const movementsC = await listItemMovements(db, itemC);
+    const sourceNetOnC = movementsC
+      .filter(
+        (movement) =>
+          movement.sourceType === "material" && movement.sourceId === sourceId,
+      )
+      .reduce((sum, movement) => sum + movement.signedQuantity, 0);
+    expect(sourceNetOnC).toBeCloseTo(-30, 2);
+  });
 });
 
 describe("activity material issue lifecycle", () => {

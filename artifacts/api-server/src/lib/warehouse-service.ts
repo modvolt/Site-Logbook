@@ -103,6 +103,26 @@ async function appliedSignedFor(
   return num(res.rows[0]?.qty ?? 0);
 }
 
+async function loadSourceMovementRows(
+  tx: DbTx,
+  sourceType: MovementSourceType,
+  sourceId: number,
+) {
+  return tx
+    .select({
+      warehouseItemId: warehouseMovementsTable.warehouseItemId,
+      billingDocumentId: warehouseMovementsTable.billingDocumentId,
+      jobId: warehouseMovementsTable.jobId,
+    })
+    .from(warehouseMovementsTable)
+    .where(
+      and(
+        eq(warehouseMovementsTable.sourceType, sourceType),
+        eq(warehouseMovementsTable.sourceId, sourceId),
+      ),
+    );
+}
+
 async function lockItem(
   tx: DbTx,
   warehouseItemId: number,
@@ -209,19 +229,35 @@ export async function reconcileSourceMovements(
   actor: Actor,
 ): Promise<void> {
   // Items this source has already moved (so we can reverse stale targets).
-  const existingRows = await tx
-    .select({
-      warehouseItemId: warehouseMovementsTable.warehouseItemId,
-      billingDocumentId: warehouseMovementsTable.billingDocumentId,
-      jobId: warehouseMovementsTable.jobId,
-    })
-    .from(warehouseMovementsTable)
-    .where(
-      and(
-        eq(warehouseMovementsTable.sourceType, sourceType),
-        eq(warehouseMovementsTable.sourceId, sourceId),
-      ),
+  let existingRows = await loadSourceMovementRows(tx, sourceType, sourceId);
+
+  const protectedItemIds = new Set([
+    ...existingRows.map((row) => row.warehouseItemId),
+    ...(desired ? [desired.warehouseItemId] : []),
+  ]);
+
+  // The first read discovers the item rows that must be locked. A concurrent
+  // reconcile of the same source can commit an additional target while this
+  // transaction waits for those locks. Re-read after the locks are held: a
+  // newly visible target that was not protected cannot be acquired now without
+  // violating the global numeric item-lock order. Fail closed and let the
+  // caller retry from a fresh transaction instead of leaving contributions on
+  // both the concurrent and requested targets.
+  await lockItemsInAscendingOrder(tx, protectedItemIds);
+  existingRows = await loadSourceMovementRows(tx, sourceType, sourceId);
+  const unprotectedItemIds = [
+    ...new Set(
+      existingRows
+        .map((row) => row.warehouseItemId)
+        .filter((warehouseItemId) => !protectedItemIds.has(warehouseItemId)),
+    ),
+  ].sort((left, right) => left - right);
+  if (unprotectedItemIds.length > 0) {
+    throw appError(
+      409,
+      "Skladová evidence zdroje byla souběžně změněna. Opakujte operaci.",
     );
+  }
 
   // Keep the original business-document links on reversal rows. Without this,
   // the stock total is correct but the storno disappears from job/document
@@ -243,17 +279,8 @@ export async function reconcileSourceMovements(
     });
   }
 
-  // Every reconcile transaction takes all item locks in the same order before
-  // reading any applied contribution. Without this pre-lock, concurrent A→B
-  // and B→A rematches can each hold their old item while waiting for the other.
-  // Taking the locks before appliedSignedFor also prevents stale applied reads
-  // for this already-discovered set of affected items. Serializing two
-  // reconciles of the same source that discover different new targets remains
-  // a separate source-identity concurrency concern.
-  await lockItemsInAscendingOrder(tx, [
-    ...existing.keys(),
-    ...(desired ? [desired.warehouseItemId] : []),
-  ]);
+  // The protected rows are now stable for this transaction. Applied sums are
+  // read only after the ordered locks and the refreshed source snapshot.
 
   for (const {
     warehouseItemId,
