@@ -92,6 +92,8 @@ services:
     build:
       context: .
       dockerfile: artifacts/api-server/Dockerfile
+      args:
+        BUILD_SHA: ${BUILD_SHA:?set the exact 40-character release commit SHA}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -137,6 +139,20 @@ services:
       # private aliases. Record the real Coolify network topology first.
       API_TRUSTED_PROXY_CIDRS: ${API_TRUSTED_PROXY_CIDRS:-}
       EXTERNAL_ACCOUNTS_ENABLED: ${EXTERNAL_ACCOUNTS_ENABLED:-false}
+      # Production startup is schema-read-only. Supply the four canonical,
+      # secret-free artifacts and independently recorded SHA-256 values only
+      # after the one-shot 0107 control plane and offline v5 approval pass.
+      AUDIT_0107_RELEASE_EVIDENCE_B64: ${AUDIT_0107_RELEASE_EVIDENCE_B64:?set canonical v5 release evidence as base64}
+      AUDIT_0107_RELEASE_EVIDENCE_SHA256: ${AUDIT_0107_RELEASE_EVIDENCE_SHA256:?set sha256 digest of canonical v5 release evidence}
+      AUDIT_0107_EXECUTION_EVIDENCE_B64: ${AUDIT_0107_EXECUTION_EVIDENCE_B64:?set canonical 0107 execution evidence as base64}
+      AUDIT_0107_EXECUTION_EVIDENCE_SHA256: ${AUDIT_0107_EXECUTION_EVIDENCE_SHA256:?set sha256 digest of canonical 0107 execution evidence}
+      AUDIT_0107_INTENT_EVIDENCE_B64: ${AUDIT_0107_INTENT_EVIDENCE_B64:?set canonical 0107 transition intent as base64}
+      AUDIT_0107_INTENT_EVIDENCE_SHA256: ${AUDIT_0107_INTENT_EVIDENCE_SHA256:?set sha256 digest of canonical 0107 transition intent}
+      AUDIT_0107_STEADY_STATE_EVIDENCE_B64: ${AUDIT_0107_STEADY_STATE_EVIDENCE_B64:?set canonical steady-0107 evidence as base64}
+      AUDIT_0107_STEADY_STATE_EVIDENCE_SHA256: ${AUDIT_0107_STEADY_STATE_EVIDENCE_SHA256:?set sha256 digest of canonical steady-0107 evidence}
+      AUDIT_0107_RESOLVED_COMPOSE_SHA256: ${AUDIT_0107_RESOLVED_COMPOSE_SHA256:?set the approved canonical resolved Compose sha256 digest}
+      AUDIT_0107_DEPLOYMENT_CONFIG_SHA256: ${AUDIT_0107_DEPLOYMENT_CONFIG_SHA256:?set the approved canonical secret-free deployment config sha256 digest}
+      AUDIT_0107_LIVE_POSTGRES_TARGET_SHA256: ${AUDIT_0107_LIVE_POSTGRES_TARGET_SHA256:?set the approved canonical live Postgres target projection sha256 digest}
 
   web:
     build:

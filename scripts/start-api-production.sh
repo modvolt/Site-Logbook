@@ -1,54 +1,43 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/sh
+set -eu
 
-# Stavba API — production start script (Replit environment).
-#
-# Runs database migrations to completion before starting the API server.
-# Mirrors what the Docker CMD ("node dist/migrate.mjs && exec node dist/index.mjs")
-# does, but paths are relative to the monorepo root (where Replit runs the command).
-#
-# Logged fields (no secrets are printed):
-#   migrationsFolder  — absolute path of the migrations folder being read
-#   journalEntries    — number of migrations the build expects (_journal.json count)
-#   migrateExitCode   — exit code of migrate.mjs (0 = success)
-#   parity            — PASS when migrate.mjs exited 0, FAIL otherwise
-#
-# migrate.mjs itself logs applied-before / applied-after / newly-applied /
-# latestExpectedTag via pino at info level. Those structured log lines appear in
-# the same output stream and satisfy the "log migration counts" requirement.
-#
-# Environment variables:
-#   MIGRATIONS_DIR   Folder containing Drizzle migrations (default: $PWD/lib/db/migrations)
-#   DATABASE_URL     Postgres connection string (required by migrate.mjs)
-#   PORT             Port for the API server (required by index.mjs)
+# Production API startup is deliberately read-only with respect to schema.
+# Migration 0107 must be applied by the separately approved one-shot control
+# plane. This script accepts only the later v5 release approval, verifies its
+# raw intent, execution and steady-state artifacts, then starts the API. Missing or
+# mismatched evidence is a hard stop; this script never runs the schema migrator.
 
-MIGRATIONS_DIR="${MIGRATIONS_DIR:-$PWD/lib/db/migrations}"
-# Resolve to an absolute path so the log is unambiguous regardless of CWD.
-MIGRATIONS_FOLDER_ABS="$(realpath "$MIGRATIONS_DIR" 2>/dev/null || echo "$MIGRATIONS_DIR")"
-JOURNAL="$MIGRATIONS_FOLDER_ABS/meta/_journal.json"
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+CHECKER="$SCRIPT_DIR/check-audit-0107-release-evidence.mjs"
 
-echo "[start-api] migrationsFolder=$MIGRATIONS_FOLDER_ABS"
-
-# Fail fast if the journal is unreadable — no journal means no schema knowledge.
-if [ ! -r "$JOURNAL" ]; then
-  echo "[start-api] parity=FAIL reason='journal not readable at $JOURNAL'" >&2
-  echo "[start-api] Check that MIGRATIONS_DIR points to lib/db/migrations." >&2
+if [ ! -r "$CHECKER" ]; then
+  echo "[start-api] releaseEvidence=FAIL reason='checker not readable'" >&2
   exit 1
 fi
 
-JOURNAL_ENTRIES=$(node -e "const j=JSON.parse(require('fs').readFileSync('$JOURNAL','utf8'));process.stdout.write(String(j.entries.length))")
-echo "[start-api] journalEntries=$JOURNAL_ENTRIES"
-
-echo "[start-api] Running migrate.mjs …"
-MIGRATIONS_DIR="$MIGRATIONS_FOLDER_ABS" node artifacts/api-server/dist/migrate.mjs
-MIGRATE_EXIT=$?
-
-if [ "$MIGRATE_EXIT" -ne 0 ]; then
-  echo "[start-api] migrateExitCode=$MIGRATE_EXIT parity=FAIL" >&2
-  echo "[start-api] Refusing to start API server against an out-of-date schema." >&2
-  exit "$MIGRATE_EXIT"
+if [ -r /app/dist/index.mjs ]; then
+  API_ENTRYPOINT=/app/dist/index.mjs
+elif [ -r artifacts/api-server/dist/index.mjs ]; then
+  API_ENTRYPOINT=artifacts/api-server/dist/index.mjs
+else
+  echo "[start-api] releaseEvidence=FAIL reason='API entrypoint not readable'" >&2
+  exit 1
 fi
 
-echo "[start-api] migrateExitCode=0 parity=PASS"
-echo "[start-api] Starting API server …"
-exec node --enable-source-maps artifacts/api-server/dist/index.mjs
+echo "[start-api] migrationMode=external-one-shot autoMigrate=false"
+echo "[start-api] verifying exact steady-0107 release evidence"
+
+RUNTIME_LINEAGE_B64=$(node "$CHECKER" --emit-runtime-lineage-b64)
+case "$RUNTIME_LINEAGE_B64" in
+  ""|*[!A-Za-z0-9+/=]*)
+    echo "[start-api] releaseEvidence=FAIL reason='invalid runtime lineage output'" >&2
+    exit 1
+    ;;
+esac
+
+AUDIT_0107_RUNTIME_LINEAGE_B64="$RUNTIME_LINEAGE_B64"
+export AUDIT_0107_RUNTIME_LINEAGE_B64
+
+echo "[start-api] releaseEvidence=PASS schemaAction=steady-0107"
+echo "[start-api] starting API without applying migrations"
+exec node --enable-source-maps "$API_ENTRYPOINT"

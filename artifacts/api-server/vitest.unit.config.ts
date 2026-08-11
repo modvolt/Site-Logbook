@@ -36,6 +36,7 @@ export default defineConfig({
       "test/upload-abort.test.ts",
       "test/work-session-math.test.ts",
       "test/live-events-domains.test.ts",
+      "test/migration-health.test.ts",
     ],
     exclude: ["test/ppe-contract.test.ts"],
   },

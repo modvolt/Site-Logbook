@@ -1,0 +1,54 @@
+{
+  "approval": {
+    "approvedAt": "PENDING",
+    "authorizesApplicationStart": false,
+    "compensatingControls": {
+      "environmentBranchRestricted": false,
+      "exactShaQualityGateRequired": false,
+      "mainBranchProtected": false
+    },
+    "resolvedComposeReviewed": false,
+    "deploymentConfigReviewed": false,
+    "livePostgresTargetReviewed": false,
+    "exactBuildShaReviewed": false,
+    "executionReviewed": false,
+    "mode": "solo_maintainer",
+    "operator": "PENDING",
+    "predecessorReleaseEvidenceReviewed": false,
+    "reviewer": null,
+    "serviceOwner": "PENDING",
+    "soloMaintainerRiskAccepted": false,
+    "steadyStateReviewed": false
+  },
+  "artifacts": {
+    "audit0107ExecutionSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "audit0107IntentSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "audit0107SteadyStateSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "buildSha": "0000000000000000000000000000000000000000",
+  "deploymentBinding": {
+    "deploymentConfigSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "livePostgresTargetSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "resolvedComposeSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "kind": "site-logbook-staging-audit-0107-release-evidence",
+  "lineage": {
+    "decision": "ALREADY_0107",
+    "excludedMigration0100Present": false,
+    "knownAppliedMigrations": 107,
+    "knownAppliedRowsSha256": "sha256:d34407b4cdb8b0dc8bb9d07cd6cd500be5853d3112e142fe44e0efa5b8cd7cc1",
+    "knownExpectedMigrations": 107,
+    "latestKnownAppliedTag": "0107_canonical_audit_evidence",
+    "missingKnownToPredecessor": 0,
+    "mode": "clean",
+    "opaqueLegacyMeaningInferred": false,
+    "opaqueLegacyRowCount": 0,
+    "opaqueLegacyRowsSha256": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+  },
+  "predecessorReleaseEvidence": {
+    "decision": "PASS",
+    "fileSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "schemaVersion": 4
+  },
+  "schemaVersion": 5
+}

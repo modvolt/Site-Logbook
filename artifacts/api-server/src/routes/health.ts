@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import { readMigrationFiles } from "drizzle-orm/migrator";
 import {
   HealthCheckResponse,
   GetAdminHealthResponse,
@@ -39,6 +40,10 @@ import {
   listOperationalAlertDeadLetters,
   requeueOperationalAlertDeadLetter,
 } from "../lib/operational-incident-store";
+import {
+  classifyMigrationInventory,
+  migrationReleaseBindingMatches,
+} from "../lib/migration-health";
 
 const WINDOW_24H = 24 * 60 * 60 * 1000;
 const DEAD_LETTER_REQUEUE_BODY_KEYS = new Set([
@@ -86,8 +91,13 @@ function resolveMigrationsFolder(): string {
 
 async function checkMigrationParity(): Promise<{
   parity: boolean;
+  controlParity: boolean | null;
   expectedCount: number;
+  knownAppliedCount: number;
+  knownRowsSha256: string;
+  opaqueAppliedCount: number;
   appliedCount: number;
+  opaqueRowsSha256: string;
   latestExpectedTag: string | null;
   missingTags: string[];
 }> {
@@ -100,51 +110,118 @@ async function checkMigrationParity(): Promise<{
   } catch {
     return {
       parity: false,
+      controlParity: process.env.NODE_ENV === "production" ? false : null,
       expectedCount: 0,
+      knownAppliedCount: 0,
+      knownRowsSha256: "sha256:unknown",
+      opaqueAppliedCount: 0,
       appliedCount: 0,
+      opaqueRowsSha256: "sha256:unknown",
       latestExpectedTag: null,
       missingTags: ["(journal unreadable)"],
     };
   }
 
+  const latestExpectedTag = expected.at(-1)?.tag ?? null;
   let appliedCount = 0;
+  let knownAppliedCount = 0;
+  let knownRowsSha256 = "sha256:unknown";
+  let opaqueAppliedCount = 0;
+  let opaqueRowsSha256 = "sha256:unknown";
   let missingTags: string[] = [];
 
   try {
-    const result = await db.execute<{ created_at: string | number | null }>(
-      sql`SELECT created_at FROM drizzle.__drizzle_migrations ORDER BY created_at`,
+    const migrationFiles = readMigrationFiles({
+      migrationsFolder: resolveMigrationsFolder(),
+    });
+    const filesByWhen = new Map(
+      migrationFiles.map((file) => [file.folderMillis, file]),
+    );
+    const expectedIdentities = expected.map((entry) => {
+      const file = filesByWhen.get(entry.when);
+      if (!file) {
+        throw new Error(`Migration file missing for ${entry.tag}.`);
+      }
+      return {
+        when: entry.when,
+        tag: entry.tag,
+        hash: file.hash.toLowerCase(),
+      };
+    });
+    const result = await db.execute<{
+      created_at: string | number | null;
+      hash: string | null;
+    }>(
+      sql`SELECT created_at, hash FROM drizzle.__drizzle_migrations ORDER BY created_at, id`,
     );
     // db.execute with node-postgres returns a QueryResult object; rows are in .rows
-    const rows: Array<{ created_at: string | number | null }> =
-      Array.isArray(result) ? result : (result as any).rows ?? [];
-    const appliedMillis = new Set(
-      rows.map((r) => Number(r.created_at)).filter((n) => Number.isFinite(n)),
-    );
-    appliedCount = appliedMillis.size;
-    missingTags = expected.filter((e) => !appliedMillis.has(e.when)).map((e) => e.tag);
+    const rows: Array<{
+      created_at: string | number | null;
+      hash: string | null;
+    }> = Array.isArray(result) ? result : ((result as any).rows ?? []);
+    const inventory = classifyMigrationInventory(expectedIdentities, rows);
+    knownAppliedCount = inventory.knownAppliedMigrations;
+    knownRowsSha256 = inventory.knownAppliedRowsSha256;
+    opaqueAppliedCount = inventory.opaqueAppliedMigrations;
+    appliedCount = knownAppliedCount + opaqueAppliedCount;
+    opaqueRowsSha256 = inventory.opaqueLegacyRowsSha256;
+    missingTags = inventory.missingKnownMigrationTags;
+
+    const controlParity =
+      process.env.NODE_ENV === "production"
+        ? migrationReleaseBindingMatches(
+            process.env.AUDIT_0107_RUNTIME_LINEAGE_B64,
+            resolveApiVersion(),
+            latestExpectedTag,
+            inventory,
+          )
+        : null;
+    return {
+      parity: missingTags.length === 0 && controlParity !== false,
+      controlParity,
+      expectedCount: expected.length,
+      knownAppliedCount,
+      knownRowsSha256,
+      opaqueAppliedCount,
+      appliedCount,
+      opaqueRowsSha256,
+      latestExpectedTag,
+      missingTags,
+    };
   } catch {
     missingTags = expected.map((e) => e.tag);
   }
 
   return {
-    parity: missingTags.length === 0,
+    parity: false,
+    controlParity: process.env.NODE_ENV === "production" ? false : null,
     expectedCount: expected.length,
+    knownAppliedCount,
+    knownRowsSha256,
+    opaqueAppliedCount,
     appliedCount,
-    latestExpectedTag: expected.at(-1)?.tag ?? null,
+    opaqueRowsSha256,
+    latestExpectedTag,
     missingTags,
   };
 }
 
 // ---------------------------------------------------------------------------
-// Cached migration parity — re-checked at most once per minute.
-// Migrations are applied at startup; this cache prevents a DB query on every
-// liveness probe while still surfacing drift quickly after a broken deploy.
+// Cached migration parity â€” re-checked at most once per minute.
+// Production migrations are applied by an approved one-shot control plane.
+// This cache prevents a DB query on every liveness probe while still surfacing
+// live journal drift quickly after a release.
 // ---------------------------------------------------------------------------
 
 interface ParityCache {
   parity: boolean;
+  controlParity: boolean | null;
   expectedCount: number;
+  knownAppliedCount: number;
+  knownRowsSha256: string;
+  opaqueAppliedCount: number;
   appliedCount: number;
+  opaqueRowsSha256: string;
   latestExpectedTag: string | null;
   missingTags: string[];
   checkedAt: number;
@@ -451,6 +528,11 @@ router.get(
     const payload = GetAdminHealthResponse.parse({
       apiVersion,
       migrationParity: migration.parity,
+      migrationControlParity: migration.controlParity,
+      knownAppliedMigrations: migration.knownAppliedCount,
+      knownMigrationRowsSha256: migration.knownRowsSha256,
+      opaqueAppliedMigrations: migration.opaqueAppliedCount,
+      opaqueMigrationRowsSha256: migration.opaqueRowsSha256,
       expectedMigrations: migration.expectedCount,
       appliedMigrations: migration.appliedCount,
       latestExpectedTag: migration.latestExpectedTag,

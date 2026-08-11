@@ -478,7 +478,17 @@ function HealthContent({ data }: { data: AdminHealthStatus }) {
       >
         <Row label="Parity" value={data.migrationParity ? "PASS ✓" : "FAIL ✗"} />
         <Row label="Očekáváno" value={String(data.expectedMigrations)} />
-        <Row label="Aplikováno" value={String(data.appliedMigrations)} />
+        <Row label="Známé aplikované" value={String(data.knownAppliedMigrations)} />
+        <Row label="Neprůhledné/legacy" value={String(data.opaqueAppliedMigrations)} />
+        <Row label="Aplikováno celkem" value={String(data.appliedMigrations)} />
+        {data.migrationControlParity != null && (
+          <Row
+            label="Release evidence"
+            value={data.migrationControlParity ? "PASS ✓" : "FAIL ✗"}
+          />
+        )}
+        <Row label="Otisk známých řádků" value={data.knownMigrationRowsSha256} />
+        <Row label="Otisk legacy řádků" value={data.opaqueMigrationRowsSha256} />
         {data.latestExpectedTag && (
           <Row label="Poslední tag" value={data.latestExpectedTag} />
         )}

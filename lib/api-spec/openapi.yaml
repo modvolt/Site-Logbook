@@ -10768,7 +10768,12 @@ components:
       required:
         - apiVersion
         - migrationParity
+        - migrationControlParity
         - expectedMigrations
+        - knownAppliedMigrations
+        - knownMigrationRowsSha256
+        - opaqueAppliedMigrations
+        - opaqueMigrationRowsSha256
         - appliedMigrations
         - missingMigrationTags
         - dbStatus
@@ -10788,11 +10793,27 @@ components:
           description: Build SHA or version of the running API
         migrationParity:
           type: boolean
-          description: True when all expected migrations are applied
+          description: True when all exact known migration identities are applied and, in production, the runtime release-evidence lineage matches the live known/opaque inventory
+        migrationControlParity:
+          type: ["boolean", "null"]
+          description: Exact production steady-release lineage match; null outside production
         expectedMigrations:
           type: integer
+        knownAppliedMigrations:
+          type: integer
+          description: Live rows matching an expected journal timestamp and SQL hash exactly
+        knownMigrationRowsSha256:
+          type: string
+          description: SHA-256 of the canonical sorted exact-known migration identity array, or sha256:unknown when inventory cannot be read
+        opaqueAppliedMigrations:
+          type: integer
+          description: Live rows not consumed by the exact known migration set, including duplicates and hash drift
+        opaqueMigrationRowsSha256:
+          type: string
+          description: SHA-256 of the canonical sorted opaque migration identity array, or sha256:unknown when inventory cannot be read
         appliedMigrations:
           type: integer
+          description: Total live journal rows; equals knownAppliedMigrations plus opaqueAppliedMigrations
         latestExpectedTag:
           type: ["string", "null"]
         missingMigrationTags:

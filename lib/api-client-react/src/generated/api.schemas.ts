@@ -142,9 +142,23 @@ export interface AdminHealthLastBackup {
 export interface AdminHealthStatus {
   /** Build SHA or version of the running API */
   apiVersion: string;
-  /** True when all expected migrations are applied */
+  /** True when all exact known migration identities are applied and, in production, the runtime release-evidence lineage matches the live known/opaque inventory */
   migrationParity: boolean;
+  /**
+   * Exact production steady-release lineage match; null outside production
+   * @nullable
+   */
+  migrationControlParity: boolean | null;
   expectedMigrations: number;
+  /** Live rows matching an expected journal timestamp and SQL hash exactly */
+  knownAppliedMigrations: number;
+  /** SHA-256 of the canonical sorted exact-known migration identity array, or sha256:unknown when inventory cannot be read */
+  knownMigrationRowsSha256: string;
+  /** Live rows not consumed by the exact known migration set, including duplicates and hash drift */
+  opaqueAppliedMigrations: number;
+  /** SHA-256 of the canonical sorted opaque migration identity array, or sha256:unknown when inventory cannot be read */
+  opaqueMigrationRowsSha256: string;
+  /** Total live journal rows; equals knownAppliedMigrations plus opaqueAppliedMigrations */
   appliedMigrations: number;
   /** @nullable */
   latestExpectedTag?: string | null;

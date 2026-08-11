@@ -7,8 +7,10 @@
 #
 #   docker build -f artifacts/api-server/Dockerfile -t stavba-api .
 #
-# The container applies pending database migrations on startup and then serves
-# the REST API on $PORT (default 5000).
+# The container never applies database migrations on startup. A separately
+# approved one-shot schema control plane must first produce canonical intent,
+# execution and exact steady release evidence; startup verifies that chain and
+# then serves the REST API on $PORT (default 5000).
 
 # ---------- Builder ----------
 FROM node:24-slim@sha256:235600a8101ab264e117b1768e925532262668dc9b581ef1dd7d96ced463b8e7 AS builder
@@ -33,7 +35,7 @@ COPY attached_assets ./attached_assets
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm install --frozen-lockfile --store-dir=/pnpm/store
 
-# Bundle the API, migrator and read-only external-schema pre/postflight.
+# Bundle the API and the separately invoked migration/control-plane entrypoints.
 RUN pnpm --filter @workspace/api-server run build
 
 # Produce a pruned, production-only node_modules at /app. Reuse the same warm
@@ -46,7 +48,8 @@ FROM node:24-slim@sha256:235600a8101ab264e117b1768e925532262668dc9b581ef1dd7d96c
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=5000
-# Location of the committed SQL migrations applied on startup.
+# Location of committed SQL migrations used by read-only health identity checks
+# and separately invoked control-plane tools.
 ENV MIGRATIONS_DIR=/app/migrations
 
 # pg_dump (postgresql-client) is needed at runtime for the database backup
@@ -73,10 +76,13 @@ ENV BUILD_SHA=$BUILD_SHA
 
 # Runtime deps that esbuild keeps external (e.g. @aws-sdk, nodemailer).
 COPY --from=builder /app/node_modules ./node_modules
-# Bundled server + migrator + external-schema pre/postflight + pino workers.
+# Bundled server + separately invoked control-plane tools + pino workers.
 COPY --from=builder /repo/artifacts/api-server/dist ./dist
-# SQL migrations (read at startup by dist/migrate.mjs).
+# SQL migrations are read by health and separately invoked control-plane tools;
+# the production startup command never executes dist/migrate.mjs.
 COPY --from=builder /repo/lib/db/migrations ./migrations
+COPY --from=builder /repo/scripts/start-api-production.sh ./scripts/start-api-production.sh
+COPY --from=builder /repo/scripts/check-audit-0107-release-evidence.mjs ./scripts/check-audit-0107-release-evidence.mjs
 
 RUN chown -R node:node /app
 USER node
@@ -87,6 +93,6 @@ EXPOSE 5000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=5 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||5000)+'/api/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-# Apply migrations, emit an unambiguous startup marker, then start the server.
-# Explicit status handling keeps migration failures visible in container logs.
-CMD ["sh", "-c", "echo '[startup] applying database migrations'; node dist/migrate.mjs; status=$?; if [ $status -ne 0 ]; then echo \"[startup] migration failed with exit code $status\" >&2; exit $status; fi; echo '[startup] migrations complete, starting API'; exec node --enable-source-maps dist/index.mjs"]
+# Verify the separately approved steady-0107 release boundary, then start the
+# server without schema mutation.
+CMD ["sh", "/app/scripts/start-api-production.sh"]

@@ -35,9 +35,41 @@ export const GetAdminHealthResponse = zod.object({
   apiVersion: zod.string().describe("Build SHA or version of the running API"),
   migrationParity: zod
     .boolean()
-    .describe("True when all expected migrations are applied"),
+    .describe(
+      "True when all exact known migration identities are applied and, in production, the runtime release-evidence lineage matches the live known\/opaque inventory",
+    ),
+  migrationControlParity: zod
+    .boolean()
+    .nullable()
+    .describe(
+      "Exact production steady-release lineage match; null outside production",
+    ),
   expectedMigrations: zod.number(),
-  appliedMigrations: zod.number(),
+  knownAppliedMigrations: zod
+    .number()
+    .describe(
+      "Live rows matching an expected journal timestamp and SQL hash exactly",
+    ),
+  knownMigrationRowsSha256: zod
+    .string()
+    .describe(
+      "SHA-256 of the canonical sorted exact-known migration identity array, or sha256:unknown when inventory cannot be read",
+    ),
+  opaqueAppliedMigrations: zod
+    .number()
+    .describe(
+      "Live rows not consumed by the exact known migration set, including duplicates and hash drift",
+    ),
+  opaqueMigrationRowsSha256: zod
+    .string()
+    .describe(
+      "SHA-256 of the canonical sorted opaque migration identity array, or sha256:unknown when inventory cannot be read",
+    ),
+  appliedMigrations: zod
+    .number()
+    .describe(
+      "Total live journal rows; equals knownAppliedMigrations plus opaqueAppliedMigrations",
+    ),
   latestExpectedTag: zod.string().nullish(),
   missingMigrationTags: zod.array(zod.string()),
   dbStatus: zod.enum(["ok", "error"]),

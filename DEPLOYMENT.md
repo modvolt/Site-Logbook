@@ -7,7 +7,7 @@ is four services:
 | ----------- | ------------------------------------- | ----------------------------------------- |
 | `postgres`  | `postgres:16-alpine`                  | Application database                       |
 | `minio`     | `minio/minio`                         | S3-compatible object storage for uploads  |
-| `api`       | `artifacts/api-server/Dockerfile`     | REST API (Express) + DB migrations        |
+| `api`       | `artifacts/api-server/Dockerfile`     | REST API + read-only schema/release guard |
 | `web`       | `artifacts/stavba/Dockerfile`         | PWA static assets + `/api` reverse proxy  |
 
 The **web** container is the single public entrypoint: it serves the built PWA
@@ -29,9 +29,15 @@ What happens on startup:
 
 1. `postgres` and `minio` start; a one-shot `createbuckets` job creates the
    `S3_BUCKET` bucket.
-2. `api` starts, **applies all pending SQL migrations** (`dist/migrate.mjs`),
-   then serves the API on port 5000.
-3. `web` (nginx) serves the PWA on port 8080 and proxies `/api` to `api`.
+2. A separately approved one-shot schema control plane must already have
+   applied or exact-noop verified `0107_canonical_audit_evidence` and emitted
+   canonical execution plus read-only steady-state artifacts. Root Compose does
+   not run that transition.
+3. `api` verifies the separately checksummed v5 release approval, the raw
+   non-authorizing intent and execution artifacts, the authorizing steady
+   artifact and the exact image `BUILD_SHA`. It then serves port 5000 **without running a
+   migrator**. Missing or mismatched evidence keeps the container stopped.
+4. `web` (nginx) serves the PWA on port 8080 and proxies `/api` to `api`.
 
 To stop and wipe data: `docker compose down -v`.
 
@@ -152,6 +158,14 @@ This repo's `docker-compose.yml` is Coolify-ready.
 | `BACKUP_RETENTION`        | no       | `14`          | Most-recent successful backups to keep; older ones are pruned.    |
 | `PG_DUMP_PATH`            | no       | `pg_dump`     | Path to the `pg_dump` binary if not on `PATH`.                   |
 | `MIGRATIONS_DIR`          | no       | `/app/migrations` | Where the API reads SQL migrations (set in the image).      |
+| `BUILD_SHA`               | yes      | —             | Exact 40-character commit SHA baked into the API image and bound by release evidence. |
+| `AUDIT_0107_RELEASE_EVIDENCE_B64` / `AUDIT_0107_RELEASE_EVIDENCE_SHA256` | yes | — | Canonical schema-v5 release approval and its separately recorded digest. |
+| `AUDIT_0107_EXECUTION_EVIDENCE_B64` / `AUDIT_0107_EXECUTION_EVIDENCE_SHA256` | yes | — | Canonical one-shot execution evidence. It must retain `authorizesApplicationStart=false`. |
+| `AUDIT_0107_INTENT_EVIDENCE_B64` / `AUDIT_0107_INTENT_EVIDENCE_SHA256` | yes | — | Canonical pre-transition intent; its exact bytes and runtime binding must match execution. |
+| `AUDIT_0107_STEADY_STATE_EVIDENCE_B64` / `AUDIT_0107_STEADY_STATE_EVIDENCE_SHA256` | yes | — | Canonical read-only steady-0107 evidence with `authorizesApplicationStart=true`. |
+| `AUDIT_0107_RESOLVED_COMPOSE_SHA256` | yes | — | Separately reviewed digest of canonical resolved Compose observed by the isolated host runner. |
+| `AUDIT_0107_DEPLOYMENT_CONFIG_SHA256` | yes | — | Digest of the canonical secret-free Coolify/deployment configuration after reviewing all pending changes. |
+| `AUDIT_0107_LIVE_POSTGRES_TARGET_SHA256` | yes | — | Digest of the canonical live Postgres container/image/volume/network projection observed throughout the transition. |
 | `MAX_REQUEST_BODY_MB`     | no       | `50`          | Max JSON/form body size (CSV bulk imports, base64 uploads). Raise nginx `client_max_body_size` too if set above 100. |
 
 \* Required when using the bundled `postgres` service; otherwise supply
@@ -162,7 +176,8 @@ This repo's `docker-compose.yml` is Coolify-ready.
 ## 4. Database migrations
 
 Production uses **non-interactive, file-based migrations** instead of
-`drizzle-kit push`.
+`drizzle-kit push`, but production API startup never applies them. Migration
+execution and application startup are separate approval boundaries.
 
 - Generate migration SQL after changing the schema (`lib/db/src/schema`):
 
@@ -170,41 +185,52 @@ Production uses **non-interactive, file-based migrations** instead of
   pnpm --filter @workspace/db run generate
   ```
 
-  This writes versioned SQL + snapshots under `lib/db/migrations` — **commit
-  them**. They are baked into the API image and applied on startup.
+  This writes versioned SQL + snapshots under `lib/db/migrations` â€” **commit
+  them**. They are baked into the API image for the separately invoked control
+  plane and for read-only health identity checks.
 
-- Apply migrations manually against a database (rarely needed; the API does this
-  automatically on boot):
+- Apply migrations only to an isolated local development database when a
+  feature-specific one-shot runner is not required:
 
   ```bash
-  DATABASE_URL=postgres://… pnpm --filter @workspace/db run migrate
+  DATABASE_URL=postgres://â€¦ pnpm --filter @workspace/db run migrate
   ```
 
 - `pnpm --filter @workspace/db run push` remains available for **local dev
-  only** — never use it against production.
+  only** â€” never use it against production.
 
-### Startup parity guard (fail loudly when the DB is behind)
+  The generic command is not production authorization and must not be used to
+  bypass a numbered one-shot gate.
 
-The container start command is
-`node dist/migrate.mjs && exec node dist/index.mjs`, so the API only starts if
-`migrate.mjs` exits `0`. After applying migrations, `migrate.mjs` now performs a
-**parity check**: it compares the migrations recorded in drizzle's tracking table
-(`drizzle.__drizzle_migrations`) against the migration set bundled in the image
-(`_journal.json` under `MIGRATIONS_DIR`). If the live DB is still missing any
-bundled migration, it logs a clear error and **exits non-zero**, so the container
-refuses to start rather than serving 500s against an out-of-date schema.
+### Startup release guard (fail closed before serving)
 
-The migrate step logs one of three outcomes so an operator can tell at a glance
-what happened:
+The image command is `sh /app/scripts/start-api-production.sh`. The script
+never invokes `dist/migrate.mjs`. It validates four canonical artifacts against
+separately configured SHA-256 values:
 
-- `Database migrations applied: N new (now X/Y, latest <tag>)` — migrations ran.
-- `Database already up to date (X/Y migrations, latest <tag>)` — nothing to apply.
-- `DB is behind expected schema — aborting … not recorded as applied: <tags>` —
-  the parity guard tripped; the process exits non-zero.
+1. schema-v5 release evidence, including explicit offline approval;
+2. the exact pre-transition intent and its resolved Compose, secret-free
+   deployment configuration and live Postgres target projection;
+3. the exact one-shot 0107 execution, which must preserve the intent runtime
+   binding and by design does **not** authorize API startup;
+4. the later read-only steady-0107 proof, which binds the live database identity,
+   exact image SHA, known migration count/hash set, the opaque legacy-row digest,
+   0107 SQL/snapshot hashes and `0100` exclusion.
 
-Every log line names the **migrations folder used** and **how many migrations the
-build expects (Y) vs how many the DB has applied (X)**, which makes a stale-image
-or wrong-`MIGRATIONS_DIR` situation obvious.
+The existing schema-v4 exact-0105 release evidence remains a separate immutable
+predecessor artifact. Do not edit it into schema v5; v5 records only its exact
+file digest and adds the new control artifacts plus release approval. The v5
+artifact also binds the reviewed resolved Compose, canonical secret-free
+deployment configuration and live Postgres projection digests. These digests
+must be copied from the verified host execution and reconciled with the exact
+reviewed Coolify view after resolving every pending change; the container does
+not query the Coolify control plane and therefore cannot establish that fact by
+itself.
+
+After startup, health recomputes the live journal by exact `(created_at, hash)`
+identity. It reports known applied rows separately from opaque/legacy rows and
+their canonical digest. In production the reported parity passes only when this
+live inventory also matches the lineage exported by the verified v5 artifact.
 
 ### If the deployed DB falls behind the code
 
@@ -212,28 +238,21 @@ Symptom: plain reads like `GET /api/jobs` or `GET /api/dashboard/today` return
 500, or writes (creating a job, recording a warehouse movement) fail, because the
 DB is missing columns/tables newer migrations add. Most likely causes:
 
-1. **Stale Docker image / cached build.** The image bundled an older migration set
-   than the running code, so `migrate.mjs` applied only the migrations it shipped
-   with and exited `0` — the DB never received the newer ones. Coolify caching is a
-   common trigger (a deploy log where every step is `CACHED` and finishes in ~1s
-   means the new code/migrations were never actually built). Recovery: force a
-   **no-cache rebuild**, confirm the image's `migrations/` folder contains the
-   latest tag (compare against `lib/db/migrations/meta/_journal.json`), redeploy,
-   and confirm the startup log reports the expected migration count.
+1. **Stale Docker image / cached build.** A cached image can contain an older
+   journal or a different `BUILD_SHA`. Force a no-cache rebuild and verify the
+   immutable image digest and exact build SHA before producing new evidence.
 2. **Wrong `MIGRATIONS_DIR`.** The env var points at a folder that doesn't contain
    the current migrations (or is empty/missing `meta/_journal.json`). The startup
-   log names the folder and the expected count — a count lower than the latest
-   `idx` in `_journal.json` confirms this. Recovery: fix `MIGRATIONS_DIR` (the
-   image sets it to `/app/migrations`) and redeploy.
+   health inventory names the wrong expected count/latest tag. Fix the image or
+   `MIGRATIONS_DIR`; do not authorize startup with a rewritten evidence file.
+3. **Missing or mismatched v5 evidence.** Keep API/web stopped, re-run the
+   read-only steady verifier against the intended database and image, review all
+   raw artifacts offline and issue a new v5 approval. Never copy evidence from a
+   different database, image or environment.
 
-To apply the missing migrations manually against the live DB (after stopping the
-API to avoid concurrent writes):
-
-```bash
-DATABASE_URL=postgres://… pnpm --filter @workspace/db run migrate
-```
-
-This runs the same parity-checked migrator and prints the applied/expected counts.
+If production is genuinely behind, keep the API stopped and use only the
+approved numbered one-shot transition with its backup, preflight, postflight and
+execution receipt. The generic migrator command is not a recovery procedure.
 
 ---
 
