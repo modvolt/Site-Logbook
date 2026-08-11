@@ -51,7 +51,7 @@ export type MovementSourceType =
   | "activity_material"
   | "manual";
 
-interface DesiredContribution {
+export interface DesiredContribution {
   warehouseItemId: number;
   /** Signed: positive = receipt (in), negative = issue (out). */
   signedQty: number;
@@ -59,6 +59,12 @@ interface DesiredContribution {
   billingDocumentId: number | null;
   jobId: number | null;
   note: string | null;
+}
+
+export interface SourceMovementReconcileRequest {
+  sourceType: MovementSourceType;
+  sourceId: number;
+  desired: DesiredContribution | null;
 }
 
 async function currentItemQuantity(
@@ -242,35 +248,20 @@ async function appendDelta(
   await recomputeItemQuantity(tx, params.warehouseItemId);
 }
 
-/**
- * Make the ledger reflect `desired` for one source. Appends delta movements:
- * any item the source previously touched but no longer targets is reversed to
- * zero, and the target item is adjusted to the desired signed quantity.
- */
-export async function reconcileSourceMovements(
+async function reconcileProtectedSourceMovements(
   tx: DbTx,
   sourceType: MovementSourceType,
   sourceId: number,
   desired: DesiredContribution | null,
+  protectedItemIds: ReadonlySet<number>,
   actor: Actor,
 ): Promise<void> {
-  // Items this source has already moved (so we can reverse stale targets).
-  let existingRows = await loadSourceMovementRows(tx, sourceType, sourceId);
-
-  const protectedItemIds = new Set([
-    ...existingRows.map((row) => row.warehouseItemId),
-    ...(desired ? [desired.warehouseItemId] : []),
-  ]);
-
-  // The first read discovers the item rows that must be locked. A concurrent
+  // Re-read after every item in the batch has been locked. A concurrent
   // reconcile of the same source can commit an additional target while this
-  // transaction waits for those locks. Re-read after the locks are held: a
-  // newly visible target that was not protected cannot be acquired now without
-  // violating the global numeric item-lock order. Fail closed and let the
-  // caller retry from a fresh transaction instead of leaving contributions on
-  // both the concurrent and requested targets.
-  await lockItemsInAscendingOrder(tx, protectedItemIds);
-  existingRows = await loadSourceMovementRows(tx, sourceType, sourceId);
+  // transaction waits. A newly visible target outside the planned set cannot
+  // be acquired now without violating the global numeric lock order, so fail
+  // closed and let the caller retry from a fresh transaction.
+  const existingRows = await loadSourceMovementRows(tx, sourceType, sourceId);
   const unprotectedItemIds = [
     ...new Set(
       existingRows
@@ -354,6 +345,81 @@ export async function reconcileSourceMovements(
   }
 }
 
+/**
+ * Reconcile several sources under one shared, ascending item-lock plan.
+ *
+ * A caller that mutates several sources in one transaction must use this
+ * primitive instead of invoking `reconcileSourceMovements` in a loop. The
+ * complete discovered item set is locked before the first applied sum or
+ * movement write, preventing opposite source order from becoming opposite row
+ * lock order. Source order still controls movement insertion order.
+ */
+export async function reconcileSourceMovementBatch(
+  tx: DbTx,
+  requests: readonly SourceMovementReconcileRequest[],
+  actor: Actor,
+): Promise<void> {
+  if (requests.length === 0) return;
+
+  const protectedBySource = new Map<string, Set<number>>();
+  const allProtectedItemIds = new Set<number>();
+  for (const request of requests) {
+    const sourceKey = `${request.sourceType}:${request.sourceId}`;
+    if (protectedBySource.has(sourceKey)) {
+      throw appError(
+        500,
+        `Duplicate warehouse reconcile source: ${sourceKey}.`,
+      );
+    }
+    const existingRows = await loadSourceMovementRows(
+      tx,
+      request.sourceType,
+      request.sourceId,
+    );
+    const protectedItemIds = new Set([
+      ...existingRows.map((row) => row.warehouseItemId),
+      ...(request.desired ? [request.desired.warehouseItemId] : []),
+    ]);
+    protectedBySource.set(sourceKey, protectedItemIds);
+    for (const warehouseItemId of protectedItemIds) {
+      allProtectedItemIds.add(warehouseItemId);
+    }
+  }
+
+  await lockItemsInAscendingOrder(tx, allProtectedItemIds);
+
+  for (const request of requests) {
+    const sourceKey = `${request.sourceType}:${request.sourceId}`;
+    await reconcileProtectedSourceMovements(
+      tx,
+      request.sourceType,
+      request.sourceId,
+      request.desired,
+      protectedBySource.get(sourceKey)!,
+      actor,
+    );
+  }
+}
+
+/**
+ * Make the ledger reflect `desired` for one source. Appends delta movements:
+ * any item the source previously touched but no longer targets is reversed to
+ * zero, and the target item is adjusted to the desired signed quantity.
+ */
+export async function reconcileSourceMovements(
+  tx: DbTx,
+  sourceType: MovementSourceType,
+  sourceId: number,
+  desired: DesiredContribution | null,
+  actor: Actor,
+): Promise<void> {
+  await reconcileSourceMovementBatch(
+    tx,
+    [{ sourceType, sourceId, desired }],
+    actor,
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Matching helpers
 // ---------------------------------------------------------------------------
@@ -431,6 +497,7 @@ export async function reconcileDocumentStockMovements(
 
   const approved = doc.status === "approved";
   const maps = approved ? await loadItemMaps(tx) : null;
+  const requests: SourceMovementReconcileRequest[] = [];
 
   for (const line of lines) {
     const isStockReceipt =
@@ -440,23 +507,20 @@ export async function reconcileDocumentStockMovements(
       line.allocationType === "stock";
 
     if (!isStockReceipt) {
-      await reconcileSourceMovements(
-        tx,
-        "billing_document_line",
-        line.id,
-        null,
-        actor,
-      );
+      requests.push({
+        sourceType: "billing_document_line",
+        sourceId: line.id,
+        desired: null,
+      });
       continue;
     }
 
     const item = await resolveOrCreateItemForLine(tx, line, maps!);
     const qty = round2(num(line.quantity));
-    await reconcileSourceMovements(
-      tx,
-      "billing_document_line",
-      line.id,
-      {
+    requests.push({
+      sourceType: "billing_document_line",
+      sourceId: line.id,
+      desired: {
         warehouseItemId: item.id,
         signedQty: qty, // receipt → +
         unitPrice:
@@ -469,9 +533,10 @@ export async function reconcileDocumentStockMovements(
           ? `Příjem z dokladu ${doc.documentNumber}`
           : "Příjem z dokladu",
       },
-      actor,
-    );
+    });
   }
+
+  await reconcileSourceMovementBatch(tx, requests, actor);
 }
 
 /**

@@ -17,6 +17,7 @@ import {
   reconcileMaterialStockMovement,
   reconcileActivityMaterialStockMovement,
   reconcileSourceMovements,
+  reconcileSourceMovementBatch,
   resolveWarehouseItemIdByName,
   netSignedForSources,
   listItemMovements,
@@ -759,6 +760,194 @@ describe("job material issue lifecycle", () => {
       )
       .reduce((sum, movement) => sum + movement.signedQuantity, 0);
     expect(sourceNetOnC).toBeCloseTo(-30, 2);
+  });
+});
+
+describe("multi-source batch lock planning", () => {
+  it("locks the full item union before opposite-order source batches write", async () => {
+    const itemA = await makeItem({ name: `Batch A ${TAG}` });
+    const itemB = await makeItem({ name: `Batch B ${TAG}` });
+    await createManualMovement(
+      db,
+      itemA,
+      { direction: "in", quantity: 100 },
+      actor,
+    );
+    await createManualMovement(
+      db,
+      itemB,
+      { direction: "in", quantity: 100 },
+      actor,
+    );
+    const jobId = await makeJob();
+    const sources = await db
+      .insert(materialsTable)
+      .values([
+        {
+          jobId,
+          name: `Batch A1 ${TAG}`,
+          quantity: "8",
+          pricePerUnit: "10",
+          warehouseItemId: itemA,
+          done: true,
+        },
+        {
+          jobId,
+          name: `Batch B1 ${TAG}`,
+          quantity: "8",
+          pricePerUnit: "10",
+          warehouseItemId: itemB,
+          done: true,
+        },
+        {
+          jobId,
+          name: `Batch B2 ${TAG}`,
+          quantity: "8",
+          pricePerUnit: "10",
+          warehouseItemId: itemB,
+          done: true,
+        },
+        {
+          jobId,
+          name: `Batch A2 ${TAG}`,
+          quantity: "8",
+          pricePerUnit: "10",
+          warehouseItemId: itemA,
+          done: true,
+        },
+      ])
+      .returning({ id: materialsTable.id });
+
+    const request = (sourceId: number, warehouseItemId: number) => ({
+      sourceType: "material" as const,
+      sourceId,
+      desired: {
+        warehouseItemId,
+        signedQty: -8,
+        unitPrice: 10,
+        billingDocumentId: null,
+        jobId,
+        note: "Batch výdej",
+      },
+    });
+
+    let arrived = 0;
+    let barrierSettled = false;
+    let releaseBarrier!: () => void;
+    let rejectBarrier!: (error: Error) => void;
+    const barrier = new Promise<void>((resolve, reject) => {
+      releaseBarrier = () => {
+        if (barrierSettled) return;
+        barrierSettled = true;
+        resolve();
+      };
+      rejectBarrier = (error) => {
+        if (barrierSettled) return;
+        barrierSettled = true;
+        reject(error);
+      };
+    });
+    const barrierTimeout = setTimeout(
+      () => rejectBarrier(new Error("Warehouse batch barrier timed out.")),
+      3_000,
+    );
+    const synchronize = async () => {
+      arrived += 1;
+      if (arrived === 2) releaseBarrier();
+      await barrier;
+    };
+    const runWorker = async (
+      requests: Parameters<typeof reconcileSourceMovementBatch>[1],
+    ) => {
+      try {
+        await db.transaction(async (tx) => {
+          await tx.execute(sql.raw("set local statement_timeout = '5s'"));
+          await synchronize();
+          await reconcileSourceMovementBatch(tx, requests, actor);
+        });
+      } catch (error) {
+        releaseBarrier();
+        throw error;
+      }
+    };
+
+    let primaryError: unknown = null;
+    let cleanupError: unknown = null;
+    try {
+      await db.execute(
+        sql.raw(`
+        create or replace function test_warehouse_batch_delay()
+        returns trigger language plpgsql as $$
+        begin
+          if new.note = 'Batch výdej' then
+            perform pg_sleep(0.25);
+          end if;
+          return new;
+        end;
+        $$;
+      `),
+      );
+      await db.execute(
+        sql.raw(
+          "drop trigger if exists test_warehouse_batch_delay_trg on warehouse_movements",
+        ),
+      );
+      await db.execute(
+        sql.raw(`
+        create trigger test_warehouse_batch_delay_trg
+        before insert on warehouse_movements
+        for each row execute function test_warehouse_batch_delay()
+      `),
+      );
+
+      const results = await Promise.allSettled([
+        runWorker([
+          request(sources[0].id, itemA),
+          request(sources[1].id, itemB),
+        ]),
+        runWorker([
+          request(sources[2].id, itemB),
+          request(sources[3].id, itemA),
+        ]),
+      ]);
+      expect(results.every((result) => result.status === "fulfilled")).toBe(true);
+    } catch (error) {
+      primaryError = error;
+    } finally {
+      clearTimeout(barrierTimeout);
+      releaseBarrier();
+      try {
+        await db.execute(
+          sql.raw(
+            "drop trigger if exists test_warehouse_batch_delay_trg on warehouse_movements",
+          ),
+        );
+        await db.execute(
+          sql.raw("drop function if exists test_warehouse_batch_delay()"),
+        );
+      } catch (error) {
+        cleanupError = error;
+      }
+    }
+
+    if (primaryError && cleanupError) {
+      throw new AggregateError(
+        [primaryError, cleanupError],
+        "Warehouse batch test and cleanup both failed.",
+      );
+    }
+    if (primaryError) throw primaryError;
+    if (cleanupError) throw cleanupError;
+
+    expect(await expectConsistent(itemA)).toBeCloseTo(84, 2);
+    expect(await expectConsistent(itemB)).toBeCloseTo(84, 2);
+    expect(
+      await netSignedForSources(
+        db,
+        "material",
+        sources.map((source) => source.id),
+      ),
+    ).toBeCloseTo(-32, 2);
   });
 });
 
