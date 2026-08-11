@@ -188,10 +188,10 @@ export function classifyStagingPublicationState(stage, state) {
 }
 
 function readSource(relativePath, overrides) {
-  if (Object.hasOwn(overrides, relativePath)) {
-    return overrides[relativePath];
-  }
-  return fs.readFileSync(path.join(REPO_ROOT, relativePath), "utf8");
+  const value = Object.hasOwn(overrides, relativePath)
+    ? overrides[relativePath]
+    : fs.readFileSync(path.join(REPO_ROOT, relativePath), "utf8");
+  return value.replaceAll("\r\n", "\n");
 }
 
 function requireText(source, expected, field) {

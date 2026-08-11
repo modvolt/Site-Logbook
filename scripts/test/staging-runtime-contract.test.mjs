@@ -16,7 +16,9 @@ const REPO_ROOT = path.resolve(
 );
 
 function source(relativePath) {
-  return fs.readFileSync(path.join(REPO_ROOT, relativePath), "utf8");
+  return fs
+    .readFileSync(path.join(REPO_ROOT, relativePath), "utf8")
+    .replaceAll("\r\n", "\n");
 }
 
 function assertWorkflowContractError(workflow, expectedCode) {
@@ -66,6 +68,19 @@ test("accepts the immutable pull-only staging runtime", () => {
   assert.equal(
     summary.schemaTransitionEvidenceMode,
     "ready-0104-intent-single-snapshot-atomic-finalization",
+  );
+});
+
+test("normalizes Windows line endings before exact contract checks", () => {
+  const workflow = source(".github/workflows/staging-images.yml").replaceAll(
+    "\n",
+    "\r\n",
+  );
+  assert.equal(
+    validateStagingRuntimeContract({
+      ".github/workflows/staging-images.yml": workflow,
+    }).decision,
+    "PASS",
   );
 });
 

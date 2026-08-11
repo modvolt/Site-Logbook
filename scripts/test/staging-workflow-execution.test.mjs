@@ -9,6 +9,7 @@ import {
   requireRunScript,
   resolveContainerUser,
   runBashHarness,
+  WORKFLOW_HARNESS_IMAGE,
 } from "../workflow-execution-harness.mjs";
 
 const SOURCE_SHA = "6dddd64676631fffca6aef9baf74d79b127f8a01";
@@ -1397,6 +1398,13 @@ test("maps a POSIX harness to the owner of its private bind mount", () => {
         getgid: null,
       }),
     /numeric host UID and GID/u,
+  );
+});
+
+test("pins the workflow harness to LF-canonical Dockerfile bytes", () => {
+  assert.equal(
+    WORKFLOW_HARNESS_IMAGE,
+    "site-logbook/workflow-harness:alpine-3.22.1-7b2d54e4ed3722df",
   );
 });
 
