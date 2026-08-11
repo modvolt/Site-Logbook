@@ -33,46 +33,6 @@ const SKIP_PATTERNS = [
   /^\/billing\/documents\/\d+\/(?:disposition|status)$/,
 ];
 
-const REDACT_KEYS = new Set([
-  "password",
-  "passwordHash",
-  "currentPassword",
-  "newPassword",
-  "pin",
-  "pinHash",
-  "apiKey",
-  "api_key",
-  "openaiApiKey",
-  "accessToken",
-  "refreshToken",
-  "token",
-  "secret",
-  "secretKey",
-  "privateKey",
-  "signatureDataUrl",
-  "cardNumber",
-  "cvv",
-  "cvc",
-  "answers",
-  "costRate",
-  "saleRate",
-  "cost_rate",
-  "sale_rate",
-]);
-
-function redactSensitive(value: unknown): unknown {
-  if (value === null || value === undefined) return value;
-  if (Array.isArray(value)) return value.map(redactSensitive);
-  if (typeof value === "object") {
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      out[k] = REDACT_KEYS.has(k) ? "[redacted]" : redactSensitive(v);
-    }
-    return out;
-  }
-  return value;
-}
-
 function actionForMethod(method: string): string {
   switch (method) {
     case "POST":
@@ -117,18 +77,11 @@ function parsePath(path: string): {
   return { entityType, entityId };
 }
 
-function buildSummary(method: string, path: string, body: unknown): string {
-  let bodyStr = "";
-  if (body && typeof body === "object") {
-    try {
-      bodyStr = JSON.stringify(redactSensitive(body));
-    } catch {
-      bodyStr = "";
-    }
-  }
-  const base = `${method} ${path}`;
-  const full = bodyStr ? `${base} ${bodyStr}` : base;
-  return full.length > 1000 ? `${full.slice(0, 997)}...` : full;
+function buildSummary(method: string, path: string): string {
+  // This best-effort middleware is non-evidentiary request metadata. Request
+  // bodies are intentionally excluded because a denylist cannot safely cover
+  // future domain fields, mixed casing, or arbitrary nested payloads.
+  return `${method} ${path}`;
 }
 
 export function auditMutations(
@@ -188,7 +141,7 @@ export function auditMutations(
         action: actionForMethod(req.method),
         entityType,
         entityId,
-        summary: buildSummary(req.method, relPath, req.body),
+        summary: buildSummary(req.method, relPath),
         method: req.method,
         path: relPath,
       })

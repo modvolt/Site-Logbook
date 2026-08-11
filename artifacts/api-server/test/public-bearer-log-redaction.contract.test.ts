@@ -116,7 +116,7 @@ describe("public bearer request-log redaction", () => {
   });
 });
 
-describe("public bearer audit-log redaction", () => {
+describe("generic audit-log minimization", () => {
   beforeEach(() => {
     mocks.values.mockReset().mockResolvedValue(undefined);
     mocks.insert.mockReset().mockReturnValue({ values: mocks.values });
@@ -150,12 +150,15 @@ describe("public bearer audit-log redaction", () => {
       };
       expect(row.path).toBe(expectedPath);
       expect(row.path).not.toContain(RAW_TOKEN);
-      expect(row.summary).not.toContain(RAW_TOKEN);
-      expect(row.summary).toContain("preserved");
+      expect(row.summary).toBe(`POST ${expectedPath}`);
+      expect(row.summary).not.toContain("respondentName");
+      expect(row.summary).not.toContain("Jan Test");
+      expect(row.summary).not.toContain("marker");
+      expect(row.summary).not.toContain("preserved");
     },
   );
 
-  it("redacts the PPE confirmation token carried in the JSON body", async () => {
+  it("omits the PPE confirmation body from generic audit metadata", async () => {
     await request(testApp())
       .post("/ppe/confirm")
       .send({ token: RAW_TOKEN, marker: "preserved" })
@@ -167,12 +170,14 @@ describe("public bearer audit-log redaction", () => {
       summary: string;
     };
     expect(row.path).toBe("/ppe/confirm");
+    expect(row.summary).toBe("POST /ppe/confirm");
     expect(row.summary).not.toContain(RAW_TOKEN);
-    expect(row.summary).toContain('\"token\":\"[redacted]\"');
-    expect(row.summary).toContain("preserved");
+    expect(row.summary).not.toContain("token");
+    expect(row.summary).not.toContain("marker");
+    expect(row.summary).not.toContain("preserved");
   });
 
-  it("redacts signature image data carried by public signing routes", async () => {
+  it("omits signature image data carried by public signing routes", async () => {
     const signatureDataUrl = `data:image/png;base64,${"A".repeat(1200)}`;
 
     await request(testApp())
@@ -181,16 +186,27 @@ describe("public bearer audit-log redaction", () => {
       .expect(200);
 
     await vi.waitFor(() => expect(mocks.values).toHaveBeenCalledTimes(1));
-    const row = mocks.values.mock.calls[0]![0] as { summary: string };
+    const row = mocks.values.mock.calls[0]![0] as {
+      path: string;
+      summary: string;
+    };
+    expect(row.path).toBe("/sign/:token");
+    expect(row.summary).toBe("POST /sign/:token");
     expect(row.summary).not.toContain(signatureDataUrl);
-    expect(row.summary).toContain('\"signatureDataUrl\":\"[redacted]\"');
-    expect(row.summary).toContain("preserved");
+    expect(row.summary).not.toContain("signatureDataUrl");
+    expect(row.summary).not.toContain("marker");
+    expect(row.summary).not.toContain("preserved");
   });
 
-  it("keeps a non-token audit path unchanged", async () => {
+  it("keeps a non-token path but omits arbitrary nested request data", async () => {
     await request(testApp())
       .post("/jobs/42/tasks")
-      .send({ title: "preserved" })
+      .send({
+        title: "preserved",
+        AccessToken: RAW_TOKEN,
+        nested: { arbitrarySecret: "must-not-persist" },
+        values: ["also-not-persisted"],
+      })
       .expect(200);
 
     await vi.waitFor(() => expect(mocks.values).toHaveBeenCalledTimes(1));
@@ -199,7 +215,14 @@ describe("public bearer audit-log redaction", () => {
       summary: string;
     };
     expect(row.path).toBe("/jobs/42/tasks");
-    expect(row.summary).toContain("POST /jobs/42/tasks");
+    expect(row.summary).toBe("POST /jobs/42/tasks");
+    expect(row.summary).not.toContain("title");
+    expect(row.summary).not.toContain("preserved");
+    expect(row.summary).not.toContain("AccessToken");
+    expect(row.summary).not.toContain(RAW_TOKEN);
+    expect(row.summary).not.toContain("arbitrarySecret");
+    expect(row.summary).not.toContain("must-not-persist");
+    expect(row.summary).not.toContain("also-not-persisted");
   });
 
   it.each([

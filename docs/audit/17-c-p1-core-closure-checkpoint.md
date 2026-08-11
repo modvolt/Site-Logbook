@@ -37,7 +37,7 @@ Potvrzené blockery:
 
 - `artifacts/api-server/src/middlewares/audit.ts` zapisuje obecný audit až po dokončení odpovědi jako fire-and-forget; úspěšná změna proto může existovat bez auditního řádku.
 - `lib/db/src/schema/audit-log.ts` nemá event UUID, schema version, actor/source kind, correlation/idempotency, authoritative before/after, reason, artifact reference, completeness ani hash-chain metadata.
-- Obecná redakce používá otevřený case-sensitive denylist a jinak serializuje request body; nejde o strict allowlist ani autoritativní persisted delta.
+- Lokální R09-C odstranila serializaci request body z generic middleware; `audit_log.summary` je nyní pouze metadata-only metoda a bearer-redigovaná cesta. Stále však nejde o atomický ani autoritativní persisted delta a starý `audit_log` zůstává non-evidentiary telemetry.
 - `GET /customers/:id/device-credentials` dešifruje a vrací credentialy, zatímco view/copy audit je samostatný klientský POST; skutečné zveřejnění tajemství tedy nelze prokázat.
 - AI aplikace a Gmail import nemají vždy atomický immutable provenance event. `ai_raw_json` je mutable raw payload, nikoli minimalizovaný důkaz.
 - Neexistuje canonical JSONL/manifest/checksum verifier ani externí append-only export.
