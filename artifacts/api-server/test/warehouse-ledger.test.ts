@@ -18,6 +18,7 @@ import {
   reconcileActivityMaterialStockMovement,
   reconcileSourceMovements,
   reconcileSourceMovementBatch,
+  runUnambiguousWarehouseMaterialBackfill,
   resolveWarehouseItemIdByName,
   netSignedForSources,
   listItemMovements,
@@ -263,6 +264,117 @@ describe("manual movements", () => {
     expect(rejected?.reason).toMatchObject({ statusCode: 409 });
     expect(await expectConsistent(itemId)).toBeCloseTo(3, 2);
     expect(await listItemMovements(db, itemId)).toHaveLength(2);
+  });
+});
+
+describe("warehouse material backfill", () => {
+  it("links and reconciles unambiguous sources atomically and idempotently", async () => {
+    const targetName = `Backfill target ${TAG}`;
+    const ambiguousName = `Backfill ambiguous ${TAG}`;
+    const targetItemId = await makeItem({ name: targetName });
+    await createManualMovement(
+      db,
+      targetItemId,
+      { direction: "in", quantity: 20 },
+      actor,
+    );
+    await makeItem({ name: ambiguousName });
+    await makeItem({ name: ambiguousName });
+
+    const jobId = await makeJob();
+    const [jobMaterial] = await db
+      .insert(materialsTable)
+      .values({
+        jobId,
+        name: targetName,
+        quantity: "5",
+        pricePerUnit: "10",
+        warehouseItemId: null,
+        done: true,
+      })
+      .returning();
+    const [ambiguousMaterial] = await db
+      .insert(materialsTable)
+      .values({
+        jobId,
+        name: ambiguousName,
+        quantity: "1",
+        pricePerUnit: "10",
+        warehouseItemId: null,
+        done: true,
+      })
+      .returning();
+    const [activity] = await db
+      .insert(activitiesTable)
+      .values({ name: `Backfill activity ${TAG}` })
+      .returning();
+    activityIds.push(activity.id);
+    const [activityMaterial] = await db
+      .insert(activityMaterialsTable)
+      .values({
+        activityId: activity.id,
+        name: targetName,
+        quantity: "4",
+        pricePerUnit: "10",
+        warehouseItemId: null,
+      })
+      .returning();
+
+    await expect(
+      runUnambiguousWarehouseMaterialBackfill(db, actor),
+    ).resolves.toEqual({ materialsLinked: 1, activityMaterialsLinked: 1 });
+
+    const [storedJobMaterial] = await db
+      .select({ warehouseItemId: materialsTable.warehouseItemId })
+      .from(materialsTable)
+      .where(eq(materialsTable.id, jobMaterial.id));
+    const [storedActivityMaterial] = await db
+      .select({ warehouseItemId: activityMaterialsTable.warehouseItemId })
+      .from(activityMaterialsTable)
+      .where(eq(activityMaterialsTable.id, activityMaterial.id));
+    const [storedAmbiguousMaterial] = await db
+      .select({ warehouseItemId: materialsTable.warehouseItemId })
+      .from(materialsTable)
+      .where(eq(materialsTable.id, ambiguousMaterial.id));
+    expect(storedJobMaterial?.warehouseItemId).toBe(targetItemId);
+    expect(storedActivityMaterial?.warehouseItemId).toBe(targetItemId);
+    expect(storedAmbiguousMaterial?.warehouseItemId).toBeNull();
+    expect(await expectConsistent(targetItemId)).toBeCloseTo(11, 2);
+
+    await expect(
+      runUnambiguousWarehouseMaterialBackfill(db, actor),
+    ).resolves.toEqual({ materialsLinked: 0, activityMaterialsLinked: 0 });
+    expect(await expectConsistent(targetItemId)).toBeCloseTo(11, 2);
+    expect(await listItemMovements(db, targetItemId)).toHaveLength(3);
+  });
+
+  it("rolls back newly linked rows when their stock issue is not covered", async () => {
+    const targetName = `Backfill no stock ${TAG}`;
+    const targetItemId = await makeItem({ name: targetName });
+    const jobId = await makeJob();
+    const [material] = await db
+      .insert(materialsTable)
+      .values({
+        jobId,
+        name: targetName,
+        quantity: "2",
+        pricePerUnit: "10",
+        warehouseItemId: null,
+        done: true,
+      })
+      .returning();
+
+    await expect(
+      runUnambiguousWarehouseMaterialBackfill(db, actor),
+    ).rejects.toMatchObject({ statusCode: 409 });
+
+    const [stored] = await db
+      .select({ warehouseItemId: materialsTable.warehouseItemId })
+      .from(materialsTable)
+      .where(eq(materialsTable.id, material.id));
+    expect(stored?.warehouseItemId).toBeNull();
+    expect(await expectConsistent(targetItemId)).toBeCloseTo(0, 2);
+    expect(await listItemMovements(db, targetItemId)).toHaveLength(0);
   });
 });
 

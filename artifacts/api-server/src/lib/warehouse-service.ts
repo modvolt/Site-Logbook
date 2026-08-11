@@ -18,6 +18,8 @@ import { and, desc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 import {
   billingDocumentsTable,
   billingDocumentLinesTable,
+  materialsTable,
+  activityMaterialsTable,
   jobsTable,
   warehouseItemsTable,
   warehouseMovementsTable,
@@ -731,6 +733,92 @@ export async function reconcileActivityMaterialStockMovement(
   actor: Actor,
 ): Promise<void> {
   await reconcileMaterialLike(tx, "activity_material", material, actor);
+}
+
+export async function runUnambiguousWarehouseMaterialBackfill(
+  db: AnyDb,
+  actor: Actor,
+): Promise<{ materialsLinked: number; activityMaterialsLinked: number }> {
+  return db.transaction(async (tx) => {
+    // This is an operator-triggered bounded transaction, not a startup task.
+    // Refuse prolonged contention and keep the name→item mapping stable while
+    // the candidate rows are linked and their stock movements are reconciled.
+    await tx.execute(sql.raw("set local lock_timeout = '5s'"));
+    await tx.execute(sql.raw("set local statement_timeout = '30s'"));
+    await tx.execute(sql.raw("lock table warehouse_items in share mode"));
+
+    const materialUpdate = (await tx.execute(sql`
+      with unique_items as (
+        select lower(${warehouseItemsTable.name}) as normalized_name,
+               min(${warehouseItemsTable.id}) as warehouse_item_id
+        from ${warehouseItemsTable}
+        group by lower(${warehouseItemsTable.name})
+        having count(*) = 1
+      )
+      update ${materialsTable} as material
+      set warehouse_item_id = unique_items.warehouse_item_id
+      from unique_items
+      where material.warehouse_item_id is null
+        and lower(material.name) = unique_items.normalized_name
+      returning material.id
+    `)) as unknown as { rows: Array<{ id: number }> };
+
+    const activityUpdate = (await tx.execute(sql`
+      with unique_items as (
+        select lower(${warehouseItemsTable.name}) as normalized_name,
+               min(${warehouseItemsTable.id}) as warehouse_item_id
+        from ${warehouseItemsTable}
+        group by lower(${warehouseItemsTable.name})
+        having count(*) = 1
+      )
+      update ${activityMaterialsTable} as material
+      set warehouse_item_id = unique_items.warehouse_item_id
+      from unique_items
+      where material.warehouse_item_id is null
+        and lower(material.name) = unique_items.normalized_name
+      returning material.id
+    `)) as unknown as { rows: Array<{ id: number }> };
+
+    const materialIds = materialUpdate.rows.map((row) => row.id);
+    const activityMaterialIds = activityUpdate.rows.map((row) => row.id);
+    const materials = materialIds.length
+      ? await tx
+          .select()
+          .from(materialsTable)
+          .where(inArray(materialsTable.id, materialIds))
+      : [];
+    const activityMaterials = activityMaterialIds.length
+      ? await tx
+          .select()
+          .from(activityMaterialsTable)
+          .where(inArray(activityMaterialsTable.id, activityMaterialIds))
+      : [];
+
+    const requests: SourceMovementReconcileRequest[] = [];
+    for (const material of materials) {
+      requests.push(
+        await buildMaterialSourceMovementRequest(tx, "material", material),
+      );
+    }
+    for (const material of activityMaterials) {
+      requests.push(
+        await buildMaterialSourceMovementRequest(tx, "activity_material", {
+          id: material.id,
+          name: material.name,
+          quantity: material.quantity,
+          pricePerUnit: material.pricePerUnit,
+          jobId: null,
+          warehouseItemId: material.warehouseItemId,
+        }),
+      );
+    }
+    await reconcileSourceMovementBatch(tx, requests, actor);
+
+    return {
+      materialsLinked: materialIds.length,
+      activityMaterialsLinked: activityMaterialIds.length,
+    };
+  });
 }
 
 // ---------------------------------------------------------------------------

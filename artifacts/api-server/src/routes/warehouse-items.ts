@@ -25,10 +25,12 @@ import {
   listItemMovements,
   listMovements,
   createManualMovement,
-  reconcileMaterialStockMovement,
-  reconcileActivityMaterialStockMovement,
+  reconcileSourceMovementBatch,
+  buildMaterialSourceMovementRequest,
+  runUnambiguousWarehouseMaterialBackfill,
   type Actor,
   type AppError,
+  type SourceMovementReconcileRequest,
 } from "../lib/warehouse-service";
 import { num, round2 } from "../lib/invoice-calc";
 import { ensureBillingSettings } from "../lib/invoice-service";
@@ -933,6 +935,7 @@ router.post("/warehouse-material-backfill/assign", requireRole("admin", "master"
   let activityMaterialsAssigned = 0;
 
   await db.transaction(async (tx) => {
+    const requests: SourceMovementReconcileRequest[] = [];
     // Fetch all unlinked job materials with this name.
     const jobMaterials = await tx
       .select()
@@ -949,7 +952,12 @@ router.post("/warehouse-material-backfill/assign", requireRole("admin", "master"
         .update(materialsTable)
         .set({ warehouseItemId })
         .where(eq(materialsTable.id, mat.id));
-      await reconcileMaterialStockMovement(tx, { ...mat, warehouseItemId }, actor);
+      requests.push(
+        await buildMaterialSourceMovementRequest(tx, "material", {
+          ...mat,
+          warehouseItemId,
+        }),
+      );
       materialsAssigned++;
     }
 
@@ -969,13 +977,17 @@ router.post("/warehouse-material-backfill/assign", requireRole("admin", "master"
         .update(activityMaterialsTable)
         .set({ warehouseItemId })
         .where(eq(activityMaterialsTable.id, mat.id));
-      await reconcileActivityMaterialStockMovement(
-        tx,
-        { ...mat, warehouseItemId, jobId: null },
-        actor,
+      requests.push(
+        await buildMaterialSourceMovementRequest(tx, "activity_material", {
+          ...mat,
+          warehouseItemId,
+          jobId: null,
+        }),
       );
       activityMaterialsAssigned++;
     }
+
+    await reconcileSourceMovementBatch(tx, requests, actor);
   });
 
   await db.insert(auditLogTable).values({
@@ -993,30 +1005,8 @@ router.post("/warehouse-material-backfill/assign", requireRole("admin", "master"
 });
 
 router.post("/warehouse-material-backfill/run", requireRole("admin", "master"), async (req, res): Promise<void> => {
-  const mResult = (await db.execute(sql`
-    UPDATE ${materialsTable} m
-    SET warehouse_item_id = wi.id
-    FROM ${warehouseItemsTable} wi
-    WHERE lower(m.name) = lower(wi.name)
-      AND m.warehouse_item_id IS NULL
-      AND (
-        SELECT count(*) FROM ${warehouseItemsTable} wi2 WHERE lower(wi2.name) = lower(wi.name)
-      ) = 1
-  `)) as unknown as { rowCount?: number | null };
-
-  const amResult = (await db.execute(sql`
-    UPDATE ${activityMaterialsTable} am
-    SET warehouse_item_id = wi.id
-    FROM ${warehouseItemsTable} wi
-    WHERE lower(am.name) = lower(wi.name)
-      AND am.warehouse_item_id IS NULL
-      AND (
-        SELECT count(*) FROM ${warehouseItemsTable} wi2 WHERE lower(wi2.name) = lower(wi.name)
-      ) = 1
-  `)) as unknown as { rowCount?: number | null };
-
-  const materialsLinked = mResult.rowCount ?? 0;
-  const activityMaterialsLinked = amResult.rowCount ?? 0;
+  const { materialsLinked, activityMaterialsLinked } =
+    await runUnambiguousWarehouseMaterialBackfill(db, actorOf(req));
 
   await db.insert(auditLogTable).values({
     actorUserId: req.auth?.userId ?? null,
