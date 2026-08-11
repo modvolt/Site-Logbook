@@ -1,6 +1,6 @@
 # R11-H – atomický warehouse material backfill
 
-Datum: 2026-08-11  
+Datum: 2026-08-11
 Stav: **LOCAL CODE + DISPOSABLE DB PASS / NOT PUSHED / NOT DEPLOYED**
 
 ## Nalezená mezera

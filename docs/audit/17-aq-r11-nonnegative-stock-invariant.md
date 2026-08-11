@@ -1,6 +1,6 @@
 # R11-E – nonnegative invariant běžného skladu
 
-Datum: 2026-08-11  
+Datum: 2026-08-11
 Stav: **LOCAL CODE + DISPOSABLE DB PASS / NOT PUSHED / NOT DEPLOYED**
 
 ## Rozhodnutí

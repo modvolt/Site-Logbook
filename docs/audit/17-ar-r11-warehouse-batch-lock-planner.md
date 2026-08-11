@@ -1,6 +1,6 @@
 # R11-F – batch lock planner skladových zdrojů
 
-Datum: 2026-08-11  
+Datum: 2026-08-11
 Stav: **LOCAL CODE + DISPOSABLE DB PASS / NOT PUSHED / NOT DEPLOYED**
 
 ## Problém

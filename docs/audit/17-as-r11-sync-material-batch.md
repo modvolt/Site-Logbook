@@ -1,6 +1,6 @@
 # R11-G – společný batch material sync
 
-Datum: 2026-08-11  
+Datum: 2026-08-11
 Stav: **LOCAL CODE + DISPOSABLE DB PASS / NOT PUSHED / NOT DEPLOYED**
 
 ## Převáděná cesta
