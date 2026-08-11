@@ -21,12 +21,17 @@ describe("phase 13.4 release security remediation", () => {
     expect(metadataStart).toBeGreaterThanOrEqual(0);
     expect(handlerStart).toBeGreaterThanOrEqual(0);
     const metadata = quotes.slice(metadataStart, handlerStart);
-    const handler = quotes.slice(handlerStart, quotes.indexOf("Public share-link routes"));
-
-    expect(handler).toContain(
-      'res.status(500).json({ error: fallback, code: "unexpected_error", requestId })',
+    const handler = quotes.slice(
+      handlerStart,
+      quotes.indexOf("Public share-link routes"),
     );
-    expect(handler).toContain("const requestId = requestCorrelationId(res.req)");
+
+    expect(handler).toMatch(
+      /res\s*\.\s*status\(500\)\s*\.\s*json\(\{\s*error:\s*fallback,\s*code:\s*"unexpected_error",\s*requestId\s*\}\);/,
+    );
+    expect(handler).toContain(
+      "const requestId = requestCorrelationId(res.req)",
+    );
     expect(handler).toContain("{ requestId, ...safeErrorMetadata(err) }");
     expect(handler).toContain('"Unexpected quote route error"');
     expect(handler).not.toContain(
@@ -46,9 +51,15 @@ describe("phase 13.4 release security remediation", () => {
     );
 
     expect(uploadRoute).toContain('code: "storage_upload_failed"');
-    expect(uploadRoute).toContain("const requestId = requestCorrelationId(req)");
-    expect(uploadRoute).toContain("providerRequestId: providerError?.$metadata?.requestId");
-    expect(uploadRoute.match(/req\.log\.error\(\s*\{\s*requestId,/g)).toHaveLength(2);
+    expect(uploadRoute).toContain(
+      "const requestId = requestCorrelationId(req)",
+    );
+    expect(uploadRoute).toContain(
+      "providerRequestId: providerError?.$metadata?.requestId",
+    );
+    expect(
+      uploadRoute.match(/req\.log\.error\(\s*\{\s*requestId,/g),
+    ).toHaveLength(2);
     expect(uploadRoute).toMatch(
       /res\.status\(500\)\.json\(\{\s*error: "Nepodařilo se uložit soubor do úložiště\.",\s*code: "storage_upload_failed",\s*requestId,\s*\}\)/,
     );
