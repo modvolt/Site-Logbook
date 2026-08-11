@@ -61,15 +61,10 @@ interface DesiredContribution {
   note: string | null;
 }
 
-/**
- * Lock the warehouse item row, recompute its quantity from the full signed sum
- * of its movements, and persist it. Must run inside the caller's transaction
- * AFTER any new movement for the item has been inserted.
- */
-async function recomputeItemQuantity(
+async function currentItemQuantity(
   tx: DbTx,
   warehouseItemId: number,
-): Promise<void> {
+): Promise<number> {
   const res = (await tx.execute(sql`
     select coalesce(sum(case when ${warehouseMovementsTable.direction} = 'in'
                               then ${warehouseMovementsTable.quantity}
@@ -77,7 +72,34 @@ async function recomputeItemQuantity(
     from ${warehouseMovementsTable}
     where ${warehouseMovementsTable.warehouseItemId} = ${warehouseItemId}
   `)) as unknown as { rows: Array<{ qty: string | number }> };
-  const qty = round2(num(res.rows[0]?.qty ?? 0));
+  return round2(num(res.rows[0]?.qty ?? 0));
+}
+
+async function assertNormalMovementNonnegative(
+  tx: DbTx,
+  warehouseItemId: number,
+  delta: number,
+): Promise<void> {
+  if (delta >= 0) return;
+  const currentQuantity = await currentItemQuantity(tx, warehouseItemId);
+  if (round2(currentQuantity + delta) < 0) {
+    throw appError(
+      409,
+      "Nedostatečná skladová zásoba. Operaci nelze dokončit bez schválené výjimky.",
+    );
+  }
+}
+
+/**
+ * Recompute an item's quantity from the full signed movement sum and persist
+ * it. The caller must already hold the item lock and must invoke this only
+ * after any new movement for the item has been inserted.
+ */
+async function recomputeItemQuantity(
+  tx: DbTx,
+  warehouseItemId: number,
+): Promise<void> {
+  const qty = await currentItemQuantity(tx, warehouseItemId);
   await tx
     .update(warehouseItemsTable)
     .set({ quantity: String(qty) })
@@ -188,6 +210,10 @@ async function appendDelta(
   if (Math.abs(delta) < EPSILON) return;
   const { purchasePrice } = await lockItem(tx, params.warehouseItemId);
   const isOut = delta < 0;
+  // The normal runtime has no controlled-override surface. Until a dedicated
+  // role, bounded limit, mandatory reason and immutable audit event exist, any
+  // movement that would make authoritative stock negative must fail closed.
+  await assertNormalMovementNonnegative(tx, params.warehouseItemId, delta);
   // Capture the purchase price at the time of issue for OUT movements so that
   // gross-profit statistics can be computed per period.
   // If the item has no current purchase_price, fall back to the most recent
@@ -704,6 +730,11 @@ export async function createManualMovement(
     if (!item) throw appError(404, "Skladová položka nenalezena.");
     await lockItem(tx, warehouseItemId);
     const isOut = input.direction === "out";
+    await assertNormalMovementNonnegative(
+      tx,
+      warehouseItemId,
+      isOut ? -qty : qty,
+    );
     // If the item has no current purchase_price, fall back to the most recent
     // price-history entry so fewer OUT movements end up with a NULL cost_price_at_time.
     let costPriceAtTime: string | null = null;

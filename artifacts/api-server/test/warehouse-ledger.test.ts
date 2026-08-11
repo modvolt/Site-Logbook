@@ -206,6 +206,63 @@ describe("manual movements", () => {
     ).rejects.toThrow();
     expect(await itemQty(itemId)).toBeCloseTo(0, 2);
   });
+
+  it("rejects a manual issue that would make authoritative stock negative", async () => {
+    const itemId = await makeItem({ name: `Tmel ${TAG}` });
+    await createManualMovement(
+      db,
+      itemId,
+      { direction: "in", quantity: 5 },
+      actor,
+    );
+
+    await expect(
+      createManualMovement(
+        db,
+        itemId,
+        { direction: "out", quantity: 5.01 },
+        actor,
+      ),
+    ).rejects.toMatchObject({ statusCode: 409 });
+
+    expect(await expectConsistent(itemId)).toBeCloseTo(5, 2);
+    expect(await listItemMovements(db, itemId)).toHaveLength(1);
+  });
+
+  it("serializes concurrent manual issues and permits only the available stock", async () => {
+    const itemId = await makeItem({ name: `Kotva ${TAG}` });
+    await createManualMovement(
+      db,
+      itemId,
+      { direction: "in", quantity: 10 },
+      actor,
+    );
+
+    const results = await Promise.allSettled([
+      createManualMovement(
+        db,
+        itemId,
+        { direction: "out", quantity: 7 },
+        actor,
+      ),
+      createManualMovement(
+        db,
+        itemId,
+        { direction: "out", quantity: 7 },
+        actor,
+      ),
+    ]);
+
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(
+      1,
+    );
+    const [rejected] = results.filter(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    expect(rejected?.reason).toMatchObject({ statusCode: 409 });
+    expect(await expectConsistent(itemId)).toBeCloseTo(3, 2);
+    expect(await listItemMovements(db, itemId)).toHaveLength(2);
+  });
 });
 
 describe("cost-document receipt lifecycle", () => {
@@ -251,6 +308,40 @@ describe("cost-document receipt lifecycle", () => {
     expect(await expectConsistent(created.id)).toBeCloseTo(12, 2);
     expect(await netSignedForSources(db, "billing_document_line", [lineId])).toBeCloseTo(12, 2);
   });
+
+  it("rolls back un-approval when reversing the receipt would make stock negative", async () => {
+    const itemId = await makeItem({
+      name: `Spotřebovaný příjem ${TAG}`,
+      code: `SKU-CONSUMED-${TAG}`,
+    });
+    const { docId, lineId } = await makeStockDoc({
+      description: `Spotřebovaný příjem ${TAG}`,
+      quantity: "40",
+      supplierSku: `SKU-CONSUMED-${TAG}`,
+    });
+    await approveDocument(docId, actor);
+    await createManualMovement(
+      db,
+      itemId,
+      { direction: "out", quantity: 30 },
+      actor,
+    );
+
+    await expect(
+      setDocumentStatus(docId, "needs_review", actor),
+    ).rejects.toMatchObject({ statusCode: 409 });
+
+    const [document] = await db
+      .select({ status: billingDocumentsTable.status })
+      .from(billingDocumentsTable)
+      .where(eq(billingDocumentsTable.id, docId));
+    expect(document?.status).toBe("approved");
+    expect(await expectConsistent(itemId)).toBeCloseTo(10, 2);
+    expect(
+      await netSignedForSources(db, "billing_document_line", [lineId]),
+    ).toBeCloseTo(40, 2);
+    expect(await listItemMovements(db, itemId)).toHaveLength(2);
+  });
 });
 
 describe("job material issue lifecycle", () => {
@@ -274,6 +365,48 @@ describe("job material issue lifecycle", () => {
     });
     return m.id;
   }
+
+  it("rolls back a material and its movement when the issue exceeds stock", async () => {
+    const materialName = `Nedostupný kabel ${TAG}`;
+    const itemId = await makeItem({ name: materialName });
+    await createManualMovement(
+      db,
+      itemId,
+      { direction: "in", quantity: 5 },
+      actor,
+    );
+    const jobId = await makeJob();
+
+    await expect(
+      db.transaction(async (tx) => {
+        const [material] = await tx
+          .insert(materialsTable)
+          .values({
+            jobId,
+            name: materialName,
+            quantity: "8",
+            pricePerUnit: "10",
+            warehouseItemId: itemId,
+            done: true,
+          })
+          .returning();
+        await reconcileMaterialStockMovement(tx, material, actor);
+      }),
+    ).rejects.toMatchObject({ statusCode: 409 });
+
+    const storedMaterials = await db
+      .select({ id: materialsTable.id })
+      .from(materialsTable)
+      .where(
+        and(
+          eq(materialsTable.jobId, jobId),
+          eq(materialsTable.name, materialName),
+        ),
+      );
+    expect(storedMaterials).toHaveLength(0);
+    expect(await expectConsistent(itemId)).toBeCloseTo(5, 2);
+    expect(await listItemMovements(db, itemId)).toHaveLength(1);
+  });
 
   it("issue → edit → delete keeps stock consistent and nets to zero on delete", async () => {
     const itemId = await makeItem({ name: `Kabel ${TAG}` });

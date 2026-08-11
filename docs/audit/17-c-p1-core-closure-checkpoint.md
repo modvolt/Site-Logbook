@@ -67,7 +67,7 @@ Potvrzené blockery:
 - dvojí billing je omezen aplikačními zámky, ale DB dovolí dvě live vazby na stejný zdroj;
 - external-account mutace byly v lokálním R11-C řezu odděleny od offline epochy explicitním stabilním route contractem, pre-ledger vault step-up a encrypted-at-rest replay metadata; změna zatím není commitnutá, publikovaná ani nasazená a obecný online opt-in pro ostatní domény chybí;
 - lokální R11-B řadí item locky a odstraňuje doložený A→B/B→A cross-source deadlock; R11-D navíc po lock waitu znovu načte source ledger a nový nezamknutý target odmítne konfliktem místo tichého dvojího příspěvku. Vyšší transakce s více různými reconcile calls stále vyžadují společný source+item lock planner před prvním reconcile;
-- sklad dnes úmyslně dovoluje zápornou zásobu; policy už je schválena, ale běžný nonnegative invariant a auditovaný controlled override zatím nejsou implementovány;
+- lokální R11-E už běžné záporné warehouse delty po item locku kontroluje proti authoritative součtu append-only ledgeru a odmítá je konfliktem 409; auditovaný controlled override, globální multi-source planner a publikace/nasazení této změny zatím chybí;
 - API container spouští migrátor při startu; advisory lock nemá bounded wait, `lock_timeout` ani `statement_timeout`;
 - chybí jednotný restartovatelný backfill s canonical plan hashem, checkpointem, resume a reconciliation na realistickém objemu.
 
