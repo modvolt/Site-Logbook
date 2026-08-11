@@ -619,7 +619,7 @@ async function resolveOrCreateItemForLine(
 // Job / activity material issues (výdej / odpis)
 // ---------------------------------------------------------------------------
 
-interface MaterialLike {
+export interface MaterialLike {
   id: number;
   name: string;
   quantity: string | null;
@@ -677,13 +677,11 @@ export async function resolveWarehouseItemIdByName(
   return rows.length === 1 ? rows[0].id : null;
 }
 
-async function reconcileMaterialLike(
+export async function buildMaterialSourceMovementRequest(
   tx: DbTx,
   sourceType: "material" | "activity_material",
-  material: MaterialLike | null,
-  actor: Actor,
-): Promise<void> {
-  if (!material) return;
+  material: MaterialLike,
+): Promise<SourceMovementReconcileRequest> {
   const item = await resolveItemForMaterial(tx, material);
   const qty = material.quantity == null ? 0 : round2(num(material.quantity));
   const shouldIssue = materialShouldIssueStock(sourceType, material);
@@ -699,7 +697,22 @@ async function reconcileMaterialLike(
           note: "Výdej na zakázku",
         }
       : null;
-  await reconcileSourceMovements(tx, sourceType, material.id, desired, actor);
+  return { sourceType, sourceId: material.id, desired };
+}
+
+async function reconcileMaterialLike(
+  tx: DbTx,
+  sourceType: "material" | "activity_material",
+  material: MaterialLike | null,
+  actor: Actor,
+): Promise<void> {
+  if (!material) return;
+  const request = await buildMaterialSourceMovementRequest(
+    tx,
+    sourceType,
+    material,
+  );
+  await reconcileSourceMovementBatch(tx, [request], actor);
 }
 
 /** Reconcile a single job material's issue movement. */
