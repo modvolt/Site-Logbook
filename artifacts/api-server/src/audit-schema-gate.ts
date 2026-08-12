@@ -55,6 +55,7 @@ export interface AuditSchemaGateEvidence {
     backupMaxPayloadBytes: number;
     backupSizeBytes: number;
     backupEvidence: AuditSchemaPreflightSummary["backupEvidence"];
+    backupIntegrity: AuditSchemaPreflightSummary["backupIntegrity"];
   }> | null;
   authorizesApplicationStart: true;
 }
@@ -154,6 +155,7 @@ function transitionEvidence(
     backupMaxPayloadBytes,
     backupSizeBytes,
     backupEvidence: summary.backupEvidence,
+    backupIntegrity: summary.backupIntegrity,
   });
 }
 
@@ -317,6 +319,8 @@ export async function runAuditSchemaGate(
     migration.latestExpectedTag !== AUDIT_SCHEMA_MIGRATIONS.target.tag ||
     (migration.newlyApplied !== 0 && migration.newlyApplied !== 1) ||
     migration.knownAppliedAfter !== 107 ||
+    migration.schemaFingerprintSha256 !==
+      preEnvironment.expectedSchemaFingerprintSha256 ||
     (migration.newlyApplied === 1
       ? migration.knownAppliedBefore !== 106
       : migration.knownAppliedBefore !== 107)

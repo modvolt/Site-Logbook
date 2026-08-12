@@ -54,19 +54,36 @@ async function createListenerClient(): Promise<pg.Client> {
 
 async function startListening(): Promise<void> {
   if (shuttingDown) return;
+  let client: pg.Client | null = null;
   try {
-    const client = await createListenerClient();
+    client = await createListenerClient();
+    // shutdown may have completed while connect() was in flight. Never install
+    // that late client or issue LISTEN after the process entered fail-stop.
+    if (shuttingDown) {
+      await client.end().catch(() => {});
+      return;
+    }
     listenerClient = client;
     backoffMs = BACKOFF_BASE_MS;
 
     await client.query(`LISTEN "${CHANNEL}"`);
+    // shutdown can also race the LISTEN round trip after listenerClient was
+    // installed and closed. Do not attach handlers to the closed late client.
+    if (shuttingDown) {
+      if (listenerClient === client) listenerClient = null;
+      await client.end().catch(() => {});
+      return;
+    }
     logger.info(`[live-events] LISTEN active on channel "${CHANNEL}"`);
 
     client.on("notification", (msg) => {
       if (msg.channel !== CHANNEL || !msg.payload) return;
       const payload = parseLiveEventPayload(msg.payload);
       if (!payload) {
-        logger.warn({ raw: msg.payload }, "[live-events] Skipping unparseable NOTIFY payload");
+        logger.warn(
+          { raw: msg.payload },
+          "[live-events] Skipping unparseable NOTIFY payload",
+        );
         return;
       }
       publishToLocalClients(payload);
@@ -74,7 +91,9 @@ async function startListening(): Promise<void> {
 
     client.on("end", () => {
       if (shuttingDown) return;
-      logger.warn("[live-events] LISTEN connection ended — scheduling reconnect");
+      logger.warn(
+        "[live-events] LISTEN connection ended — scheduling reconnect",
+      );
       listenerClient = null;
       scheduleReconnect();
     });
@@ -85,8 +104,12 @@ async function startListening(): Promise<void> {
       scheduleReconnect();
     });
   } catch (err) {
-    logger.warn({ err }, "[live-events] Failed to start LISTEN — scheduling reconnect");
-    listenerClient = null;
+    logger.warn(
+      { err },
+      "[live-events] Failed to start LISTEN — scheduling reconnect",
+    );
+    if (listenerClient === client) listenerClient = null;
+    if (client) await client.end().catch(() => {});
     scheduleReconnect();
   }
 }
@@ -173,6 +196,9 @@ export async function publishLiveEvent(
     const pool = getPool();
     await pool.query(`SELECT pg_notify($1, $2)`, [CHANNEL, payload]);
   } catch (err) {
-    logger.warn({ err, domains }, "[live-events] pg_notify failed — skipping broadcast");
+    logger.warn(
+      { err, domains },
+      "[live-events] pg_notify failed — skipping broadcast",
+    );
   }
 }

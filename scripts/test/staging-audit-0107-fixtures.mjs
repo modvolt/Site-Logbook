@@ -11,6 +11,26 @@ export const API_IMAGE = `ghcr.io/modvolt/site-logbook-staging-api@sha256:${"3".
 export const POSTGRES_IMAGE =
   "postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777";
 export const POSTGRES_CONTAINER_ID = "6".repeat(64);
+export const EXPECTED_SCHEMA_FINGERPRINT_SHA256 = `sha256:${"c".repeat(64)}`;
+export const PREDECESSOR_SCHEMA_FINGERPRINT_SHA256 = `sha256:${"d".repeat(64)}`;
+export const VERIFIED_TABLE_NAMES = Object.freeze([
+  "drizzle.__drizzle_migrations",
+  "public.activities",
+  "public.customers",
+  "public.jobs",
+  "public.users",
+]);
+export const VERIFIED_TABLE_COUNTS = Object.freeze({
+  "drizzle.__drizzle_migrations": 106,
+  "public.activities": 20,
+  "public.customers": 8,
+  "public.jobs": 12,
+  "public.users": 4,
+});
+export const VERIFIED_TABLE_COUNTS_SHA256 = `sha256:${crypto
+  .createHash("sha256")
+  .update(JSON.stringify(VERIFIED_TABLE_COUNTS))
+  .digest("hex")}`;
 
 export function artifact(value, name) {
   const bytes = Buffer.from(canonicalJson(value), "utf8");
@@ -90,6 +110,21 @@ export function schemaSummary(targetPresent) {
     auditEventRows: 0,
     auditOutboxRows: 0,
     auditHeadRows: targetPresent ? 1 : 0,
+    expectedSchemaFingerprintSha256: EXPECTED_SCHEMA_FINGERPRINT_SHA256,
+    schemaFingerprintSha256: targetPresent
+      ? EXPECTED_SCHEMA_FINGERPRINT_SHA256
+      : PREDECESSOR_SCHEMA_FINGERPRINT_SHA256,
+  };
+}
+
+export function backupIntegrity(overrides = {}) {
+  return {
+    schemaVersion: "site-logbook.audit-schema-backup-integrity/v1",
+    verifiedTableNames: VERIFIED_TABLE_NAMES,
+    verifiedTableCounts: VERIFIED_TABLE_COUNTS,
+    verifiedTableCountsSha256: VERIFIED_TABLE_COUNTS_SHA256,
+    backupRowBindingSha256: `sha256:${"b".repeat(64)}`,
+    ...overrides,
   };
 }
 
@@ -111,6 +146,11 @@ export function backupGate(mode = "clean", overrides = {}) {
     restoreTestedAt: "2026-08-12T10:02:00.000Z",
     restoreDurationMs: 60_000,
     verifiedTableCount: 5,
+    verifiedTableNames: VERIFIED_TABLE_NAMES,
+    sourceTableCounts: VERIFIED_TABLE_COUNTS,
+    restoredTableCounts: VERIFIED_TABLE_COUNTS,
+    verifiedTableCountsSha256: VERIFIED_TABLE_COUNTS_SHA256,
+    backupRowBindingSha256: `sha256:${"b".repeat(64)}`,
     sizeBytes: 4096,
     maxPayloadBytes: AUDIT_0107.maxPayloadBytes,
     encryptedBackupSha256: `sha256:${"d".repeat(64)}`,
@@ -151,6 +191,7 @@ export function backupExecution(
     startedAt: "2026-08-12T10:00:00.000Z",
     completedAt: "2026-08-12T10:03:00.000Z",
     sourceSha: SHA,
+    expectedSchemaFingerprintSha256: EXPECTED_SCHEMA_FINGERPRINT_SHA256,
     inspectDeploymentInputsSha256: `sha256:${inspectSha256}`,
     runtimeBinding: {
       resolvedComposeSha256: `sha256:${"9".repeat(64)}`,
@@ -167,8 +208,9 @@ export function backupExecution(
     },
     gate: backupGate(mode, gateOverrides),
     runtimeIsolation: {
-      onlyPostgresRunningAtEveryBoundary: true,
-      samePostgresContainerAtEveryBoundary: true,
+      exactApprovedContainersAtObservedBoundaries: true,
+      samePostgresContainerAtObservedBoundaries: true,
+      continuousIsolationInferred: false,
       apiStarted: false,
       webStarted: false,
       auditSchema0107GateStarted: false,
@@ -353,6 +395,7 @@ export function resolvedCompose(artifacts, target) {
             ACCOUNTING_SCHEMA_PREFLIGHT_CONFIRMATION: "",
             AUDIT_SCHEMA_PREFLIGHT_CONFIRMATION: "",
             STAGING_AUDIT_SCHEMA_ACTION: "inspect",
+            AUDIT_SCHEMA_EXPECTED_FINGERPRINT_SHA256: "",
             AUDIT_SCHEMA_LINEAGE_MODE: artifacts.lineage.mode,
             AUDIT_SCHEMA_OPAQUE_LEGACY_ROWS_JSON: artifacts.lineage.rowsJson,
             STAGING_EXACT_0106_BACKUP_ACTION: "",
@@ -380,6 +423,7 @@ export function resolvedCompose(artifacts, target) {
             ...common,
             STAGING_API_IMAGE: inputs.images.api,
             AUDIT_SCHEMA_PREFLIGHT_CONFIRMATION: "",
+            AUDIT_SCHEMA_EXPECTED_FINGERPRINT_SHA256: "",
             AUDIT_SCHEMA_LINEAGE_MODE: artifacts.lineage.mode,
             AUDIT_SCHEMA_OPAQUE_LEGACY_ROWS_JSON: artifacts.lineage.rowsJson,
             STAGING_AUDIT_SCHEMA_ACTION: "steady-0107",
@@ -446,6 +490,34 @@ export function postgresInspect(inputs = inspectInputs()) {
   };
 }
 
+export function postgresVolumeInspect(inputs = inspectInputs()) {
+  return {
+    name: `${inputs.composeProjectName}_staging_pgdata`,
+    driver: "local",
+    projectLabel: inputs.composeProjectName,
+    volumeLabel: "staging_pgdata",
+  };
+}
+
+export function defaultNetworkInspect(
+  inputs = inspectInputs(),
+  containerIds = [POSTGRES_CONTAINER_ID],
+) {
+  return {
+    id: "8".repeat(64),
+    name: `${inputs.composeProjectName}_default`,
+    driver: "bridge",
+    scope: "local",
+    internal: false,
+    attachable: false,
+    projectLabel: inputs.composeProjectName,
+    networkLabel: "default",
+    containers: Object.fromEntries(
+      containerIds.map((id) => [id, { name: `observed-${id.slice(0, 12)}` }]),
+    ),
+  };
+}
+
 export function inventory(decision = "READY_0106", mode = "clean") {
   const already = decision === "ALREADY_0107";
   return {
@@ -458,6 +530,7 @@ export function inventory(decision = "READY_0106", mode = "clean") {
     buildSha: SHA,
     lineage: lineageSummary(already ? 107 : 106, mode),
     schema: schemaSummary(already),
+    backupIntegrity: backupIntegrity(),
     backupEvidenceId: 82,
     backupRestoreAgeHours: 0.017,
     authorizesApplicationStart: false,
@@ -478,7 +551,7 @@ export function richBackup(backupExecutionSha256) {
     restoreAgeHours: 0.033,
     restoreDurationMs: 60_000,
     verifiedTableCount: 5,
-    verifiedTablesSha256: `sha256:${"1".repeat(64)}`,
+    verifiedTablesSha256: VERIFIED_TABLE_COUNTS_SHA256,
     destructiveRestorePerformed: false,
   };
 }
@@ -531,6 +604,7 @@ export function gateEvidence(artifacts, operation = "APPLIED") {
       backupMaxPayloadBytes: AUDIT_0107.maxPayloadBytes,
       backupSizeBytes: 4096,
       backupEvidence: richBackup(artifacts.backup.sha256),
+      backupIntegrity: backupIntegrity(),
     },
     authorizesApplicationStart: true,
   };

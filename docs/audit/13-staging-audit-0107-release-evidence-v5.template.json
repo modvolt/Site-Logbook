@@ -36,7 +36,7 @@
     "decision": "ALREADY_0107",
     "excludedMigration0100Present": false,
     "knownAppliedMigrations": 107,
-    "knownAppliedRowsSha256": "sha256:d34407b4cdb8b0dc8bb9d07cd6cd500be5853d3112e142fe44e0efa5b8cd7cc1",
+    "knownAppliedRowsSha256": "sha256:c5477bc69313ef758fb2022cc7c781caa9a703c8cace8a11742294913cdd4313",
     "knownExpectedMigrations": 107,
     "latestKnownAppliedTag": "0107_canonical_audit_evidence",
     "missingKnownToPredecessor": 0,

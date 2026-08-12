@@ -3,6 +3,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { canonicalJson } from "./check-staging-provisioning.mjs";
 
+function binaryCompare(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 export const AUDIT_0107 = Object.freeze({
   action: "apply-0107",
   confirmation: "APPLY_0107_AUDIT_EVIDENCE_TO_ISOLATED_SITE_LOGBOOK_STAGING",
@@ -17,7 +21,7 @@ export const AUDIT_0107 = Object.freeze({
   targetTag: "0107_canonical_audit_evidence",
   // Hashes are over canonical LF bytes, not a platform checkout's line endings.
   migrationSha256:
-    "5523f25b4c941919612f2f87a2d8fa371acd9922c3d3166b8d761000365e1339",
+    "c90d91e2ddcfbf00419980388c2e7b0f0a573fe73925638d737966fb6604e122",
   predecessorSnapshotId: "18841ec6-0ec2-4ae8-8ac7-8ee8c1eb34cd",
   targetSnapshotId: "b20520fc-59f2-4d34-9e2f-9d7ed565288a",
   predecessorSnapshotSha256:
@@ -27,7 +31,7 @@ export const AUDIT_0107 = Object.freeze({
   predecessorKnownRowsSha256:
     "sha256:cfbf74de83f99c3ca49fb717a6784265e8ef193e75e894aab9924fb7b80e16ee",
   targetKnownRowsSha256:
-    "sha256:d34407b4cdb8b0dc8bb9d07cd6cd500be5853d3112e142fe44e0efa5b8cd7cc1",
+    "sha256:c5477bc69313ef758fb2022cc7c781caa9a703c8cace8a11742294913cdd4313",
   maxPayloadBytes: 256 * 1024 * 1024,
 });
 
@@ -177,7 +181,7 @@ export function canonicalOpaqueLegacyRows(value, mode) {
   });
   const sorted = [...rows].sort(
     (left, right) =>
-      left.createdAt - right.createdAt || left.hash.localeCompare(right.hash),
+      left.createdAt - right.createdAt || binaryCompare(left.hash, right.hash),
   );
   if (JSON.stringify(rows) !== JSON.stringify(sorted)) {
     audit0107Fail(

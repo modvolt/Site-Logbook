@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 const root = resolve(import.meta.dirname, "..", "..", "..");
 
 function source(path: string): string {
-  return readFileSync(resolve(root, path), "utf8");
+  return readFileSync(resolve(root, path), "utf8").replace(/\r\n?/g, "\n");
 }
 
 describe("R15-A operational snapshot contract", () => {
@@ -20,7 +20,9 @@ describe("R15-A operational snapshot contract", () => {
     expect(route).toContain("requireAuth");
     expect(route).toContain('requirePermission("diagnostics.view")');
     expect(route).toContain("collectOperationalSnapshot");
-    expect(route).not.toMatch(/diagnoseS3|checkStorage|resolveEmailConfig|sendMail|fetch\(/);
+    expect(route).not.toMatch(
+      /diagnoseS3|checkStorage|resolveEmailConfig|sendMail|fetch\(/,
+    );
   });
 
   it("publishes only aggregate operational fields in OpenAPI", () => {
@@ -41,11 +43,13 @@ describe("R15-A operational snapshot contract", () => {
 
   it("assigns unique stable advisory lock keys to watchdog work", () => {
     const scheduler = source("artifacts/api-server/src/lib/scheduler-lock.ts");
-    const objectStart = scheduler.indexOf("export const SCHEDULER_LOCK_KEYS = {");
-    const objectEnd = scheduler.indexOf("} as const", objectStart);
-    const entries = [...scheduler.slice(objectStart, objectEnd).matchAll(/\w+:\s+([\d_]+)/g)].map(
-      (match) => Number(match[1].replaceAll("_", "")),
+    const objectStart = scheduler.indexOf(
+      "export const SCHEDULER_LOCK_KEYS = {",
     );
+    const objectEnd = scheduler.indexOf("} as const", objectStart);
+    const entries = [
+      ...scheduler.slice(objectStart, objectEnd).matchAll(/\w+:\s+([\d_]+)/g),
+    ].map((match) => Number(match[1].replaceAll("_", "")));
 
     expect(entries.length).toBeGreaterThanOrEqual(8);
     expect(new Set(entries).size).toBe(entries.length);
@@ -54,8 +58,12 @@ describe("R15-A operational snapshot contract", () => {
   });
 
   it("marks unavailable DB-backed aggregates unknown instead of returning false zero health", () => {
-    const signals = source("artifacts/api-server/src/lib/operational-signals.ts");
-    const policy = source("artifacts/api-server/src/lib/operational-alert-policy.ts");
+    const signals = source(
+      "artifacts/api-server/src/lib/operational-signals.ts",
+    );
+    const policy = source(
+      "artifacts/api-server/src/lib/operational-alert-policy.ts",
+    );
 
     expect(signals).toContain("available: false");
     expect(policy).toContain('? "unknown"');
@@ -63,7 +71,9 @@ describe("R15-A operational snapshot contract", () => {
   });
 
   it("keeps exact legacy emergency and credential-access events without prefix matching", () => {
-    const signals = source("artifacts/api-server/src/lib/operational-signals.ts");
+    const signals = source(
+      "artifacts/api-server/src/lib/operational-signals.ts",
+    );
     const audit = source("artifacts/api-server/src/lib/security-audit.ts");
 
     expect(signals).toContain("SECURITY_OPERATIONAL_ALERT_ACTIONS");
@@ -75,8 +85,13 @@ describe("R15-A operational snapshot contract", () => {
 
   it("uses durable delivery with a non-blocking DB-outage fallback", () => {
     const watchdog = source("artifacts/api-server/src/lib/health-watchdog.ts");
-    const delivery = watchdog.indexOf("void deliverOperationalAlertTransitions(");
-    const stateUpdate = watchdog.indexOf("operationalStatus = operational.status", delivery);
+    const delivery = watchdog.indexOf(
+      "void deliverOperationalAlertTransitions(",
+    );
+    const stateUpdate = watchdog.indexOf(
+      "operationalStatus = operational.status",
+      delivery,
+    );
 
     expect(delivery).toBeGreaterThan(0);
     expect(stateUpdate).toBeGreaterThan(delivery);
@@ -94,8 +109,8 @@ describe("R15-A operational snapshot contract", () => {
       "artifacts/api-server/src/lib/operational-alert-transport.ts",
     );
 
-    expect(index).toContain('from "./lib/health-watchdog"');
-    expect(index.indexOf('from "./lib/health-watchdog"')).toBeLessThan(
+    expect(index).toContain('import("./lib/health-watchdog")');
+    expect(index.indexOf('import("./lib/health-watchdog")')).toBeLessThan(
       index.indexOf("app.listen("),
     );
     expect(watchdog).toContain('from "./operational-alert-transport"');

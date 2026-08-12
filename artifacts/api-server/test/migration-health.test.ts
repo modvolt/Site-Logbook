@@ -60,6 +60,18 @@ describe("migration health inventory", () => {
     );
   });
 
+  it("uses binary code-point ordering for canonical migration digests", () => {
+    expect(
+      knownMigrationRowsSha256([
+        { createdAt: 7, hash: "_" },
+        { createdAt: 7, hash: "$" },
+        { createdAt: 7, hash: "9" },
+      ]),
+    ).toBe(
+      "sha256:25c1e7f891c22c4c57c2f74312d6af869eec69e579446df0b750cc8c3193a6b8",
+    );
+  });
+
   it("does not let hash drift or a duplicate exact row satisfy known parity", () => {
     const result = classifyMigrationInventory(expected, [
       { created_at: 101, hash: "a".repeat(64) },
@@ -140,7 +152,7 @@ describe("migration health inventory", () => {
 
     expect(rows).toHaveLength(107);
     expect(knownMigrationRowsSha256(rows)).toBe(
-      "sha256:d34407b4cdb8b0dc8bb9d07cd6cd500be5853d3112e142fe44e0efa5b8cd7cc1",
+      "sha256:c5477bc69313ef758fb2022cc7c781caa9a703c8cace8a11742294913cdd4313",
     );
   });
 });

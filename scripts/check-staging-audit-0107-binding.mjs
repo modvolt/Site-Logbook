@@ -30,6 +30,74 @@ import {
 } from "./staging-audit-0107-contract.mjs";
 
 const SHA40 = /^[0-9a-f]{40}$/;
+const SHA256 = /^sha256:[0-9a-f]{64}$/;
+
+function validateBackupTableCountEvidence(value) {
+  const names = value.verifiedTableNames;
+  const source = value.sourceTableCounts;
+  const restored = value.restoredTableCounts;
+  if (
+    !Array.isArray(names) ||
+    names.length === 0 ||
+    names.length !== value.verifiedTableCount ||
+    names.some(
+      (name) =>
+        typeof name !== "string" ||
+        !/^[a-z_][a-z0-9_$]*\.[a-z_][a-z0-9_$]*$/.test(name),
+    ) ||
+    JSON.stringify(names) !== JSON.stringify([...names].sort()) ||
+    !source ||
+    typeof source !== "object" ||
+    Array.isArray(source) ||
+    !restored ||
+    typeof restored !== "object" ||
+    Array.isArray(restored)
+  ) {
+    audit0107Fail(
+      "AUDIT_0107_BACKUP_TABLE_COUNTS_INVALID",
+      "Backup table-count evidence must be one canonical exact table set.",
+    );
+  }
+  const sourceKeys = Object.keys(source);
+  const restoredKeys = Object.keys(restored);
+  if (
+    JSON.stringify(sourceKeys) !== JSON.stringify(names) ||
+    JSON.stringify(restoredKeys) !== JSON.stringify(names) ||
+    names.some(
+      (name) =>
+        !Number.isSafeInteger(source[name]) ||
+        source[name] < 0 ||
+        source[name] !== restored[name],
+    ) ||
+    canonicalJson(source) !== canonicalJson(restored)
+  ) {
+    audit0107Fail(
+      "AUDIT_0107_BACKUP_TABLE_COUNTS_MISMATCH",
+      "Source and restored counts must be byte-equivalent for every exact table.",
+    );
+  }
+  const digest = `sha256:${crypto
+    .createHash("sha256")
+    .update(JSON.stringify(source))
+    .digest("hex")}`;
+  if (
+    value.verifiedTableCountsSha256 !== digest ||
+    !/^sha256:[0-9a-f]{64}$/.test(String(value.backupRowBindingSha256))
+  ) {
+    audit0107Fail(
+      "AUDIT_0107_BACKUP_TABLE_COUNTS_HASH_MISMATCH",
+      "Backup table counts and immutable row binding require exact SHA-256 identities.",
+    );
+  }
+  return Object.freeze({
+    verifiedTableCount: names.length,
+    verifiedTableNames: Object.freeze([...names]),
+    sourceTableCounts: Object.freeze({ ...source }),
+    restoredTableCounts: Object.freeze({ ...restored }),
+    verifiedTableCountsSha256: digest,
+    backupRowBindingSha256: value.backupRowBindingSha256,
+  });
+}
 
 export class StagingAudit0107BindingError extends Error {
   constructor(code, message) {
@@ -119,6 +187,7 @@ export function validateExact0106AuditBackupExecution(
         "startedAt",
         "completedAt",
         "sourceSha",
+        "expectedSchemaFingerprintSha256",
         "inspectDeploymentInputsSha256",
         "runtimeBinding",
         "lineage",
@@ -138,8 +207,9 @@ export function validateExact0106AuditBackupExecution(
     exactKeys(
       value.runtimeIsolation,
       [
-        "onlyPostgresRunningAtEveryBoundary",
-        "samePostgresContainerAtEveryBoundary",
+        "exactApprovedContainersAtObservedBoundaries",
+        "samePostgresContainerAtObservedBoundaries",
+        "continuousIsolationInferred",
         "apiStarted",
         "webStarted",
         "auditSchema0107GateStarted",
@@ -162,14 +232,18 @@ export function validateExact0106AuditBackupExecution(
       value.productionTargetsTouched !== false ||
       value.sourceSha !== expectedSourceSha ||
       !SHA40.test(String(value.sourceSha)) ||
+      !SHA256.test(String(value.expectedSchemaFingerprintSha256)) ||
       !/^sha256:[0-9a-f]{64}$/.test(
         String(value.inspectDeploymentInputsSha256),
       ) ||
       lineage.mode !== expectedLineage.mode ||
       lineage.opaqueLegacyRowsJson !== expectedLineage.opaqueLegacyRowsJson ||
       value.lineage.opaqueLegacyRowsSha256 !== lineage.opaqueLegacyRowsSha256 ||
-      value.runtimeIsolation.onlyPostgresRunningAtEveryBoundary !== true ||
-      value.runtimeIsolation.samePostgresContainerAtEveryBoundary !== true ||
+      value.runtimeIsolation.exactApprovedContainersAtObservedBoundaries !==
+        true ||
+      value.runtimeIsolation.samePostgresContainerAtObservedBoundaries !==
+        true ||
+      value.runtimeIsolation.continuousIsolationInferred !== false ||
       value.runtimeIsolation.apiStarted !== false ||
       value.runtimeIsolation.webStarted !== false ||
       value.runtimeIsolation.auditSchema0107GateStarted !== false ||
@@ -200,6 +274,7 @@ export function validateExact0106AuditBackupExecution(
     const runtimeBinding = validateBackupRuntimeBinding(value.runtimeBinding);
     return Object.freeze({
       sourceSha: value.sourceSha,
+      expectedSchemaFingerprintSha256: value.expectedSchemaFingerprintSha256,
       inspectInputsSha256: value.inspectDeploymentInputsSha256.slice(
         "sha256:".length,
       ),
@@ -214,6 +289,11 @@ export function validateExact0106AuditBackupExecution(
       restoreTestedAt: gate.restoreTestedAt,
       restoreDurationMs: gate.restoreDurationMs,
       verifiedTableCount: gate.verifiedTableCount,
+      verifiedTableNames: gate.verifiedTableNames,
+      sourceTableCounts: gate.sourceTableCounts,
+      restoredTableCounts: gate.restoredTableCounts,
+      verifiedTableCountsSha256: gate.verifiedTableCountsSha256,
+      backupRowBindingSha256: gate.backupRowBindingSha256,
       runtimeBinding,
     });
   } catch (error) {
@@ -245,6 +325,11 @@ export function validateExact0106BackupGate(
       "restoreTestedAt",
       "restoreDurationMs",
       "verifiedTableCount",
+      "verifiedTableNames",
+      "sourceTableCounts",
+      "restoredTableCounts",
+      "verifiedTableCountsSha256",
+      "backupRowBindingSha256",
       "sizeBytes",
       "maxPayloadBytes",
       "encryptedBackupSha256",
@@ -262,6 +347,7 @@ export function validateExact0106BackupGate(
     value.restoreTestedAt,
     "backup restoreTestedAt",
   );
+  const tableCounts = validateBackupTableCountEvidence(value);
   if (
     value.kind !== "audit-schema-exact-0106-backup" ||
     value.schemaVersion !== "site-logbook.audit-schema-exact-0106-backup/v1" ||
@@ -298,7 +384,7 @@ export function validateExact0106BackupGate(
     expectedLineage,
     AUDIT_0107.predecessorCount,
   );
-  return Object.freeze(value);
+  return Object.freeze({ ...value, ...tableCounts });
 }
 
 export function validateAudit0107TransitionInputs(value) {
@@ -310,6 +396,7 @@ export function validateAudit0107TransitionInputs(value) {
         "kind",
         "productionTargetsTouched",
         "sourceSha",
+        "expectedSchemaFingerprintSha256",
         "action",
         "confirmation",
         "lineage",
@@ -337,6 +424,12 @@ export function validateAudit0107TransitionInputs(value) {
         "maxPayloadBytes",
         "createdAt",
         "restoreTestedAt",
+        "verifiedTableCount",
+        "verifiedTableNames",
+        "sourceTableCounts",
+        "restoredTableCounts",
+        "verifiedTableCountsSha256",
+        "backupRowBindingSha256",
       ],
       "audit transition backup evidence",
     );
@@ -367,11 +460,13 @@ export function validateAudit0107TransitionInputs(value) {
       value.backupEvidence.restoreTestedAt,
       "backup restoreTestedAt",
     );
+    const tableCounts = validateBackupTableCountEvidence(value.backupEvidence);
     if (
       value.schemaVersion !== 1 ||
       value.kind !== "site-logbook-staging-audit-0107-transition" ||
       value.productionTargetsTouched !== false ||
       !SHA40.test(String(value.sourceSha)) ||
+      !SHA256.test(String(value.expectedSchemaFingerprintSha256)) ||
       value.action !== AUDIT_0107.action ||
       value.confirmation !== AUDIT_0107.confirmation ||
       value.lineage.opaqueLegacyRowsSha256 !== lineage.opaqueLegacyRowsSha256 ||
@@ -405,7 +500,13 @@ export function validateAudit0107TransitionInputs(value) {
         "Transition inputs do not preserve the exact 0106 to 0107 audit boundary.",
       );
     }
-    return Object.freeze(value);
+    return Object.freeze({
+      ...value,
+      backupEvidence: Object.freeze({
+        ...value.backupEvidence,
+        ...tableCounts,
+      }),
+    });
   } catch (error) {
     wrap(error);
   }
@@ -481,6 +582,7 @@ export function createStagingAudit0107Binding({
       kind: "site-logbook-staging-audit-0107-transition",
       productionTargetsTouched: false,
       sourceSha: expectedSourceSha,
+      expectedSchemaFingerprintSha256: backup.expectedSchemaFingerprintSha256,
       action: AUDIT_0107.action,
       confirmation: AUDIT_0107.confirmation,
       lineage: {
@@ -498,6 +600,12 @@ export function createStagingAudit0107Binding({
         maxPayloadBytes: backup.maxPayloadBytes,
         createdAt: backup.createdAt,
         restoreTestedAt: backup.restoreTestedAt,
+        verifiedTableCount: backup.verifiedTableCount,
+        verifiedTableNames: backup.verifiedTableNames,
+        sourceTableCounts: backup.sourceTableCounts,
+        restoredTableCounts: backup.restoredTableCounts,
+        verifiedTableCountsSha256: backup.verifiedTableCountsSha256,
+        backupRowBindingSha256: backup.backupRowBindingSha256,
       },
       predecessor: {
         count: AUDIT_0107.predecessorCount,
@@ -543,6 +651,8 @@ export function createStagingAudit0107Binding({
         ),
         STAGING_EXACT_0106_BACKUP_SIZE_BYTES: String(backup.sizeBytes),
         STAGING_AUDIT_SCHEMA_ACTION: "steady-0107",
+        AUDIT_SCHEMA_EXPECTED_FINGERPRINT_SHA256:
+          backup.expectedSchemaFingerprintSha256,
         AUDIT_SCHEMA_PREFLIGHT_CONFIRMATION: "",
         AUDIT_SCHEMA_LINEAGE_MODE: lineage.mode,
         AUDIT_SCHEMA_OPAQUE_LEGACY_ROWS_JSON: lineage.opaqueLegacyRowsJson,

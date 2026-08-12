@@ -39,6 +39,27 @@ interface RuntimeMigrationLineage {
   excludedMigration0100Present: false;
 }
 
+export interface ProductionRuntimeReleaseBinding {
+  schemaVersion: "site-logbook.production-runtime-binding/v1";
+  sourceSha: string;
+  apiImage: string;
+  apiImageDigest: string;
+  targetEvidenceSha256: string;
+  releaseEvidenceSha256: string;
+  resolvedComposeSha256: string;
+  deployedConfigSha256: string;
+  desiredConfigSha256: string;
+  livePostgresTargetSha256: string;
+  databaseName: string;
+  databaseUser: string;
+  schemaFingerprintSha256: string;
+  preMigrationBackupEvidenceSha256: string;
+  backupIntegritySha256: string;
+  transitionChainSha256: string;
+  activationApprovalSha256: string;
+  lineage: Record<string, unknown>;
+}
+
 interface RuntimeMigrationReleaseBinding {
   schemaVersion: "site-logbook.runtime-migration-release-binding/v1";
   buildSha: string;
@@ -48,6 +69,8 @@ interface RuntimeMigrationReleaseBinding {
 
 const SHA_PATTERN = /^[0-9a-f]{40}$/;
 const SHA256_PATTERN = /^sha256:[0-9a-f]{64}$/;
+const IMMUTABLE_IMAGE_PATTERN =
+  /^[a-z0-9.-]+(?::[0-9]+)?\/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$/;
 
 function hasExactKeys(
   value: Record<string, unknown>,
@@ -65,6 +88,10 @@ function objectValue(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
+function binaryCompare(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 function canonicalOpaqueRows(rows: readonly OpaqueMigrationIdentity[]): string {
   return JSON.stringify(
     [...rows].sort((left, right) => {
@@ -72,7 +99,7 @@ function canonicalOpaqueRows(rows: readonly OpaqueMigrationIdentity[]): string {
       const rightCreatedAt = right.createdAt ?? Number.MIN_SAFE_INTEGER;
       return (
         leftCreatedAt - rightCreatedAt ||
-        (left.hash ?? "").localeCompare(right.hash ?? "")
+        binaryCompare(left.hash ?? "", right.hash ?? "")
       );
     }),
   );
@@ -87,7 +114,7 @@ function canonicalKnownRows(
       .sort(
         (left, right) =>
           left.createdAt - right.createdAt ||
-          left.hash.localeCompare(right.hash),
+          binaryCompare(left.hash, right.hash),
       ),
   );
 }
@@ -248,4 +275,75 @@ export function migrationReleaseBindingMatches(
       (lineage.mode === "production-copy-restricted" &&
         inventory.opaqueAppliedMigrations === 2))
   );
+}
+
+/** Match the in-memory, pre-start production binding against each live poll. */
+export function productionRuntimeBindingMatches(
+  binding: ProductionRuntimeReleaseBinding | null,
+  buildSha: string,
+  latestExpectedTag: string | null,
+  inventory: MigrationInventoryClassification,
+): boolean {
+  if (
+    !binding ||
+    binding.schemaVersion !== "site-logbook.production-runtime-binding/v1" ||
+    !SHA_PATTERN.test(binding.sourceSha) ||
+    binding.sourceSha !== buildSha.toLowerCase() ||
+    !IMMUTABLE_IMAGE_PATTERN.test(binding.apiImage) ||
+    binding.apiImageDigest !==
+      `sha256:${binding.apiImage.split("@sha256:")[1]}` ||
+    ![
+      binding.targetEvidenceSha256,
+      binding.releaseEvidenceSha256,
+      binding.resolvedComposeSha256,
+      binding.deployedConfigSha256,
+      binding.desiredConfigSha256,
+      binding.livePostgresTargetSha256,
+      binding.schemaFingerprintSha256,
+      binding.preMigrationBackupEvidenceSha256,
+      binding.backupIntegritySha256,
+      binding.transitionChainSha256,
+      binding.activationApprovalSha256,
+    ].every((value) => SHA256_PATTERN.test(value)) ||
+    binding.desiredConfigSha256 !== binding.deployedConfigSha256 ||
+    !binding.databaseName ||
+    !binding.databaseUser
+  ) {
+    return false;
+  }
+
+  const lineage = objectValue(binding.lineage);
+  if (
+    !lineage ||
+    !hasExactKeys(lineage, [
+      "decision",
+      "mode",
+      "knownExpectedMigrations",
+      "knownAppliedMigrations",
+      "knownAppliedRowsSha256",
+      "latestKnownAppliedTag",
+      "missingKnownToPredecessor",
+      "opaqueLegacyRowCount",
+      "opaqueLegacyRowsSha256",
+      "opaqueLegacyMeaningInferred",
+      "excludedMigration0100Present",
+    ]) ||
+    lineage.decision !== "ALREADY_0107" ||
+    lineage.mode !== "production-copy-restricted" ||
+    lineage.knownExpectedMigrations !== 107 ||
+    lineage.knownExpectedMigrations !== inventory.knownExpectedMigrations ||
+    lineage.knownAppliedMigrations !== 107 ||
+    lineage.knownAppliedMigrations !== inventory.knownAppliedMigrations ||
+    lineage.knownAppliedRowsSha256 !== inventory.knownAppliedRowsSha256 ||
+    lineage.latestKnownAppliedTag !== latestExpectedTag ||
+    lineage.missingKnownToPredecessor !== 0 ||
+    lineage.opaqueLegacyRowCount !== 2 ||
+    lineage.opaqueLegacyRowCount !== inventory.opaqueAppliedMigrations ||
+    lineage.opaqueLegacyRowsSha256 !== inventory.opaqueLegacyRowsSha256 ||
+    lineage.opaqueLegacyMeaningInferred !== false ||
+    lineage.excludedMigration0100Present !== false
+  ) {
+    return false;
+  }
+  return inventory.missingKnownMigrationTags.length === 0;
 }

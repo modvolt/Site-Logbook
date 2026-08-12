@@ -3,7 +3,8 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const root = resolve(import.meta.dirname, "../../..");
-const read = (path: string) => readFileSync(resolve(root, path), "utf8");
+const read = (path: string) =>
+  readFileSync(resolve(root, path), "utf8").replace(/\r\n?/g, "\n");
 
 describe("R16-C2 authenticated external account surface", () => {
   it("keeps management internal, step-up protected, strict and idempotent", () => {
@@ -109,7 +110,7 @@ describe("R16-C2 authenticated external account surface", () => {
 
     expect(env).toContain("EXTERNAL_ACCOUNTS_ENABLED=false");
     expect(stagingEnv).toContain("STAGING_EXTERNAL_ACCOUNTS_ENABLED=false");
-    expect(compose).toContain("${EXTERNAL_ACCOUNTS_ENABLED:-false}");
+    expect(compose).toContain('EXTERNAL_ACCOUNTS_ENABLED: "false"');
     expect(stagingCompose).toContain(
       "${STAGING_EXTERNAL_ACCOUNTS_ENABLED:?set false for the external account dark rollout}",
     );

@@ -9,12 +9,18 @@ import {
   AUDIT_SCHEMA_OPAQUE_LEGACY_ROWS,
   AUDIT_SCHEMA_PREFLIGHT_CONFIRMATION,
   AUDIT_SCHEMA_SNAPSHOTS,
+  auditSchemaFingerprintSha256,
+  canonicalAuditSchemaCatalogProjection,
   classifyAuditSchemaAppliedMigrations,
   loadAndValidateAuditSchemaMigrationBundle,
   readAuditSchemaPreflightEnvironment,
+  raceAuditSchemaApplyOperation,
   validateAuditSchemaDatabaseState,
+  validateAuditSchemaBackupIntegrityEvidence,
   validateAuditSchemaMigrationBundle,
   validateExactAuditAppliedMigrationSet,
+  verifyAuditSchemaCatalogProjection,
+  type AuditSchemaCatalogProjection,
   type AuditSchemaDatabaseState,
   type AuditSchemaMigrationBundleInput,
   type ValidatedAuditSchemaBundle,
@@ -23,10 +29,12 @@ import {
   ExternalSchemaPreflightError,
   type AppliedMigrationRow,
   type MigrationJournalEntry,
+  type StagingBackupEvidenceRow,
 } from "./external-schema-preflight.js";
 
 const migrationsDir = path.resolve(import.meta.dirname, "../migrations");
 const fullSha = "1c6cb0209c004d8d583c71f68132e6dbbf587b98";
+const schemaFingerprint = `sha256:${"a".repeat(64)}`;
 
 function expectCode(code: string, fn: () => unknown): void {
   assert.throws(fn, (error: unknown) => {
@@ -119,6 +127,7 @@ function validState(
     headLedgerSha256: ledger,
     maximumEventSequence: eventRows === 0 ? null : eventRows,
     maximumEventLedgerSha256: ledger,
+    schemaFingerprintSha256: schemaFingerprint,
   };
 }
 
@@ -144,7 +153,87 @@ function validEnv(
     MIGRATIONS_DIR: migrationsDir,
     STAGING_BACKUP_EVIDENCE_ID: "42",
     STAGING_BACKUP_RESTORE_MAX_AGE_HOURS: "24",
+    AUDIT_SCHEMA_EXPECTED_FINGERPRINT_SHA256: schemaFingerprint,
   };
+}
+
+function catalogProjection(): AuditSchemaCatalogProjection {
+  return canonicalAuditSchemaCatalogProjection({
+    schemaVersion: "site-logbook.audit-schema-catalog/v1",
+    namespaces: [
+      {
+        schema_name: "public",
+        owner: "site_logbook_staging",
+        acl: [
+          "site_logbook_staging=UC/site_logbook_staging",
+          "=U/site_logbook_staging",
+        ],
+      },
+    ],
+    tables: [
+      {
+        schema_name: "public",
+        table_name: "audit_events",
+        owner: "site_logbook_staging",
+        acl: [],
+        row_security: false,
+      },
+    ],
+    columns: [
+      {
+        schema_name: "public",
+        table_name: "audit_events",
+        ordinal: 1,
+        column_name: "event_id",
+        data_type: "uuid",
+        nullable: false,
+        default_expression: null,
+      },
+    ],
+    functions: [
+      {
+        schema_name: "public",
+        function_name: "guard_audit_event_insert",
+        identity_arguments: "",
+        definition:
+          "CREATE FUNCTION public.guard_audit_event_insert() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$;\n",
+        volatility: "v",
+        owner: "site_logbook_staging",
+        configuration: ["search_path=pg_catalog"],
+        acl: [],
+      },
+    ],
+    constraints: [
+      {
+        schema_name: "public",
+        table_name: "audit_events",
+        constraint_name: "audit_events_pkey",
+        definition: "PRIMARY KEY (event_id)",
+        validated: true,
+      },
+    ],
+    indexes: [
+      {
+        schema_name: "public",
+        table_name: "audit_events",
+        index_name: "audit_events_pkey",
+        definition:
+          "CREATE UNIQUE INDEX audit_events_pkey ON public.audit_events USING btree (event_id)",
+        valid: true,
+      },
+    ],
+    triggers: [
+      {
+        schema_name: "public",
+        table_name: "audit_events",
+        trigger_name: "audit_events_insert_guard_trg",
+        function_identity: "public.guard_audit_event_insert()",
+        definition:
+          "CREATE TRIGGER audit_events_insert_guard_trg BEFORE INSERT ON audit_events FOR EACH ROW EXECUTE FUNCTION guard_audit_event_insert()",
+        enabled: "O",
+      },
+    ],
+  });
 }
 
 describe("audit schema 0107 bundle", () => {
@@ -205,6 +294,149 @@ describe("audit schema 0107 bundle", () => {
       validateAuditSchemaMigrationBundle({
         ...original,
         migrationSqlFileNames: original.migrationSqlFileNames.slice(0, -1),
+      }),
+    );
+  });
+});
+
+describe("canonical audit schema catalog fingerprint", () => {
+  it("pins one canonical secret-free projection independent of row/key order", () => {
+    const projection = catalogProjection();
+    const expected = auditSchemaFingerprintSha256(projection);
+    const reordered = {
+      ...projection,
+      namespaces: projection.namespaces.map((row) => ({
+        ...row,
+        acl: [...(row.acl as string[])].reverse(),
+      })),
+      tables: projection.tables.map((row) =>
+        Object.fromEntries(Object.entries(row).reverse()),
+      ),
+    };
+    assert.equal(auditSchemaFingerprintSha256(reordered), expected);
+    assert.equal(
+      verifyAuditSchemaCatalogProjection(reordered, expected)
+        .schemaFingerprintSha256,
+      expected,
+    );
+  });
+
+  it("rejects namespace, function, constraint, index and column drift", () => {
+    const projection = catalogProjection();
+    const expected = auditSchemaFingerprintSha256(projection);
+    for (const drift of [
+      {
+        ...projection,
+        functions: projection.functions.map((row) => ({
+          ...row,
+          definition: String(row.definition).replace(
+            "RETURN NEW",
+            "RETURN OLD",
+          ),
+        })),
+      },
+      {
+        ...projection,
+        namespaces: projection.namespaces.map((row) => ({
+          ...row,
+          acl: [...(row.acl as string[]), "=UC/site_logbook_staging"],
+        })),
+      },
+      {
+        ...projection,
+        namespaces: projection.namespaces.map((row) => ({
+          ...row,
+          owner: "postgres",
+        })),
+      },
+      {
+        ...projection,
+        functions: projection.functions.map((row) => ({
+          ...row,
+          owner: "postgres",
+        })),
+      },
+      {
+        ...projection,
+        functions: projection.functions.map((row) => ({
+          ...row,
+          acl: ["PUBLIC=X/postgres"],
+        })),
+      },
+      {
+        ...projection,
+        functions: projection.functions.map((row) => ({
+          ...row,
+          configuration: [],
+        })),
+      },
+      {
+        ...projection,
+        constraints: projection.constraints.map((row) => ({
+          ...row,
+          definition: "UNIQUE (event_id)",
+        })),
+      },
+      {
+        ...projection,
+        indexes: projection.indexes.map((row) => ({
+          ...row,
+          definition: String(row.definition).replace(
+            "(event_id)",
+            "(event_id DESC)",
+          ),
+        })),
+      },
+      {
+        ...projection,
+        columns: projection.columns.map((row) => ({
+          ...row,
+          data_type: "text",
+        })),
+      },
+    ] satisfies AuditSchemaCatalogProjection[]) {
+      expectCode("AUDIT_SCHEMA_FINGERPRINT_MISMATCH", () =>
+        verifyAuditSchemaCatalogProjection(drift, expected),
+      );
+    }
+  });
+
+  it("binds the qualified restore map to one exact immutable audit backup row", () => {
+    const row: StagingBackupEvidenceRow = {
+      id: 92,
+      filename: "staging-0106.pgcustom",
+      status: "success",
+      trigger: "manual",
+      created_by: "staging-exact-0106-audit-backup",
+      error: null,
+      object_path: "/objects/backups/staging-0106.pgcustom.enc",
+      size_bytes: 4096,
+      sha256: "b".repeat(64),
+      encryption_format: "mve1",
+      encryption_key_id: "staging-backup-2026-08",
+      created_at: "2026-08-12T12:00:00.000Z",
+      restore_status: "ok",
+      restore_tested_at: "2026-08-12T12:01:00.000Z",
+      checked_at: "2026-08-12T12:02:00.000Z",
+      restored_at: null,
+      restore_duration_ms: 60_000,
+      restore_verified_tables: {
+        "drizzle.__drizzle_migrations": 106,
+        "public.users": 10,
+      },
+      restore_error: null,
+    };
+    const evidence = validateAuditSchemaBackupIntegrityEvidence(row);
+    assert.deepEqual(evidence.verifiedTableNames, [
+      "drizzle.__drizzle_migrations",
+      "public.users",
+    ]);
+    assert.match(evidence.verifiedTableCountsSha256, /^sha256:[0-9a-f]{64}$/);
+    assert.match(evidence.backupRowBindingSha256, /^sha256:[0-9a-f]{64}$/);
+    expectCode("AUDIT_BACKUP_ROW_BINDING_INVALID", () =>
+      validateAuditSchemaBackupIntegrityEvidence({
+        ...row,
+        created_by: "mutable-admin-edit",
       }),
     );
   });
@@ -299,6 +531,7 @@ describe("audit schema exact database state and environment", () => {
   const identity = {
     expectedDatabaseName: "site_logbook_staging",
     expectedDatabaseUser: "site_logbook_staging",
+    expectedSchemaFingerprintSha256: schemaFingerprint,
   };
 
   it("accepts absent pre, exact genesis post and contiguous steady data", () => {
@@ -319,6 +552,15 @@ describe("audit schema exact database state and environment", () => {
         headLedgerSha256: null,
         maximumEventSequence: null,
         maximumEventLedgerSha256: null,
+        schemaFingerprintSha256: auditSchemaFingerprintSha256({
+          schemaVersion: "site-logbook.audit-schema-catalog/v1",
+          tables: [],
+          columns: [],
+          functions: [],
+          constraints: [],
+          indexes: [],
+          triggers: [],
+        }),
       },
       identity,
       bundle.expectedObjects,
@@ -384,5 +626,92 @@ describe("audit schema exact database state and environment", () => {
     expectCode("CONFIRMATION_INVALID", () =>
       readAuditSchemaPreflightEnvironment(invalid),
     );
+  });
+
+  it("keeps production startup lock and empty-state probes bounded", () => {
+    const source = readFileSync(
+      path.resolve(import.meta.dirname, "audit-schema-preflight.ts"),
+      "utf8",
+    );
+    const lockStart = source.indexOf("async function withLockedReadOnly");
+    const lockEnd = source.indexOf(
+      "export async function applyAuditSchema0107",
+      lockStart,
+    );
+    const lockHelper = source.slice(lockStart, lockEnd);
+    assert.match(lockHelper, /pg_try_advisory_lock/);
+    assert.doesNotMatch(lockHelper, /SELECT pg_advisory_lock/);
+    assert.match(lockHelper, /statement_timeout: 5_000/);
+    assert.match(lockHelper, /SET LOCAL lock_timeout = '2000ms'/);
+    assert.match(lockHelper, /SET LOCAL search_path = pg_catalog, public/);
+    const postStart = source.indexOf('if (mode === "post")');
+    const postEnd = source.indexOf('else if (mode === "steady")', postStart);
+    const postProbe = source.slice(postStart, postEnd);
+    assert.match(postProbe, /EXISTS \(SELECT 1 FROM audit_events LIMIT 1\)/);
+    assert.doesNotMatch(postProbe, /count\(\*\)/i);
+    const production = source.slice(
+      source.indexOf(
+        "export async function verifyProductionAuditSchemaReadiness",
+      ),
+    );
+    assert.match(production, /readAuditDatabaseState\(client, "post"\)/);
+    assert.match(production, /boundedEmptyCheck: true/);
+    assert.doesNotMatch(
+      production,
+      /readAuditDatabaseState\(client, "steady"\)/,
+    );
+  });
+
+  it("bounds apply lock acquisition and selects public for frozen unqualified DDL", async () => {
+    const source = readFileSync(
+      path.resolve(import.meta.dirname, "audit-schema-preflight.ts"),
+      "utf8",
+    );
+    const apply = source.slice(
+      source.indexOf("export async function applyAuditSchema0107"),
+      source.indexOf(
+        "function externalRows",
+        source.indexOf("export async function applyAuditSchema0107"),
+      ),
+    );
+    assert.match(
+      apply,
+      /connectionTimeoutMillis: AUDIT_SCHEMA_APPLY_CONNECT_TIMEOUT_MS/,
+    );
+    assert.match(apply, /query_timeout: AUDIT_SCHEMA_APPLY_QUERY_TIMEOUT_MS/);
+    assert.match(
+      apply,
+      /statement_timeout: AUDIT_SCHEMA_APPLY_QUERY_TIMEOUT_MS/,
+    );
+    assert.match(apply, /SELECT pg_try_advisory_lock/);
+    assert.doesNotMatch(apply, /SELECT pg_advisory_lock/);
+    assert.ok(apply.indexOf("try {") < apply.indexOf("client.connect()"));
+    const searchPathAt = apply.indexOf(
+      "SET LOCAL search_path = public, pg_catalog",
+    );
+    const migrationLoopAt = apply.indexOf(
+      'targetSql.split("--> statement-breakpoint")',
+    );
+    assert.ok(searchPathAt > 0 && searchPathAt < migrationLoopAt);
+    assert.doesNotMatch(apply, /SET LOCAL search_path = pg_catalog, public/);
+    assert.match(
+      apply,
+      /SET LOCAL idle_in_transaction_session_timeout = '10000ms'/,
+    );
+
+    let timedOut = false;
+    const hung = raceAuditSchemaApplyOperation(
+      new Promise<void>(() => undefined),
+      5,
+      () => {
+        timedOut = true;
+      },
+    );
+    await assert.rejects(hung, (error: unknown) => {
+      assert.ok(error instanceof ExternalSchemaPreflightError);
+      assert.equal(error.code, "AUDIT_SCHEMA_APPLY_TIMEOUT");
+      return true;
+    });
+    assert.equal(timedOut, true);
   });
 });

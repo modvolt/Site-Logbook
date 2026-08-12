@@ -1221,6 +1221,86 @@ test("rejects mutable base images and incomplete publication", () => {
   );
 });
 
+test("allows only prior digest-rooted local Docker stage ancestry", () => {
+  const relativePath = "artifacts/api-server/Dockerfile";
+  const dockerfile = source(relativePath);
+  assert.doesNotThrow(() =>
+    validateStagingRuntimeContract({ [relativePath]: dockerfile }),
+  );
+  for (const mutated of [
+    dockerfile.replace(
+      "FROM runtime AS production",
+      "FROM unknown-runtime AS production",
+    ),
+    dockerfile.replace(
+      "FROM runtime AS production",
+      "FROM node:24-slim AS production",
+    ),
+  ]) {
+    assert.throws(
+      () => validateStagingRuntimeContract({ [relativePath]: mutated }),
+      (error) =>
+        error instanceof StagingRuntimeContractError &&
+        error.code === "STAGING_BASE_IMAGE_MUTABLE",
+    );
+  }
+});
+
+test("keeps the exact-0096 producer out of production and proves it in the marked control plane", () => {
+  const relativePath = "artifacts/api-server/Dockerfile";
+  const dockerfile = source(relativePath);
+  for (const mutated of [
+    dockerfile.replace(
+      "COPY --from=builder /repo/artifacts/api-server/dist/index.mjs ./dist/index.mjs",
+      "COPY --from=builder /repo/artifacts/api-server/dist/scripts/production-exact-0096-backup-producer.mjs ./dist/production-exact-0096-backup-producer.mjs",
+    ),
+    dockerfile.replace(
+      "&& test -f /app/dist/production-exact-0096-backup-producer.mjs",
+      "&& test -f /app/dist/production-exact-0096-backup-producer.omitted.mjs",
+    ),
+    dockerfile.replace(
+      "FROM runtime AS production",
+      "FROM control-plane AS production",
+    ),
+  ]) {
+    assert.throws(
+      () => validateStagingRuntimeContract({ [relativePath]: mutated }),
+      (error) =>
+        error instanceof StagingRuntimeContractError &&
+        error.code === "STAGING_RUNTIME_CONTRACT_MISSING",
+    );
+  }
+});
+
+test("keeps the production adapter contracts in the default hermetic release gate", () => {
+  const packagePath = "package.json";
+  const gatePath = "scripts/run-hermetic-gate.mjs";
+  assert.throws(
+    () =>
+      validateStagingRuntimeContract({
+        [packagePath]: source(packagePath).replace(
+          '"test:production-migration-control-plane":',
+          '"production-migration-control-plane-omitted":',
+        ),
+      }),
+    (error) =>
+      error instanceof StagingRuntimeContractError &&
+      error.code === "STAGING_RUNTIME_CONTRACT_MISSING",
+  );
+  assert.throws(
+    () =>
+      validateStagingRuntimeContract({
+        [gatePath]: source(gatePath).replace(
+          "production-exact-0096-backup-signature.test.mjs",
+          "production-exact-0096-backup-signature.omitted.mjs",
+        ),
+      }),
+    (error) =>
+      error instanceof StagingRuntimeContractError &&
+      error.code === "STAGING_RUNTIME_CONTRACT_MISSING",
+  );
+});
+
 test("forbids a direct publisher in the public repository", () => {
   const workflow = source(".github/workflows/staging-images.yml");
   assertWorkflowContractError(
@@ -1866,4 +1946,32 @@ test("requires all validation and publication builds to remain linux/amd64", () 
     ),
     "STAGING_IMAGE_PLATFORM_DRIFT",
   );
+});
+
+test("locks the audit host runners to private frozen Compose and observed Docker boundaries", () => {
+  for (const [file, marker] of [
+    ["scripts/staging-frozen-compose-runtime.mjs", "sameIds(peerIds, allowed"],
+    [
+      "scripts/staging-frozen-compose-runtime.mjs",
+      '["start", "--attach", containerId]',
+    ],
+    [
+      "scripts/run-staging-exact-0106-audit-backup.mjs",
+      "continuousIsolationInferred: false",
+    ],
+    [
+      "scripts/run-staging-audit-0107-transition.mjs",
+      'commandOverride: ["node", "dist/audit-schema-inventory.mjs"]',
+    ],
+  ]) {
+    assert.throws(
+      () =>
+        validateStagingRuntimeContract({
+          [file]: source(file).replace(marker, ""),
+        }),
+      (error) =>
+        error instanceof StagingRuntimeContractError &&
+        error.code === "STAGING_RUNTIME_CONTRACT_MISSING",
+    );
+  }
 });

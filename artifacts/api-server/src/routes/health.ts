@@ -42,8 +42,14 @@ import {
 } from "../lib/operational-incident-store";
 import {
   classifyMigrationInventory,
-  migrationReleaseBindingMatches,
+  productionRuntimeBindingMatches,
 } from "../lib/migration-health";
+import { resolveApiBuildVersion } from "../lib/build-provenance";
+import {
+  readProductionRuntimeBinding,
+  readProductionRuntimeHealthProjection,
+  readProductionRuntimeReadinessState,
+} from "../lib/production-runtime-state";
 
 const WINDOW_24H = 24 * 60 * 60 * 1000;
 const DEAD_LETTER_REQUEUE_BODY_KEYS = new Set([
@@ -51,6 +57,22 @@ const DEAD_LETTER_REQUEUE_BODY_KEYS = new Set([
   "expectedDeadLetteredAt",
   "reason",
 ]);
+
+function productionRuntimeLatchAllowsReadiness(): boolean {
+  const state = readProductionRuntimeReadinessState();
+  if (state === "failed") return false;
+  return (
+    process.env.SITE_LOGBOOK_RUNTIME_ENVIRONMENT !== "production" ||
+    state === "ready"
+  );
+}
+
+function unavailableProductionControlParity(): false | null {
+  const runtimeEnvironment = process.env.SITE_LOGBOOK_RUNTIME_ENVIRONMENT;
+  if (runtimeEnvironment === "production") return false;
+  if (runtimeEnvironment === "staging") return null;
+  return process.env.NODE_ENV === "production" ? false : null;
+}
 
 function hasExactRequeueBodyKeys(value: unknown): boolean {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -110,7 +132,7 @@ async function checkMigrationParity(): Promise<{
   } catch {
     return {
       parity: false,
-      controlParity: process.env.NODE_ENV === "production" ? false : null,
+      controlParity: unavailableProductionControlParity(),
       expectedCount: 0,
       knownAppliedCount: 0,
       knownRowsSha256: "sha256:unknown",
@@ -167,15 +189,19 @@ async function checkMigrationParity(): Promise<{
     opaqueRowsSha256 = inventory.opaqueLegacyRowsSha256;
     missingTags = inventory.missingKnownMigrationTags;
 
+    const runtimeEnvironment = process.env.SITE_LOGBOOK_RUNTIME_ENVIRONMENT;
     const controlParity =
-      process.env.NODE_ENV === "production"
-        ? migrationReleaseBindingMatches(
-            process.env.AUDIT_0107_RUNTIME_LINEAGE_B64,
-            resolveApiVersion(),
+      runtimeEnvironment === "production"
+        ? productionRuntimeBindingMatches(
+            readProductionRuntimeBinding(),
+            resolveApiBuildVersion(),
             latestExpectedTag,
             inventory,
-          )
-        : null;
+          ) && readProductionRuntimeReadinessState() === "ready"
+        : runtimeEnvironment === "staging" ||
+            process.env.NODE_ENV !== "production"
+          ? null
+          : false;
     return {
       parity: missingTags.length === 0 && controlParity !== false,
       controlParity,
@@ -194,7 +220,7 @@ async function checkMigrationParity(): Promise<{
 
   return {
     parity: false,
-    controlParity: process.env.NODE_ENV === "production" ? false : null,
+    controlParity: unavailableProductionControlParity(),
     expectedCount: expected.length,
     knownAppliedCount,
     knownRowsSha256,
@@ -240,7 +266,10 @@ async function getCachedMigrationParity(): Promise<ParityCache> {
   return parityCache;
 }
 
-async function checkDbLatency(): Promise<{ status: "ok" | "error"; latencyMs: number | null }> {
+async function checkDbLatency(): Promise<{
+  status: "ok" | "error";
+  latencyMs: number | null;
+}> {
   try {
     const latencyMs = await probeDatabaseReadiness();
     return { status: "ok", latencyMs };
@@ -253,8 +282,8 @@ async function checkDbLatency(): Promise<{ status: "ok" | "error"; latencyMs: nu
 function s3IsConfigured(): boolean {
   return Boolean(
     process.env.S3_BUCKET &&
-      process.env.S3_ACCESS_KEY_ID &&
-      process.env.S3_SECRET_ACCESS_KEY,
+    process.env.S3_ACCESS_KEY_ID &&
+    process.env.S3_SECRET_ACCESS_KEY,
   );
 }
 
@@ -270,11 +299,16 @@ async function checkStorage(): Promise<{
   }
   try {
     const result = await diagnoseS3();
-    const verdict = typeof result["verdict"] === "string" ? result["verdict"] : null;
+    const verdict =
+      typeof result["verdict"] === "string" ? result["verdict"] : null;
     const ok =
       result["ok"] === true ||
       (typeof verdict === "string" && verdict.startsWith("OK"));
-    return { status: ok ? "ok" : "error", isDevFallback: false, details: verdict };
+    return {
+      status: ok ? "ok" : "error",
+      isDevFallback: false,
+      details: verdict,
+    };
   } catch (e: unknown) {
     return {
       status: "error",
@@ -284,7 +318,10 @@ async function checkStorage(): Promise<{
   }
 }
 
-async function checkSmtp(): Promise<{ status: "configured" | "not_configured"; host: string | null }> {
+async function checkSmtp(): Promise<{
+  status: "configured" | "not_configured";
+  host: string | null;
+}> {
   try {
     const cfg = await resolveEmailConfig();
     return { status: "configured", host: cfg.host };
@@ -300,7 +337,8 @@ async function checkAi(): Promise<{
   try {
     const cfg = await resolveOpenAiConfig();
     if (cfg.ready) return { status: "ready", model: cfg.model };
-    if (cfg.configured) return { status: "configured_disabled", model: cfg.model };
+    if (cfg.configured)
+      return { status: "configured_disabled", model: cfg.model };
     return { status: "not_configured", model: null };
   } catch {
     return { status: "not_configured", model: null };
@@ -334,7 +372,9 @@ async function checkGmail(): Promise<{
   }
 }
 
-async function checkImap(): Promise<{ status: "configured" | "not_configured" }> {
+async function checkImap(): Promise<{
+  status: "configured" | "not_configured";
+}> {
   try {
     const cfg = await resolveImapConfig();
     return { status: cfg ? "configured" : "not_configured" };
@@ -369,11 +409,16 @@ async function getBackupSummaries(): Promise<{
         restoredAt: backupLogTable.restoredAt,
       })
       .from(backupLogTable)
-      .where(or(eq(backupLogTable.status, "success"), eq(backupLogTable.status, "failed")))
+      .where(
+        or(
+          eq(backupLogTable.status, "success"),
+          eq(backupLogTable.status, "failed"),
+        ),
+      )
       .orderBy(desc(backupLogTable.createdAt))
       .limit(20);
 
-    const toSummary = (r: typeof rows[number]): BackupSummary => ({
+    const toSummary = (r: (typeof rows)[number]): BackupSummary => ({
       createdAt: r.createdAt.toISOString(),
       status: r.status,
       sizeBytes: r.sizeBytes ?? null,
@@ -438,21 +483,25 @@ async function getErrorCounts(): Promise<{
   }
 }
 
-function resolveApiVersion(): string {
-  return (
-    process.env.BUILD_SHA ||
-    process.env.COMMIT_SHA ||
-    process.env.GIT_COMMIT ||
-    process.env.REPLIT_DEPLOYMENT_ID ||
-    "dev"
-  );
-}
-
 const router: IRouter = Router();
 
 router.get("/healthz", async (_req, res) => {
-  const apiVersion = resolveApiVersion();
+  const apiVersion = resolveApiBuildVersion();
   const uptimeSeconds = process.uptime();
+
+  // A runtime parity failure is a synchronous, permanent latch. Return 503
+  // before doing any I/O; a fresh guarded process is the only recovery path.
+  if (!productionRuntimeLatchAllowsReadiness()) {
+    const data = HealthCheckResponse.parse({
+      status: "degraded",
+      version: apiVersion,
+      uptimeSeconds,
+      storageStatus: "ok",
+      migrationParity: false,
+    });
+    res.status(503).json(data);
+    return;
+  }
 
   // The DB probe is a prerequisite for every DB-backed secondary diagnostic.
   // Short-circuiting here prevents an expired migration cache or DB-backed
@@ -485,7 +534,10 @@ router.get("/healthz", async (_req, res) => {
   // remain available in /admin/health and the periodic watchdog.
   // Return 503 when not ready so the platform's startup health probe fails fast
   // instead of routing traffic to a broken instance.
-  const ready = dbPing.status === "ok" && migration.parity;
+  const ready =
+    dbPing.status === "ok" &&
+    migration.parity &&
+    productionRuntimeLatchAllowsReadiness();
 
   const data = HealthCheckResponse.parse({
     status: ready ? "ok" : "degraded",
@@ -520,7 +572,8 @@ router.get(
         getErrorCounts(),
       ]);
 
-    const apiVersion = resolveApiVersion();
+    const apiVersion = resolveApiBuildVersion();
+    const productionRuntimeBinding = readProductionRuntimeHealthProjection();
 
     const server5xxErrors24h = countServerErrors(WINDOW_24H);
     const recentServerErrors = getRecentServerErrors(WINDOW_24H, 10);
@@ -529,6 +582,7 @@ router.get(
       apiVersion,
       migrationParity: migration.parity,
       migrationControlParity: migration.controlParity,
+      productionRuntimeBinding,
       knownAppliedMigrations: migration.knownAppliedCount,
       knownMigrationRowsSha256: migration.knownRowsSha256,
       opaqueAppliedMigrations: migration.opaqueAppliedCount,

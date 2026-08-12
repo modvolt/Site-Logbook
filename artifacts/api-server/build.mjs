@@ -11,6 +11,10 @@ globalThis.require = createRequire(import.meta.url);
 const artifactDir = path.dirname(fileURLToPath(import.meta.url));
 
 async function buildAll() {
+  const buildSha = process.env.BUILD_SHA?.trim().toLowerCase() || "dev";
+  if (buildSha !== "dev" && !/^[0-9a-f]{40}$/.test(buildSha)) {
+    throw new Error("BUILD_SHA must be dev or an exact 40-character Git SHA.");
+  }
   const distDir = path.resolve(artifactDir, "dist");
   await rm(distDir, { recursive: true, force: true });
 
@@ -33,6 +37,7 @@ async function buildAll() {
       path.resolve(artifactDir, "src/accounting-schema-steady-state.ts"),
       path.resolve(artifactDir, "src/accounting-schema-inventory.ts"),
       path.resolve(artifactDir, "src/accounting-schema-exact-0105-backup.ts"),
+      path.resolve(artifactDir, "src/production-exact-0096-backup-producer.ts"),
       path.resolve(artifactDir, "src/audit-schema-inventory.ts"),
       path.resolve(artifactDir, "src/audit-schema-gate.ts"),
       path.resolve(artifactDir, "src/audit-schema-steady-state.ts"),
@@ -46,6 +51,9 @@ async function buildAll() {
     format: "esm",
     outdir: "dist",
     outExtension: { ".js": ".mjs" },
+    define: {
+      __SITE_LOGBOOK_BUILD_SHA__: JSON.stringify(buildSha),
+    },
     // Embed binary font assets (Roboto TTF for the invoice PDF) directly into the
     // bundle as base64 strings. This keeps PDF generation self-contained — no
     // runtime filesystem reads — so it works identically in dev and in the

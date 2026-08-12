@@ -1,16 +1,14 @@
-# Stavba — full self-hosted stack (PostgreSQL + MinIO + API + Web).
+# Stavba — production runtime (PostgreSQL + API + Web).
 #
-# Local quick start:
-#   cp .env.example .env   # then edit the secrets
-#   docker compose up --build
-#   open http://localhost:8080
-#
-# On Coolify, point a "Docker Compose" resource at this file and supply the same
-# variables through the Coolify environment UI. See DEPLOYMENT.md.
+# This manifest has no build path or mutable image fallback. Render it only with
+# separately approved immutable images and canonical production evidence. On
+# Coolify, point a "Docker Compose" resource at this file and supply the same
+# variables through the environment UI. See DEPLOYMENT.md.
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: ${PRODUCTION_POSTGRES_IMAGE:?set immutable PostgreSQL repository@sha256 digest}
+    pull_policy: always
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
@@ -24,106 +22,36 @@ services:
       timeout: 5s
       retries: 10
 
-  minio:
-    image: minio/minio:latest
-    restart: unless-stopped
-    command: server /data --console-address ":9001"
-    environment:
-      # The bundled MinIO reuses the same credential pair the API uses, so there
-      # is a single source of truth (no nested ${VAR:-${VAR}} defaults, which
-      # some PaaS env parsers — notably Coolify — mangle, corrupting the key).
-      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID}
-      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY}
-    volumes:
-      - miniodata:/data
-    # Published for admin/console access only. Uploads are proxied through the
-    # API (browser → /api/storage/uploads → API → bucket), so the browser never
-    # connects to MinIO directly and does not need this port.
-    ports:
-      - "${MINIO_PORT:-9000}:9000"
-      - "${MINIO_CONSOLE_PORT:-9001}:9001"
-
-  # One-shot init job: create the bucket, then exit 0. Gates the API so storage
-  # is ready before it starts.
-  #
-  # restart: "no" is REQUIRED on Coolify. A one-shot container with any other
-  # restart policy is treated as a long-running service that "keeps stopping",
-  # and Coolify's post-deploy monitor then inspects a container that has already
-  # exited/been recreated, surfacing the "No such container" deploy failure.
-  # Pinning restart to "no" keeps it in a stable Exited(0) state so the API's
-  # service_completed_successfully gate can read it.
-  createbuckets:
-    image: minio/mc:latest
-    restart: "no"
-    depends_on:
-      minio:
-        condition: service_started
-    environment:
-      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID}
-      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY}
-      S3_BUCKET: ${S3_BUCKET}
-    # Wait for MinIO to accept connections, create the bucket idempotently
-    # (--ignore-existing => existing bucket is NOT an error), then exit 0.
-    # set -e makes a genuine bucket-creation failure (e.g. bad credentials) exit
-    # non-zero so the API gate is not satisfied, instead of silently passing.
-    #
-    # The connection wait is BOUNDED (60 tries x 2s = ~120s). Without a cap, an
-    # unreachable MinIO or bad credentials made this loop run forever, and because
-    # the API gates on `service_completed_successfully`, the WHOLE deploy hung
-    # indefinitely with no error. Now it fails fast with a clear message so the
-    # Coolify deploy stops with a diagnosable cause instead of stalling.
-    entrypoint: >
-      /bin/sh -c "
-      set -e;
-      i=0;
-      until mc alias set local http://minio:9000 \"$$MINIO_ROOT_USER\" \"$$MINIO_ROOT_PASSWORD\"; do
-        i=$$((i+1));
-        if [ $$i -ge 60 ]; then
-          echo 'ERROR: could not connect to MinIO after 60 attempts (~120s). Check that the minio service is running and that S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY are set correctly (MinIO root password must be >= 8 chars).' >&2;
-          exit 1;
-        fi;
-        echo \"waiting for minio... ($$i/60)\"; sleep 2;
-      done;
-      mc mb --ignore-existing local/\"$$S3_BUCKET\";
-      echo 'bucket ready';
-      "
-
   api:
-    build:
-      context: .
-      dockerfile: artifacts/api-server/Dockerfile
-      args:
-        BUILD_SHA: ${BUILD_SHA:?set the exact 40-character release commit SHA}
+    image: ${PRODUCTION_API_IMAGE:?set immutable API repository@sha256 digest}
+    pull_policy: always
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
-      createbuckets:
-        condition: service_completed_successfully
     environment:
       PORT: 5000
+      SITE_LOGBOOK_RUNTIME_ENVIRONMENT: production
+      BUILD_SHA: ${BUILD_SHA:?set the exact 40-character release commit SHA}
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       SESSION_SECRET: ${SESSION_SECRET}
       # Object storage. Uploads are proxied through the API, which reaches the
       # bucket over S3_ENDPOINT — the browser never talks to storage, so no
       # browser-reachable endpoint or bucket CORS is required.
       #
-      # S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY are the single credential pair
-      # used by both the API and the bundled MinIO — set them in .env (local) or
-      # the Coolify env UI. S3_ENDPOINT defaults to the bundled MinIO; to use an
-      # EXTERNAL S3-compatible provider (Hetzner, AWS, …) instead, override:
+      # Production storage is the externally managed Hetzner Object Storage
+      # bucket. MinIO is not a production fallback and is intentionally absent
+      # from this Compose file. Create the bucket and credentials in Hetzner:
       #   S3_ENDPOINT=https://fsn1.your-objectstorage.com
       #   S3_REGION=fsn1
-      #   S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY = your provider's keys
-      #   S3_FORCE_PATH_STYLE=true   (Hetzner/MinIO) or false (AWS)
-      # The bucket must already exist on the external provider. The bundled
-      # `minio`/`createbuckets` services can be left running (unused) or removed.
-      S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
-      S3_REGION: ${S3_REGION:-us-east-1}
-      S3_BUCKET: ${S3_BUCKET}
-      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
-      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
-      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
+      # The exact pre-migration backup additionally requires HTTPS, an official
+      # Hetzner endpoint and durable object VersionId evidence.
+      S3_ENDPOINT: ${S3_ENDPOINT:?set the canonical Hetzner Object Storage HTTPS endpoint}
+      S3_REGION: ${S3_REGION:?set the Hetzner Object Storage location}
+      S3_BUCKET: ${S3_BUCKET:?set the existing Hetzner bucket}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?set the Hetzner S3 access key}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?set the Hetzner S3 secret key}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-false}
       # SMTP (optional — email features are disabled until configured).
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
@@ -138,28 +66,38 @@ services:
       # startup fails closed when this is absent; do not use hop counts or broad
       # private aliases. Record the real Coolify network topology first.
       API_TRUSTED_PROXY_CIDRS: ${API_TRUSTED_PROXY_CIDRS:-}
-      EXTERNAL_ACCOUNTS_ENABLED: ${EXTERNAL_ACCOUNTS_ENABLED:-false}
+      EXTERNAL_ACCOUNTS_ENABLED: "false"
       # Production startup is schema-read-only. Supply the four canonical,
       # secret-free artifacts and independently recorded SHA-256 values only
       # after the one-shot 0107 control plane and offline v5 approval pass.
-      AUDIT_0107_RELEASE_EVIDENCE_B64: ${AUDIT_0107_RELEASE_EVIDENCE_B64:?set canonical v5 release evidence as base64}
-      AUDIT_0107_RELEASE_EVIDENCE_SHA256: ${AUDIT_0107_RELEASE_EVIDENCE_SHA256:?set sha256 digest of canonical v5 release evidence}
-      AUDIT_0107_EXECUTION_EVIDENCE_B64: ${AUDIT_0107_EXECUTION_EVIDENCE_B64:?set canonical 0107 execution evidence as base64}
-      AUDIT_0107_EXECUTION_EVIDENCE_SHA256: ${AUDIT_0107_EXECUTION_EVIDENCE_SHA256:?set sha256 digest of canonical 0107 execution evidence}
-      AUDIT_0107_INTENT_EVIDENCE_B64: ${AUDIT_0107_INTENT_EVIDENCE_B64:?set canonical 0107 transition intent as base64}
-      AUDIT_0107_INTENT_EVIDENCE_SHA256: ${AUDIT_0107_INTENT_EVIDENCE_SHA256:?set sha256 digest of canonical 0107 transition intent}
-      AUDIT_0107_STEADY_STATE_EVIDENCE_B64: ${AUDIT_0107_STEADY_STATE_EVIDENCE_B64:?set canonical steady-0107 evidence as base64}
-      AUDIT_0107_STEADY_STATE_EVIDENCE_SHA256: ${AUDIT_0107_STEADY_STATE_EVIDENCE_SHA256:?set sha256 digest of canonical steady-0107 evidence}
-      AUDIT_0107_RESOLVED_COMPOSE_SHA256: ${AUDIT_0107_RESOLVED_COMPOSE_SHA256:?set the approved canonical resolved Compose sha256 digest}
-      AUDIT_0107_DEPLOYMENT_CONFIG_SHA256: ${AUDIT_0107_DEPLOYMENT_CONFIG_SHA256:?set the approved canonical secret-free deployment config sha256 digest}
-      AUDIT_0107_LIVE_POSTGRES_TARGET_SHA256: ${AUDIT_0107_LIVE_POSTGRES_TARGET_SHA256:?set the approved canonical live Postgres target projection sha256 digest}
+      PRODUCTION_EXPECTED_SOURCE_SHA: ${BUILD_SHA:?set exact release source SHA}
+      PRODUCTION_EXPECTED_API_IMAGE: ${PRODUCTION_API_IMAGE:?set immutable API repository@sha256 digest}
+      PRODUCTION_EXPECTED_DATABASE_NAME: ${POSTGRES_DB:?set exact production database name}
+      PRODUCTION_EXPECTED_DATABASE_USER: ${POSTGRES_USER:?set exact production database user}
+      PRODUCTION_EXPECTED_TARGET_SHA256: ${PRODUCTION_EXPECTED_TARGET_SHA256:?set approved canonical target evidence digest}
+      PRODUCTION_EXPECTED_AUDIT_SCHEMA_FINGERPRINT_SHA256: ${PRODUCTION_EXPECTED_AUDIT_SCHEMA_FINGERPRINT_SHA256:?set approved live audit schema fingerprint}
+      PRODUCTION_EXPECTED_PRE_MIGRATION_BACKUP_EVIDENCE_SHA256: ${PRODUCTION_EXPECTED_PRE_MIGRATION_BACKUP_EVIDENCE_SHA256:?set approved pre-migration backup evidence digest}
+      PRODUCTION_EXPECTED_BACKUP_INTEGRITY_SHA256: ${PRODUCTION_EXPECTED_BACKUP_INTEGRITY_SHA256:?set approved backup table-count and row-binding integrity digest}
+      PRODUCTION_EXPECTED_0096_0107_TRANSITION_CHAIN_SHA256: ${PRODUCTION_EXPECTED_0096_0107_TRANSITION_CHAIN_SHA256:?set approved complete 0096 through 0107 transition-chain digest}
+      PRODUCTION_EXPECTED_ACTIVATION_APPROVAL_SHA256: ${PRODUCTION_EXPECTED_ACTIVATION_APPROVAL_SHA256:?set separate production activation approval digest}
+      PRODUCTION_ACTIVATION_APPROVAL_EVIDENCE_B64: ${PRODUCTION_ACTIVATION_APPROVAL_EVIDENCE_B64:?set canonical activation approval artifact as base64}
+      PRODUCTION_ACTIVATION_APPROVAL_EVIDENCE_SHA256: ${PRODUCTION_ACTIVATION_APPROVAL_EVIDENCE_SHA256:?set activation approval artifact sha256}
+      PRODUCTION_AUDIT_0107_TARGET_EVIDENCE_B64: ${PRODUCTION_AUDIT_0107_TARGET_EVIDENCE_B64:?set canonical production target evidence as base64}
+      PRODUCTION_AUDIT_0107_TARGET_EVIDENCE_SHA256: ${PRODUCTION_AUDIT_0107_TARGET_EVIDENCE_SHA256:?set target evidence sha256}
+      PRODUCTION_AUDIT_0107_INTENT_EVIDENCE_B64: ${PRODUCTION_AUDIT_0107_INTENT_EVIDENCE_B64:?set canonical production intent evidence as base64}
+      PRODUCTION_AUDIT_0107_INTENT_EVIDENCE_SHA256: ${PRODUCTION_AUDIT_0107_INTENT_EVIDENCE_SHA256:?set intent evidence sha256}
+      PRODUCTION_AUDIT_0107_EXECUTION_EVIDENCE_B64: ${PRODUCTION_AUDIT_0107_EXECUTION_EVIDENCE_B64:?set canonical production execution evidence as base64}
+      PRODUCTION_AUDIT_0107_EXECUTION_EVIDENCE_SHA256: ${PRODUCTION_AUDIT_0107_EXECUTION_EVIDENCE_SHA256:?set execution evidence sha256}
+      PRODUCTION_AUDIT_0107_STEADY_EVIDENCE_B64: ${PRODUCTION_AUDIT_0107_STEADY_EVIDENCE_B64:?set canonical production steady evidence as base64}
+      PRODUCTION_AUDIT_0107_STEADY_EVIDENCE_SHA256: ${PRODUCTION_AUDIT_0107_STEADY_EVIDENCE_SHA256:?set steady evidence sha256}
+      PRODUCTION_AUDIT_0107_RELEASE_EVIDENCE_B64: ${PRODUCTION_AUDIT_0107_RELEASE_EVIDENCE_B64:?set canonical production release evidence as base64}
+      PRODUCTION_AUDIT_0107_RELEASE_EVIDENCE_SHA256: ${PRODUCTION_AUDIT_0107_RELEASE_EVIDENCE_SHA256:?set release evidence sha256}
+      PRODUCTION_HOST_ATTESTATION_B64: ${PRODUCTION_HOST_ATTESTATION_B64:?set reviewed detached host attestation as base64}
+      PRODUCTION_HOST_ATTESTATION_SIGNATURE_B64: ${PRODUCTION_HOST_ATTESTATION_SIGNATURE_B64:?set detached host attestation signature as base64}
 
   web:
-    build:
-      context: .
-      dockerfile: artifacts/stavba/Dockerfile
-      args:
-        BASE_PATH: /
+    image: ${PRODUCTION_WEB_IMAGE:?set immutable web repository@sha256 digest}
+    pull_policy: always
     restart: unless-stopped
     depends_on:
       api:
@@ -175,4 +113,3 @@ services:
 
 volumes:
   pgdata:
-  miniodata:

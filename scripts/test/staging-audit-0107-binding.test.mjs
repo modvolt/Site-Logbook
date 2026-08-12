@@ -15,6 +15,7 @@ import {
   artifact,
   backupExecution,
   createArtifacts,
+  EXPECTED_SCHEMA_FINGERPRINT_SHA256,
   inspectInputs,
   lineageConfig,
   SHA,
@@ -46,6 +47,10 @@ test("derives an exact audit 0107 binding from a fresh exact-0106 backup", () =>
         : "sha256:d050765f2a0299a0c396bfa3687485aa63d05ce02c3e88ed66c2f280f3db6201",
     );
     assert.equal(binding.environment.AUDIT_SCHEMA_PREFLIGHT_CONFIRMATION, "");
+    assert.equal(
+      binding.environment.AUDIT_SCHEMA_EXPECTED_FINGERPRINT_SHA256,
+      EXPECTED_SCHEMA_FINGERPRINT_SHA256,
+    );
     assert.doesNotThrow(() =>
       validateAudit0107TransitionInputs(binding.transition),
     );
@@ -76,6 +81,41 @@ test("rejects non-frozen opaque lineage and unsafe backup evidence", () => {
       backup: backupExecution(inspect.sha256, "clean", {
         sizeBytes: 256 * 1024 * 1024 + 1,
       }),
+    },
+    {
+      mode: "clean",
+      rowsJson: "[]",
+      backup: backupExecution(inspect.sha256, "clean", {
+        restoredTableCounts: {
+          "drizzle.__drizzle_migrations": 106,
+          "public.activities": 20,
+          "public.customers": 8,
+          "public.jobs": 12,
+          "public.users": 5,
+        },
+      }),
+    },
+    {
+      mode: "clean",
+      rowsJson: "[]",
+      backup: backupExecution(inspect.sha256, "clean", {
+        verifiedTableCountsSha256: `sha256:${"0".repeat(64)}`,
+      }),
+    },
+    {
+      mode: "clean",
+      rowsJson: "[]",
+      backup: backupExecution(inspect.sha256, "clean", {
+        backupRowBindingSha256: "not-a-digest",
+      }),
+    },
+    {
+      mode: "clean",
+      rowsJson: "[]",
+      backup: {
+        ...backupExecution(inspect.sha256, "clean"),
+        expectedSchemaFingerprintSha256: `sha256:${"0".repeat(63)}`,
+      },
     },
   ];
   for (const current of cases) {
@@ -168,6 +208,10 @@ test("actual Compose and package surfaces keep both audit one-shots profile isol
   assert.deepEqual(gate.command, ["node", "dist/audit-schema-gate.mjs"]);
   assert.equal(backup.environment.STAGING_AUDIT_SCHEMA_ACTION, "inspect");
   for (const service of [backup, gate]) {
+    assert.equal(
+      service.environment.AUDIT_SCHEMA_EXPECTED_FINGERPRINT_SHA256,
+      "${AUDIT_SCHEMA_EXPECTED_FINGERPRINT_SHA256-}",
+    );
     assert.equal(service.read_only, true);
     assert.deepEqual(service.cap_drop, ["ALL"]);
     assert.equal(service.restart, "no");

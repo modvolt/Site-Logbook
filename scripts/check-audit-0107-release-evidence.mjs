@@ -1,24 +1,25 @@
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { AUDIT_0107 } from "./staging-audit-0107-contract.mjs";
 
 const FULL_SHA = /^[0-9a-f]{40}$/;
 const SHA256 = /^sha256:[0-9a-f]{64}$/;
 const HEX64 = /^[0-9a-f]{64}$/;
 const MAX_ARTIFACT_BYTES = 256 * 1024;
+
+function binaryCompare(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
 const RELEASE_KIND = "site-logbook-staging-audit-0107-release-evidence";
 const EXECUTION_KIND = "site-logbook-staging-audit-0107-execution";
 const STEADY_SCHEMA = "site-logbook.audit-schema-steady-state/v1";
 const STEADY_KIND = "audit-schema-steady-state";
 const INTENT_KIND = "site-logbook-staging-audit-0107-intent";
 const TARGET_TAG = "0107_canonical_audit_evidence";
-const TARGET_SQL_SHA256 =
-  "sha256:5523f25b4c941919612f2f87a2d8fa371acd9922c3d3166b8d761000365e1339";
-const TARGET_SNAPSHOT_SHA256 =
-  "sha256:4973350b31c540f44a539ff896342b8d8b95b8fe394a9a257ba828276824afbb";
-const PREDECESSOR_KNOWN_ROWS_SHA256 =
-  "sha256:cfbf74de83f99c3ca49fb717a6784265e8ef193e75e894aab9924fb7b80e16ee";
-const TARGET_KNOWN_ROWS_SHA256 =
-  "sha256:d34407b4cdb8b0dc8bb9d07cd6cd500be5853d3112e142fe44e0efa5b8cd7cc1";
+const TARGET_SQL_SHA256 = `sha256:${AUDIT_0107.migrationSha256}`;
+const TARGET_SNAPSHOT_SHA256 = `sha256:${AUDIT_0107.targetSnapshotSha256}`;
+const PREDECESSOR_KNOWN_ROWS_SHA256 = AUDIT_0107.predecessorKnownRowsSha256;
+const TARGET_KNOWN_ROWS_SHA256 = AUDIT_0107.targetKnownRowsSha256;
 const CLEAN_OPAQUE_SHA256 =
   "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945";
 const RESTRICTED_OPAQUE_SHA256 =
@@ -227,6 +228,35 @@ function decodeCanonicalArtifact(encoded, expectedSha256, field) {
   return { value: objectAt(value, field), sha256: expectedSha256 };
 }
 
+function decodeRawJsonArtifact(encoded, suppliedSha256, expectedSha256, field) {
+  const suppliedDigest = exactSha256(suppliedSha256, `${field}Sha256`);
+  const expectedDigest = exactSha256(expectedSha256, `expected.${field}Sha256`);
+  requireValue(suppliedDigest, expectedDigest, `${field}Sha256`);
+  if (typeof encoded !== "string" || encoded.length === 0) {
+    fail("AUDIT_0107_RELEASE_ENV_MISSING", `${field} base64 is required.`);
+  }
+  const bytes = Buffer.from(encoded, "base64");
+  if (
+    bytes.length === 0 ||
+    bytes.length > MAX_ARTIFACT_BYTES ||
+    bytes.toString("base64") !== encoded ||
+    sha256(bytes) !== expectedDigest
+  ) {
+    fail(
+      "AUDIT_0107_RELEASE_DIGEST_MISMATCH",
+      `${field} raw bytes must match both independently supplied digests.`,
+    );
+  }
+  let value;
+  try {
+    value = JSON.parse(bytes.toString("utf8"));
+  } catch {
+    fail("AUDIT_0107_RELEASE_JSON_INVALID", `${field} must be JSON.`);
+  }
+  scanForSecrets(value, field);
+  return { value: objectAt(value, field), sha256: expectedDigest };
+}
+
 function canonicalOpaqueRows(rows) {
   if (!Array.isArray(rows)) {
     fail("AUDIT_0107_RELEASE_LINEAGE_INVALID", "opaque must be an array.");
@@ -253,7 +283,8 @@ function canonicalOpaqueRows(rows) {
     })
     .sort(
       (left, right) =>
-        left.createdAt - right.createdAt || left.hash.localeCompare(right.hash),
+        left.createdAt - right.createdAt ||
+        binaryCompare(left.hash, right.hash),
     );
   if (JSON.stringify(rows) !== JSON.stringify(normalized)) {
     fail(
@@ -412,6 +443,60 @@ function validateBackupEvidence(value, field) {
   return backup;
 }
 
+function validateBackupIntegrity(value, field) {
+  const integrity = exactKeys(
+    value,
+    [
+      "schemaVersion",
+      "verifiedTableNames",
+      "verifiedTableCounts",
+      "verifiedTableCountsSha256",
+      "backupRowBindingSha256",
+    ],
+    field,
+  );
+  requireValue(
+    integrity.schemaVersion,
+    "site-logbook.audit-schema-backup-integrity/v1",
+    `${field}.schemaVersion`,
+  );
+  if (
+    !Array.isArray(integrity.verifiedTableNames) ||
+    integrity.verifiedTableNames.length === 0 ||
+    integrity.verifiedTableNames.some(
+      (name) => typeof name !== "string" || !name.trim(),
+    ) ||
+    new Set(integrity.verifiedTableNames).size !==
+      integrity.verifiedTableNames.length
+  ) {
+    fail(
+      "AUDIT_0107_RELEASE_BACKUP_INTEGRITY_INVALID",
+      `${field}.verifiedTableNames must be a non-empty unique string array.`,
+    );
+  }
+  const counts = exactKeys(
+    integrity.verifiedTableCounts,
+    integrity.verifiedTableNames,
+    `${field}.verifiedTableCounts`,
+  );
+  for (const [name, count] of Object.entries(counts)) {
+    safeInteger(count, `${field}.verifiedTableCounts.${name}`);
+  }
+  requireValue(
+    exactSha256(
+      integrity.verifiedTableCountsSha256,
+      `${field}.verifiedTableCountsSha256`,
+    ),
+    sha256(Buffer.from(JSON.stringify(counts), "utf8")),
+    `${field}.verifiedTableCountsSha256`,
+  );
+  exactSha256(
+    integrity.backupRowBindingSha256,
+    `${field}.backupRowBindingSha256`,
+  );
+  return integrity;
+}
+
 function validateHostLineage(value) {
   const lineage = exactKeys(
     value,
@@ -557,6 +642,7 @@ function validateExecution(value, buildSha) {
       "startedAt",
       "completedAt",
       "sourceSha",
+      "expectedSchemaFingerprintSha256",
       "transitionInputsSha256",
       "derivedInspectInputsSha256",
       "backupExecutionSha256",
@@ -564,6 +650,7 @@ function validateExecution(value, buildSha) {
       "runtimeBinding",
       "schemaGate",
       "backupEvidence",
+      "backupIntegrity",
       "lineage",
       "runtimeIsolation",
       "migration0107AppliedOrVerified",
@@ -599,6 +686,10 @@ function validateExecution(value, buildSha) {
     buildSha,
     "execution.sourceSha",
   );
+  const expectedSchemaFingerprintSha256 = exactSha256(
+    execution.expectedSchemaFingerprintSha256,
+    "execution.expectedSchemaFingerprintSha256",
+  );
   for (const field of [
     "transitionInputsSha256",
     "derivedInspectInputsSha256",
@@ -616,11 +707,26 @@ function validateExecution(value, buildSha) {
     execution.backupEvidence,
     "execution.backupEvidence",
   );
+  const rootBackupIntegrity = validateBackupIntegrity(
+    execution.backupIntegrity,
+    "execution.backupIntegrity",
+  );
+  requireValue(
+    rootBackup.verifiedTableCount,
+    rootBackupIntegrity.verifiedTableNames.length,
+    "execution.backupEvidence.verifiedTableCount",
+  );
+  requireValue(
+    rootBackup.verifiedTablesSha256,
+    rootBackupIntegrity.verifiedTableCountsSha256,
+    "execution.backupEvidence.verifiedTablesSha256",
+  );
   const runtimeIsolation = exactKeys(
     execution.runtimeIsolation,
     [
-      "onlyPostgresRunningAtEveryBoundary",
-      "samePostgresContainerAtEveryBoundary",
+      "exactApprovedContainersAtObservedBoundaries",
+      "samePostgresContainerAtObservedBoundaries",
+      "continuousIsolationInferred",
       "apiStarted",
       "webStarted",
       "auditSchema0107GateStartedOnlyAsOneShot",
@@ -628,14 +734,19 @@ function validateExecution(value, buildSha) {
     "execution.runtimeIsolation",
   );
   requireValue(
-    runtimeIsolation.onlyPostgresRunningAtEveryBoundary,
+    runtimeIsolation.exactApprovedContainersAtObservedBoundaries,
     true,
-    "execution.runtimeIsolation.onlyPostgresRunningAtEveryBoundary",
+    "execution.runtimeIsolation.exactApprovedContainersAtObservedBoundaries",
   );
   requireValue(
-    runtimeIsolation.samePostgresContainerAtEveryBoundary,
+    runtimeIsolation.samePostgresContainerAtObservedBoundaries,
     true,
-    "execution.runtimeIsolation.samePostgresContainerAtEveryBoundary",
+    "execution.runtimeIsolation.samePostgresContainerAtObservedBoundaries",
+  );
+  requireValue(
+    runtimeIsolation.continuousIsolationInferred,
+    false,
+    "execution.runtimeIsolation.continuousIsolationInferred",
   );
   requireValue(
     runtimeIsolation.apiStarted,
@@ -757,6 +868,7 @@ function validateExecution(value, buildSha) {
       "backupMaxPayloadBytes",
       "backupSizeBytes",
       "backupEvidence",
+      "backupIntegrity",
     ],
     "execution.schemaGate.transition",
   );
@@ -813,6 +925,15 @@ function validateExecution(value, buildSha) {
     canonicalJson(rootBackup),
     "execution.backupEvidence",
   );
+  const transitionBackupIntegrity = validateBackupIntegrity(
+    transition.backupIntegrity,
+    "execution.schemaGate.transition.backupIntegrity",
+  );
+  requireValue(
+    canonicalJson(transitionBackupIntegrity),
+    canonicalJson(rootBackupIntegrity),
+    "execution.schemaGate.transition.backupIntegrity",
+  );
   const { steady: after, lineage: afterLineage } = validateSteady(
     gate.after,
     buildSha,
@@ -827,6 +948,16 @@ function validateExecution(value, buildSha) {
     afterLineage.opaqueLegacyRowsSha256,
     hostLineage.opaqueLegacyRowsSha256,
     "execution.schemaGate.after.lineage.opaqueLegacyRowsSha256",
+  );
+  requireValue(
+    after.schema.expectedSchemaFingerprintSha256,
+    expectedSchemaFingerprintSha256,
+    "execution.schemaGate.after.schema.expectedSchemaFingerprintSha256",
+  );
+  requireValue(
+    after.schema.schemaFingerprintSha256,
+    expectedSchemaFingerprintSha256,
+    "execution.schemaGate.after.schema.schemaFingerprintSha256",
   );
   requireValue(
     execution.migration0107AppliedOrVerified,
@@ -850,6 +981,7 @@ function validateExecution(value, buildSha) {
     after,
     runtimeBinding,
     rootBackup,
+    rootBackupIntegrity,
   };
 }
 
@@ -903,6 +1035,8 @@ function validateSteady(value, buildSha, field = "steady") {
       "auditEventRows",
       "auditOutboxRows",
       "auditHeadRows",
+      "expectedSchemaFingerprintSha256",
+      "schemaFingerprintSha256",
     ],
     `${field}.schema`,
   );
@@ -920,6 +1054,18 @@ function validateSteady(value, buildSha, field = "steady") {
   safeInteger(schema.auditEventRows, `${field}.schema.auditEventRows`);
   safeInteger(schema.auditOutboxRows, `${field}.schema.auditOutboxRows`);
   requireValue(schema.auditHeadRows, 1, `${field}.schema.auditHeadRows`);
+  const expectedSchemaFingerprintSha256 = exactSha256(
+    schema.expectedSchemaFingerprintSha256,
+    `${field}.schema.expectedSchemaFingerprintSha256`,
+  );
+  requireValue(
+    exactSha256(
+      schema.schemaFingerprintSha256,
+      `${field}.schema.schemaFingerprintSha256`,
+    ),
+    expectedSchemaFingerprintSha256,
+    `${field}.schema.schemaFingerprintSha256`,
+  );
   requireValue(
     steady.authorizesApplicationStart,
     true,
@@ -934,6 +1080,7 @@ function validateIntent(
   runtimeBinding,
   hostLineage,
   rootBackup,
+  rootBackupIntegrity,
 ) {
   const intent = exactKeys(
     value,
@@ -942,12 +1089,14 @@ function validateIntent(
       "kind",
       "productionTargetsTouched",
       "sourceSha",
+      "expectedSchemaFingerprintSha256",
       "transitionInputsSha256",
       "derivedInspectInputsSha256",
       "backupExecutionSha256",
       "runtimeBinding",
       "lineage",
       "backupEvidence",
+      "backupIntegrity",
       "confirmation",
       "authorizesOnly",
       "authorizesApplicationStart",
@@ -962,6 +1111,11 @@ function validateIntent(
     "intent.productionTargetsTouched",
   );
   requireValue(intent.sourceSha, execution.sourceSha, "intent.sourceSha");
+  requireValue(
+    intent.expectedSchemaFingerprintSha256,
+    execution.expectedSchemaFingerprintSha256,
+    "intent.expectedSchemaFingerprintSha256",
+  );
   for (const field of [
     "transitionInputsSha256",
     "derivedInspectInputsSha256",
@@ -1002,6 +1156,15 @@ function validateIntent(
     canonicalJson(backup),
     canonicalJson(rootBackup),
     "intent.backupEvidence",
+  );
+  const intentBackupIntegrity = validateBackupIntegrity(
+    intent.backupIntegrity,
+    "intent.backupIntegrity",
+  );
+  requireValue(
+    canonicalJson(intentBackupIntegrity),
+    canonicalJson(rootBackupIntegrity),
+    "intent.backupIntegrity",
   );
   requireValue(
     intent.confirmation,
@@ -1162,6 +1325,17 @@ export function validateAudit0107ReleaseEvidence(input, options = {}) {
     input.livePostgresTargetSha256,
     "AUDIT_0107_LIVE_POSTGRES_TARGET_SHA256",
   );
+  const predecessorArtifact = decodeRawJsonArtifact(
+    input.predecessorReleaseEvidenceB64,
+    input.predecessorReleaseEvidenceSha256,
+    input.expectedPredecessorReleaseEvidenceSha256,
+    "predecessorReleaseEvidence",
+  );
+  requireValue(
+    predecessorArtifact.value.schemaVersion,
+    4,
+    "predecessorReleaseEvidence.schemaVersion",
+  );
   const releaseArtifact = decodeCanonicalArtifact(
     input.releaseEvidenceB64,
     input.releaseEvidenceSha256,
@@ -1189,6 +1363,7 @@ export function validateAudit0107ReleaseEvidence(input, options = {}) {
     after,
     runtimeBinding,
     rootBackup,
+    rootBackupIntegrity,
   } = validateExecution(executionArtifact.value, buildSha);
   validateIntent(
     intentArtifact.value,
@@ -1196,6 +1371,7 @@ export function validateAudit0107ReleaseEvidence(input, options = {}) {
     runtimeBinding,
     hostLineage,
     rootBackup,
+    rootBackupIntegrity,
   );
   requireValue(
     execution.intentSha256,
@@ -1293,8 +1469,13 @@ export function validateAudit0107ReleaseEvidence(input, options = {}) {
     "PASS",
     "release.predecessorReleaseEvidence.decision",
   );
-  exactSha256(
+  const predecessorFileSha256 = exactSha256(
     predecessor.fileSha256,
+    "release.predecessorReleaseEvidence.fileSha256",
+  );
+  requireValue(
+    predecessorFileSha256,
+    predecessorArtifact.sha256,
     "release.predecessorReleaseEvidence.fileSha256",
   );
   const artifacts = exactKeys(
@@ -1385,6 +1566,18 @@ function main() {
     livePostgresTargetSha256: requiredEnv(
       process.env,
       "AUDIT_0107_LIVE_POSTGRES_TARGET_SHA256",
+    ),
+    predecessorReleaseEvidenceB64: requiredEnv(
+      process.env,
+      "AUDIT_0107_PREDECESSOR_V4_EVIDENCE_B64",
+    ),
+    predecessorReleaseEvidenceSha256: requiredEnv(
+      process.env,
+      "AUDIT_0107_PREDECESSOR_V4_EVIDENCE_SHA256",
+    ),
+    expectedPredecessorReleaseEvidenceSha256: requiredEnv(
+      process.env,
+      "AUDIT_0107_EXPECTED_PREDECESSOR_V4_EVIDENCE_SHA256",
     ),
     releaseEvidenceB64: requiredEnv(
       process.env,

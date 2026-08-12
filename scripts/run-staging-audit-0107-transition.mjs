@@ -19,6 +19,12 @@ import {
   sha256Canonical,
 } from "./check-staging-provisioning.mjs";
 import {
+  assertApprovedDockerBoundary,
+  cleanupFrozenCompose,
+  freezeRenderedCompose,
+  runFrozenComposeOneShot,
+} from "./staging-frozen-compose-runtime.mjs";
+import {
   argument,
   AUDIT_0107,
   AUDIT_0107_FILES,
@@ -50,19 +56,27 @@ function wrap(error) {
     typeof error?.code === "string"
       ? error.code
       : "AUDIT_0107_TRANSITION_INVALID";
-  throw new StagingAudit0107TransitionRunnerError(
+  const wrapped = new StagingAudit0107TransitionRunnerError(
     code,
     error instanceof Error ? error.message : String(error),
   );
+  if (error?.cleanupError) {
+    Object.defineProperty(wrapped, "cleanupError", {
+      value: error.cleanupError,
+      enumerable: false,
+    });
+  }
+  throw wrapped;
 }
 
 function defaultExecute(command, args) {
   return spawnSync(command, args, { encoding: "utf8", windowsHide: true });
 }
 
-function checked(execute, args, label) {
+function checked(execute, args, label, { allowFailure = false } = {}) {
   const result = execute("docker", args);
   if (result.error || result.status !== 0) {
+    if (allowFailure) return undefined;
     audit0107Fail(
       "AUDIT_0107_COMMAND_FAILED",
       `${label} failed without approved evidence.`,
@@ -145,7 +159,21 @@ export function validateStagingAudit0107TransitionArtifacts({
       transition.backupEvidence.sizeBytes !== backup.sizeBytes ||
       transition.backupEvidence.maxPayloadBytes !== backup.maxPayloadBytes ||
       transition.backupEvidence.createdAt !== backup.createdAt ||
-      transition.backupEvidence.restoreTestedAt !== backup.restoreTestedAt
+      transition.backupEvidence.restoreTestedAt !== backup.restoreTestedAt ||
+      transition.backupEvidence.verifiedTableCount !==
+        backup.verifiedTableCount ||
+      canonicalJson(transition.backupEvidence.verifiedTableNames) !==
+        canonicalJson(backup.verifiedTableNames) ||
+      canonicalJson(transition.backupEvidence.sourceTableCounts) !==
+        canonicalJson(backup.sourceTableCounts) ||
+      canonicalJson(transition.backupEvidence.restoredTableCounts) !==
+        canonicalJson(backup.restoredTableCounts) ||
+      transition.backupEvidence.verifiedTableCountsSha256 !==
+        backup.verifiedTableCountsSha256 ||
+      transition.backupEvidence.backupRowBindingSha256 !==
+        backup.backupRowBindingSha256 ||
+      transition.expectedSchemaFingerprintSha256 !==
+        backup.expectedSchemaFingerprintSha256
     ) {
       audit0107Fail(
         "AUDIT_0107_ARTIFACT_CHAIN_MISMATCH",
@@ -199,6 +227,7 @@ function resolveCompose(execute, composeArgs, inputs) {
     );
     return Object.freeze({
       binding,
+      value,
       resolvedComposeSha256: sha256Canonical(value),
     });
   } catch {
@@ -383,12 +412,14 @@ export function validateStagingAudit0107Intent(value, inputs) {
       "kind",
       "productionTargetsTouched",
       "sourceSha",
+      "expectedSchemaFingerprintSha256",
       "transitionInputsSha256",
       "derivedInspectInputsSha256",
       "backupExecutionSha256",
       "runtimeBinding",
       "lineage",
       "backupEvidence",
+      "backupIntegrity",
       "confirmation",
       "authorizesOnly",
       "authorizesApplicationStart",
@@ -409,6 +440,8 @@ export function validateStagingAudit0107Intent(value, inputs) {
     value.kind !== "site-logbook-staging-audit-0107-intent" ||
     value.productionTargetsTouched !== false ||
     value.sourceSha !== inputs.sourceSha ||
+    value.expectedSchemaFingerprintSha256 !==
+      inputs.backup.expectedSchemaFingerprintSha256 ||
     value.transitionInputsSha256 !== `sha256:${inputs.transitionSha256}` ||
     value.derivedInspectInputsSha256 !== `sha256:${inputs.inspectSha256}` ||
     value.backupExecutionSha256 !== `sha256:${inputs.backupExecutionSha256}` ||
@@ -418,6 +451,14 @@ export function validateStagingAudit0107Intent(value, inputs) {
       inputs.lineage.opaqueLegacyRowsSha256 ||
     canonicalJson(value.backupEvidence) !==
       canonicalJson(inputs.transition.backupEvidence) ||
+    canonicalJson(value.backupIntegrity) !==
+      canonicalJson({
+        schemaVersion: "site-logbook.audit-schema-backup-integrity/v1",
+        verifiedTableNames: inputs.backup.verifiedTableNames,
+        verifiedTableCounts: inputs.backup.sourceTableCounts,
+        verifiedTableCountsSha256: inputs.backup.verifiedTableCountsSha256,
+        backupRowBindingSha256: inputs.backup.backupRowBindingSha256,
+      }) ||
     value.confirmation !== AUDIT_0107.confirmation ||
     value.authorizesOnly !== "isolated-exact-0106-to-0107-audit-transition" ||
     value.authorizesApplicationStart !== false
@@ -451,7 +492,7 @@ function parseSingleMarker(stdout, prefix, label) {
   }
 }
 
-function validateSchemaSummary(value, targetPresent) {
+function validateSchemaSummary(value, targetPresent, inputs) {
   exactKeys(
     value,
     [
@@ -461,6 +502,8 @@ function validateSchemaSummary(value, targetPresent) {
       "auditEventRows",
       "auditOutboxRows",
       "auditHeadRows",
+      "expectedSchemaFingerprintSha256",
+      "schemaFingerprintSha256",
     ],
     "audit schema summary",
   );
@@ -469,6 +512,15 @@ function validateSchemaSummary(value, targetPresent) {
     value.targetSqlSha256 !== `sha256:${AUDIT_0107.migrationSha256}` ||
     value.targetSnapshotSha256 !==
       `sha256:${AUDIT_0107.targetSnapshotSha256}` ||
+    value.expectedSchemaFingerprintSha256 !==
+      inputs.backup.expectedSchemaFingerprintSha256 ||
+    !/^sha256:[0-9a-f]{64}$/.test(String(value.schemaFingerprintSha256)) ||
+    (targetPresent &&
+      value.schemaFingerprintSha256 !==
+        value.expectedSchemaFingerprintSha256) ||
+    (!targetPresent &&
+      value.schemaFingerprintSha256 ===
+        value.expectedSchemaFingerprintSha256) ||
     !Number.isSafeInteger(value.auditEventRows) ||
     value.auditEventRows < 0 ||
     !Number.isSafeInteger(value.auditOutboxRows) ||
@@ -485,6 +537,42 @@ function validateSchemaSummary(value, targetPresent) {
   return Object.freeze(value);
 }
 
+function validateBackupIntegrity(value, inputs, label) {
+  exactKeys(
+    value,
+    [
+      "schemaVersion",
+      "verifiedTableNames",
+      "verifiedTableCounts",
+      "verifiedTableCountsSha256",
+      "backupRowBindingSha256",
+    ],
+    label,
+  );
+  if (
+    value.schemaVersion !== "site-logbook.audit-schema-backup-integrity/v1" ||
+    canonicalJson(value.verifiedTableNames) !==
+      canonicalJson(inputs.backup.verifiedTableNames) ||
+    canonicalJson(value.verifiedTableCounts) !==
+      canonicalJson(inputs.backup.sourceTableCounts) ||
+    canonicalJson(value.verifiedTableCounts) !==
+      canonicalJson(inputs.backup.restoredTableCounts) ||
+    value.verifiedTableCountsSha256 !==
+      inputs.backup.verifiedTableCountsSha256 ||
+    value.backupRowBindingSha256 !== inputs.backup.backupRowBindingSha256
+  ) {
+    audit0107Fail(
+      "AUDIT_0107_BACKUP_INTEGRITY_INVALID",
+      "Database backup integrity evidence is not the exact frozen backup execution snapshot.",
+    );
+  }
+  return Object.freeze({
+    ...value,
+    verifiedTableNames: Object.freeze([...value.verifiedTableNames]),
+    verifiedTableCounts: Object.freeze({ ...value.verifiedTableCounts }),
+  });
+}
+
 function validateInventory(value, inputs, allowAlready0107) {
   exactKeys(
     value,
@@ -498,6 +586,7 @@ function validateInventory(value, inputs, allowAlready0107) {
       "buildSha",
       "lineage",
       "schema",
+      "backupIntegrity",
       "backupEvidenceId",
       "backupRestoreAgeHours",
       "authorizesApplicationStart",
@@ -531,8 +620,13 @@ function validateInventory(value, inputs, allowAlready0107) {
     inputs.lineage,
     already ? AUDIT_0107.targetCount : AUDIT_0107.predecessorCount,
   );
-  validateSchemaSummary(value.schema, already);
-  return Object.freeze(value);
+  const backupIntegrity = validateBackupIntegrity(
+    value.backupIntegrity,
+    inputs,
+    "audit inventory backup integrity",
+  );
+  validateSchemaSummary(value.schema, already, inputs);
+  return Object.freeze({ ...value, backupIntegrity });
 }
 
 function validateGate(value, inputs, operation) {
@@ -615,9 +709,11 @@ function validateGate(value, inputs, operation) {
   }
   const transition = validateTransitionEvidence(value.transition, inputs);
   const backupEvidence = transition.backupEvidence;
+  const backupIntegrity = transition.backupIntegrity;
   return Object.freeze({
     schemaGate: Object.freeze({ ...value, after, transition }),
     backupEvidence,
+    backupIntegrity,
   });
 }
 
@@ -633,6 +729,7 @@ function validateTransitionEvidence(value, inputs) {
       "backupMaxPayloadBytes",
       "backupSizeBytes",
       "backupEvidence",
+      "backupIntegrity",
     ],
     "audit gate transition",
   );
@@ -657,6 +754,11 @@ function validateTransitionEvidence(value, inputs) {
   return Object.freeze({
     ...value,
     backupEvidence: validateRichBackup(value.backupEvidence, inputs),
+    backupIntegrity: validateBackupIntegrity(
+      value.backupIntegrity,
+      inputs,
+      "audit gate transition backup integrity",
+    ),
   });
 }
 
@@ -693,7 +795,7 @@ function validateSteadySummary(value, inputs) {
     );
   }
   validateLineageSummary(value.lineage, inputs.lineage, AUDIT_0107.targetCount);
-  validateSchemaSummary(value.schema, true);
+  validateSchemaSummary(value.schema, true, inputs);
   return Object.freeze(value);
 }
 
@@ -738,7 +840,7 @@ function validateRichBackup(value, inputs) {
     value.restoreTestedAt !== inputs.backup.restoreTestedAt ||
     value.restoreDurationMs !== inputs.backup.restoreDurationMs ||
     value.verifiedTableCount !== inputs.backup.verifiedTableCount ||
-    !/^sha256:[0-9a-f]{64}$/.test(String(value.verifiedTablesSha256)) ||
+    value.verifiedTablesSha256 !== inputs.backup.verifiedTableCountsSha256 ||
     value.destructiveRestorePerformed !== false ||
     createdAt > restoreTestedAt ||
     restoreTestedAt > checkedAt
@@ -799,6 +901,7 @@ export function validateStagingAudit0107Execution(value, inputs) {
         "startedAt",
         "completedAt",
         "sourceSha",
+        "expectedSchemaFingerprintSha256",
         "transitionInputsSha256",
         "derivedInspectInputsSha256",
         "backupExecutionSha256",
@@ -806,6 +909,7 @@ export function validateStagingAudit0107Execution(value, inputs) {
         "runtimeBinding",
         "schemaGate",
         "backupEvidence",
+        "backupIntegrity",
         "lineage",
         "runtimeIsolation",
         "migration0107AppliedOrVerified",
@@ -829,8 +933,9 @@ export function validateStagingAudit0107Execution(value, inputs) {
     exactKeys(
       value.runtimeIsolation,
       [
-        "onlyPostgresRunningAtEveryBoundary",
-        "samePostgresContainerAtEveryBoundary",
+        "exactApprovedContainersAtObservedBoundaries",
+        "samePostgresContainerAtObservedBoundaries",
+        "continuousIsolationInferred",
         "apiStarted",
         "webStarted",
         "auditSchema0107GateStartedOnlyAsOneShot",
@@ -850,6 +955,8 @@ export function validateStagingAudit0107Execution(value, inputs) {
       canonicalTimestamp(value.startedAt, "execution startedAt") >
         canonicalTimestamp(value.completedAt, "execution completedAt") ||
       value.sourceSha !== inputs.sourceSha ||
+      value.expectedSchemaFingerprintSha256 !==
+        inputs.backup.expectedSchemaFingerprintSha256 ||
       value.transitionInputsSha256 !== `sha256:${inputs.transitionSha256}` ||
       value.derivedInspectInputsSha256 !== `sha256:${inputs.inspectSha256}` ||
       value.backupExecutionSha256 !==
@@ -859,8 +966,11 @@ export function validateStagingAudit0107Execution(value, inputs) {
       value.lineage.totalJournalRows !== lineage.totalJournalRows ||
       value.lineage.opaqueLegacyRowsSha256 !== lineage.opaqueLegacyRowsSha256 ||
       value.lineage.opaqueLegacyMeaningInferred !== false ||
-      value.runtimeIsolation.onlyPostgresRunningAtEveryBoundary !== true ||
-      value.runtimeIsolation.samePostgresContainerAtEveryBoundary !== true ||
+      value.runtimeIsolation.exactApprovedContainersAtObservedBoundaries !==
+        true ||
+      value.runtimeIsolation.samePostgresContainerAtObservedBoundaries !==
+        true ||
+      value.runtimeIsolation.continuousIsolationInferred !== false ||
       value.runtimeIsolation.apiStarted !== false ||
       value.runtimeIsolation.webStarted !== false ||
       value.runtimeIsolation.auditSchema0107GateStartedOnlyAsOneShot !== true ||
@@ -875,6 +985,11 @@ export function validateStagingAudit0107Execution(value, inputs) {
     }
     const gate = validateGate(value.schemaGate, inputs, value.operation);
     const backup = validateRichBackup(value.backupEvidence, inputs);
+    const backupIntegrity = validateBackupIntegrity(
+      value.backupIntegrity,
+      inputs,
+      "audit execution backup integrity",
+    );
     const validatedRuntimeBinding = validateRuntimeBinding(
       value.runtimeBinding,
       inputs,
@@ -883,6 +998,14 @@ export function validateStagingAudit0107Execution(value, inputs) {
       audit0107Fail(
         "AUDIT_0107_EXECUTION_BACKUP_MISMATCH",
         "Root and schema-gate backup evidence must be byte-identical.",
+      );
+    }
+    if (
+      canonicalJson(gate.backupIntegrity) !== canonicalJson(backupIntegrity)
+    ) {
+      audit0107Fail(
+        "AUDIT_0107_EXECUTION_BACKUP_INTEGRITY_MISMATCH",
+        "Root and schema-gate backup integrity must be byte-identical.",
       );
     }
     return Object.freeze({
@@ -944,231 +1067,289 @@ export function runStagingAudit0107Transition({
       "--profile",
       "audit-0107-transition",
     ];
-    const initialResolved = resolveCompose(execute, composeArgs, inputs);
-    const initialPostgres = assertOnlyPostgresRunning(
-      execute,
-      composeArgs,
-      initialResolved.binding,
-      "initial quiescence check",
-    );
-    const initialRuntimeBinding = runtimeBinding(
-      initialResolved,
-      initialPostgres,
-    );
-    const hasIntent =
-      fs.existsSync(path.join(output, AUDIT_0107_FILES.intent)) &&
-      fs.existsSync(path.join(output, AUDIT_0107_FILES.intentChecksum));
-    let inventoryStdout;
+    const sourceResolved = resolveCompose(execute, composeArgs, inputs);
+    let inventoryFrozen;
+    let transitionFrozen;
+    let transitionResult;
+    let primaryError;
+    let cleanupError;
     try {
-      inventoryStdout = checked(
+      inventoryFrozen = freezeRenderedCompose({
+        resolvedValue: sourceResolved.value,
+        projectName: inputs.inspect.composeProjectName,
+        profile: "audit-0107-transition",
+        targetService: "audit-schema-gate",
+        environmentOverrides: {
+          AUDIT_SCHEMA_PREFLIGHT_CONFIRMATION: "",
+          AUDIT_SCHEMA_EXPECTED_FINGERPRINT_SHA256:
+            inputs.backup.expectedSchemaFingerprintSha256,
+          AUDIT_SCHEMA_LINEAGE_MODE: inputs.lineage.mode,
+          AUDIT_SCHEMA_OPAQUE_LEGACY_ROWS_JSON:
+            inputs.lineage.opaqueLegacyRowsJson,
+        },
+        commandOverride: ["node", "dist/audit-schema-inventory.mjs"],
+        label: "pre-transition audit inventory",
+      });
+      transitionFrozen = freezeRenderedCompose({
+        resolvedValue: sourceResolved.value,
+        projectName: inputs.inspect.composeProjectName,
+        profile: "audit-0107-transition",
+        targetService: "audit-schema-gate",
+        environmentOverrides: {
+          STAGING_AUDIT_SCHEMA_ACTION: AUDIT_0107.action,
+          AUDIT_SCHEMA_EXPECTED_FINGERPRINT_SHA256:
+            inputs.backup.expectedSchemaFingerprintSha256,
+          AUDIT_SCHEMA_PREFLIGHT_CONFIRMATION: AUDIT_0107.confirmation,
+          AUDIT_SCHEMA_LINEAGE_MODE: inputs.lineage.mode,
+          AUDIT_SCHEMA_OPAQUE_LEGACY_ROWS_JSON:
+            inputs.lineage.opaqueLegacyRowsJson,
+          STAGING_AUDIT_DEPLOYMENT_INPUTS_SHA256: inputs.transitionSha256,
+          STAGING_EXACT_0106_BACKUP_EXECUTION_SHA256:
+            inputs.backupExecutionSha256,
+          STAGING_EXACT_0106_BACKUP_MAX_PAYLOAD_BYTES: String(
+            inputs.backup.maxPayloadBytes,
+          ),
+          STAGING_EXACT_0106_BACKUP_SIZE_BYTES: String(inputs.backup.sizeBytes),
+        },
+        label: "audit 0107 transition gate",
+      });
+    } catch (error) {
+      if (inventoryFrozen) {
+        try {
+          cleanupFrozenCompose(inventoryFrozen);
+        } catch (cleanupError) {
+          Object.defineProperty(error, "cleanupError", {
+            value: cleanupError,
+            enumerable: false,
+          });
+        }
+      }
+      throw error;
+    }
+    try {
+      const transitionResolved = Object.freeze({
+        binding: sourceResolved.binding,
+        resolvedComposeSha256: transitionFrozen.resolvedSha256,
+      });
+      const initialPostgres = assertOnlyPostgresRunning(
         execute,
-        [
-          ...composeArgs,
-          "run",
-          "--rm",
-          "--no-deps",
-          "-e",
-          "AUDIT_SCHEMA_PREFLIGHT_CONFIRMATION=",
-          "-e",
-          `AUDIT_SCHEMA_LINEAGE_MODE=${inputs.lineage.mode}`,
-          "-e",
-          `AUDIT_SCHEMA_OPAQUE_LEGACY_ROWS_JSON=${inputs.lineage.opaqueLegacyRowsJson}`,
-          "audit-schema-gate",
-          "node",
-          "dist/audit-schema-inventory.mjs",
-        ],
-        "pre-transition audit inventory",
+        transitionFrozen.composeArgs,
+        sourceResolved.binding,
+        "initial observed-boundary check",
       );
-    } finally {
-      assertOnlyPostgresRunning(
+      const boundary = (oneShotContainerId, phase) =>
+        assertApprovedDockerBoundary({
+          runDocker: (args, label, options) =>
+            checked(execute, args, label, options),
+          postgres: initialPostgres,
+          projectName: inputs.inspect.composeProjectName,
+          oneShotContainerId,
+          phase,
+        });
+      boundary(undefined, "initial observed boundary");
+      const initialRuntimeBinding = runtimeBinding(
+        transitionResolved,
+        initialPostgres,
+      );
+      const hasIntent =
+        fs.existsSync(path.join(output, AUDIT_0107_FILES.intent)) &&
+        fs.existsSync(path.join(output, AUDIT_0107_FILES.intentChecksum));
+      const inventoryStdout = runFrozenComposeOneShot({
+        runDocker: (args, label, options) =>
+          checked(execute, args, label, options),
+        frozen: inventoryFrozen,
+        assertBoundary: boundary,
+      });
+      validateInventory(
+        parseSingleMarker(
+          inventoryStdout,
+          "[audit-schema-inventory] PASS ",
+          "audit inventory",
+        ),
+        inputs,
+        hasIntent,
+      );
+      const preStatefulPostgres = assertOnlyPostgresRunning(
         execute,
-        composeArgs,
-        initialResolved.binding,
-        "post-inventory quiescence check",
+        transitionFrozen.composeArgs,
+        sourceResolved.binding,
+        "pre-transition observed-boundary check",
         initialPostgres.containerId,
       );
-    }
-    validateInventory(
-      parseSingleMarker(
-        inventoryStdout,
-        "[audit-schema-inventory] PASS ",
-        "audit inventory",
-      ),
-      inputs,
-      hasIntent,
-    );
-    const preStatefulResolved = resolveCompose(execute, composeArgs, inputs);
-    const preStatefulPostgres = assertOnlyPostgresRunning(
-      execute,
-      composeArgs,
-      preStatefulResolved.binding,
-      "pre-transition quiescence check",
-      initialPostgres.containerId,
-    );
-    const preStatefulRuntimeBinding = runtimeBinding(
-      preStatefulResolved,
-      preStatefulPostgres,
-    );
-    sameRuntimeBinding(
-      initialRuntimeBinding,
-      preStatefulRuntimeBinding,
-      "pre-transition revalidation",
-    );
-    const intentValue = Object.freeze({
-      schemaVersion: 1,
-      kind: "site-logbook-staging-audit-0107-intent",
-      productionTargetsTouched: false,
-      sourceSha: inputs.sourceSha,
-      transitionInputsSha256: `sha256:${inputs.transitionSha256}`,
-      derivedInspectInputsSha256: `sha256:${inputs.inspectSha256}`,
-      backupExecutionSha256: `sha256:${inputs.backupExecutionSha256}`,
-      runtimeBinding: preStatefulRuntimeBinding,
-      lineage: Object.freeze({
-        mode: inputs.lineage.mode,
-        opaqueLegacyRows: inputs.lineage.opaqueLegacyRows,
-        opaqueLegacyRowsSha256: inputs.lineage.opaqueLegacyRowsSha256,
-      }),
-      backupEvidence: inputs.transition.backupEvidence,
-      confirmation: AUDIT_0107.confirmation,
-      authorizesOnly: "isolated-exact-0106-to-0107-audit-transition",
-      authorizesApplicationStart: false,
-    });
-    const intent = ensureIntent(
-      output,
-      validateStagingAudit0107Intent(intentValue, inputs),
-    );
-    const startedAt = now().toISOString();
-    let stdout;
-    let finalRuntimeBinding;
-    try {
-      stdout = checked(
-        execute,
-        [
-          ...composeArgs,
-          "run",
-          "--rm",
-          "--no-deps",
-          "-e",
-          `STAGING_AUDIT_SCHEMA_ACTION=${AUDIT_0107.action}`,
-          "-e",
-          `AUDIT_SCHEMA_PREFLIGHT_CONFIRMATION=${AUDIT_0107.confirmation}`,
-          "-e",
-          `AUDIT_SCHEMA_LINEAGE_MODE=${inputs.lineage.mode}`,
-          "-e",
-          `AUDIT_SCHEMA_OPAQUE_LEGACY_ROWS_JSON=${inputs.lineage.opaqueLegacyRowsJson}`,
-          "-e",
-          `STAGING_AUDIT_DEPLOYMENT_INPUTS_SHA256=${inputs.transitionSha256}`,
-          "-e",
-          `STAGING_EXACT_0106_BACKUP_EXECUTION_SHA256=${inputs.backupExecutionSha256}`,
-          "-e",
-          `STAGING_EXACT_0106_BACKUP_MAX_PAYLOAD_BYTES=${inputs.backup.maxPayloadBytes}`,
-          "-e",
-          `STAGING_EXACT_0106_BACKUP_SIZE_BYTES=${inputs.backup.sizeBytes}`,
-          "audit-schema-gate",
-          "node",
-          "dist/audit-schema-gate.mjs",
-        ],
-        "audit 0107 transition gate",
+      const preStatefulRuntimeBinding = runtimeBinding(
+        transitionResolved,
+        preStatefulPostgres,
       );
-    } finally {
-      const finalResolved = resolveCompose(execute, composeArgs, inputs);
+      sameRuntimeBinding(
+        initialRuntimeBinding,
+        preStatefulRuntimeBinding,
+        "pre-transition revalidation",
+      );
+      const intentValue = Object.freeze({
+        schemaVersion: 1,
+        kind: "site-logbook-staging-audit-0107-intent",
+        productionTargetsTouched: false,
+        sourceSha: inputs.sourceSha,
+        expectedSchemaFingerprintSha256:
+          inputs.backup.expectedSchemaFingerprintSha256,
+        transitionInputsSha256: `sha256:${inputs.transitionSha256}`,
+        derivedInspectInputsSha256: `sha256:${inputs.inspectSha256}`,
+        backupExecutionSha256: `sha256:${inputs.backupExecutionSha256}`,
+        runtimeBinding: preStatefulRuntimeBinding,
+        lineage: Object.freeze({
+          mode: inputs.lineage.mode,
+          opaqueLegacyRows: inputs.lineage.opaqueLegacyRows,
+          opaqueLegacyRowsSha256: inputs.lineage.opaqueLegacyRowsSha256,
+        }),
+        backupEvidence: inputs.transition.backupEvidence,
+        backupIntegrity: Object.freeze({
+          schemaVersion: "site-logbook.audit-schema-backup-integrity/v1",
+          verifiedTableNames: inputs.backup.verifiedTableNames,
+          verifiedTableCounts: inputs.backup.sourceTableCounts,
+          verifiedTableCountsSha256: inputs.backup.verifiedTableCountsSha256,
+          backupRowBindingSha256: inputs.backup.backupRowBindingSha256,
+        }),
+        confirmation: AUDIT_0107.confirmation,
+        authorizesOnly: "isolated-exact-0106-to-0107-audit-transition",
+        authorizesApplicationStart: false,
+      });
+      const intent = ensureIntent(
+        output,
+        validateStagingAudit0107Intent(intentValue, inputs),
+      );
+      const startedAt = now().toISOString();
+      const stdout = runFrozenComposeOneShot({
+        runDocker: (args, label, options) =>
+          checked(execute, args, label, options),
+        frozen: transitionFrozen,
+        assertBoundary: boundary,
+      });
       const finalPostgres = assertOnlyPostgresRunning(
         execute,
-        composeArgs,
-        finalResolved.binding,
-        "final quiescence check",
+        transitionFrozen.composeArgs,
+        sourceResolved.binding,
+        "final observed-boundary check",
         preStatefulPostgres.containerId,
       );
-      finalRuntimeBinding = runtimeBinding(finalResolved, finalPostgres);
+      const finalRuntimeBinding = runtimeBinding(
+        transitionResolved,
+        finalPostgres,
+      );
       sameRuntimeBinding(
         preStatefulRuntimeBinding,
         finalRuntimeBinding,
         "post-transition revalidation",
       );
-    }
-    const appliedPrefix = "[audit-schema-gate] APPLIED ";
-    const noopPrefix = "[audit-schema-gate] NOOP ";
-    const applied = stdout
-      .split(/\r?\n/)
-      .filter((line) => line.startsWith(appliedPrefix));
-    const noop = stdout
-      .split(/\r?\n/)
-      .filter((line) => line.startsWith(noopPrefix));
-    if (applied.length + noop.length !== 1) {
-      audit0107Fail(
-        "AUDIT_0107_MARKER_INVALID",
-        "Transition gate must emit exactly one APPLIED or NOOP marker.",
+      const appliedPrefix = "[audit-schema-gate] APPLIED ";
+      const noopPrefix = "[audit-schema-gate] NOOP ";
+      const applied = stdout
+        .split(/\r?\n/)
+        .filter((line) => line.startsWith(appliedPrefix));
+      const noop = stdout
+        .split(/\r?\n/)
+        .filter((line) => line.startsWith(noopPrefix));
+      if (applied.length + noop.length !== 1) {
+        audit0107Fail(
+          "AUDIT_0107_MARKER_INVALID",
+          "Transition gate must emit exactly one APPLIED or NOOP marker.",
+        );
+      }
+      const operation = applied.length === 1 ? "applied" : "verified-noop";
+      if (operation === "verified-noop" && !intent.reused) {
+        audit0107Fail(
+          "AUDIT_0107_UNEXPECTED_NOOP",
+          "A first-attempt NOOP cannot prove this runner performed the transition.",
+        );
+      }
+      const gate = validateGate(
+        parseSingleMarker(
+          stdout,
+          applied.length === 1 ? appliedPrefix : noopPrefix,
+          "audit transition gate",
+        ),
+        inputs,
+        operation,
       );
-    }
-    const operation = applied.length === 1 ? "applied" : "verified-noop";
-    if (operation === "verified-noop" && !intent.reused) {
-      audit0107Fail(
-        "AUDIT_0107_UNEXPECTED_NOOP",
-        "A first-attempt NOOP cannot prove this runner performed the transition.",
+      const completedAt = now().toISOString();
+      if (
+        canonicalTimestamp(completedAt, "completedAt") <
+        canonicalTimestamp(startedAt, "startedAt")
+      ) {
+        audit0107Fail(
+          "AUDIT_0107_TIME_INVALID",
+          "completedAt must not precede startedAt.",
+        );
+      }
+      const execution = Object.freeze({
+        schemaVersion: 1,
+        kind: "site-logbook-staging-audit-0107-execution",
+        decision: "PASS",
+        operation,
+        productionTargetsTouched: false,
+        startedAt,
+        completedAt,
+        sourceSha: inputs.sourceSha,
+        expectedSchemaFingerprintSha256:
+          inputs.backup.expectedSchemaFingerprintSha256,
+        transitionInputsSha256: `sha256:${inputs.transitionSha256}`,
+        derivedInspectInputsSha256: `sha256:${inputs.inspectSha256}`,
+        backupExecutionSha256: `sha256:${inputs.backupExecutionSha256}`,
+        intentSha256: `sha256:${intent.sha256}`,
+        runtimeBinding: finalRuntimeBinding,
+        schemaGate: gate.schemaGate,
+        backupEvidence: gate.backupEvidence,
+        backupIntegrity: gate.backupIntegrity,
+        lineage: Object.freeze({
+          mode: inputs.lineage.mode,
+          knownMigrationCount: AUDIT_0107.targetCount,
+          totalJournalRows: inputs.lineage.totalJournalRows,
+          opaqueLegacyRows: inputs.lineage.opaqueLegacyRows,
+          opaqueLegacyRowsSha256: inputs.lineage.opaqueLegacyRowsSha256,
+          opaqueLegacyMeaningInferred: false,
+        }),
+        runtimeIsolation: Object.freeze({
+          exactApprovedContainersAtObservedBoundaries: true,
+          samePostgresContainerAtObservedBoundaries: true,
+          continuousIsolationInferred: false,
+          apiStarted: false,
+          webStarted: false,
+          auditSchema0107GateStartedOnlyAsOneShot: true,
+        }),
+        migration0107AppliedOrVerified: true,
+        authorizesApplicationStart: false,
+        nextGate: "audit-0107-release-evidence-required",
+      });
+      validateStagingAudit0107Execution(execution, inputs);
+      const files = writeCanonicalPair(
+        output,
+        AUDIT_0107_FILES.execution,
+        AUDIT_0107_FILES.executionChecksum,
+        execution,
       );
+      transitionResult = Object.freeze({ execution, files });
+    } catch (error) {
+      primaryError = error;
+    } finally {
+      try {
+        cleanupFrozenCompose(transitionFrozen);
+      } catch (error) {
+        cleanupError = error;
+      }
+      try {
+        cleanupFrozenCompose(inventoryFrozen);
+      } catch (error) {
+        cleanupError ??= error;
+      }
     }
-    const gate = validateGate(
-      parseSingleMarker(
-        stdout,
-        applied.length === 1 ? appliedPrefix : noopPrefix,
-        "audit transition gate",
-      ),
-      inputs,
-      operation,
-    );
-    const completedAt = now().toISOString();
-    if (
-      canonicalTimestamp(completedAt, "completedAt") <
-      canonicalTimestamp(startedAt, "startedAt")
-    ) {
-      audit0107Fail(
-        "AUDIT_0107_TIME_INVALID",
-        "completedAt must not precede startedAt.",
-      );
+    if (primaryError && cleanupError) {
+      Object.defineProperty(primaryError, "cleanupError", {
+        value: cleanupError,
+        enumerable: false,
+      });
     }
-    const execution = Object.freeze({
-      schemaVersion: 1,
-      kind: "site-logbook-staging-audit-0107-execution",
-      decision: "PASS",
-      operation,
-      productionTargetsTouched: false,
-      startedAt,
-      completedAt,
-      sourceSha: inputs.sourceSha,
-      transitionInputsSha256: `sha256:${inputs.transitionSha256}`,
-      derivedInspectInputsSha256: `sha256:${inputs.inspectSha256}`,
-      backupExecutionSha256: `sha256:${inputs.backupExecutionSha256}`,
-      intentSha256: `sha256:${intent.sha256}`,
-      runtimeBinding: finalRuntimeBinding,
-      schemaGate: gate.schemaGate,
-      backupEvidence: gate.backupEvidence,
-      lineage: Object.freeze({
-        mode: inputs.lineage.mode,
-        knownMigrationCount: AUDIT_0107.targetCount,
-        totalJournalRows: inputs.lineage.totalJournalRows,
-        opaqueLegacyRows: inputs.lineage.opaqueLegacyRows,
-        opaqueLegacyRowsSha256: inputs.lineage.opaqueLegacyRowsSha256,
-        opaqueLegacyMeaningInferred: false,
-      }),
-      runtimeIsolation: Object.freeze({
-        onlyPostgresRunningAtEveryBoundary: true,
-        samePostgresContainerAtEveryBoundary: true,
-        apiStarted: false,
-        webStarted: false,
-        auditSchema0107GateStartedOnlyAsOneShot: true,
-      }),
-      migration0107AppliedOrVerified: true,
-      authorizesApplicationStart: false,
-      nextGate: "audit-0107-release-evidence-required",
-    });
-    validateStagingAudit0107Execution(execution, inputs);
-    const files = writeCanonicalPair(
-      output,
-      AUDIT_0107_FILES.execution,
-      AUDIT_0107_FILES.executionChecksum,
-      execution,
-    );
-    return Object.freeze({ execution, files });
+    if (primaryError) throw primaryError;
+    if (cleanupError) throw cleanupError;
+    return transitionResult;
   } catch (error) {
     wrap(error);
   }

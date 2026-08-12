@@ -15,6 +15,7 @@ import { runAuditSchemaGate } from "../src/audit-schema-gate";
 const SHA = "a".repeat(40);
 const INPUT_SHA = "b".repeat(64);
 const BACKUP_SHA = "9".repeat(64);
+const SCHEMA_SHA = `sha256:${"8".repeat(64)}`;
 const OPAQUE_SHA =
   "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945";
 
@@ -22,6 +23,7 @@ function environment(): NodeJS.ProcessEnv {
   return {
     STAGING_AUDIT_SCHEMA_ACTION: "apply-0107",
     AUDIT_SCHEMA_PREFLIGHT_CONFIRMATION,
+    AUDIT_SCHEMA_EXPECTED_FINGERPRINT_SHA256: SCHEMA_SHA,
     AUDIT_SCHEMA_LINEAGE_MODE: "clean",
     AUDIT_SCHEMA_OPAQUE_LEGACY_ROWS_JSON: "[]",
     EXTERNAL_ACCOUNTS_ENABLED: "false",
@@ -74,6 +76,16 @@ const genesisSchema = {
   auditEventRows: 0,
   auditOutboxRows: 0,
   auditHeadRows: 1,
+  expectedSchemaFingerprintSha256: SCHEMA_SHA,
+  schemaFingerprintSha256: SCHEMA_SHA,
+};
+
+const backupIntegrity = {
+  schemaVersion: "site-logbook.audit-schema-backup-integrity/v1" as const,
+  verifiedTableNames: ["public.users"],
+  verifiedTableCounts: { "public.users": 1 },
+  verifiedTableCountsSha256: `sha256:${"f".repeat(64)}`,
+  backupRowBindingSha256: `sha256:${"7".repeat(64)}`,
 };
 
 function postSummary(
@@ -109,6 +121,7 @@ function postSummary(
       verifiedTablesSha256: `sha256:${"f".repeat(64)}`,
       destructiveRestorePerformed: false,
     },
+    backupIntegrity,
     authorizesApplicationStart: false,
   };
 }
@@ -124,6 +137,7 @@ function ready0106(): AuditSchemaInventorySummary {
     buildSha: SHA,
     lineage: lineage("READY_0106", 106),
     schema: { ...genesisSchema, auditHeadRows: 0 },
+    backupIntegrity,
     backupEvidenceId: 91,
     backupRestoreAgeHours: 0.05,
     authorizesApplicationStart: false,
@@ -152,6 +166,7 @@ function migration(newlyApplied: 0 | 1 | 2): AuditSchemaApplySummary {
     newlyApplied: newlyApplied as 0 | 1,
     knownAppliedBefore: newlyApplied === 1 ? 106 : 107,
     knownAppliedAfter: 107,
+    schemaFingerprintSha256: SCHEMA_SHA,
   } as AuditSchemaApplySummary;
 }
 
@@ -187,7 +202,7 @@ describe("audit schema exact 0106 to 0107 gate", () => {
         when: 1786484628859,
         tag: "0107_canonical_audit_evidence",
         sha256:
-          "sha256:5523f25b4c941919612f2f87a2d8fa371acd9922c3d3166b8d761000365e1339",
+          "sha256:c90d91e2ddcfbf00419980388c2e7b0f0a573fe73925638d737966fb6604e122",
       },
       transition: {
         inputSha256: `sha256:${INPUT_SHA}`,

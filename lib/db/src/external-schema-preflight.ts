@@ -856,9 +856,17 @@ export function validateExternalSchemaDatabaseState(
 
 type Queryable = Pick<pg.Client, "query">;
 
+function binaryCompare(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 export interface StagingBackupEvidenceRow {
   id: string | number;
+  filename?: string | null;
   status: string | null;
+  trigger?: string | null;
+  created_by?: string | null;
+  error?: string | null;
   object_path: string | null;
   size_bytes: string | number | null;
   sha256: string | null;
@@ -871,6 +879,7 @@ export interface StagingBackupEvidenceRow {
   restored_at?: Date | string | null;
   restore_duration_ms?: string | number | null;
   restore_verified_tables?: Record<string, unknown> | null;
+  restore_error?: string | null;
 }
 
 export interface ValidatedStagingBackupEvidence {
@@ -978,13 +987,13 @@ function canonicalTableCounts(
     );
   }
   const entries = Object.entries(value).sort(([left], [right]) =>
-    left.localeCompare(right),
+    binaryCompare(left, right),
   );
   if (
     entries.length === 0 ||
     entries.some(
       ([name, count]) =>
-        !/^[a-z][a-z0-9_]*$/.test(name) ||
+        !/^(?:[a-z_][a-z0-9_$]*\.)?[a-z_][a-z0-9_$]*$/.test(name) ||
         typeof count !== "number" ||
         !Number.isSafeInteger(count) ||
         count < 0,
@@ -1143,6 +1152,7 @@ async function readLatestBackupEvidence(
 export async function readExternalSchemaDatabaseState(
   client: Queryable,
   mode: ExternalSchemaPreflightMode,
+  options: { boundedEmptyCheck?: boolean } = {},
 ): Promise<ExternalSchemaDatabaseState> {
   const identity = await client.query<{
     database_name: string;
@@ -1212,12 +1222,21 @@ export async function readExternalSchemaDatabaseState(
     external_events: 0,
   };
   if (mode === "post") {
-    const result = await client.query<typeof counts>(`SELECT
+    const result = await client.query<typeof counts>(
+      options.boundedEmptyCheck
+        ? `SELECT
+      (EXISTS (SELECT 1 FROM users WHERE account_type = 'external' LIMIT 1))::int AS external_users,
+      (EXISTS (SELECT 1 FROM users WHERE account_type <> 'internal' LIMIT 1))::int AS non_internal_users,
+      (EXISTS (SELECT 1 FROM external_accounts LIMIT 1))::int AS external_accounts,
+      (EXISTS (SELECT 1 FROM external_account_scopes LIMIT 1))::int AS external_scopes,
+      (EXISTS (SELECT 1 FROM external_account_events LIMIT 1))::int AS external_events`
+        : `SELECT
       (SELECT count(*)::int FROM users WHERE account_type = 'external') AS external_users,
       (SELECT count(*)::int FROM users WHERE account_type <> 'internal') AS non_internal_users,
       (SELECT count(*)::int FROM external_accounts) AS external_accounts,
       (SELECT count(*)::int FROM external_account_scopes) AS external_scopes,
-      (SELECT count(*)::int FROM external_account_events) AS external_events`);
+      (SELECT count(*)::int FROM external_account_events) AS external_events`,
+    );
     counts = result.rows[0] ?? counts;
   }
 

@@ -834,6 +834,7 @@ export function validateResolvedStagingComposeTarget(
         : targetService === "exact-0106-audit-backup"
           ? [
               "ACCOUNTING_SCHEMA_PREFLIGHT_CONFIRMATION",
+              "AUDIT_SCHEMA_EXPECTED_FINGERPRINT_SHA256",
               "AUDIT_SCHEMA_LINEAGE_MODE",
               "AUDIT_SCHEMA_OPAQUE_LEGACY_ROWS_JSON",
               "AUDIT_SCHEMA_PREFLIGHT_CONFIRMATION",
@@ -922,6 +923,7 @@ export function validateResolvedStagingComposeTarget(
                 ]
               : targetService === "audit-schema-gate"
                 ? [
+                    "AUDIT_SCHEMA_EXPECTED_FINGERPRINT_SHA256",
                     "AUDIT_SCHEMA_LINEAGE_MODE",
                     "AUDIT_SCHEMA_OPAQUE_LEGACY_ROWS_JSON",
                     "AUDIT_SCHEMA_PREFLIGHT_CONFIRMATION",
@@ -1102,6 +1104,7 @@ export function validateResolvedStagingComposeTarget(
       ...(targetService === "exact-0106-audit-backup"
         ? [
             ["ACCOUNTING_SCHEMA_PREFLIGHT_CONFIRMATION", ""],
+            ["AUDIT_SCHEMA_EXPECTED_FINGERPRINT_SHA256", ""],
             ["AUDIT_SCHEMA_PREFLIGHT_CONFIRMATION", ""],
             ["STAGING_AUDIT_SCHEMA_ACTION", "inspect"],
             ["AUDIT_SCHEMA_LINEAGE_MODE", auditLineageMode],
@@ -1239,6 +1242,7 @@ export function validateResolvedStagingComposeTarget(
       ["STAGING_EXTERNAL_ACCOUNTS_ENABLED", "false"],
       ["STAGING_EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION", ""],
       ["STAGING_AUDIT_SCHEMA_ACTION", "steady-0107"],
+      ["AUDIT_SCHEMA_EXPECTED_FINGERPRINT_SHA256", ""],
       ["AUDIT_SCHEMA_PREFLIGHT_CONFIRMATION", ""],
       ["AUDIT_SCHEMA_LINEAGE_MODE", auditLineageMode],
       ["AUDIT_SCHEMA_OPAQUE_LEGACY_ROWS_JSON", auditOpaqueLegacyRowsJson],

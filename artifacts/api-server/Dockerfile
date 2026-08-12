@@ -12,8 +12,11 @@
 # execution and exact steady release evidence; startup verifies that chain and
 # then serves the REST API on $PORT (default 5000).
 
+ARG BUILD_SHA
+
 # ---------- Builder ----------
 FROM node:24-slim@sha256:235600a8101ab264e117b1768e925532262668dc9b581ef1dd7d96ced463b8e7 AS builder
+ARG BUILD_SHA
 WORKDIR /repo
 
 # glibc base (node:*-slim) is required: the workspace pins the gnu variants of
@@ -36,7 +39,8 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm install --frozen-lockfile --store-dir=/pnpm/store
 
 # Bundle the API and the separately invoked migration/control-plane entrypoints.
-RUN pnpm --filter @workspace/api-server run build
+RUN printf '%s' "$BUILD_SHA" | grep -Eq '^[0-9a-f]{40}$' \
+    && BUILD_SHA="$BUILD_SHA" pnpm --filter @workspace/api-server run build
 
 # Produce a pruned, production-only node_modules at /app. Reuse the same warm
 # pnpm store so this step doesn't re-fetch from the registry either.
@@ -76,13 +80,15 @@ ENV BUILD_SHA=$BUILD_SHA
 
 # Runtime deps that esbuild keeps external (e.g. @aws-sdk, nodemailer).
 COPY --from=builder /app/node_modules ./node_modules
-# Bundled server + separately invoked control-plane tools + pino workers.
-COPY --from=builder /repo/artifacts/api-server/dist ./dist
-# SQL migrations are read by health and separately invoked control-plane tools;
-# the production startup command never executes dist/migrate.mjs.
+# Runtime allowlist: production cannot invoke migration or mutating gate bundles.
+COPY --from=builder /repo/artifacts/api-server/dist/index.mjs ./dist/index.mjs
+COPY --from=builder /repo/artifacts/api-server/dist/index.mjs.map ./dist/index.mjs.map
+COPY --from=builder /repo/artifacts/api-server/dist/thread-stream-worker.mjs ./dist/thread-stream-worker.mjs
+COPY --from=builder /repo/artifacts/api-server/dist/pino-worker.mjs ./dist/pino-worker.mjs
+COPY --from=builder /repo/artifacts/api-server/dist/pino-file.mjs ./dist/pino-file.mjs
+COPY --from=builder /repo/artifacts/api-server/dist/pino-pretty.mjs ./dist/pino-pretty.mjs
+# SQL is used only by the in-process read-only readiness and health projections.
 COPY --from=builder /repo/lib/db/migrations ./migrations
-COPY --from=builder /repo/scripts/start-api-production.sh ./scripts/start-api-production.sh
-COPY --from=builder /repo/scripts/check-audit-0107-release-evidence.mjs ./scripts/check-audit-0107-release-evidence.mjs
 
 RUN chown -R node:node /app
 USER node
@@ -93,6 +99,27 @@ EXPOSE 5000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=5 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||5000)+'/api/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-# Verify the separately approved steady-0107 release boundary, then start the
-# server without schema mutation.
-CMD ["sh", "/app/scripts/start-api-production.sh"]
+# The bundled entrypoint verifies production evidence and live read-only DB
+# readiness before it dynamically imports the application or any worker.
+CMD ["node", "--enable-source-maps", "/app/dist/index.mjs"]
+
+# ---------- One-shot schema control plane / staging ----------
+# This target deliberately contains the complete tool bundle. It must never be
+# selected for the production API service; commands are supplied explicitly by
+# an approved one-shot runner or the isolated staging Compose stack.
+FROM runtime AS control-plane
+USER root
+LABEL io.modvolt.site-logbook.image-profile="control-plane"
+RUN touch /app/.site-logbook-control-plane-image
+COPY --from=builder /repo/artifacts/api-server/dist ./dist
+COPY --from=builder /repo/scripts/start-api-production.sh ./scripts/start-api-production.sh
+COPY --from=builder /repo/scripts/check-audit-0107-release-evidence.mjs ./scripts/check-audit-0107-release-evidence.mjs
+RUN test -f /app/.site-logbook-control-plane-image \
+    && test -f /app/dist/production-exact-0096-backup-producer.mjs
+RUN chown -R node:node /app/dist /app/scripts
+USER node
+
+# Keep the default/final Docker target non-mutating. Production publication may
+# also select this target explicitly; it contains only the runtime allowlist.
+FROM runtime AS production
+LABEL io.modvolt.site-logbook.image-profile="production"

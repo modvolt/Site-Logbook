@@ -13,21 +13,32 @@ import { AUDIT_0107 } from "../staging-audit-0107-contract.mjs";
 import {
   createArtifacts,
   artifact,
+  defaultNetworkInspect,
   gateEvidence,
   inventory,
   POSTGRES_CONTAINER_ID,
   postgresInspect,
+  postgresVolumeInspect,
   resolvedCompose,
   SHA,
 } from "./staging-audit-0107-fixtures.mjs";
+
+const INVENTORY_CONTAINER_ID = "9".repeat(64);
+const TRANSITION_CONTAINER_ID = "a".repeat(64);
 
 function setup({
   mode = "clean",
   inventoryDecision = "READY_0106",
   operation = "APPLIED",
   mutateCompose,
+  mutateInventory,
   mutateGate,
   outputDirectory,
+  foreignVolumeContainerId,
+  foreignNetworkContainerId,
+  mutateFrozenAfterCreate,
+  failStart,
+  failCleanup,
 } = {}) {
   const artifacts = createArtifacts(mode);
   const compose = resolvedCompose(artifacts, "gate");
@@ -37,28 +48,136 @@ function setup({
     outputDirectory ??
     fs.mkdtempSync(path.join(os.tmpdir(), "audit-0107-transition-"));
   const calls = [];
+  const frozenPaths = [];
+  const activeOneShots = new Map();
+  let currentOneShot;
+  let removedOneShots = 0;
   const execute = (_command, args) => {
     calls.push(args);
-    if (args.includes("config"))
-      return { status: 0, stdout: JSON.stringify(compose) };
+    if (args.includes("config")) {
+      if (args.includes("--env-file")) {
+        return { status: 0, stdout: JSON.stringify(compose) };
+      }
+      const frozenPath = args[args.indexOf("-f") + 1];
+      frozenPaths.push(frozenPath);
+      return { status: 0, stdout: fs.readFileSync(frozenPath, "utf8") };
+    }
+    if (args[0] === "inspect" && args.includes("{{json .State}}")) {
+      return {
+        status: 0,
+        stdout: JSON.stringify({
+          Status: "exited",
+          Running: false,
+          ExitCode: 0,
+        }),
+      };
+    }
     if (args[0] === "inspect")
       return { status: 0, stdout: JSON.stringify(postgres) };
+    if (args[0] === "volume") {
+      return {
+        status: 0,
+        stdout: JSON.stringify(
+          postgresVolumeInspect(artifacts.binding.derivedInspect),
+        ),
+      };
+    }
+    if (args[0] === "network") {
+      const ids = [
+        POSTGRES_CONTAINER_ID,
+        ...activeOneShots.keys(),
+        ...(foreignNetworkContainerId ? [foreignNetworkContainerId] : []),
+      ];
+      return {
+        status: 0,
+        stdout: JSON.stringify(
+          defaultNetworkInspect(artifacts.binding.derivedInspect, ids),
+        ),
+      };
+    }
+    if (
+      args[0] === "container" &&
+      args.some((value) => String(value).startsWith("volume="))
+    ) {
+      return {
+        status: 0,
+        stdout:
+          [POSTGRES_CONTAINER_ID, foreignVolumeContainerId]
+            .filter(Boolean)
+            .join("\n") + "\n",
+      };
+    }
+    if (
+      args[0] === "container" &&
+      args.some((value) => String(value).startsWith("network="))
+    ) {
+      return {
+        status: 0,
+        stdout:
+          [
+            POSTGRES_CONTAINER_ID,
+            ...activeOneShots.keys(),
+            foreignNetworkContainerId,
+          ]
+            .filter(Boolean)
+            .join("\n") + "\n",
+      };
+    }
+    if (args.includes("create")) {
+      const frozenPath = args[args.indexOf("-f") + 1];
+      const model = JSON.parse(fs.readFileSync(frozenPath, "utf8"));
+      const isInventory = model.services["audit-schema-gate"].command.includes(
+        "dist/audit-schema-inventory.mjs",
+      );
+      currentOneShot = isInventory
+        ? INVENTORY_CONTAINER_ID
+        : TRANSITION_CONTAINER_ID;
+      activeOneShots.set(
+        currentOneShot,
+        isInventory ? "inventory" : "transition",
+      );
+      return { status: 0, stdout: "" };
+    }
+    if (args.includes("--all") && args.includes("--quiet")) {
+      const kind = activeOneShots.get(currentOneShot);
+      if (mutateFrozenAfterCreate === kind) {
+        const frozenPath = args[args.indexOf("-f") + 1];
+        fs.appendFileSync(frozenPath, " ");
+      }
+      return { status: 0, stdout: `${currentOneShot}\n` };
+    }
     if (args.includes("ps") && args.includes("--quiet")) {
       return { status: 0, stdout: `${POSTGRES_CONTAINER_ID}\n` };
     }
     if (args.includes("ps")) return { status: 0, stdout: "postgres\n" };
-    if (args.includes("dist/audit-schema-inventory.mjs")) {
-      return {
-        status: 0,
-        stdout: `[audit-schema-inventory] PASS ${JSON.stringify(inventory(inventoryDecision, mode))}\n`,
-      };
+    if (args[0] === "start") {
+      const kind = activeOneShots.get(args[2]);
+      if (failStart === kind) return { status: 1, stdout: "" };
+      if (kind === "inventory") {
+        const marker = inventory(inventoryDecision, mode);
+        mutateInventory?.(marker);
+        return {
+          status: 0,
+          stdout: `[audit-schema-inventory] PASS ${JSON.stringify(marker)}\n`,
+        };
+      }
+      if (kind === "transition") {
+        const gate = gateEvidence(artifacts, operation);
+        mutateGate?.(gate);
+        return {
+          status: 0,
+          stdout: `[audit-schema-gate] ${operation} ${JSON.stringify(gate)}\n`,
+        };
+      }
     }
-    const gate = gateEvidence(artifacts, operation);
-    mutateGate?.(gate);
-    return {
-      status: 0,
-      stdout: `[audit-schema-gate] ${operation} ${JSON.stringify(gate)}\n`,
-    };
+    if (args[0] === "rm") {
+      const kind = activeOneShots.get(args[2]);
+      if (failCleanup === kind) return { status: 1, stdout: "" };
+      activeOneShots.delete(args[2]);
+      removedOneShots += 1;
+      return { status: 0, stdout: "" };
+    }
+    return { status: 1, stdout: "" };
   };
   const times = [
     new Date("2026-08-12T10:03:30.000Z"),
@@ -67,6 +186,15 @@ function setup({
   return {
     artifacts,
     calls,
+    frozenPaths,
+    state: {
+      get activeOneShots() {
+        return activeOneShots.size;
+      },
+      get removedOneShots() {
+        return removedOneShots;
+      },
+    },
     outputDirectory: output,
     options: {
       outputDirectory: output,
@@ -99,6 +227,15 @@ test("writes intent before an isolated APPLIED transition and verifies execution
       assert.equal(result.execution.operation, "applied");
       assert.equal(result.execution.authorizesApplicationStart, false);
       assert.equal(result.execution.lineage.mode, mode);
+      assert.equal(
+        result.execution.runtimeIsolation
+          .exactApprovedContainersAtObservedBoundaries,
+        true,
+      );
+      assert.equal(
+        result.execution.runtimeIsolation.continuousIsolationInferred,
+        false,
+      );
       assert.ok(
         fs.existsSync(
           path.join(fixture.outputDirectory, "staging-audit-0107-intent.json"),
@@ -135,8 +272,12 @@ test("writes intent before an isolated APPLIED transition and verifies execution
           (args) =>
             args.includes("--profile") &&
             args.includes("audit-0107-transition") &&
-            args.includes("dist/audit-schema-gate.mjs"),
+            args.includes("create"),
         ),
+      );
+      assert.equal(
+        fixture.calls.filter((args) => args[0] === "start").length,
+        2,
       );
       assert.ok(
         fixture.calls.every(
@@ -246,6 +387,36 @@ test("rejects tampered gate binding and predecessor confirmation", () => {
   }
 });
 
+test("binds exact backup integrity and schema fingerprint through inventory and gate", () => {
+  const cases = [
+    setup({
+      mutateInventory: (marker) => {
+        marker.backupIntegrity.verifiedTableCounts = {
+          ...marker.backupIntegrity.verifiedTableCounts,
+          "public.users": 5,
+        };
+      },
+    }),
+    setup({
+      mutateGate: (gate) => {
+        gate.transition.backupIntegrity.backupRowBindingSha256 = `sha256:${"0".repeat(64)}`;
+      },
+    }),
+    setup({
+      mutateGate: (gate) => {
+        gate.after.schema.schemaFingerprintSha256 = `sha256:${"0".repeat(64)}`;
+      },
+    }),
+  ];
+  for (const fixture of cases) {
+    try {
+      assert.throws(() => runStagingAudit0107Transition(fixture.options));
+    } finally {
+      cleanup(fixture);
+    }
+  }
+});
+
 test("execution validator rejects an application-start authorization bit", () => {
   const fixture = setup();
   try {
@@ -304,6 +475,28 @@ test("cross-slice markers reject broken inspect, backup and no-op bindings", () 
     }),
   );
 
+  const changedFingerprint = artifact(
+    {
+      ...artifacts.binding.transition,
+      expectedSchemaFingerprintSha256: `sha256:${"0".repeat(64)}`,
+    },
+    "staging-audit-0107-transition.json",
+  );
+  assert.throws(() =>
+    validateStagingAudit0107TransitionArtifacts({
+      expectedSourceSha: SHA,
+      transitionBytes: changedFingerprint.bytes,
+      transitionChecksumText: changedFingerprint.checksum,
+      expectedTransitionSha256: changedFingerprint.sha256,
+      inspectBytes: artifacts.inspect.bytes,
+      inspectChecksumText: artifacts.inspect.checksum,
+      expectedInspectSha256: artifacts.inspect.sha256,
+      backupExecutionBytes: artifacts.backup.bytes,
+      backupExecutionChecksumText: artifacts.backup.checksum,
+      expectedBackupExecutionSha256: artifacts.backup.sha256,
+    }),
+  );
+
   const missingTransition = setup({
     mutateGate: (gate) => {
       gate.transition = null;
@@ -335,5 +528,66 @@ test("fails closed when resolved Compose changes immediately before stateful run
     assert.throws(() => runStagingAudit0107Transition(fixture.options));
   } finally {
     cleanup(fixture);
+  }
+});
+
+test("rejects foreign containers sharing the approved postgres volume or network", () => {
+  for (const options of [
+    { foreignVolumeContainerId: "b".repeat(64) },
+    { foreignNetworkContainerId: "c".repeat(64) },
+  ]) {
+    const fixture = setup(options);
+    try {
+      assert.throws(() => runStagingAudit0107Transition(fixture.options));
+      assert.ok(fixture.frozenPaths.every((value) => !fs.existsSync(value)));
+    } finally {
+      cleanup(fixture);
+    }
+  }
+});
+
+test("fails closed on transition frozen-Compose mutation and cleans both one-shots", () => {
+  const fixture = setup({ mutateFrozenAfterCreate: "transition" });
+  try {
+    assert.throws(() => runStagingAudit0107Transition(fixture.options));
+    assert.equal(fixture.state.activeOneShots, 0);
+    assert.equal(fixture.state.removedOneShots, 2);
+    assert.ok(fixture.frozenPaths.every((value) => !fs.existsSync(value)));
+  } finally {
+    cleanup(fixture);
+  }
+});
+
+test("cleans a failed transition one-shot and retains its cleanup failure", () => {
+  const commandFailure = setup({ failStart: "transition" });
+  try {
+    assert.throws(() => runStagingAudit0107Transition(commandFailure.options));
+    assert.equal(commandFailure.state.activeOneShots, 0);
+    assert.equal(commandFailure.state.removedOneShots, 2);
+    assert.ok(
+      commandFailure.frozenPaths.every((value) => !fs.existsSync(value)),
+    );
+  } finally {
+    cleanup(commandFailure);
+  }
+
+  const doubleFailure = setup({
+    failStart: "transition",
+    failCleanup: "transition",
+  });
+  try {
+    let error;
+    try {
+      runStagingAudit0107Transition(doubleFailure.options);
+      assert.fail("double failure must fail closed");
+    } catch (caught) {
+      error = caught;
+    }
+    assert.ok(error.cleanupError);
+    assert.ok(
+      doubleFailure.frozenPaths.every((value) => !fs.existsSync(value)),
+    );
+  } finally {
+    cleanup(doubleFailure);
   }
 });

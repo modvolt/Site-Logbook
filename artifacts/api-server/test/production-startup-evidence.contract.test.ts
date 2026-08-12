@@ -7,75 +7,204 @@ const source = (relativePath: string) =>
   readFileSync(resolve(root, relativePath), "utf8");
 
 describe("production steady-0107 startup boundary", () => {
-  it("never invokes the migrator from either production startup path", () => {
+  it("makes the implicit/final production image non-mutating", () => {
     const dockerfile = source("artifacts/api-server/Dockerfile");
-    const startup = source("scripts/start-api-production.sh");
-
+    const runtime = dockerfile.slice(
+      dockerfile.indexOf(" AS runtime"),
+      dockerfile.indexOf(" AS control-plane"),
+    );
+    expect(runtime).toContain("dist/index.mjs ./dist/index.mjs");
+    expect(runtime).toContain(
+      'CMD ["node", "--enable-source-maps", "/app/dist/index.mjs"]',
+    );
+    expect(runtime).not.toContain("migrate.mjs");
+    expect(runtime).not.toContain("schema-gate.mjs");
+    expect(runtime).not.toContain("check-audit-0107-release-evidence.mjs");
+    expect(dockerfile).toContain("FROM runtime AS control-plane");
     expect(dockerfile).toContain(
-      'CMD ["sh", "/app/scripts/start-api-production.sh"]',
+      "RUN touch /app/.site-logbook-control-plane-image",
     );
     expect(dockerfile).toContain(
-      "COPY --from=builder /repo/scripts/check-audit-0107-release-evidence.mjs",
+      'LABEL io.modvolt.site-logbook.image-profile="control-plane"',
     );
-    expect(dockerfile).not.toContain("node dist/migrate.mjs");
-    expect(startup).toContain("check-audit-0107-release-evidence.mjs");
-    expect(startup).toContain("--emit-runtime-lineage-b64");
-    expect(startup).toContain("autoMigrate=false");
-    expect(startup).not.toContain("migrate.mjs");
+    expect(dockerfile.trimEnd()).toMatch(
+      /FROM runtime AS production\r?\nLABEL io\.modvolt\.site-logbook\.image-profile="production"$/,
+    );
   });
 
-  it("requires exact build and all separately checksummed raw artifacts", () => {
+  it("uses only separately approved immutable images in root production Compose", () => {
     const compose = source("docker-compose.yml");
-    expect(compose).toContain(
-      "BUILD_SHA: ${BUILD_SHA:?set the exact 40-character release commit SHA}",
-    );
+    expect(compose).not.toMatch(/^\s+build:/m);
     for (const key of [
-      "AUDIT_0107_RELEASE_EVIDENCE_B64",
-      "AUDIT_0107_RELEASE_EVIDENCE_SHA256",
-      "AUDIT_0107_EXECUTION_EVIDENCE_B64",
-      "AUDIT_0107_EXECUTION_EVIDENCE_SHA256",
-      "AUDIT_0107_INTENT_EVIDENCE_B64",
-      "AUDIT_0107_INTENT_EVIDENCE_SHA256",
-      "AUDIT_0107_STEADY_STATE_EVIDENCE_B64",
-      "AUDIT_0107_STEADY_STATE_EVIDENCE_SHA256",
-      "AUDIT_0107_RESOLVED_COMPOSE_SHA256",
-      "AUDIT_0107_DEPLOYMENT_CONFIG_SHA256",
-      "AUDIT_0107_LIVE_POSTGRES_TARGET_SHA256",
+      "PRODUCTION_POSTGRES_IMAGE",
+      "PRODUCTION_API_IMAGE",
+      "PRODUCTION_WEB_IMAGE",
+    ]) {
+      expect(compose).toContain(`image: \${${key}:?`);
+    }
+    expect(compose).not.toContain("postgres:16-alpine");
+    expect(compose).not.toContain("minio/minio:latest");
+    expect(compose).not.toContain("minio/mc:latest");
+    expect(compose).not.toMatch(/^\s{2}(?:minio|createbuckets):/m);
+    expect(compose).not.toContain("PRODUCTION_MINIO_IMAGE");
+    expect(compose).not.toContain("PRODUCTION_MINIO_MC_IMAGE");
+    expect(compose).toContain(
+      "S3_ENDPOINT: ${S3_ENDPOINT:?set the canonical Hetzner Object Storage HTTPS endpoint}",
+    );
+    expect(compose).toContain(
+      "S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-false}",
+    );
+    expect(
+      source("artifacts/api-server/src/lib/production-startup.ts"),
+    ).toContain("requireProductionHetznerObjectStorageConfiguration(env)");
+    expect(compose).toContain("SITE_LOGBOOK_RUNTIME_ENVIRONMENT: production");
+    expect(compose).toContain('EXTERNAL_ACCOUNTS_ENABLED: "false"');
+    for (const key of [
+      "PRODUCTION_EXPECTED_BACKUP_INTEGRITY_SHA256",
+      "PRODUCTION_EXPECTED_0096_0107_TRANSITION_CHAIN_SHA256",
+      "PRODUCTION_EXPECTED_ACTIVATION_APPROVAL_SHA256",
+      "PRODUCTION_ACTIVATION_APPROVAL_EVIDENCE_B64",
+      "PRODUCTION_ACTIVATION_APPROVAL_EVIDENCE_SHA256",
+      "PRODUCTION_HOST_ATTESTATION_B64",
+      "PRODUCTION_HOST_ATTESTATION_SIGNATURE_B64",
     ]) {
       expect(compose).toContain(`${key}: \${${key}:?`);
     }
   });
 
-  it("keeps schema-v4 exact-0105 evidence separate from the v5 approval", () => {
-    const v4Checker = source("scripts/check-staging-release-evidence.mjs");
-    const v4Template = JSON.parse(
-      source("docs/audit/13-staging-evidence.template.json"),
+  it("ships only a visibly blocked, non-authorizing production template", () => {
+    const template = JSON.parse(
+      source("docs/audit/13-production-audit-0107-evidence.template.json"),
+    ) as {
+      _templateStatus: string;
+      target: {
+        build: { provenanceEvidenceSha256: string };
+      };
+      activationApproval: {
+        schemaVersion: string;
+        confirmation: string;
+      };
+      intent: {
+        productionTargetsTouched: boolean;
+        authorizesApplicationStart: boolean;
+      };
+      execution: {
+        productionTargetsTouched: boolean;
+        authorizesApplicationStart: boolean;
+      };
+      steady: {
+        productionTargetsTouched: boolean;
+        authorizesApplicationStart: boolean;
+      };
+      release: {
+        productionTargetsTouched: boolean;
+        authorizesApplicationStart: boolean;
+      };
+    };
+    expect(template._templateStatus).toContain("ACTIVATION BLOCKED");
+    expect(template.target.build.provenanceEvidenceSha256).toMatch(
+      /^sha256:[a-f0-9]{64}$/,
     );
-    const v5Template = JSON.parse(
-      source(
-        "docs/audit/13-staging-audit-0107-release-evidence-v5.template.json",
-      ),
-    );
-
-    expect(v4Checker).toContain(
-      'requireValue(root.schemaVersion, 4, "schemaVersion")',
-    );
-    expect(v4Checker).toContain('"0105_smooth_nitro"');
-    expect(v4Template.schemaVersion).toBe(4);
-    expect(v4Template.deployment.expectedMigrations).toBe(105);
-    expect(v5Template.schemaVersion).toBe(5);
-    expect(v5Template.predecessorReleaseEvidence.schemaVersion).toBe(4);
+    expect(template.activationApproval).toMatchObject({
+      schemaVersion: "site-logbook.production-activation-approval/v1",
+      confirmation: "AUTHORIZE_EXACT_0107_MODVOLT_PRODUCTION_APPLICATION_START",
+    });
+    for (const artifact of [
+      template.intent,
+      template.execution,
+      template.steady,
+      template.release,
+    ]) {
+      expect(artifact.productionTargetsTouched).toBe(false);
+      expect(artifact.authorizesApplicationStart).toBe(false);
+    }
   });
 
-  it("classifies the health journal by timestamp plus SQL hash", () => {
+  it("fails production direct-index startup before importing app or workers", () => {
+    const index = source("artifacts/api-server/src/index.ts");
+    const preflight = index.indexOf("runProductionStartupPreflight");
+    const appImport = index.indexOf('import("./app")');
+    const listen = index.indexOf("app.listen");
+    const worker = index.indexOf('import("./lib/extraction-worker")');
+    expect(preflight).toBeGreaterThan(0);
+    expect(appImport).toBeGreaterThan(preflight);
+    expect(worker).toBeGreaterThan(preflight);
+    expect(listen).toBeGreaterThan(appImport);
+    expect(index).not.toContain('import app from "./app"');
+    expect(index).toContain("requireEmbeddedProductionBuildSha");
+    expect(index).toContain("requiresReleaseStartupGuard");
+    expect(index).not.toContain('if (process.env.NODE_ENV === "production")');
+    expect(index).toContain("requireObservedProductionHostRunner");
+    expect(index).toContain("verifyLiveProductionAuditReadiness");
+    expect(index).toContain("STAGING_CONTROL_PLANE_IMAGE_REQUIRED");
+    expect(index).toContain("startProductionRuntimeFailStop");
+    expect(index.indexOf("startProductionRuntimeFailStop({")).toBeLessThan(
+      index.indexOf("startWorker(backup.startBackupScheduler)"),
+    );
+    expect(index.indexOf("stopWorkers();")).toBeLessThan(
+      index.indexOf("server.close("),
+    );
+    expect(index).toContain("shutdownExitCode = Math.max");
+    expect(index).toContain("requestShutdown(1, reason)");
+    expect(index).toContain("stopAndWaitForVerdict");
+    expect(index).toContain("PRODUCTION_RUNTIME_SHUTDOWN_DRAIN_MS");
+    expect(index).toContain(
+      'if (runtimeState === "tripped") shutdownExitCode = 1',
+    );
+    expect(index).toContain("process.exit(shutdownExitCode)");
+  });
+
+  it("binds raw predecessor v4 bytes to a separately trusted digest", () => {
+    const checker = source("scripts/check-audit-0107-release-evidence.mjs");
+    expect(checker).toContain("decodeRawJsonArtifact");
+    expect(checker).toContain("AUDIT_0107_PREDECESSOR_V4_EVIDENCE_B64");
+    expect(checker).toContain("AUDIT_0107_PREDECESSOR_V4_EVIDENCE_SHA256");
+    expect(checker).toContain(
+      "AUDIT_0107_EXPECTED_PREDECESSOR_V4_EVIDENCE_SHA256",
+    );
+    expect(checker).toContain("predecessorArtifact.value.schemaVersion");
+  });
+
+  it("refreshes live database/schema identity and exposes secret-free parity", () => {
     const health = source("artifacts/api-server/src/routes/health.ts");
+    const adapter = source(
+      "artifacts/api-server/src/lib/production-audit-readiness.ts",
+    );
+    expect(adapter).toContain("verifyProductionAuditSchemaReadiness");
+    expect(health).toContain("readProductionRuntimeReadinessState");
+    expect(health).toContain("productionRuntimeLatchAllowsReadiness");
+    expect(health).toContain("unavailableProductionControlParity");
+    expect(health).toContain("process.env.SITE_LOGBOOK_RUNTIME_ENVIRONMENT");
+    const healthz = health.indexOf('router.get("/healthz"');
+    const latch = health.indexOf(
+      "if (!productionRuntimeLatchAllowsReadiness())",
+      healthz,
+    );
+    const dbProbe = health.indexOf("await checkDbLatency()", healthz);
+    expect(latch).toBeGreaterThan(healthz);
+    expect(latch).toBeLessThan(dbProbe);
+    expect(health.slice(latch, dbProbe)).toContain("res.status(503)");
+    const finalLatch = health.indexOf(
+      "productionRuntimeLatchAllowsReadiness();",
+      dbProbe,
+    );
+    const finalResponse = health.indexOf(
+      "res.status(ready ? 200 : 503)",
+      dbProbe,
+    );
+    expect(finalLatch).toBeGreaterThan(dbProbe);
+    expect(finalLatch).toBeLessThan(finalResponse);
+    expect(health).toContain("productionRuntimeBindingMatches");
+    expect(health).toContain("readProductionRuntimeHealthProjection");
     expect(health).toContain(
       "SELECT created_at, hash FROM drizzle.__drizzle_migrations",
     );
-    expect(health).toContain("classifyMigrationInventory");
-    expect(health).toContain("migrationReleaseBindingMatches");
-    expect(health).toContain("knownAppliedMigrations");
-    expect(health).toContain("opaqueAppliedMigrations");
-    expect(health).toContain("opaqueMigrationRowsSha256");
+  });
+
+  it("keeps the staging control-plane publisher explicit", () => {
+    const workflow = source(".github/workflows/staging-images.yml");
+    expect(workflow.match(/target: control-plane/g)).toHaveLength(2);
+    const staging = source("docker-compose.staging.yml");
+    expect(staging).toContain("SITE_LOGBOOK_RUNTIME_ENVIRONMENT: staging");
   });
 });

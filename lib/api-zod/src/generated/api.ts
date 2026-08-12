@@ -44,6 +44,32 @@ export const GetAdminHealthResponse = zod.object({
     .describe(
       "Exact production steady-release lineage match; null outside production",
     ),
+  productionRuntimeBinding: zod
+    .union([
+      zod.object({
+        schemaVersion: zod.enum(["site-logbook.production-runtime-binding/v1"]),
+        sourceSha: zod.string(),
+        apiImage: zod.string(),
+        apiImageDigest: zod.string(),
+        targetEvidenceSha256: zod.string(),
+        releaseEvidenceSha256: zod.string(),
+        resolvedComposeSha256: zod.string(),
+        deployedConfigSha256: zod.string(),
+        desiredConfigSha256: zod.string(),
+        livePostgresTargetSha256: zod.string(),
+        databaseName: zod.string(),
+        databaseUser: zod.string(),
+        schemaFingerprintSha256: zod.string(),
+        preMigrationBackupEvidenceSha256: zod.string(),
+        backupIntegritySha256: zod.string(),
+        transitionChainSha256: zod.string(),
+        activationApprovalSha256: zod.string(),
+      }),
+      zod.null(),
+    ])
+    .describe(
+      "Secret-free exact production target, config, image, database and schema binding; null outside the production runtime.",
+    ),
   expectedMigrations: zod.number(),
   knownAppliedMigrations: zod
     .number()

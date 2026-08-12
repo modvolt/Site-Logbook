@@ -140,7 +140,7 @@ describe("side-effect callsite inventory", () => {
           entry.kind === "managed-object" &&
           entry.migrationStatus === "legacy-unbound",
       ),
-    ).toBe(46);
+    ).toBe(47);
     expect(
       total((entry) => entry.migrationStatus === "independently-bound"),
     ).toBe(2);

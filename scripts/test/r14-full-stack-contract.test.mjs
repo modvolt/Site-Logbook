@@ -37,7 +37,7 @@ const apiDockerfilePath = path.join(
 const [composeSource, runner, provider, workflow, dockerignore, apiDockerfile] =
   await Promise.all([
     readFile(composePath, "utf8"),
-    readFile(runnerPath, "utf8"),
+    readFile(runnerPath, "utf8").then((value) => value.replace(/\r\n?/g, "\n")),
     readFile(providerPath, "utf8"),
     readFile(workflowPath, "utf8"),
     readFile(dockerignorePath, "utf8"),
@@ -186,7 +186,7 @@ test("runner enforces exact provenance, restore/fault proof, and unconditional t
   assert.ok(runner.includes('"docker-buildx.exe"'));
   assert.ok(runner.includes('["build", "--load"]'));
   assert.doesNotMatch(runner, /"--no-privileges",\s*"-",/);
-  assert.ok(runner.includes('options.input !== undefined'));
+  assert.ok(runner.includes("options.input !== undefined"));
   assert.ok(runner.includes('["pipe", "inherit", "inherit"]'));
   assert.match(dockerignore, /^\/tmp$/m);
   assert.match(dockerignore, /^\/e2e\/test-results$/m);

@@ -116,37 +116,37 @@ CREATE INDEX "audit_export_outbox_claim_idx" ON "audit_export_outbox" USING btre
 -- lexicographically-keyed canonical bytes as the application contract. Audit
 -- envelopes contain only safe integer JSON numbers; decimal or unsafe numeric
 -- values are rejected instead of being assigned ambiguous JS/PG semantics.
-CREATE OR REPLACE FUNCTION audit_json_has_exact_keys(value jsonb, expected text[])
-RETURNS boolean LANGUAGE sql IMMUTABLE STRICT AS $$
+CREATE OR REPLACE FUNCTION public.audit_json_has_exact_keys(value jsonb, expected text[])
+RETURNS boolean LANGUAGE sql IMMUTABLE STRICT SET search_path = pg_catalog AS $$
   SELECT jsonb_typeof(value) = 'object'
      AND (value - expected) = '{}'::jsonb
      AND value ?& expected;
 $$;
 
-CREATE OR REPLACE FUNCTION audit_json_is_sha256(value jsonb)
-RETURNS boolean LANGUAGE sql IMMUTABLE STRICT AS $$
+CREATE OR REPLACE FUNCTION public.audit_json_is_sha256(value jsonb)
+RETURNS boolean LANGUAGE sql IMMUTABLE STRICT SET search_path = pg_catalog AS $$
   SELECT jsonb_typeof(value) = 'string'
      AND (value #>> '{}') ~ '^[0-9a-f]{64}$';
 $$;
 
-CREATE OR REPLACE FUNCTION audit_json_is_string_or_null(value jsonb)
-RETURNS boolean LANGUAGE sql IMMUTABLE STRICT AS $$
+CREATE OR REPLACE FUNCTION public.audit_json_is_string_or_null(value jsonb)
+RETURNS boolean LANGUAGE sql IMMUTABLE STRICT SET search_path = pg_catalog AS $$
   SELECT jsonb_typeof(value) IN ('string', 'null');
 $$;
 
-CREATE OR REPLACE FUNCTION audit_json_is_safe_integer(
+CREATE OR REPLACE FUNCTION public.audit_json_is_safe_integer(
   value jsonb,
   minimum numeric,
   maximum numeric
 )
-RETURNS boolean LANGUAGE sql IMMUTABLE STRICT AS $$
+RETURNS boolean LANGUAGE sql IMMUTABLE STRICT SET search_path = pg_catalog AS $$
   SELECT jsonb_typeof(value) = 'number'
      AND (value #>> '{}')::numeric = trunc((value #>> '{}')::numeric)
      AND (value #>> '{}')::numeric BETWEEN minimum AND maximum;
 $$;
 
-CREATE OR REPLACE FUNCTION audit_canonical_json(value jsonb)
-RETURNS text LANGUAGE plpgsql IMMUTABLE STRICT AS $$
+CREATE OR REPLACE FUNCTION public.audit_canonical_json(value jsonb)
+RETURNS text LANGUAGE plpgsql IMMUTABLE STRICT SET search_path = pg_catalog AS $$
 DECLARE
   kind text := jsonb_typeof(value);
   result text;
@@ -165,7 +165,7 @@ BEGIN
       RETURN trim_scale(numeric_value)::text;
     WHEN 'array' THEN
       SELECT '[' || coalesce(
-        string_agg(audit_canonical_json(item), ',' ORDER BY ordinal),
+        string_agg(public.audit_canonical_json(item), ',' ORDER BY ordinal),
         ''
       ) || ']'
       INTO result
@@ -174,7 +174,7 @@ BEGIN
     WHEN 'object' THEN
       SELECT '{' || coalesce(
         string_agg(
-          to_json(key)::text || ':' || audit_canonical_json(value -> key),
+          to_json(key)::text || ':' || public.audit_canonical_json(value -> key),
           ',' ORDER BY key COLLATE "C"
         ),
         ''
@@ -188,26 +188,26 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION audit_domain_sha256(domain text, canonical_json text)
-RETURNS text LANGUAGE sql IMMUTABLE STRICT AS $$
-  SELECT encode(
-    sha256(
-      convert_to(domain, 'UTF8') ||
-      decode('00', 'hex') ||
-      convert_to(canonical_json, 'UTF8')
+CREATE OR REPLACE FUNCTION public.audit_domain_sha256(domain text, canonical_json text)
+RETURNS text LANGUAGE sql IMMUTABLE STRICT SET search_path = pg_catalog AS $$
+  SELECT pg_catalog.encode(
+    pg_catalog.sha256(
+      pg_catalog.convert_to(domain, 'UTF8') ||
+      pg_catalog.decode('00', 'hex') ||
+      pg_catalog.convert_to(canonical_json, 'UTF8')
     ),
     'hex'
   );
 $$;
 
-CREATE OR REPLACE FUNCTION audit_state_json_is_valid(value jsonb)
-RETURNS boolean LANGUAGE plpgsql IMMUTABLE STRICT AS $$
+CREATE OR REPLACE FUNCTION public.audit_state_json_is_valid(value jsonb)
+RETURNS boolean LANGUAGE plpgsql IMMUTABLE STRICT SET search_path = pg_catalog AS $$
 DECLARE
   availability text;
   projection text;
   data jsonb;
 BEGIN
-  IF audit_json_has_exact_keys(
+  IF public.audit_json_has_exact_keys(
     value,
     array['availability','completeness','projection','data','sha256','missingFields','reason']
   ) IS NOT TRUE OR
@@ -222,18 +222,18 @@ BEGIN
   IF availability = 'present' THEN
     IF value ->> 'completeness' <> 'complete' OR
        jsonb_typeof(value -> 'projection') <> 'string' OR
-       audit_json_is_sha256(value -> 'sha256') IS NOT TRUE OR
+       public.audit_json_is_sha256(value -> 'sha256') IS NOT TRUE OR
        jsonb_typeof(value -> 'reason') <> 'null' THEN
       RETURN false;
     END IF;
     projection := value ->> 'projection';
     data := value -> 'data';
     IF projection IN ('job.audit/v1', 'job-summary.audit/v1') THEN
-      RETURN audit_json_has_exact_keys(data, array['id','notePresent']) IS TRUE
-         AND audit_json_is_safe_integer(data -> 'id', 1, 9007199254740991) IS TRUE
+      RETURN public.audit_json_has_exact_keys(data, array['id','notePresent']) IS TRUE
+         AND public.audit_json_is_safe_integer(data -> 'id', 1, 9007199254740991) IS TRUE
          AND jsonb_typeof(data -> 'notePresent') = 'boolean';
     ELSIF projection = 'critical-aggregate.audit/v1' THEN
-      RETURN audit_json_has_exact_keys(
+      RETURN public.audit_json_has_exact_keys(
         data,
         array['entityType','entityId','aggregateVersion','lifecycleState','contentSha256','relationSetSha256']
       ) IS TRUE
@@ -241,10 +241,10 @@ BEGIN
          AND jsonb_typeof(data -> 'entityId') = 'string'
          AND jsonb_typeof(data -> 'aggregateVersion') = 'string'
          AND jsonb_typeof(data -> 'lifecycleState') = 'string'
-         AND audit_json_is_sha256(data -> 'contentSha256') IS TRUE
+         AND public.audit_json_is_sha256(data -> 'contentSha256') IS TRUE
          AND (
            jsonb_typeof(data -> 'relationSetSha256') = 'null' OR
-           audit_json_is_sha256(data -> 'relationSetSha256') IS TRUE
+           public.audit_json_is_sha256(data -> 'relationSetSha256') IS TRUE
          );
     END IF;
     RETURN false;
@@ -263,12 +263,12 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION audit_event_json_is_valid(value jsonb)
-RETURNS boolean LANGUAGE plpgsql IMMUTABLE STRICT AS $$
+CREATE OR REPLACE FUNCTION public.audit_event_json_is_valid(value jsonb)
+RETURNS boolean LANGUAGE plpgsql IMMUTABLE STRICT SET search_path = pg_catalog AS $$
 DECLARE
   artifact jsonb;
 BEGIN
-  IF audit_json_has_exact_keys(
+  IF public.audit_json_has_exact_keys(
     value,
     array['schemaVersion','eventId','occurredAt','actor','source','action','entity','reason','state','correlation','artifactRefs','integrity']
   ) IS NOT TRUE OR
@@ -277,13 +277,13 @@ BEGIN
      (value ->> 'eventId') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' OR
      jsonb_typeof(value -> 'occurredAt') <> 'string' OR
      (value ->> 'occurredAt') !~ '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$' OR
-     audit_json_has_exact_keys(value -> 'actor', array['kind','id','authentication','delegatedById']) IS NOT TRUE OR
+     public.audit_json_has_exact_keys(value -> 'actor', array['kind','id','authentication','delegatedById']) IS NOT TRUE OR
      jsonb_typeof(value #> '{actor,kind}') <> 'string' OR
      (value #>> '{actor,kind}') NOT IN ('user','system','external','anonymous') OR
      jsonb_typeof(value #> '{actor,id}') <> 'string' OR
      jsonb_typeof(value #> '{actor,authentication}') <> 'string' OR
-     audit_json_is_string_or_null(value #> '{actor,delegatedById}') IS NOT TRUE OR
-     audit_json_has_exact_keys(value -> 'source', array['kind','component','operation','buildRevision','requestIdSha256']) IS NOT TRUE OR
+     public.audit_json_is_string_or_null(value #> '{actor,delegatedById}') IS NOT TRUE OR
+     public.audit_json_has_exact_keys(value -> 'source', array['kind','component','operation','buildRevision','requestIdSha256']) IS NOT TRUE OR
      jsonb_typeof(value #> '{source,kind}') <> 'string' OR
      (value #>> '{source,kind}') NOT IN ('api','worker','scheduler','import','ai','migration','repair') OR
      jsonb_typeof(value #> '{source,component}') <> 'string' OR
@@ -295,58 +295,58 @@ BEGIN
      ) OR
      NOT (
        jsonb_typeof(value #> '{source,requestIdSha256}') = 'null' OR
-       audit_json_is_sha256(value #> '{source,requestIdSha256}') IS TRUE
+        public.audit_json_is_sha256(value #> '{source,requestIdSha256}') IS TRUE
      ) OR
-     audit_json_has_exact_keys(value -> 'action', array['code','class','outcome','policyVersion','critical']) IS NOT TRUE OR
+     public.audit_json_has_exact_keys(value -> 'action', array['code','class','outcome','policyVersion','critical']) IS NOT TRUE OR
      jsonb_typeof(value #> '{action,code}') <> 'string' OR
      (value #>> '{action,class}') NOT IN ('create','update','delete','access','execute','decision') OR
      (value #>> '{action,outcome}') NOT IN ('succeeded','denied','failed') OR
      (value #>> '{action,policyVersion}') <> 'audit-action-policy/v1' OR
      jsonb_typeof(value #> '{action,critical}') <> 'boolean' OR
-     audit_json_has_exact_keys(value -> 'entity', array['type','id','version']) IS NOT TRUE OR
+     public.audit_json_has_exact_keys(value -> 'entity', array['type','id','version']) IS NOT TRUE OR
      jsonb_typeof(value #> '{entity,type}') <> 'string' OR
      jsonb_typeof(value #> '{entity,id}') <> 'string' OR
-     audit_json_is_string_or_null(value #> '{entity,version}') IS NOT TRUE OR
-     audit_json_has_exact_keys(value -> 'reason', array['code','detailArtifactRef','detailSha256']) IS NOT TRUE OR
-     audit_json_is_string_or_null(value #> '{reason,code}') IS NOT TRUE OR
-     audit_json_is_string_or_null(value #> '{reason,detailArtifactRef}') IS NOT TRUE OR
+     public.audit_json_is_string_or_null(value #> '{entity,version}') IS NOT TRUE OR
+     public.audit_json_has_exact_keys(value -> 'reason', array['code','detailArtifactRef','detailSha256']) IS NOT TRUE OR
+     public.audit_json_is_string_or_null(value #> '{reason,code}') IS NOT TRUE OR
+     public.audit_json_is_string_or_null(value #> '{reason,detailArtifactRef}') IS NOT TRUE OR
      NOT (
        jsonb_typeof(value #> '{reason,detailSha256}') = 'null' OR
-       audit_json_is_sha256(value #> '{reason,detailSha256}') IS TRUE
+        public.audit_json_is_sha256(value #> '{reason,detailSha256}') IS TRUE
      ) OR
-     audit_json_has_exact_keys(value -> 'state', array['before','after']) IS NOT TRUE OR
-     audit_state_json_is_valid(value #> '{state,before}') IS NOT TRUE OR
-     audit_state_json_is_valid(value #> '{state,after}') IS NOT TRUE OR
-     audit_json_has_exact_keys(value -> 'correlation', array['correlationIdSha256','causationEventSha256','idempotencyKeySha256']) IS NOT TRUE OR
-     audit_json_is_sha256(value #> '{correlation,correlationIdSha256}') IS NOT TRUE OR
+     public.audit_json_has_exact_keys(value -> 'state', array['before','after']) IS NOT TRUE OR
+     public.audit_state_json_is_valid(value #> '{state,before}') IS NOT TRUE OR
+     public.audit_state_json_is_valid(value #> '{state,after}') IS NOT TRUE OR
+     public.audit_json_has_exact_keys(value -> 'correlation', array['correlationIdSha256','causationEventSha256','idempotencyKeySha256']) IS NOT TRUE OR
+     public.audit_json_is_sha256(value #> '{correlation,correlationIdSha256}') IS NOT TRUE OR
      NOT (
        jsonb_typeof(value #> '{correlation,causationEventSha256}') = 'null' OR
-       audit_json_is_sha256(value #> '{correlation,causationEventSha256}') IS TRUE
+        public.audit_json_is_sha256(value #> '{correlation,causationEventSha256}') IS TRUE
      ) OR
      NOT (
        jsonb_typeof(value #> '{correlation,idempotencyKeySha256}') = 'null' OR
-       audit_json_is_sha256(value #> '{correlation,idempotencyKeySha256}') IS TRUE
+        public.audit_json_is_sha256(value #> '{correlation,idempotencyKeySha256}') IS TRUE
      ) OR
      jsonb_typeof(value -> 'artifactRefs') <> 'array' OR
      jsonb_array_length(value -> 'artifactRefs') > 64 OR
-     audit_json_has_exact_keys(value -> 'integrity', array['canonicalization','hashAlgorithm','hashDomain','eventSha256']) IS NOT TRUE OR
+     public.audit_json_has_exact_keys(value -> 'integrity', array['canonicalization','hashAlgorithm','hashDomain','eventSha256']) IS NOT TRUE OR
      (value #>> '{integrity,canonicalization}') <> 'site-logbook-cjson/v1' OR
      (value #>> '{integrity,hashAlgorithm}') <> 'sha256' OR
      (value #>> '{integrity,hashDomain}') <> 'site-logbook.audit-event/v1' OR
-     audit_json_is_sha256(value #> '{integrity,eventSha256}') IS NOT TRUE THEN
+     public.audit_json_is_sha256(value #> '{integrity,eventSha256}') IS NOT TRUE THEN
     RETURN false;
   END IF;
 
   FOR artifact IN SELECT item FROM jsonb_array_elements(value -> 'artifactRefs') item LOOP
-    IF audit_json_has_exact_keys(artifact, array['role','ref','sha256','byteLength','mediaType']) IS NOT TRUE OR
+    IF public.audit_json_has_exact_keys(artifact, array['role','ref','sha256','byteLength','mediaType']) IS NOT TRUE OR
        jsonb_typeof(artifact -> 'role') <> 'string' OR
        jsonb_typeof(artifact -> 'ref') <> 'string' OR
-       audit_json_is_sha256(artifact -> 'sha256') IS NOT TRUE OR
+       public.audit_json_is_sha256(artifact -> 'sha256') IS NOT TRUE OR
        NOT (
          jsonb_typeof(artifact -> 'byteLength') = 'null' OR
-         audit_json_is_safe_integer(artifact -> 'byteLength', 0, 9007199254740991) IS TRUE
+         public.audit_json_is_safe_integer(artifact -> 'byteLength', 0, 9007199254740991) IS TRUE
        ) OR
-       audit_json_is_string_or_null(artifact -> 'mediaType') IS NOT TRUE THEN
+       public.audit_json_is_string_or_null(artifact -> 'mediaType') IS NOT TRUE THEN
       RETURN false;
     END IF;
   END LOOP;
@@ -354,9 +354,9 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION audit_ledger_json_is_valid(value jsonb)
-RETURNS boolean LANGUAGE sql IMMUTABLE STRICT AS $$
-  SELECT audit_json_has_exact_keys(
+CREATE OR REPLACE FUNCTION public.audit_ledger_json_is_valid(value jsonb)
+RETURNS boolean LANGUAGE sql IMMUTABLE STRICT SET search_path = pg_catalog AS $$
+  SELECT public.audit_json_has_exact_keys(
            value,
            array['schemaVersion','streamId','sequence','eventId','eventSha256','recordedAt','previousLedgerSha256','integrity']
          ) IS TRUE
@@ -365,25 +365,25 @@ RETURNS boolean LANGUAGE sql IMMUTABLE STRICT AS $$
      AND jsonb_typeof(value -> 'sequence') = 'string'
      AND (value ->> 'sequence') ~ '^[1-9][0-9]*$'
      AND jsonb_typeof(value -> 'eventId') = 'string'
-     AND audit_json_is_sha256(value -> 'eventSha256') IS TRUE
+     AND public.audit_json_is_sha256(value -> 'eventSha256') IS TRUE
      AND jsonb_typeof(value -> 'recordedAt') = 'string'
      AND (
        jsonb_typeof(value -> 'previousLedgerSha256') = 'null' OR
-       audit_json_is_sha256(value -> 'previousLedgerSha256') IS TRUE
+       public.audit_json_is_sha256(value -> 'previousLedgerSha256') IS TRUE
      )
-     AND audit_json_has_exact_keys(
+     AND public.audit_json_has_exact_keys(
            value -> 'integrity',
            array['canonicalization','hashAlgorithm','hashDomain','ledgerSha256']
          ) IS TRUE
      AND value #>> '{integrity,canonicalization}' = 'site-logbook-cjson/v1'
      AND value #>> '{integrity,hashAlgorithm}' = 'sha256'
      AND value #>> '{integrity,hashDomain}' = 'site-logbook.audit-chain-record/v1'
-     AND audit_json_is_sha256(value #> '{integrity,ledgerSha256}') IS TRUE;
+     AND public.audit_json_is_sha256(value #> '{integrity,ledgerSha256}') IS TRUE;
 $$;
 
-CREATE OR REPLACE FUNCTION audit_export_intent_json_is_valid(value jsonb)
-RETURNS boolean LANGUAGE sql IMMUTABLE STRICT AS $$
-  SELECT audit_json_has_exact_keys(
+CREATE OR REPLACE FUNCTION public.audit_export_intent_json_is_valid(value jsonb)
+RETURNS boolean LANGUAGE sql IMMUTABLE STRICT SET search_path = pg_catalog AS $$
+  SELECT public.audit_json_has_exact_keys(
            value,
            array['schemaVersion','intentId','kind','createdAt','streamId','throughSequence','throughLedgerSha256','eventId','eventSha256','destination','initialState','integrity']
          ) IS TRUE
@@ -394,26 +394,26 @@ RETURNS boolean LANGUAGE sql IMMUTABLE STRICT AS $$
      AND value ->> 'streamId' = 'site-logbook:audit:global:v1'
      AND jsonb_typeof(value -> 'throughSequence') = 'string'
      AND (value ->> 'throughSequence') ~ '^[1-9][0-9]*$'
-     AND audit_json_is_sha256(value -> 'throughLedgerSha256') IS TRUE
+     AND public.audit_json_is_sha256(value -> 'throughLedgerSha256') IS TRUE
      AND jsonb_typeof(value -> 'eventId') = 'string'
-     AND audit_json_is_sha256(value -> 'eventSha256') IS TRUE
-     AND audit_json_has_exact_keys(value -> 'destination', array['kind','namespace','format']) IS TRUE
+     AND public.audit_json_is_sha256(value -> 'eventSha256') IS TRUE
+     AND public.audit_json_has_exact_keys(value -> 'destination', array['kind','namespace','format']) IS TRUE
      AND value #>> '{destination,kind}' = 'versioned-object-storage'
      AND value #>> '{destination,namespace}' = 'audit-evidence/v1'
      AND value #>> '{destination,format}' = 'site-logbook.audit-jsonl/v1'
      AND value ->> 'initialState' = 'pending'
-     AND audit_json_has_exact_keys(
+     AND public.audit_json_has_exact_keys(
            value -> 'integrity',
            array['canonicalization','hashAlgorithm','hashDomain','intentSha256']
          ) IS TRUE
      AND value #>> '{integrity,canonicalization}' = 'site-logbook-cjson/v1'
      AND value #>> '{integrity,hashAlgorithm}' = 'sha256'
      AND value #>> '{integrity,hashDomain}' = 'site-logbook.audit-export-intent/v1'
-     AND audit_json_is_sha256(value #> '{integrity,intentSha256}') IS TRUE;
+     AND public.audit_json_is_sha256(value #> '{integrity,intentSha256}') IS TRUE;
 $$;
 
-CREATE OR REPLACE FUNCTION audit_event_core_semantics_are_valid(value jsonb)
-RETURNS boolean LANGUAGE plpgsql IMMUTABLE STRICT AS $$
+CREATE OR REPLACE FUNCTION public.audit_event_core_semantics_are_valid(value jsonb)
+RETURNS boolean LANGUAGE plpgsql IMMUTABLE STRICT SET search_path = pg_catalog AS $$
 DECLARE
   actor_kind text := value #>> '{actor,kind}';
   actor_id text := value #>> '{actor,id}';
@@ -509,9 +509,9 @@ BEGIN
     value #> '{state,after}'
   ] LOOP
     IF state_value ->> 'availability' = 'present' AND
-       state_value ->> 'sha256' <> audit_domain_sha256(
+       state_value ->> 'sha256' <> public.audit_domain_sha256(
          'site-logbook.audit-projection/v1:' || (state_value ->> 'projection'),
-         audit_canonical_json(state_value -> 'data')
+         public.audit_canonical_json(state_value -> 'data')
        ) THEN
       RETURN false;
     END IF;
@@ -520,34 +520,34 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION guard_audit_event_insert()
-RETURNS trigger LANGUAGE plpgsql AS $$
+CREATE OR REPLACE FUNCTION public.guard_audit_event_insert()
+RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog AS $$
 DECLARE
-  current_head audit_chain_heads%ROWTYPE;
+  current_head public.audit_chain_heads%ROWTYPE;
   event_json jsonb := NEW.canonical_event_json::jsonb;
   ledger_json jsonb := NEW.canonical_ledger_json::jsonb;
   expected_event_sha256 text;
   expected_ledger_sha256 text;
 BEGIN
-  IF audit_event_json_is_valid(event_json) IS NOT TRUE OR
-     audit_event_core_semantics_are_valid(event_json) IS NOT TRUE OR
-     audit_ledger_json_is_valid(ledger_json) IS NOT TRUE THEN
+  IF public.audit_event_json_is_valid(event_json) IS NOT TRUE OR
+     public.audit_event_core_semantics_are_valid(event_json) IS NOT TRUE OR
+     public.audit_ledger_json_is_valid(ledger_json) IS NOT TRUE THEN
     RAISE EXCEPTION 'canonical audit event, core semantics or ledger shape is invalid';
   END IF;
-  IF audit_canonical_json(event_json) <> NEW.canonical_event_json OR
-     audit_canonical_json(ledger_json) <> NEW.canonical_ledger_json THEN
+  IF public.audit_canonical_json(event_json) <> NEW.canonical_event_json OR
+     public.audit_canonical_json(ledger_json) <> NEW.canonical_ledger_json THEN
     RAISE EXCEPTION 'audit event and ledger JSON must use exact canonical bytes';
   END IF;
 
-  expected_event_sha256 := audit_domain_sha256(
+  expected_event_sha256 := public.audit_domain_sha256(
     'site-logbook.audit-event/v1',
-    audit_canonical_json(
+    public.audit_canonical_json(
       jsonb_set(event_json, '{integrity,eventSha256}', 'null'::jsonb, false)
     )
   );
-  expected_ledger_sha256 := audit_domain_sha256(
+  expected_ledger_sha256 := public.audit_domain_sha256(
     'site-logbook.audit-chain-record/v1',
-    audit_canonical_json(
+    public.audit_canonical_json(
       jsonb_set(ledger_json, '{integrity,ledgerSha256}', 'null'::jsonb, false)
     )
   );
@@ -557,7 +557,7 @@ BEGIN
   END IF;
 
   SELECT * INTO current_head
-  FROM audit_chain_heads
+  FROM public.audit_chain_heads
   WHERE stream_id = 'site-logbook:audit:global:v1'
   FOR UPDATE;
   IF NOT FOUND OR
@@ -571,22 +571,22 @@ END;
 $$;
 
 CREATE TRIGGER "audit_events_insert_guard_trg"
-BEFORE INSERT ON "audit_events"
-FOR EACH ROW EXECUTE FUNCTION guard_audit_event_insert();
+BEFORE INSERT ON "public"."audit_events"
+FOR EACH ROW EXECUTE FUNCTION public.guard_audit_event_insert();
 
-CREATE OR REPLACE FUNCTION deny_audit_event_mutation()
-RETURNS trigger LANGUAGE plpgsql AS $$
+CREATE OR REPLACE FUNCTION public.deny_audit_event_mutation()
+RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog AS $$
 BEGIN
   RAISE EXCEPTION 'canonical audit events and chain records are immutable';
 END;
 $$;
 
 CREATE TRIGGER "audit_events_immutable_trg"
-BEFORE UPDATE OR DELETE ON "audit_events"
-FOR EACH ROW EXECUTE FUNCTION deny_audit_event_mutation();
+BEFORE UPDATE OR DELETE ON "public"."audit_events"
+FOR EACH ROW EXECUTE FUNCTION public.deny_audit_event_mutation();
 
-CREATE OR REPLACE FUNCTION guard_audit_chain_head_transition()
-RETURNS trigger LANGUAGE plpgsql AS $$
+CREATE OR REPLACE FUNCTION public.guard_audit_chain_head_transition()
+RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog AS $$
 BEGIN
   IF TG_OP = 'DELETE' THEN
     RAISE EXCEPTION 'audit chain head cannot be deleted';
@@ -595,7 +595,7 @@ BEGIN
     IF NEW.stream_id <> 'site-logbook:audit:global:v1' OR
        NEW.sequence <> 0 OR
        NEW.ledger_sha256 IS NOT NULL OR
-       EXISTS (SELECT 1 FROM audit_chain_heads) THEN
+       EXISTS (SELECT 1 FROM public.audit_chain_heads) THEN
       RAISE EXCEPTION 'audit chain head insert must create the unique genesis state';
     END IF;
     RETURN NEW;
@@ -608,7 +608,7 @@ BEGIN
     RAISE EXCEPTION 'audit chain head must advance the same stream by exactly one record';
   END IF;
   IF NOT EXISTS (
-    SELECT 1 FROM audit_events event
+    SELECT 1 FROM public.audit_events event
     WHERE event.stream_id = NEW.stream_id
       AND event.sequence = NEW.sequence
       AND event.ledger_sha256 = NEW.ledger_sha256
@@ -621,11 +621,11 @@ END;
 $$;
 
 CREATE TRIGGER "audit_chain_heads_guard_trg"
-BEFORE INSERT OR UPDATE OR DELETE ON "audit_chain_heads"
-FOR EACH ROW EXECUTE FUNCTION guard_audit_chain_head_transition();
+BEFORE INSERT OR UPDATE OR DELETE ON "public"."audit_chain_heads"
+FOR EACH ROW EXECUTE FUNCTION public.guard_audit_chain_head_transition();
 
-CREATE OR REPLACE FUNCTION guard_audit_export_outbox_transition()
-RETURNS trigger LANGUAGE plpgsql AS $$
+CREATE OR REPLACE FUNCTION public.guard_audit_export_outbox_transition()
+RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog AS $$
 DECLARE
   intent_json jsonb;
   expected_intent_sha256 text;
@@ -635,19 +635,19 @@ BEGIN
   END IF;
   IF TG_OP = 'INSERT' THEN
     intent_json := NEW.canonical_json::jsonb;
-    IF audit_export_intent_json_is_valid(intent_json) IS NOT TRUE OR
-       audit_canonical_json(intent_json) <> NEW.canonical_json THEN
+    IF public.audit_export_intent_json_is_valid(intent_json) IS NOT TRUE OR
+       public.audit_canonical_json(intent_json) <> NEW.canonical_json THEN
       RAISE EXCEPTION 'audit export intent shape or canonical bytes are invalid';
     END IF;
-    expected_intent_sha256 := audit_domain_sha256(
+    expected_intent_sha256 := public.audit_domain_sha256(
       'site-logbook.audit-export-intent/v1',
-      audit_canonical_json(
+      public.audit_canonical_json(
         jsonb_set(intent_json, '{integrity,intentSha256}', 'null'::jsonb, false)
       )
     );
     IF expected_intent_sha256 <> NEW.intent_sha256 OR
        NOT EXISTS (
-         SELECT 1 FROM audit_events event
+         SELECT 1 FROM public.audit_events event
          WHERE event.event_id = NEW.event_id
            AND event.stream_id = NEW.stream_id
            AND event.sequence = NEW.through_sequence
@@ -701,14 +701,14 @@ END;
 $$;
 
 CREATE TRIGGER "audit_export_outbox_guard_trg"
-BEFORE INSERT OR UPDATE OR DELETE ON "audit_export_outbox"
-FOR EACH ROW EXECUTE FUNCTION guard_audit_export_outbox_transition();
+BEFORE INSERT OR UPDATE OR DELETE ON "public"."audit_export_outbox"
+FOR EACH ROW EXECUTE FUNCTION public.guard_audit_export_outbox_transition();
 
-CREATE OR REPLACE FUNCTION guard_audit_event_commit_binding()
-RETURNS trigger LANGUAGE plpgsql AS $$
+CREATE OR REPLACE FUNCTION public.guard_audit_event_commit_binding()
+RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog AS $$
 BEGIN
   IF NOT EXISTS (
-    SELECT 1 FROM audit_export_outbox outbox
+    SELECT 1 FROM public.audit_export_outbox outbox
     WHERE outbox.intent_id = NEW.event_id AND outbox.event_id = NEW.event_id
       AND outbox.stream_id = NEW.stream_id
       AND outbox.through_sequence = NEW.sequence
@@ -718,8 +718,8 @@ BEGIN
     RAISE EXCEPTION 'canonical audit event requires its exact export intent';
   END IF;
   IF NOT EXISTS (
-    SELECT 1 FROM audit_chain_heads head
-    JOIN audit_events current_head
+    SELECT 1 FROM public.audit_chain_heads head
+    JOIN public.audit_events current_head
       ON current_head.stream_id = head.stream_id
      AND current_head.sequence = head.sequence
      AND current_head.ledger_sha256 = head.ledger_sha256
@@ -732,11 +732,12 @@ END;
 $$;
 
 CREATE CONSTRAINT TRIGGER "audit_events_commit_binding_trg"
-AFTER INSERT ON "audit_events"
+AFTER INSERT ON "public"."audit_events"
 DEFERRABLE INITIALLY DEFERRED
-FOR EACH ROW EXECUTE FUNCTION guard_audit_event_commit_binding();
+FOR EACH ROW EXECUTE FUNCTION public.guard_audit_event_commit_binding();
 
-INSERT INTO audit_chain_heads (stream_id, sequence, ledger_sha256)
+INSERT INTO public.audit_chain_heads (stream_id, sequence, ledger_sha256)
 VALUES ('site-logbook:audit:global:v1', 0, NULL);
 
-REVOKE ALL ON audit_events, audit_chain_heads, audit_export_outbox FROM PUBLIC;
+REVOKE ALL ON public.audit_events, public.audit_chain_heads, public.audit_export_outbox FROM PUBLIC;
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;

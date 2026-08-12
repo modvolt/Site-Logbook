@@ -47,7 +47,10 @@ import { buildImapClientOptions } from "./mail-transport-security";
 const SINGLETON_ID = 1;
 
 // System actor used for documents created by the importer (no human user).
-const IMPORT_ACTOR = { userId: null as number | null, name: "E-mailový import" };
+const IMPORT_ACTOR = {
+  userId: null as number | null,
+  name: "E-mailový import",
+};
 
 export type ResolvedImapConfig = {
   host: string;
@@ -136,7 +139,7 @@ export async function resolveImapConfig(): Promise<ResolvedImapConfig | null> {
       port: row.port ?? 993,
       secure: row.secure ?? true,
       user,
-      pass: user ? password ?? undefined : undefined,
+      pass: user ? (password ?? undefined) : undefined,
       folders: parseFolders(row.folder),
       markSeen: row.markSeen ?? true,
       pollMinutes: row.pollMinutes ?? 15,
@@ -186,7 +189,10 @@ function newClient(cfg: ResolvedImapConfig): ImapFlow {
  * Connect, open the folder, and immediately close. Used by the Settings "test
  * connection" action. Throws a Czech-friendly message on failure.
  */
-export async function testImapConnection(): Promise<{ folder: string; messages: number }> {
+export async function testImapConnection(): Promise<{
+  folder: string;
+  messages: number;
+}> {
   const cfg = await resolveImapConfig();
   if (!cfg) {
     throw new Error(
@@ -266,9 +272,7 @@ function collectAttachments(node: unknown): AttachmentPart[] {
     const dispositionRaw =
       typeof n.disposition === "string" ? n.disposition.toLowerCase() : "";
     const fileName: string | undefined =
-      n.dispositionParameters?.filename ||
-      n.parameters?.name ||
-      undefined;
+      n.dispositionParameters?.filename || n.parameters?.name || undefined;
     const isAttachment = dispositionRaw === "attachment" || Boolean(fileName);
     if (!isAttachment || !n.part) return;
     const contentType =
@@ -419,14 +423,23 @@ export type PollResult = {
  * caller records that as the last error); per-message failures are caught and
  * logged individually so one bad message never aborts the batch.
  */
-export async function pollOnce(): Promise<PollResult> {
+export async function pollOnce(signal?: AbortSignal): Promise<PollResult> {
+  const emptyResult = (): PollResult => ({
+    processed: 0,
+    imported: 0,
+    skipped: 0,
+    failed: 0,
+    noAttachments: 0,
+  });
+  if (signal?.aborted) return emptyResult();
   const cfg = await resolveImapConfig();
+  if (signal?.aborted) return emptyResult();
   if (!cfg) {
     // IMAP not configured — return an empty result so callers (both the
     // background worker and the manual-poll route) can complete cleanly and
     // record the "no-op" poll in the settings row. The caller is responsible
     // for surfacing the unconfigured state to the user if needed.
-    return { processed: 0, imported: 0, skipped: 0, failed: 0, noAttachments: 0 };
+    return emptyResult();
   }
 
   const result: PollResult = {
@@ -456,8 +469,9 @@ export async function pollOnce(): Promise<PollResult> {
     );
     const failedFolders: string[] = [];
     for (const folder of cfg.folders) {
+      if (signal?.aborted) break;
       try {
-        await pollFolder(client, folder, cfg, result);
+        await pollFolder(client, folder, cfg, result, signal);
       } catch (err) {
         // One missing/unopenable folder (e.g. a mistyped Gmail label) must not
         // abort the whole import — log it, remember it, and keep going so the
@@ -472,7 +486,7 @@ export async function pollOnce(): Promise<PollResult> {
     }
     // If every configured folder failed to open, surface a clear, named error so
     // the manual-import action doesn't silently report "0 imported".
-    if (failedFolders.length === cfg.folders.length) {
+    if (!signal?.aborted && failedFolders.length === cfg.folders.length) {
       const names = failedFolders.map((f) => `„${f}“`).join(", ");
       throw new Error(
         `Nelze otevřít IMAP složku/štítek ${names}. Zkontrolujte přesný název štítku v Gmailu.`,
@@ -494,7 +508,9 @@ async function pollFolder(
   folder: string,
   cfg: ResolvedImapConfig,
   result: PollResult,
+  signal?: AbortSignal,
 ): Promise<void> {
+  if (signal?.aborted) return;
   const lock = await client.getMailboxLock(folder);
   try {
     // Only look at messages not yet marked \Seen. The email_import_log table is
@@ -528,9 +544,11 @@ async function pollFolder(
     // so the next poll's `seen:false` search re-attempts it.
     const seenUids: string[] = [];
 
-    for (const msg of messages) {
+    messageLoop: for (const msg of messages) {
+      if (signal?.aborted) break;
       const messageId = messageIdOf(msg, folder);
       const existing = await findExistingLog(messageId);
+      if (signal?.aborted) break;
       // Terminal outcomes (imported/skipped/no_attachments/failed_permanent) are
       // deduped forever. A prior `failed` row is retried: we fall through and
       // update it in place.
@@ -580,14 +598,23 @@ async function pollFolder(
         // front, before any slow work. Keeping all IMAP commands together — and
         // separate from the ingest below — stops the slow S3/DB work from
         // sitting between two commands on the busy connection.
-        const downloaded: { fileName: string; contentType: string; buffer: Buffer }[] = [];
+        const downloaded: {
+          fileName: string;
+          contentType: string;
+          buffer: Buffer;
+        }[] = [];
         let downloadedBytes = 0;
         for (const att of attachments) {
-          const contentType = resolveAttachmentType(att.contentType, att.fileName)!;
+          if (signal?.aborted) break;
+          const contentType = resolveAttachmentType(
+            att.contentType,
+            att.fileName,
+          )!;
           const { content } = await client.download(String(msg.uid), att.part, {
             uid: true,
           });
-          const remainingMessageBytes = MAX_IMPORTED_MESSAGE_BYTES - downloadedBytes;
+          const remainingMessageBytes =
+            MAX_IMPORTED_MESSAGE_BYTES - downloadedBytes;
           if (remainingMessageBytes <= 0) {
             throw new Error(
               `Souhrnná velikost příloh zprávy překračuje ${Math.floor(MAX_IMPORTED_MESSAGE_BYTES / (1024 * 1024))} MB.`,
@@ -611,12 +638,19 @@ async function pollFolder(
           downloadedBytes += buffer.length;
           downloaded.push({ fileName: att.fileName, contentType, buffer });
         }
+        if (signal?.aborted) break messageLoop;
 
         // Phase 2 (slow, no IMAP commands): ingest the buffered attachments.
         const createdIds: number[] = [];
         let importedCount = 0;
         for (const d of downloaded) {
-          const inspection = await inspectImportedFile(d.buffer, d.contentType, d.fileName);
+          if (signal?.aborted) break;
+          const inspection = await inspectImportedFile(
+            d.buffer,
+            d.contentType,
+            d.fileName,
+          );
+          if (signal?.aborted) break messageLoop;
           if (!inspection.ok) {
             if (inspection.kind === "scanner_unavailable") {
               throw new Error(inspection.reason);
@@ -642,7 +676,6 @@ async function pollFolder(
             importedCount += 1;
           }
         }
-
         const status =
           importedCount > 0
             ? "imported"
@@ -665,6 +698,7 @@ async function pollFolder(
 
         if (cfg.markSeen) seenUids.push(String(msg.uid));
       } catch (err) {
+        if (signal?.aborted) break messageLoop;
         const message = err instanceof Error ? err.message : "neznámá chyba";
         result.failed += 1;
         // Count this attempt and decide whether to keep retrying. Below the cap
@@ -699,7 +733,7 @@ async function pollFolder(
     }
 
     // Flush all \Seen flags in one batch now that every slow ingest is done.
-    if (seenUids.length) {
+    if (!signal?.aborted && seenUids.length) {
       await client
         .messageFlagsAdd({ uid: seenUids.join(",") }, ["\\Seen"], { uid: true })
         .catch((err) =>
@@ -719,10 +753,11 @@ async function pollFolder(
  * result, or rethrows after recording the error so callers (poll-now route) can
  * surface it. Used by both the worker and the manual "poll now" action.
  */
-export async function pollAndRecord(): Promise<PollResult> {
+export async function pollAndRecord(signal?: AbortSignal): Promise<PollResult> {
   const now = new Date();
   try {
-    const result = await pollOnce();
+    const result = await pollOnce(signal);
+    if (signal?.aborted) return result;
     const summary = `Načteno ${result.imported}, přeskočeno ${result.skipped}, bez příloh ${result.noAttachments}, chyb ${result.failed}.`;
     await db
       .update(emailImportSettingsTable)
@@ -733,9 +768,12 @@ export async function pollAndRecord(): Promise<PollResult> {
     // whether any messages were imported. Publishing unconditionally also means
     // the manual "Poll Now" action reliably triggers a UI refresh even when the
     // mailbox is empty or IMAP is not yet configured.
-    publishLiveEvent(["emailImport", "billingDocuments", "reviewQueue"]).catch(() => {});
+    publishLiveEvent(["emailImport", "billingDocuments", "reviewQueue"]).catch(
+      () => {},
+    );
     return result;
   } catch (err) {
+    if (signal?.aborted) throw err;
     const message = err instanceof Error ? err.message : String(err);
     await db
       .update(emailImportSettingsTable)
@@ -772,7 +810,11 @@ export async function retryLogEntry(id: number): Promise<boolean> {
 // Background worker
 // ---------------------------------------------------------------------------
 
-let schedulerStarted = false;
+export type SchedulerStopHandle = Readonly<{
+  stop(): void;
+}>;
+
+let schedulerHandle: SchedulerStopHandle | undefined;
 let polling = false;
 
 const DEFAULT_POLL_MS = 15 * 60 * 1000;
@@ -780,10 +822,10 @@ const DEFAULT_POLL_MS = 15 * 60 * 1000;
 // config's pollMinutes via the lastPolledAt gate below.
 const TICK_MS = 60 * 1000;
 
-async function tick(): Promise<void> {
-  if (polling) return;
+async function tick(signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted || polling) return;
   const cfg = await resolveImapConfig();
-  if (!cfg) return; // not configured → idle
+  if (signal?.aborted || !cfg) return; // not configured → idle
 
   // Respect the configured cadence: only poll when at least pollMinutes have
   // elapsed since the last recorded poll.
@@ -791,15 +833,18 @@ async function tick(): Promise<void> {
     .select({ lastPolledAt: emailImportSettingsTable.lastPolledAt })
     .from(emailImportSettingsTable)
     .where(eq(emailImportSettingsTable.id, SINGLETON_ID));
-  const intervalMs = Math.max(1, cfg.pollMinutes) * 60 * 1000 || DEFAULT_POLL_MS;
+  const intervalMs =
+    Math.max(1, cfg.pollMinutes) * 60 * 1000 || DEFAULT_POLL_MS;
   const last = row?.lastPolledAt ? new Date(row.lastPolledAt).getTime() : 0;
   if (Date.now() - last < intervalMs) return;
+  if (signal?.aborted) return;
 
   polling = true;
   try {
     // DB advisory lock: only one API instance runs the poll at a time.
     await withSchedulerLock(SCHEDULER_LOCK_KEYS.emailImport, async () => {
-      await pollAndRecord();
+      if (signal?.aborted) return;
+      await pollAndRecord(signal);
     });
   } catch (err) {
     logger.error({ err }, "Email import poll failed");
@@ -808,14 +853,30 @@ async function tick(): Promise<void> {
   }
 }
 
-export function startEmailImportWorker(): void {
-  if (schedulerStarted) return;
-  schedulerStarted = true;
+export function startEmailImportWorker(): SchedulerStopHandle {
+  if (schedulerHandle) return schedulerHandle;
+  const abortController = new AbortController();
+  let stopped = false;
 
   const timer = setInterval(() => {
-    tick().catch((err) => logger.error({ err }, "Email import tick failed"));
+    if (stopped) return;
+    tick(abortController.signal).catch((err) =>
+      logger.error({ err }, "Email import tick failed"),
+    );
   }, TICK_MS);
   timer.unref();
 
+  const handle: SchedulerStopHandle = {
+    stop(): void {
+      if (stopped) return;
+      stopped = true;
+      abortController.abort();
+      clearInterval(timer);
+      if (schedulerHandle === handle) schedulerHandle = undefined;
+    },
+  };
+  schedulerHandle = handle;
+
   logger.info({ tickMs: TICK_MS }, "Email import worker started");
+  return handle;
 }

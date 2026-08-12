@@ -40,10 +40,10 @@ lokálního checkpointu a vyžadují vlastní schválený preflight.
 ## Připnuté bajty
 
 - SQL `0107` po canonical LF normalizaci:
-  `5523f25b4c941919612f2f87a2d8fa371acd9922c3d3166b8d761000365e1339`;
-  checkout/raw CRLF blob má jiný hash `e223d791...` a nesmí se použít jako
-  applied identity; specializovaný advisory-locked gate provede pouze `0107`,
-  canonicalizuje LF a zapíše tracking row s `5523f25b...`;
+  `c90d91e2ddcfbf00419980388c2e7b0f0a573fe73925638d737966fb6604e122`;
+  checkout/raw CRLF blob se nesmí použít jako applied identity; specializovaný
+  advisory-locked gate provede pouze `0107`,
+  canonicalizuje LF a zapíše tracking row s `c90d91e2...`;
 - snapshot `0106`: id `18841ec6-0ec2-4ae8-8ac7-8ee8c1eb34cd`, canonical LF SHA
   `32e6cca10d51d73ebd7262a896e55390e823c286e71853e4aa13c8842ae4ab24`;
 - snapshot `0107`: id `b20520fc-59f2-4d34-9e2f-9d7ed565288a`, canonical LF SHA
@@ -51,7 +51,10 @@ lokálního checkpointu a vyžadují vlastní schválený preflight.
 - exact known journal digest `0106`:
   `sha256:cfbf74de83f99c3ca49fb717a6784265e8ef193e75e894aab9924fb7b80e16ee`;
 - exact known journal digest `0107`:
-  `sha256:d34407b4cdb8b0dc8bb9d07cd6cd500be5853d3112e142fe44e0efa5b8cd7cc1`.
+  `sha256:c5477bc69313ef758fb2022cc7c781caa9a703c8cace8a11742294913cdd4313`.
+
+`REVOKE CREATE ON SCHEMA public FROM PUBLIC` je sticky hardening. Empty-genesis
+rollback nemá známou předchozí ACL, proto toto oprávnění záměrně znovu neudělí.
 
 ## Bezpečné pořadí
 

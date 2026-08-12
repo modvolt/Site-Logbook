@@ -20,6 +20,10 @@ import {
 } from "./external-schema-preflight.js";
 
 const { Client } = pg;
+const AUDIT_SCHEMA_APPLY_CONNECT_TIMEOUT_MS = 5_000;
+const AUDIT_SCHEMA_APPLY_LOCK_TIMEOUT_MS = 5_000;
+const AUDIT_SCHEMA_APPLY_QUERY_TIMEOUT_MS = 60_000;
+const AUDIT_SCHEMA_APPLY_CLEANUP_TIMEOUT_MS = 5_000;
 
 export const AUDIT_SCHEMA_EXPECTED_JOURNAL_COUNT = 107;
 export const AUDIT_SCHEMA_PREFLIGHT_CONFIRMATION =
@@ -35,7 +39,7 @@ export const AUDIT_SCHEMA_MIGRATIONS = Object.freeze({
     idx: 107,
     when: 1786484628859,
     tag: "0107_canonical_audit_evidence",
-    hash: "5523f25b4c941919612f2f87a2d8fa371acd9922c3d3166b8d761000365e1339",
+    hash: "c90d91e2ddcfbf00419980388c2e7b0f0a573fe73925638d737966fb6604e122",
   }),
 });
 
@@ -65,7 +69,7 @@ export const AUDIT_SCHEMA_KNOWN_ROWS_SHA256 = Object.freeze({
   predecessor:
     "sha256:cfbf74de83f99c3ca49fb717a6784265e8ef193e75e894aab9924fb7b80e16ee",
   target:
-    "sha256:d34407b4cdb8b0dc8bb9d07cd6cd500be5853d3112e142fe44e0efa5b8cd7cc1",
+    "sha256:c5477bc69313ef758fb2022cc7c781caa9a703c8cace8a11742294913cdd4313",
 });
 
 export const AUDIT_SCHEMA_OPAQUE_ROWS_SHA256 = Object.freeze({
@@ -120,11 +124,13 @@ export interface AuditSchemaOpaqueLegacyRow {
 export interface AuditSchemaEnvironment extends ExternalSchemaEnvironment {
   lineageMode: AuditSchemaLineageMode;
   opaqueLegacyRows: readonly AuditSchemaOpaqueLegacyRow[];
+  expectedSchemaFingerprintSha256: string;
 }
 
 export interface AuditSchemaRuntimeEnvironment extends ExternalSchemaRuntimeEnvironment {
   lineageMode: AuditSchemaLineageMode;
   opaqueLegacyRows: readonly AuditSchemaOpaqueLegacyRow[];
+  expectedSchemaFingerprintSha256: string;
 }
 
 export interface AuditSchemaPreflightEnvironment extends AuditSchemaEnvironment {
@@ -137,6 +143,22 @@ export interface AuditSchemaExpectedObjects {
   triggers: readonly string[];
   indexes: readonly string[];
   constraints: readonly string[];
+}
+
+export interface AuditSchemaCatalogProjection {
+  schemaVersion: "site-logbook.audit-schema-catalog/v1";
+  namespaces: readonly Readonly<Record<string, unknown>>[];
+  tables: readonly Readonly<Record<string, unknown>>[];
+  columns: readonly Readonly<Record<string, unknown>>[];
+  functions: readonly Readonly<Record<string, unknown>>[];
+  constraints: readonly Readonly<Record<string, unknown>>[];
+  indexes: readonly Readonly<Record<string, unknown>>[];
+  triggers: readonly Readonly<Record<string, unknown>>[];
+}
+
+export interface VerifiedAuditSchemaCatalog {
+  projection: AuditSchemaCatalogProjection;
+  schemaFingerprintSha256: string;
 }
 
 export interface AuditSchemaMigrationBundleInput {
@@ -176,6 +198,7 @@ export interface AuditSchemaDatabaseState {
   headLedgerSha256: string | null;
   maximumEventSequence: number | null;
   maximumEventLedgerSha256: string | null;
+  schemaFingerprintSha256: string;
 }
 
 export type AuditSchemaInventoryDecision =
@@ -207,6 +230,34 @@ export interface AuditSchemaStateSummary {
   auditEventRows: number;
   auditOutboxRows: number;
   auditHeadRows: number;
+  expectedSchemaFingerprintSha256: string;
+  schemaFingerprintSha256: string;
+}
+
+export interface AuditSchemaBackupIntegrityEvidence {
+  schemaVersion: "site-logbook.audit-schema-backup-integrity/v1";
+  verifiedTableNames: readonly string[];
+  verifiedTableCounts: Readonly<Record<string, number>>;
+  verifiedTableCountsSha256: string;
+  backupRowBindingSha256: string;
+}
+
+export interface AuditSchemaBackupRowBindingInput {
+  backupId: number;
+  filename: string;
+  objectPath: string;
+  sizeBytes: number;
+  encryptedBackupSha256: string;
+  encryptionFormat: "mve1";
+  encryptionKeyId: string;
+  status: "success";
+  trigger: "manual";
+  createdBy: "staging-exact-0106-audit-backup";
+  createdAt: string;
+  restoreTestedAt: string;
+  restoreDurationMs: number;
+  restoreStatus: "ok";
+  verifiedTableCountsSha256: string;
 }
 
 export interface AuditSchemaInventorySummary {
@@ -219,6 +270,7 @@ export interface AuditSchemaInventorySummary {
   buildSha: string;
   lineage: AuditSchemaLineageSummary;
   schema: AuditSchemaStateSummary;
+  backupIntegrity: AuditSchemaBackupIntegrityEvidence | null;
   backupEvidenceId: number;
   backupRestoreAgeHours: number;
   authorizesApplicationStart: false;
@@ -238,6 +290,7 @@ export interface AuditSchemaPreflightSummary {
   backupEvidenceId: number;
   backupRestoreAgeHours: number;
   backupEvidence: Exact0104RecoveryBackupEvidence;
+  backupIntegrity: AuditSchemaBackupIntegrityEvidence;
   authorizesApplicationStart: false;
 }
 
@@ -260,6 +313,7 @@ export interface AuditSchemaApplySummary {
   newlyApplied: 0 | 1;
   knownAppliedBefore: 106 | 107;
   knownAppliedAfter: 107;
+  schemaFingerprintSha256: string;
 }
 
 type SnapshotTable = {
@@ -273,7 +327,8 @@ type SnapshotTable = {
 };
 
 type Snapshot = { id?: unknown; prevId?: unknown; tables?: unknown };
-type Queryable = Pick<pg.Client, "query">;
+export type AuditSchemaCatalogQueryable = Pick<pg.Client, "query">;
+type Queryable = AuditSchemaCatalogQueryable;
 
 function fail(code: string, message: string): never {
   throw new ExternalSchemaPreflightError(code, message);
@@ -294,10 +349,141 @@ function sha256(value: string): string {
   return createHash("sha256").update(canonicalLf(value)).digest("hex");
 }
 
+export async function raceAuditSchemaApplyOperation<T>(
+  operation: Promise<T>,
+  timeoutMs: number,
+  onTimeout?: () => void,
+): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => {
+          onTimeout?.();
+          reject(
+            new ExternalSchemaPreflightError(
+              "AUDIT_SCHEMA_APPLY_TIMEOUT",
+              `Audit schema apply operation exceeded its ${timeoutMs}ms deadline.`,
+            ),
+          );
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+async function boundedAuditSchemaApplyCleanup(
+  operation: Promise<unknown>,
+): Promise<void> {
+  await raceAuditSchemaApplyOperation(
+    operation.then(() => undefined),
+    AUDIT_SCHEMA_APPLY_CLEANUP_TIMEOUT_MS,
+  ).catch(() => undefined);
+}
+
 function canonicalRowsSha256(
   rows: readonly AuditSchemaOpaqueLegacyRow[],
 ): string {
   return `sha256:${createHash("sha256").update(JSON.stringify(rows)).digest("hex")}`;
+}
+
+function binaryCompare(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function canonicalValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    const canonical = value.map(canonicalValue);
+    if (canonical.every((entry) => typeof entry === "string")) {
+      canonical.sort((left, right) =>
+        binaryCompare(left as string, right as string),
+      );
+    }
+    return canonical;
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => binaryCompare(left, right))
+        .map(([key, entry]) => [key, canonicalValue(entry)]),
+    );
+  }
+  if (typeof value === "string") return canonicalLf(value);
+  if (
+    value !== null &&
+    typeof value !== "string" &&
+    typeof value !== "number" &&
+    typeof value !== "boolean"
+  ) {
+    fail(
+      "AUDIT_SCHEMA_CATALOG_VALUE_INVALID",
+      "Audit schema catalog projection contains a non-JSON value.",
+    );
+  }
+  return value;
+}
+
+export function auditSchemaFingerprintSha256(value: unknown): string {
+  return `sha256:${createHash("sha256")
+    .update(`${JSON.stringify(canonicalValue(value))}\n`)
+    .digest("hex")}`;
+}
+
+function canonicalCatalogRows(
+  rows: readonly Readonly<Record<string, unknown>>[],
+): readonly Readonly<Record<string, unknown>>[] {
+  const canonical = rows.map(
+    (row) => canonicalValue(row) as Readonly<Record<string, unknown>>,
+  );
+  canonical.sort((left, right) =>
+    binaryCompare(JSON.stringify(left), JSON.stringify(right)),
+  );
+  return Object.freeze(canonical.map((row) => Object.freeze(row)));
+}
+
+export function canonicalAuditSchemaCatalogProjection(
+  value: AuditSchemaCatalogProjection,
+): AuditSchemaCatalogProjection {
+  if (value.schemaVersion !== "site-logbook.audit-schema-catalog/v1") {
+    fail(
+      "AUDIT_SCHEMA_CATALOG_VERSION_INVALID",
+      "Audit schema catalog projection version is not supported.",
+    );
+  }
+  return Object.freeze({
+    schemaVersion: value.schemaVersion,
+    namespaces: canonicalCatalogRows(value.namespaces),
+    tables: canonicalCatalogRows(value.tables),
+    columns: canonicalCatalogRows(value.columns),
+    functions: canonicalCatalogRows(value.functions),
+    constraints: canonicalCatalogRows(value.constraints),
+    indexes: canonicalCatalogRows(value.indexes),
+    triggers: canonicalCatalogRows(value.triggers),
+  });
+}
+
+export function verifyAuditSchemaCatalogProjection(
+  value: AuditSchemaCatalogProjection,
+  expectedSchemaFingerprintSha256: string,
+): VerifiedAuditSchemaCatalog {
+  if (!/^sha256:[0-9a-f]{64}$/.test(expectedSchemaFingerprintSha256)) {
+    fail(
+      "AUDIT_SCHEMA_FINGERPRINT_EXPECTATION_INVALID",
+      "Expected audit schema fingerprint must be a lowercase SHA-256 identity.",
+    );
+  }
+  const projection = canonicalAuditSchemaCatalogProjection(value);
+  const schemaFingerprintSha256 = auditSchemaFingerprintSha256(projection);
+  if (schemaFingerprintSha256 !== expectedSchemaFingerprintSha256) {
+    fail(
+      "AUDIT_SCHEMA_FINGERPRINT_MISMATCH",
+      "Live canonical audit schema catalog differs from the reviewed fingerprint.",
+    );
+  }
+  return Object.freeze({ projection, schemaFingerprintSha256 });
 }
 
 function required(env: NodeJS.ProcessEnv, key: string): string {
@@ -638,7 +824,7 @@ function normalizeOpaqueRows(
       .sort(
         (left, right) =>
           left.createdAt - right.createdAt ||
-          left.hash.localeCompare(right.hash),
+          binaryCompare(left.hash, right.hash),
       )
       .map((row): Readonly<AuditSchemaOpaqueLegacyRow> => Object.freeze(row)),
   );
@@ -719,7 +905,8 @@ function knownRowsSha256(rows: readonly AppliedMigrationRow[]): string {
     }))
     .sort(
       (left, right) =>
-        left.createdAt - right.createdAt || left.hash.localeCompare(right.hash),
+        left.createdAt - right.createdAt ||
+        binaryCompare(left.hash, right.hash),
     );
   return `sha256:${createHash("sha256").update(JSON.stringify(canonical)).digest("hex")}`;
 }
@@ -876,7 +1063,7 @@ export function validateAuditSchemaDatabaseState(
   expectedIdentity: Pick<
     ExternalSchemaRuntimeEnvironment,
     "expectedDatabaseName" | "expectedDatabaseUser"
-  >,
+  > & { expectedSchemaFingerprintSha256: string },
   expectedObjects: AuditSchemaExpectedObjects,
 ): void {
   if (
@@ -908,6 +1095,16 @@ export function validateAuditSchemaDatabaseState(
       );
     }
     return;
+  }
+  if (
+    !/^sha256:[0-9a-f]{64}$/.test(state.schemaFingerprintSha256) ||
+    state.schemaFingerprintSha256 !==
+      expectedIdentity.expectedSchemaFingerprintSha256
+  ) {
+    fail(
+      "AUDIT_SCHEMA_FINGERPRINT_MISMATCH",
+      "Live canonical audit schema catalog differs from the reviewed fingerprint.",
+    );
   }
   exactSet(
     state.tables,
@@ -1027,6 +1224,7 @@ function lineageSummary(
 
 function schemaSummary(
   state: AuditSchemaDatabaseState,
+  expectedSchemaFingerprintSha256: string,
 ): AuditSchemaStateSummary {
   return {
     targetTag: "0107_canonical_audit_evidence",
@@ -1035,6 +1233,8 @@ function schemaSummary(
     auditEventRows: state.rowCounts.get("audit_events") ?? 0,
     auditOutboxRows: state.rowCounts.get("audit_export_outbox") ?? 0,
     auditHeadRows: state.rowCounts.get("audit_chain_heads") ?? 0,
+    expectedSchemaFingerprintSha256,
+    schemaFingerprintSha256: state.schemaFingerprintSha256,
   };
 }
 
@@ -1084,12 +1284,29 @@ function readLineageEnvironment(
   return { lineageMode, opaqueLegacyRows: exactOpaqueRows(lineageMode, rows) };
 }
 
+function readExpectedSchemaFingerprint(
+  env: NodeJS.ProcessEnv,
+): Pick<AuditSchemaEnvironment, "expectedSchemaFingerprintSha256"> {
+  const expectedSchemaFingerprintSha256 = required(
+    env,
+    "AUDIT_SCHEMA_EXPECTED_FINGERPRINT_SHA256",
+  );
+  if (!/^sha256:[0-9a-f]{64}$/.test(expectedSchemaFingerprintSha256)) {
+    fail(
+      "AUDIT_SCHEMA_FINGERPRINT_EXPECTATION_INVALID",
+      "AUDIT_SCHEMA_EXPECTED_FINGERPRINT_SHA256 must be a lowercase SHA-256 identity.",
+    );
+  }
+  return { expectedSchemaFingerprintSha256 };
+}
+
 export function readAuditSchemaInventoryEnvironment(
   env: NodeJS.ProcessEnv = process.env,
 ): AuditSchemaEnvironment {
   return {
     ...readExternalSchemaInventoryEnvironment(env),
     ...readLineageEnvironment(env),
+    ...readExpectedSchemaFingerprint(env),
   };
 }
 
@@ -1099,6 +1316,7 @@ export function readAuditSchemaRuntimeEnvironment(
   return {
     ...readExternalSchemaRuntimeEnvironment(env),
     ...readLineageEnvironment(env),
+    ...readExpectedSchemaFingerprint(env),
   };
 }
 
@@ -1134,14 +1352,329 @@ async function readLatestBackupEvidence(
   client: Queryable,
 ): Promise<StagingBackupEvidenceRow | undefined> {
   const result = await client.query<StagingBackupEvidenceRow>(`SELECT
-      id, status, object_path, size_bytes, sha256, encryption_format,
+      id, filename, status, trigger, created_by, error,
+      object_path, size_bytes, sha256, encryption_format,
       encryption_key_id, created_at, restore_status, restore_tested_at,
-      restored_at, restore_duration_ms, restore_verified_tables,
+      restored_at, restore_duration_ms, restore_verified_tables, restore_error,
       CURRENT_TIMESTAMP AS checked_at
     FROM backup_log
     ORDER BY created_at DESC, id DESC
     LIMIT 1`);
   return result.rows[0];
+}
+
+function auditBackupFingerprint(value: string): string {
+  return `sha256:${createHash("sha256").update(value).digest("hex")}`;
+}
+
+function canonicalAuditBackupTableCounts(
+  value: Record<string, unknown> | null | undefined,
+): Readonly<Record<string, number>> {
+  const entries = Object.entries(value ?? {}).sort(([left], [right]) =>
+    binaryCompare(left, right),
+  );
+  if (
+    entries.length === 0 ||
+    entries.some(
+      ([name, count]) =>
+        !/^[a-z_][a-z0-9_$]*\.[a-z_][a-z0-9_$]*$/.test(name) ||
+        typeof count !== "number" ||
+        !Number.isSafeInteger(count) ||
+        count < 0,
+    )
+  ) {
+    fail(
+      "AUDIT_BACKUP_TABLE_COUNTS_INVALID",
+      "Audit backup integrity requires exact qualified safe-integer table counts.",
+    );
+  }
+  return Object.freeze(Object.fromEntries(entries) as Record<string, number>);
+}
+
+function auditBackupTimestamp(
+  value: Date | string | null,
+  label: string,
+): number {
+  const millis =
+    value instanceof Date ? value.getTime() : Date.parse(value ?? "");
+  if (!Number.isFinite(millis)) {
+    fail(
+      "AUDIT_BACKUP_ROW_BINDING_INVALID",
+      `${label} must be a valid timestamp.`,
+    );
+  }
+  return millis;
+}
+
+export function auditSchemaBackupRowBindingSha256(
+  input: AuditSchemaBackupRowBindingInput,
+): string {
+  if (
+    !Number.isSafeInteger(input.backupId) ||
+    input.backupId < 1 ||
+    !input.filename ||
+    !input.objectPath ||
+    !Number.isSafeInteger(input.sizeBytes) ||
+    input.sizeBytes < 1 ||
+    !/^sha256:[0-9a-f]{64}$/.test(input.encryptedBackupSha256) ||
+    input.encryptionFormat !== "mve1" ||
+    !input.encryptionKeyId ||
+    input.status !== "success" ||
+    input.trigger !== "manual" ||
+    input.createdBy !== "staging-exact-0106-audit-backup" ||
+    !Number.isFinite(Date.parse(input.createdAt)) ||
+    !Number.isFinite(Date.parse(input.restoreTestedAt)) ||
+    !Number.isSafeInteger(input.restoreDurationMs) ||
+    input.restoreDurationMs < 1 ||
+    input.restoreStatus !== "ok" ||
+    !/^sha256:[0-9a-f]{64}$/.test(input.verifiedTableCountsSha256)
+  ) {
+    fail(
+      "AUDIT_BACKUP_ROW_BINDING_INVALID",
+      "Audit backup row binding input is incomplete or noncanonical.",
+    );
+  }
+  return auditBackupFingerprint(
+    JSON.stringify({
+      backupId: input.backupId,
+      filenameSha256: auditBackupFingerprint(input.filename),
+      objectPathSha256: auditBackupFingerprint(input.objectPath),
+      sizeBytes: input.sizeBytes,
+      encryptedBackupSha256: input.encryptedBackupSha256,
+      encryptionFormat: input.encryptionFormat,
+      encryptionKeyIdSha256: auditBackupFingerprint(input.encryptionKeyId),
+      status: input.status,
+      trigger: input.trigger,
+      createdBy: input.createdBy,
+      createdAt: new Date(input.createdAt).toISOString(),
+      restoreTestedAt: new Date(input.restoreTestedAt).toISOString(),
+      restoreDurationMs: input.restoreDurationMs,
+      restoreStatus: input.restoreStatus,
+      tableCountsSha256: input.verifiedTableCountsSha256,
+    }),
+  );
+}
+
+export function validateAuditSchemaBackupIntegrityEvidence(
+  row: StagingBackupEvidenceRow,
+): AuditSchemaBackupIntegrityEvidence {
+  const verifiedTableCounts = canonicalAuditBackupTableCounts(
+    row.restore_verified_tables,
+  );
+  const verifiedTableNames = Object.freeze(Object.keys(verifiedTableCounts));
+  const verifiedTableCountsSha256 = auditBackupFingerprint(
+    JSON.stringify(verifiedTableCounts),
+  );
+  const backupId = Number(row.id);
+  const sizeBytes = Number(row.size_bytes);
+  const restoreDurationMs = Number(row.restore_duration_ms);
+  const createdAt = new Date(
+    auditBackupTimestamp(row.created_at, "backup created_at"),
+  ).toISOString();
+  const restoreTestedAt = new Date(
+    auditBackupTimestamp(row.restore_tested_at, "backup restore_tested_at"),
+  ).toISOString();
+  if (
+    row.restored_at !== null ||
+    row.restore_error !== null ||
+    row.error !== null ||
+    row.created_by !== "staging-exact-0106-audit-backup"
+  ) {
+    fail(
+      "AUDIT_BACKUP_ROW_BINDING_INVALID",
+      "Audit backup row is destructive, failed, or not owned by the exact audit one-shot.",
+    );
+  }
+  const backupRowBindingSha256 = auditSchemaBackupRowBindingSha256({
+    backupId,
+    filename: row.filename?.trim() ?? "",
+    objectPath: row.object_path?.trim() ?? "",
+    sizeBytes,
+    encryptedBackupSha256: `sha256:${row.sha256?.toLowerCase() ?? ""}`,
+    encryptionFormat: row.encryption_format as "mve1",
+    encryptionKeyId: row.encryption_key_id?.trim() ?? "",
+    status: row.status as "success",
+    trigger: row.trigger as "manual",
+    createdBy: row.created_by as "staging-exact-0106-audit-backup",
+    createdAt,
+    restoreTestedAt,
+    restoreDurationMs,
+    restoreStatus: row.restore_status as "ok",
+    verifiedTableCountsSha256,
+  });
+  return Object.freeze({
+    schemaVersion: "site-logbook.audit-schema-backup-integrity/v1" as const,
+    verifiedTableNames,
+    verifiedTableCounts,
+    verifiedTableCountsSha256,
+    backupRowBindingSha256,
+  });
+}
+
+function optionalAuditSchemaBackupIntegrityEvidence(
+  row: StagingBackupEvidenceRow,
+): AuditSchemaBackupIntegrityEvidence | null {
+  const names = Object.keys(row.restore_verified_tables ?? {});
+  return names.length > 0 &&
+    names.every((name) => /^[a-z_][a-z0-9_$]*\.[a-z_][a-z0-9_$]*$/.test(name))
+    ? validateAuditSchemaBackupIntegrityEvidence(row)
+    : null;
+}
+
+export async function readAuditSchemaCatalogProjection(
+  client: AuditSchemaCatalogQueryable,
+): Promise<AuditSchemaCatalogProjection> {
+  const namespaces = await client.query<Record<string, unknown>>(`
+    SELECT n.nspname AS schema_name,
+           pg_get_userbyid(n.nspowner) AS owner,
+           COALESCE(to_jsonb(n.nspacl), '[]'::jsonb) AS acl
+      FROM pg_namespace n
+     WHERE n.nspname = 'public'
+     ORDER BY n.nspname`);
+  const tables = await client.query<Record<string, unknown>>(`
+    SELECT n.nspname AS schema_name, c.relname AS table_name,
+           c.relkind::text AS relation_kind,
+           c.relpersistence::text AS persistence,
+           pg_get_userbyid(c.relowner) AS owner,
+           c.relrowsecurity AS row_security,
+           c.relforcerowsecurity AS force_row_security,
+           c.relreplident::text AS replica_identity,
+           COALESCE(to_jsonb(c.reloptions), '[]'::jsonb) AS reloptions,
+           COALESCE(to_jsonb(c.relacl), '[]'::jsonb) AS acl
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = 'public'
+       AND c.relname = ANY (ARRAY['audit_chain_heads','audit_events','audit_export_outbox'])
+     ORDER BY n.nspname, c.relname`);
+  const columns = await client.query<Record<string, unknown>>(`
+    SELECT n.nspname AS schema_name, c.relname AS table_name,
+           a.attnum AS ordinal, a.attname AS column_name,
+           format_type(a.atttypid, a.atttypmod) AS data_type,
+           NOT a.attnotnull AS nullable,
+           pg_get_expr(d.adbin, d.adrelid, true) AS default_expression,
+           a.attidentity::text AS identity_kind,
+           a.attgenerated::text AS generated_kind,
+           a.attstorage::text AS storage_kind,
+           a.attcompression::text AS compression_kind,
+           CASE WHEN a.attcollation = 0 THEN NULL
+                ELSE quote_ident(cn.nspname) || '.' || quote_ident(co.collname)
+            END AS collation,
+           COALESCE(to_jsonb(a.attoptions), '[]'::jsonb) AS options,
+           COALESCE(to_jsonb(a.attacl), '[]'::jsonb) AS acl
+      FROM pg_attribute a
+      JOIN pg_class c ON c.oid = a.attrelid
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+      LEFT JOIN pg_collation co ON co.oid = a.attcollation
+      LEFT JOIN pg_namespace cn ON cn.oid = co.collnamespace
+     WHERE n.nspname = 'public'
+       AND c.relname = ANY (ARRAY['audit_chain_heads','audit_events','audit_export_outbox'])
+       AND a.attnum > 0 AND NOT a.attisdropped
+     ORDER BY n.nspname, c.relname, a.attnum`);
+  const functions = await client.query<Record<string, unknown>>(`
+    SELECT n.nspname AS schema_name, p.proname AS function_name,
+           pg_get_function_identity_arguments(p.oid) AS identity_arguments,
+           pg_get_functiondef(p.oid) AS definition,
+           pg_get_function_result(p.oid) AS return_type,
+           l.lanname AS language,
+           p.prokind::text AS function_kind,
+           p.provolatile::text AS volatility,
+           p.proparallel::text AS parallel_safety,
+           p.prosecdef AS security_definer,
+           p.proleakproof AS leakproof,
+           p.proisstrict AS strict,
+           p.proretset AS returns_set,
+           pg_get_userbyid(p.proowner) AS owner,
+           COALESCE(to_jsonb(p.proconfig), '[]'::jsonb) AS configuration,
+           COALESCE(to_jsonb(p.proacl), '[]'::jsonb) AS acl
+      FROM pg_proc p
+      JOIN pg_namespace n ON n.oid = p.pronamespace
+      JOIN pg_language l ON l.oid = p.prolang
+     WHERE n.nspname = 'public'
+       AND (p.proname LIKE 'audit\\_%' ESCAPE '\\'
+         OR p.proname LIKE 'guard_audit\\_%' ESCAPE '\\'
+         OR p.proname LIKE 'deny_audit\\_%' ESCAPE '\\')
+     ORDER BY n.nspname, p.proname, pg_get_function_identity_arguments(p.oid)`);
+  const constraints = await client.query<Record<string, unknown>>(`
+    SELECT n.nspname AS schema_name, c.relname AS table_name,
+           con.conname AS constraint_name, con.contype::text AS constraint_type,
+           con.convalidated AS validated, con.condeferrable AS deferrable,
+           con.condeferred AS initially_deferred,
+           con.connoinherit AS no_inherit,
+           CASE WHEN con.conindid = 0 THEN NULL ELSE con.conindid::regclass::text END AS backing_index,
+           pg_get_constraintdef(con.oid, true) AS definition
+      FROM pg_constraint con
+      JOIN pg_class c ON c.oid = con.conrelid
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = 'public'
+       AND c.relname = ANY (ARRAY['audit_chain_heads','audit_events','audit_export_outbox'])
+       AND con.contype <> 't'
+     ORDER BY n.nspname, c.relname, con.conname`);
+  const indexes = await client.query<Record<string, unknown>>(`
+    SELECT n.nspname AS schema_name, c.relname AS table_name,
+           i.relname AS index_name, x.indisunique AS unique_index,
+           x.indisprimary AS primary_index, x.indisvalid AS valid,
+           x.indisready AS ready, x.indislive AS live,
+           x.indisreplident AS replica_identity,
+           pg_get_indexdef(i.oid) AS definition,
+           pg_get_userbyid(i.relowner) AS owner,
+           am.amname AS access_method,
+           COALESCE(to_jsonb(i.reloptions), '[]'::jsonb) AS reloptions,
+           COALESCE(to_jsonb(i.relacl), '[]'::jsonb) AS acl
+      FROM pg_index x
+      JOIN pg_class i ON i.oid = x.indexrelid
+      JOIN pg_class c ON c.oid = x.indrelid
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      JOIN pg_am am ON am.oid = i.relam
+     WHERE n.nspname = 'public'
+       AND c.relname = ANY (ARRAY['audit_chain_heads','audit_events','audit_export_outbox'])
+     ORDER BY n.nspname, c.relname, i.relname`);
+  const triggers = await client.query<Record<string, unknown>>(`
+    SELECT n.nspname AS schema_name, c.relname AS table_name,
+           t.tgname AS trigger_name, t.tgenabled::text AS enabled,
+           pn.nspname || '.' || p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')' AS function_identity,
+           (con.oid IS NOT NULL) AS constraint_trigger,
+           COALESCE(con.condeferrable, false) AS deferrable,
+           COALESCE(con.condeferred, false) AS initially_deferred,
+           pg_get_triggerdef(t.oid, true) AS definition
+      FROM pg_trigger t
+      JOIN pg_class c ON c.oid = t.tgrelid
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      JOIN pg_proc p ON p.oid = t.tgfoid
+      JOIN pg_namespace pn ON pn.oid = p.pronamespace
+      LEFT JOIN pg_constraint con ON con.oid = t.tgconstraint
+     WHERE n.nspname = 'public'
+       AND c.relname = ANY (ARRAY['audit_chain_heads','audit_events','audit_export_outbox'])
+       AND NOT t.tgisinternal
+     ORDER BY n.nspname, c.relname, t.tgname`);
+  return canonicalAuditSchemaCatalogProjection({
+    schemaVersion: "site-logbook.audit-schema-catalog/v1",
+    columns: columns.rows,
+    constraints: constraints.rows,
+    functions: functions.rows,
+    indexes: indexes.rows,
+    namespaces: namespaces.rows,
+    tables: tables.rows,
+    triggers: triggers.rows,
+  });
+}
+
+export async function readAndVerifyAuditSchemaCatalog(
+  client: AuditSchemaCatalogQueryable,
+  expectedSchemaFingerprintSha256: string,
+): Promise<VerifiedAuditSchemaCatalog> {
+  return verifyAuditSchemaCatalogProjection(
+    await readAuditSchemaCatalogProjection(client),
+    expectedSchemaFingerprintSha256,
+  );
+}
+
+async function readAuditSchemaFingerprint(
+  client: AuditSchemaCatalogQueryable,
+): Promise<string> {
+  return auditSchemaFingerprintSha256(
+    await readAuditSchemaCatalogProjection(client),
+  );
 }
 
 async function readAuditDatabaseState(
@@ -1230,7 +1763,45 @@ async function readAuditDatabaseState(
   let headLedgerSha256: string | null = null;
   let maximumEventSequence: number | null = null;
   let maximumEventLedgerSha256: string | null = null;
-  if (mode !== "pre") {
+  const schemaFingerprintSha256 = await readAuditSchemaFingerprint(client);
+  if (mode === "post") {
+    const result = await client.query<{
+      audit_events_present: boolean;
+      audit_export_outbox_present: boolean;
+      audit_head_present: boolean;
+      second_audit_head_present: boolean;
+      head_stream_id: string | null;
+      head_sequence: string | number | null;
+      head_ledger_sha256: string | null;
+    }>(`SELECT
+      EXISTS (SELECT 1 FROM audit_events LIMIT 1) AS audit_events_present,
+      EXISTS (SELECT 1 FROM audit_export_outbox LIMIT 1) AS audit_export_outbox_present,
+      EXISTS (SELECT 1 FROM audit_chain_heads LIMIT 1) AS audit_head_present,
+      EXISTS (SELECT 1 FROM audit_chain_heads OFFSET 1 LIMIT 1) AS second_audit_head_present,
+      (SELECT stream_id FROM audit_chain_heads ORDER BY stream_id LIMIT 1) AS head_stream_id,
+      (SELECT sequence FROM audit_chain_heads ORDER BY stream_id LIMIT 1) AS head_sequence,
+      (SELECT ledger_sha256 FROM audit_chain_heads ORDER BY stream_id LIMIT 1) AS head_ledger_sha256`);
+    const presence = result.rows[0];
+    rowCounts.set("audit_events", presence?.audit_events_present ? 1 : 0);
+    rowCounts.set(
+      "audit_export_outbox",
+      presence?.audit_export_outbox_present ? 1 : 0,
+    );
+    rowCounts.set(
+      "audit_chain_heads",
+      presence?.second_audit_head_present
+        ? 2
+        : presence?.audit_head_present
+          ? 1
+          : 0,
+    );
+    headStreamId = presence?.head_stream_id ?? null;
+    headSequence =
+      presence?.head_sequence === null || presence?.head_sequence === undefined
+        ? null
+        : Number(presence.head_sequence);
+    headLedgerSha256 = presence?.head_ledger_sha256 ?? null;
+  } else if (mode === "steady") {
     const result = await client.query<{
       audit_events: string | number;
       audit_export_outbox: string | number;
@@ -1281,6 +1852,7 @@ async function readAuditDatabaseState(
     headLedgerSha256,
     maximumEventSequence,
     maximumEventLedgerSha256,
+    schemaFingerprintSha256,
   };
 }
 
@@ -1288,18 +1860,38 @@ async function withLockedReadOnly<T>(
   databaseUrl: string,
   operation: (client: pg.Client) => Promise<T>,
 ): Promise<T> {
-  const client = new Client({ connectionString: databaseUrl });
+  const client = new Client({
+    connectionString: databaseUrl,
+    connectionTimeoutMillis: 5_000,
+    query_timeout: 5_000,
+    statement_timeout: 5_000,
+  });
   await client.connect();
   let transactionOpen = false;
+  let lockHeld = false;
   try {
-    await client.query("SELECT pg_advisory_lock($1)", [
-      EXTERNAL_SCHEMA_MIGRATION_LOCK_KEY,
-    ]);
+    const lock = await client.query<{ acquired: boolean }>(
+      "SELECT pg_try_advisory_lock($1) AS acquired",
+      [EXTERNAL_SCHEMA_MIGRATION_LOCK_KEY],
+    );
+    if (lock.rows[0]?.acquired !== true) {
+      fail(
+        "AUDIT_SCHEMA_LOCK_BUSY",
+        "Audit schema read-only verifier could not acquire the migration lock immediately.",
+      );
+    }
+    lockHeld = true;
     try {
       await client.query(
         "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY",
       );
       transactionOpen = true;
+      await client.query("SET LOCAL lock_timeout = '2000ms'");
+      await client.query("SET LOCAL statement_timeout = '5000ms'");
+      await client.query("SET LOCAL search_path = pg_catalog, public");
+      await client.query(
+        "SET LOCAL idle_in_transaction_session_timeout = '5000ms'",
+      );
       const result = await operation(client);
       await client.query("COMMIT");
       transactionOpen = false;
@@ -1309,11 +1901,13 @@ async function withLockedReadOnly<T>(
         await client.query("ROLLBACK").catch(() => undefined);
       throw error;
     } finally {
-      await client
-        .query("SELECT pg_advisory_unlock($1)", [
-          EXTERNAL_SCHEMA_MIGRATION_LOCK_KEY,
-        ])
-        .catch(() => undefined);
+      if (lockHeld) {
+        await client
+          .query("SELECT pg_advisory_unlock($1)", [
+            EXTERNAL_SCHEMA_MIGRATION_LOCK_KEY,
+          ])
+          .catch(() => undefined);
+      }
     }
   } finally {
     await client.end();
@@ -1324,7 +1918,7 @@ async function withLockedReadOnly<T>(
  * Apply only the reviewed 0107 migration. This intentionally does not call the
  * generic Drizzle runner: committed migration blobs use CRLF while the rollout
  * contract and database identity pin canonical-LF SQL. The specialized gate
- * executes canonical-LF statements and records the reviewed 5523... identity.
+ * executes canonical-LF statements and records the reviewed target identity.
  */
 export async function applyAuditSchema0107(
   config: AuditSchemaPreflightEnvironment,
@@ -1351,16 +1945,55 @@ export async function applyAuditSchema0107(
     );
   }
 
-  const client = new Client({ connectionString: config.databaseUrl });
-  await client.connect();
+  const client = new Client({
+    connectionString: config.databaseUrl,
+    connectionTimeoutMillis: AUDIT_SCHEMA_APPLY_CONNECT_TIMEOUT_MS,
+    query_timeout: AUDIT_SCHEMA_APPLY_QUERY_TIMEOUT_MS,
+    statement_timeout: AUDIT_SCHEMA_APPLY_QUERY_TIMEOUT_MS,
+  });
+  let connectionUsable = true;
   let transactionOpen = false;
+  let lockHeld = false;
   try {
-    await client.query("SELECT pg_advisory_lock($1)", [
-      EXTERNAL_SCHEMA_MIGRATION_LOCK_KEY,
-    ]);
+    await raceAuditSchemaApplyOperation(
+      client.connect(),
+      AUDIT_SCHEMA_APPLY_CONNECT_TIMEOUT_MS,
+      () => {
+        connectionUsable = false;
+        void client.end().catch(() => undefined);
+      },
+    );
+    const lock = await raceAuditSchemaApplyOperation(
+      client.query<{ acquired: boolean }>(
+        "SELECT pg_try_advisory_lock($1) AS acquired",
+        [EXTERNAL_SCHEMA_MIGRATION_LOCK_KEY],
+      ),
+      AUDIT_SCHEMA_APPLY_LOCK_TIMEOUT_MS,
+      () => {
+        connectionUsable = false;
+        void client.end().catch(() => undefined);
+      },
+    );
+    if (lock.rows[0]?.acquired !== true) {
+      fail(
+        "AUDIT_SCHEMA_LOCK_BUSY",
+        "Audit schema apply could not acquire the migration lock immediately.",
+      );
+    }
+    lockHeld = true;
     try {
       await client.query("BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE");
       transactionOpen = true;
+      await client.query("SET LOCAL lock_timeout = '5000ms'");
+      await client.query("SET LOCAL statement_timeout = '60000ms'");
+      await client.query(
+        "SET LOCAL idle_in_transaction_session_timeout = '10000ms'",
+      );
+      // The frozen 0107 SQL starts with unqualified CREATE TABLE statements.
+      // Keep application objects in public while retaining pg_catalog as the
+      // only fallback; putting pg_catalog first would attempt to create the
+      // audit tables in the system catalog and fail before the transition.
+      await client.query("SET LOCAL search_path = public, pg_catalog");
       const before = classifyAuditSchemaAppliedMigrations(
         await readAppliedMigrations(client),
         bundle,
@@ -1406,6 +2039,7 @@ export async function applyAuditSchema0107(
           newlyApplied: 0,
           knownAppliedBefore: 107,
           knownAppliedAfter: 107,
+          schemaFingerprintSha256: beforeState.schemaFingerprintSha256,
         };
       }
 
@@ -1448,20 +2082,27 @@ export async function applyAuditSchema0107(
         newlyApplied: 1,
         knownAppliedBefore: 106,
         knownAppliedAfter: 107,
+        schemaFingerprintSha256: afterState.schemaFingerprintSha256,
       };
     } catch (error) {
-      if (transactionOpen)
-        await client.query("ROLLBACK").catch(() => undefined);
+      if (transactionOpen && connectionUsable)
+        await boundedAuditSchemaApplyCleanup(
+          client.query("ROLLBACK").then(() => undefined),
+        );
       throw error;
     } finally {
-      await client
-        .query("SELECT pg_advisory_unlock($1)", [
-          EXTERNAL_SCHEMA_MIGRATION_LOCK_KEY,
-        ])
-        .catch(() => undefined);
+      if (lockHeld && connectionUsable) {
+        await boundedAuditSchemaApplyCleanup(
+          client
+            .query("SELECT pg_advisory_unlock($1)", [
+              EXTERNAL_SCHEMA_MIGRATION_LOCK_KEY,
+            ])
+            .then(() => undefined),
+        );
+      }
     }
   } finally {
-    await client.end();
+    await boundedAuditSchemaApplyCleanup(client.end());
   }
 }
 
@@ -1497,7 +2138,11 @@ export async function runAuditSchemaInventory(
       config,
       bundle.expectedObjects,
     );
-    const externalState = await readExternalSchemaDatabaseState(client, "post");
+    const externalState = await readExternalSchemaDatabaseState(
+      client,
+      "post",
+      { boundedEmptyCheck: true },
+    );
     validateExternalSchemaDatabaseState("post", externalState, config);
     if (externalRows(externalState) !== 0) {
       fail(
@@ -1505,10 +2150,11 @@ export async function runAuditSchemaInventory(
         "External-account state must remain empty during audit schema rollout.",
       );
     }
-    const backup = validateStagingBackupEvidenceSnapshot(
-      await readLatestBackupEvidence(client),
-      config,
-    );
+    const backupRow = await readLatestBackupEvidence(client);
+    const backup = validateStagingBackupEvidenceSnapshot(backupRow, config);
+    const backupIntegrity = backupRow
+      ? optionalAuditSchemaBackupIntegrityEvidence(backupRow)
+      : null;
     return {
       schemaVersion: "site-logbook.audit-schema-inventory/v1",
       kind: "audit-schema-inventory",
@@ -1518,7 +2164,8 @@ export async function runAuditSchemaInventory(
       databaseUser: state.databaseUser,
       buildSha: config.buildSha,
       lineage: lineageSummary(classification, config.lineageMode),
-      schema: schemaSummary(state),
+      schema: schemaSummary(state, config.expectedSchemaFingerprintSha256),
+      backupIntegrity,
       backupEvidenceId: backup.id,
       backupRestoreAgeHours: backup.restoreAgeHours,
       authorizesApplicationStart: false,
@@ -1547,7 +2194,11 @@ export async function runAuditSchemaPreflight(
       config,
       bundle.expectedObjects,
     );
-    const externalState = await readExternalSchemaDatabaseState(client, "post");
+    const externalState = await readExternalSchemaDatabaseState(
+      client,
+      "post",
+      { boundedEmptyCheck: true },
+    );
     validateExternalSchemaDatabaseState("post", externalState, config);
     if (externalRows(externalState) !== 0) {
       fail(
@@ -1555,10 +2206,13 @@ export async function runAuditSchemaPreflight(
         "External-account state must remain empty during audit schema rollout.",
       );
     }
-    const backup = validateStagingBackupEvidenceSnapshot(
-      await readLatestBackupEvidence(client),
-      config,
-    );
+    const backupRow = await readLatestBackupEvidence(client);
+    const backup = validateStagingBackupEvidenceSnapshot(backupRow, config);
+    if (!backupRow) {
+      fail("BACKUP_EVIDENCE_MISSING", "The audit backup row is required.");
+    }
+    const backupIntegrity =
+      validateAuditSchemaBackupIntegrityEvidence(backupRow);
     return {
       schemaVersion: "site-logbook.audit-schema-preflight/v1",
       kind: "audit-schema-preflight",
@@ -1569,10 +2223,11 @@ export async function runAuditSchemaPreflight(
       databaseUser: state.databaseUser,
       buildSha: config.buildSha,
       lineage: lineageSummary(classification, config.lineageMode),
-      schema: schemaSummary(state),
+      schema: schemaSummary(state, config.expectedSchemaFingerprintSha256),
       backupEvidenceId: backup.id,
       backupRestoreAgeHours: backup.restoreAgeHours,
       backupEvidence: backup,
+      backupIntegrity,
       authorizesApplicationStart: false,
     };
   });
@@ -1616,8 +2271,105 @@ export async function runAuditSchemaSteadyState(
       databaseUser: state.databaseUser,
       buildSha: config.buildSha,
       lineage: lineageSummary(classification, config.lineageMode),
-      schema: schemaSummary(state),
+      schema: schemaSummary(state, config.expectedSchemaFingerprintSha256),
       authorizesApplicationStart: true,
+    };
+  });
+}
+
+export interface ProductionAuditSchemaReadinessInput {
+  databaseUrl: string;
+  migrationsDir: string;
+  expectedDatabaseName: string;
+  expectedDatabaseUser: string;
+  buildSha: string;
+  expectedSchemaFingerprintSha256: string;
+}
+
+/**
+ * Pure read-only production gate for the startup control plane. The production
+ * lineage is fixed here rather than accepted from caller-controlled JSON.
+ */
+export async function verifyProductionAuditSchemaReadiness(
+  input: ProductionAuditSchemaReadinessInput,
+): Promise<AuditSchemaSteadyStateSummary> {
+  if (!/^[0-9a-f]{40}$/.test(input.buildSha)) {
+    fail(
+      "BUILD_SHA_INVALID",
+      "Production audit readiness requires a full lowercase Git SHA.",
+    );
+  }
+  if (!/^sha256:[0-9a-f]{64}$/.test(input.expectedSchemaFingerprintSha256)) {
+    fail(
+      "AUDIT_SCHEMA_FINGERPRINT_EXPECTATION_INVALID",
+      "Production audit readiness requires the reviewed schema fingerprint.",
+    );
+  }
+  let expectedDatabaseHost: string;
+  try {
+    expectedDatabaseHost = new URL(input.databaseUrl).hostname;
+  } catch {
+    fail(
+      "DATABASE_URL_INVALID",
+      "Production audit readiness requires an absolute PostgreSQL URL.",
+    );
+  }
+  const config: AuditSchemaRuntimeEnvironment = {
+    databaseUrl: input.databaseUrl,
+    migrationsDir: input.migrationsDir,
+    environmentId: "site-logbook-production",
+    expectedDatabaseHost,
+    expectedDatabaseName: input.expectedDatabaseName,
+    expectedDatabaseUser: input.expectedDatabaseUser,
+    buildSha: input.buildSha,
+    lineageMode: "production-copy-restricted",
+    opaqueLegacyRows: AUDIT_SCHEMA_OPAQUE_LEGACY_ROWS,
+    expectedSchemaFingerprintSha256: input.expectedSchemaFingerprintSha256,
+  };
+  const bundle = loadAndValidateAuditSchemaMigrationBundle(
+    config.migrationsDir,
+  );
+  return withLockedReadOnly(config.databaseUrl, async (client) => {
+    const classification = validateExactAuditAppliedMigrationSet(
+      "steady",
+      await readAppliedMigrations(client),
+      bundle,
+      config.lineageMode,
+      config.opaqueLegacyRows,
+    );
+    // Startup is intentionally stricter than a periodic steady-state audit:
+    // the default-dark rollout must still be exact genesis. Presence probes
+    // are index/limit bounded and never scan the full audit ledger.
+    const state = await readAuditDatabaseState(client, "post");
+    validateAuditSchemaDatabaseState(
+      "post",
+      state,
+      config,
+      bundle.expectedObjects,
+    );
+    const externalState = await readExternalSchemaDatabaseState(
+      client,
+      "post",
+      { boundedEmptyCheck: true },
+    );
+    validateExternalSchemaDatabaseState("post", externalState, config);
+    if (externalRows(externalState) !== 0) {
+      fail(
+        "EXTERNAL_STATE_NOT_DARK",
+        "External-account state must remain empty at production startup.",
+      );
+    }
+    return {
+      schemaVersion: "site-logbook.audit-schema-steady-state/v1" as const,
+      kind: "audit-schema-steady-state" as const,
+      decision: "ALREADY_0107" as const,
+      environmentId: config.environmentId,
+      databaseName: state.databaseName,
+      databaseUser: state.databaseUser,
+      buildSha: config.buildSha,
+      lineage: lineageSummary(classification, config.lineageMode),
+      schema: schemaSummary(state, config.expectedSchemaFingerprintSha256),
+      authorizesApplicationStart: true as const,
     };
   });
 }

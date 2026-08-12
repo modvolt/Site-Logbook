@@ -3,6 +3,7 @@ import {
   AUDIT_SCHEMA_KNOWN_ROWS_SHA256,
   AUDIT_SCHEMA_MIGRATIONS,
   AUDIT_SCHEMA_OPAQUE_ROWS_SHA256,
+  auditSchemaBackupRowBindingSha256,
   readAuditSchemaInventoryEnvironment,
   runAuditSchemaInventory,
   type AuditSchemaEnvironment,
@@ -10,7 +11,14 @@ import {
 } from "@workspace/db/audit-schema-preflight";
 import { ExternalSchemaPreflightError } from "@workspace/db/external-schema-preflight";
 import { fileURLToPath } from "node:url";
-import { createBackup, testBackupRestore } from "./lib/backup";
+import {
+  canonicalBackupSourceSnapshotEvidence,
+  createBackup,
+  getBackup,
+  testBackupRestore,
+  type BackupSourceSnapshotEvidence,
+  type CreatedBackupLog,
+} from "./lib/backup";
 
 export const STAGING_EXACT_0106_BACKUP_ACTION =
   "create-exact-0106-audit-backup";
@@ -113,6 +121,10 @@ function validateInventory(inventory: AuditSchemaInventorySummary): number {
     inventory.schema.auditEventRows !== 0 ||
     inventory.schema.auditOutboxRows !== 0 ||
     inventory.schema.auditHeadRows !== 0 ||
+    !/^sha256:[0-9a-f]{64}$/.test(
+      inventory.schema.expectedSchemaFingerprintSha256,
+    ) ||
+    !/^sha256:[0-9a-f]{64}$/.test(inventory.schema.schemaFingerprintSha256) ||
     !Number.isSafeInteger(inventory.backupEvidenceId) ||
     Number(inventory.backupEvidenceId) < 1 ||
     inventory.authorizesApplicationStart !== false
@@ -125,7 +137,10 @@ function validateInventory(inventory: AuditSchemaInventorySummary): number {
   return Number(inventory.backupEvidenceId);
 }
 
-function validateCreatedBackup(row: BackupLog, previousBackupId: number): void {
+function validateCreatedBackup(
+  row: CreatedBackupLog,
+  previousBackupId: number,
+): BackupSourceSnapshotEvidence {
   if (
     !Number.isSafeInteger(row.id) ||
     row.id <= previousBackupId ||
@@ -142,9 +157,48 @@ function validateCreatedBackup(row: BackupLog, previousBackupId: number): void {
     );
   }
   canonicalTimestamp(row.createdAt, "created backup createdAt");
+  const source = row.sourceSnapshotEvidence;
+  if (!source) {
+    fail(
+      "EXACT_0106_BACKUP_SOURCE_SNAPSHOT_MISSING",
+      "The exact backup must expose counts from the same exported snapshot imported by pg_dump.",
+    );
+  }
+  let canonical: BackupSourceSnapshotEvidence;
+  try {
+    canonical = canonicalBackupSourceSnapshotEvidence(source.tableCounts);
+  } catch {
+    fail(
+      "EXACT_0106_BACKUP_SOURCE_SNAPSHOT_INVALID",
+      "The exact backup source table-count evidence is invalid.",
+    );
+  }
+  if (
+    source.schemaVersion !== canonical.schemaVersion ||
+    source.tableCountsSha256 !== canonical.tableCountsSha256 ||
+    JSON.stringify(source.tableNames) !== JSON.stringify(canonical.tableNames)
+  ) {
+    fail(
+      "EXACT_0106_BACKUP_SOURCE_SNAPSHOT_INVALID",
+      "The exact backup source table-count evidence is not canonical.",
+    );
+  }
+  return canonical;
 }
 
-function validateRestoreResult(row: BackupLog, backupId: number) {
+function sameTimestamp(left: Date | null, right: Date | null): boolean {
+  return (
+    left instanceof Date &&
+    right instanceof Date &&
+    left.getTime() === right.getTime()
+  );
+}
+
+function validateRestoreResult(
+  row: BackupLog,
+  created: CreatedBackupLog,
+  source: BackupSourceSnapshotEvidence,
+) {
   const createdAt = canonicalTimestamp(
     row.createdAt,
     "restore result createdAt",
@@ -153,24 +207,44 @@ function validateRestoreResult(row: BackupLog, backupId: number) {
     row.restoreTestedAt,
     "restore result restoreTestedAt",
   );
+  const restoredSizeBytes = boundedPayload(
+    row.sizeBytes,
+    "restore result sizeBytes",
+  );
+  const restoreDurationMs = positiveInteger(
+    row.restoreDurationMs,
+    "restoreDurationMs",
+  );
   const verifiedTables = row.restoreVerifiedTables;
+  let restored: BackupSourceSnapshotEvidence | null = null;
+  try {
+    restored = canonicalBackupSourceSnapshotEvidence(verifiedTables ?? {});
+  } catch {
+    restored = null;
+  }
   if (
-    row.id !== backupId ||
+    row.id !== created.id ||
+    row.filename !== created.filename ||
+    row.objectPath !== created.objectPath ||
+    row.sizeBytes !== created.sizeBytes ||
+    row.sha256 !== created.sha256 ||
+    row.encryptionFormat !== created.encryptionFormat ||
+    row.encryptionKeyId !== created.encryptionKeyId ||
+    row.trigger !== created.trigger ||
+    row.createdBy !== created.createdBy ||
+    row.error !== created.error ||
+    !sameTimestamp(row.createdAt, created.createdAt) ||
     row.status !== "success" ||
     row.restoreStatus !== "ok" ||
+    row.restoreError !== null ||
     row.restoredAt !== null ||
-    boundedPayload(row.sizeBytes, "restore result sizeBytes") < 1 ||
-    positiveInteger(row.restoreDurationMs, "restoreDurationMs") < 1 ||
-    !verifiedTables ||
-    typeof verifiedTables !== "object" ||
-    Array.isArray(verifiedTables) ||
-    Object.keys(verifiedTables).length === 0 ||
-    Object.entries(verifiedTables).some(
-      ([name, count]) =>
-        !/^[a-z][a-z0-9_]*$/.test(name) ||
-        !Number.isSafeInteger(count) ||
-        Number(count) < 0,
-    ) ||
+    restoredSizeBytes < 1 ||
+    restoreDurationMs < 1 ||
+    !restored ||
+    restored.tableCountsSha256 !== source.tableCountsSha256 ||
+    JSON.stringify(restored.tableNames) !== JSON.stringify(source.tableNames) ||
+    JSON.stringify(restored.tableCounts) !==
+      JSON.stringify(source.tableCounts) ||
     restoreTestedAt < createdAt
   ) {
     fail(
@@ -178,7 +252,33 @@ function validateRestoreResult(row: BackupLog, backupId: number) {
       "The same backup id must pass a bounded non-destructive restore test with verified tables.",
     );
   }
-  return { createdAt, restoreTestedAt };
+  return { createdAt, restoreTestedAt, restored };
+}
+
+function backupRowBindingSha256(
+  row: BackupLog,
+  tableCountsSha256: string,
+): string {
+  return auditSchemaBackupRowBindingSha256({
+    backupId: row.id,
+    filename: row.filename,
+    objectPath: row.objectPath ?? "",
+    sizeBytes: Number(row.sizeBytes),
+    encryptedBackupSha256: `sha256:${row.sha256}`,
+    encryptionFormat: row.encryptionFormat as "mve1",
+    encryptionKeyId: row.encryptionKeyId ?? "",
+    status: row.status as "success",
+    trigger: row.trigger as "manual",
+    createdBy: row.createdBy as "staging-exact-0106-audit-backup",
+    createdAt: canonicalTimestamp(row.createdAt, "bound backup createdAt"),
+    restoreTestedAt: canonicalTimestamp(
+      row.restoreTestedAt,
+      "bound backup restoreTestedAt",
+    ),
+    restoreDurationMs: Number(row.restoreDurationMs),
+    restoreStatus: row.restoreStatus as "ok",
+    verifiedTableCountsSha256: tableCountsSha256,
+  });
 }
 
 export interface StagingExact0106BackupDependencies {
@@ -186,6 +286,7 @@ export interface StagingExact0106BackupDependencies {
   inventory?: typeof runAuditSchemaInventory;
   create?: typeof createBackup;
   restoreTest?: typeof testBackupRestore;
+  readBackup?: typeof getBackup;
 }
 
 export async function runStagingExact0106Backup(
@@ -205,15 +306,17 @@ export async function runStagingExact0106Backup(
     actor: "staging-exact-0106-audit-backup",
     skipRetentionPrune: true,
     maxPayloadBytes: STAGING_EXACT_0106_BACKUP_MAX_PAYLOAD_BYTES,
+    captureSourceSnapshotTableCounts: true,
   });
-  validateCreatedBackup(created, previousBackupId);
+  const sourceSnapshot = validateCreatedBackup(created, previousBackupId);
   const restored = await (dependencies.restoreTest ?? testBackupRestore)(
     created.id,
     {
       maxPayloadBytes: STAGING_EXACT_0106_BACKUP_MAX_PAYLOAD_BYTES,
+      expectedSourceSnapshotEvidence: sourceSnapshot,
     },
   );
-  const timestamps = validateRestoreResult(restored, created.id);
+  const timestamps = validateRestoreResult(restored, created, sourceSnapshot);
   const after = await (dependencies.inventory ?? runAuditSchemaInventory)({
     ...config,
     backupEvidenceId: restored.id,
@@ -222,6 +325,35 @@ export async function runStagingExact0106Backup(
     fail(
       "EXACT_0106_BACKUP_POSTCHECK_INVALID",
       "The exact-0106 postcheck did not observe the new restore-tested backup.",
+    );
+  }
+  const immutableRow = await (dependencies.readBackup ?? getBackup)(
+    restored.id,
+  );
+  if (!immutableRow) {
+    fail(
+      "EXACT_0106_BACKUP_ROW_MISSING",
+      "The restore-tested backup row disappeared before evidence freeze.",
+    );
+  }
+  const frozen = validateRestoreResult(immutableRow, created, sourceSnapshot);
+  const tableCountsSha256 = sourceSnapshot.tableCountsSha256;
+  const rowBindingSha256 = backupRowBindingSha256(
+    immutableRow,
+    tableCountsSha256,
+  );
+  if (
+    !after.backupIntegrity ||
+    after.backupIntegrity.verifiedTableCountsSha256 !== tableCountsSha256 ||
+    after.backupIntegrity.backupRowBindingSha256 !== rowBindingSha256 ||
+    JSON.stringify(after.backupIntegrity.verifiedTableNames) !==
+      JSON.stringify(sourceSnapshot.tableNames) ||
+    JSON.stringify(after.backupIntegrity.verifiedTableCounts) !==
+      JSON.stringify(sourceSnapshot.tableCounts)
+  ) {
+    fail(
+      "EXACT_0106_BACKUP_POSTCHECK_INVALID",
+      "The audit inventory did not reproduce the frozen table-count and backup-row binding.",
     );
   }
   return Object.freeze({
@@ -243,11 +375,15 @@ export async function runStagingExact0106Backup(
       restored.restoreDurationMs,
       "restoreDurationMs",
     ),
-    verifiedTableCount: Object.keys(restored.restoreVerifiedTables ?? {})
-      .length,
+    verifiedTableCount: sourceSnapshot.tableNames.length,
+    verifiedTableNames: sourceSnapshot.tableNames,
+    sourceTableCounts: sourceSnapshot.tableCounts,
+    restoredTableCounts: frozen.restored.tableCounts,
+    verifiedTableCountsSha256: tableCountsSha256,
     sizeBytes: boundedPayload(restored.sizeBytes, "sizeBytes"),
     maxPayloadBytes: STAGING_EXACT_0106_BACKUP_MAX_PAYLOAD_BYTES,
     encryptedBackupSha256: `sha256:${restored.sha256}`,
+    backupRowBindingSha256: rowBindingSha256,
     encryptionFormat: "mve1" as const,
     retentionPruned: false,
     destructiveRestorePerformed: false,

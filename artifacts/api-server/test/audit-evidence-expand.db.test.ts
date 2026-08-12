@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -72,7 +73,10 @@ async function rejectionChain(promise: Promise<unknown>): Promise<string> {
   throw new Error("Expected the database operation to be rejected.");
 }
 
-async function waitForRollbackTableLock(backendPid: number): Promise<void> {
+async function waitForRollbackTableLock(
+  backendPid: number,
+  relation = "public.audit_chain_heads",
+): Promise<void> {
   const deadline = Date.now() + 2_000;
   while (Date.now() < deadline) {
     const result = await pool.query<{ waiting: boolean }>(
@@ -80,18 +84,16 @@ async function waitForRollbackTableLock(backendPid: number): Promise<void> {
          select 1
          from pg_locks
          where pid = $1
-           and relation = 'audit_chain_heads'::regclass
+           and relation = $2::regclass
            and mode = 'AccessExclusiveLock'
            and not granted
        ) as waiting`,
-      [backendPid],
+      [backendPid, relation],
     );
     if (result.rows[0]?.waiting) return;
     await new Promise((resolvePromise) => setTimeout(resolvePromise, 10));
   }
-  throw new Error(
-    "Rollback did not wait on the writer's audit_chain_heads lock.",
-  );
+  throw new Error(`Rollback did not wait on the writer's ${relation} lock.`);
 }
 
 function eventInput(eventId: string): AuditEventInputV1 {
@@ -271,6 +273,44 @@ beforeAll(async () => {
 });
 
 describe("R09 canonical audit evidence expand migration", () => {
+  it("compiles qualified digest functions with fixed search_path and revoked public CREATE", async () => {
+    const functions = await pool.query<{
+      function_count: number;
+      fixed_search_path: boolean;
+    }>(`SELECT count(*)::integer AS function_count,
+               bool_and(p.proconfig @> ARRAY['search_path=pg_catalog']::text[]) AS fixed_search_path
+          FROM pg_proc p
+          JOIN pg_namespace n ON n.oid = p.pronamespace
+         WHERE n.nspname = 'public'
+           AND (p.proname LIKE 'audit\\_%' ESCAPE '\\'
+             OR p.proname LIKE 'guard_audit\\_%' ESCAPE '\\'
+             OR p.proname LIKE 'deny_audit\\_%' ESCAPE '\\')`);
+    expect(functions.rows[0]).toEqual({
+      function_count: 16,
+      fixed_search_path: true,
+    });
+    const domain = "site-logbook.test/v1";
+    const canonical = '{"ok":true}';
+    const expected = createHash("sha256")
+      .update(
+        Buffer.concat([
+          Buffer.from(domain),
+          Buffer.from([0]),
+          Buffer.from(canonical),
+        ]),
+      )
+      .digest("hex");
+    const digest = await pool.query<{ digest: string }>(
+      "SELECT public.audit_domain_sha256($1, $2) AS digest",
+      [domain, canonical],
+    );
+    expect(digest.rows[0]?.digest).toBe(expected);
+    const privilege = await pool.query<{ public_can_create: boolean }>(
+      "SELECT has_schema_privilege('public', 'public', 'CREATE') AS public_can_create",
+    );
+    expect(privilege.rows[0]?.public_can_create).toBe(false);
+  });
+
   it("persists event, ledger, outbox and exact head CAS in one caller transaction", async () => {
     const envelope = createAuditEventEnvelope(eventInput(EVENT_ID));
     const result = await db.transaction((tx) =>
@@ -606,6 +646,58 @@ describe("R09 canonical audit evidence expand migration", () => {
       await writer.catch(() => undefined);
       await rollbackClient.query("rollback").catch(() => undefined);
       rollbackClient.release();
+    }
+  });
+
+  it("locks the migration journal against a concurrent direct lineage insert", async () => {
+    const decoyHash = "f".repeat(64);
+    const writerClient = await pool.connect();
+    const rollbackClient = await pool.connect();
+    let writerCommitted = false;
+    try {
+      await writerClient.query("begin");
+      await writerClient.query(
+        "insert into drizzle.__drizzle_migrations (hash, created_at) values ($1, $2)",
+        [decoyHash, 1786484628859],
+      );
+      const backend = await rollbackClient.query<{ pid: number }>(
+        "select pg_backend_pid() as pid",
+      );
+      const rollbackOutcome = rollbackClient.query(rollbackSql).then(
+        () => ({ ok: true as const, error: null }),
+        (error: unknown) => ({ ok: false as const, error }),
+      );
+      await waitForRollbackTableLock(
+        backend.rows[0]!.pid,
+        "drizzle.__drizzle_migrations",
+      );
+      await writerClient.query("commit");
+      writerCommitted = true;
+
+      const outcome = await rollbackOutcome;
+      expect(outcome.ok).toBe(false);
+      expect(
+        outcome.error instanceof Error
+          ? `${outcome.error.message}\n${String(outcome.error.cause ?? "")}`
+          : String(outcome.error),
+      ).toMatch(/0107 rollback blocked: canonical audit evidence/i);
+      const retained = await pool.query<{ count: number }>(
+        `select count(*)::integer as count
+           from drizzle.__drizzle_migrations
+          where created_at = 1786484628859 and hash = $1`,
+        [decoyHash],
+      );
+      expect(retained.rows[0]?.count).toBe(1);
+    } finally {
+      if (!writerCommitted)
+        await writerClient.query("rollback").catch(() => undefined);
+      await rollbackClient.query("rollback").catch(() => undefined);
+      writerClient.release();
+      rollbackClient.release();
+      await pool.query(
+        "delete from drizzle.__drizzle_migrations where created_at = 1786484628859 and hash = $1",
+        [decoyHash],
+      );
     }
   });
 

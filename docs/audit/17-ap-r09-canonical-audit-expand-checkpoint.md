@@ -13,7 +13,7 @@ Stav: **lokálně implementováno a cíleně ověřeno; default-dark, bez caller
 - `AuditChainTransactionV1` zapisuje canonical event a ledger jednou atomickou operací `insertEventAndLedger`.
 - Caller-owned Drizzle adapter nemá vlastní commit, rollback ani transaction factory a před zápisem vždy volá aplikační `verifyAuditEventEnvelope`, `verifyAuditChainRecord` a `verifyAuditExportIntent`.
 - Expand-only Drizzle schema přidává `audit_events`, singleton `audit_chain_heads` a durable `audit_export_outbox`.
-- Generated migration identity je `0107_canonical_audit_evidence`, journal timestamp `1786484628859`, SHA-256 `5523f25b4c941919612f2f87a2d8fa371acd9922c3d3166b8d761000365e1339`. `0100` zůstává nepřítomná.
+- Generated migration identity je `0107_canonical_audit_evidence`, journal timestamp `1786484628859`, SHA-256 `c90d91e2ddcfbf00419980388c2e7b0f0a573fe73925638d737966fb6604e122`. `0100` zůstává nepřítomná.
 - DB trigger před event insertem zamyká head, vyžaduje přesného následníka a kontroluje canonical bytes, exact top-level/nested keys, safe-integer CJSON, domain-separated event/ledger hash a základní actor/source/action/projection semantics.
 - Event i ledger hash mají vlastní unique index. Event řádek je immutable a deferred commit trigger vyžaduje odpovídající outbox intent i posunutý durable head.
 - Outbox přechody jsou fail-closed; `exporting -> exporting` lease renewal je explicitně zakázaný, dokud nevznikne samostatný renewal kontrakt.

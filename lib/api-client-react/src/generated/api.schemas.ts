@@ -106,6 +106,34 @@ export const AdminHealthStatusImapStatus = {
   not_configured: "not_configured",
 } as const;
 
+export type ProductionRuntimeBindingHealthSchemaVersion =
+  (typeof ProductionRuntimeBindingHealthSchemaVersion)[keyof typeof ProductionRuntimeBindingHealthSchemaVersion];
+
+export const ProductionRuntimeBindingHealthSchemaVersion = {
+  "site-logbookproduction-runtime-binding/v1":
+    "site-logbook.production-runtime-binding/v1",
+} as const;
+
+export interface ProductionRuntimeBindingHealth {
+  schemaVersion: ProductionRuntimeBindingHealthSchemaVersion;
+  sourceSha: string;
+  apiImage: string;
+  apiImageDigest: string;
+  targetEvidenceSha256: string;
+  releaseEvidenceSha256: string;
+  resolvedComposeSha256: string;
+  deployedConfigSha256: string;
+  desiredConfigSha256: string;
+  livePostgresTargetSha256: string;
+  databaseName: string;
+  databaseUser: string;
+  schemaFingerprintSha256: string;
+  preMigrationBackupEvidenceSha256: string;
+  backupIntegritySha256: string;
+  transitionChainSha256: string;
+  activationApprovalSha256: string;
+}
+
 export interface ServerErrorEntry {
   /** ISO 8601 timestamp of the error */
   timestamp: string;
@@ -149,6 +177,8 @@ export interface AdminHealthStatus {
    * @nullable
    */
   migrationControlParity: boolean | null;
+  /** Secret-free exact production target, config, image, database and schema binding; null outside the production runtime. */
+  productionRuntimeBinding: ProductionRuntimeBindingHealth | null;
   expectedMigrations: number;
   /** Live rows matching an expected journal timestamp and SQL hash exactly */
   knownAppliedMigrations: number;

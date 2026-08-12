@@ -40,7 +40,10 @@ export interface RecurringTemplateUpdateInput {
   vatModeDefault?: string;
 }
 
-function appError(statusCode: number, message: string): Error & { statusCode: number } {
+function appError(
+  statusCode: number,
+  message: string,
+): Error & { statusCode: number } {
   const err = new Error(message) as Error & { statusCode: number };
   err.statusCode = statusCode;
   return err;
@@ -86,7 +89,8 @@ export function periodLabel(
   interval: "monthly" | "quarterly" | "yearly",
 ): string {
   const [year, month] = date.split("-").map(Number) as [number, number];
-  if (interval === "monthly") return `${year}-${String(month).padStart(2, "0")}`;
+  if (interval === "monthly")
+    return `${year}-${String(month).padStart(2, "0")}`;
   if (interval === "quarterly") return `${year}-Q${Math.ceil(month / 3)}`;
   return String(year);
 }
@@ -171,7 +175,9 @@ export async function getRecurringTemplateDetail(id: number) {
   return { ...row, generations };
 }
 
-export async function createRecurringTemplate(input: RecurringTemplateCreateInput) {
+export async function createRecurringTemplate(
+  input: RecurringTemplateCreateInput,
+) {
   const [customer] = await db
     .select({ id: customersTable.id })
     .from(customersTable)
@@ -244,7 +250,10 @@ export async function deleteRecurringTemplate(id: number): Promise<boolean> {
  * Process all due templates and create draft invoices for them.
  * Returns counts for logging/monitoring.
  */
-export async function runRecurringGeneration(today: string): Promise<{
+export async function runRecurringGeneration(
+  today: string,
+  signal?: AbortSignal,
+): Promise<{
   processed: number;
   created: number;
   skipped: number;
@@ -266,6 +275,7 @@ export async function runRecurringGeneration(today: string): Promise<{
   let failed = 0;
 
   for (const template of dueTemplates) {
+    if (signal?.aborted) break;
     processed++;
     const period = periodLabel(
       template.nextGenerationDate,
@@ -276,13 +286,19 @@ export async function runRecurringGeneration(today: string): Promise<{
       await generateFromTemplate(template, period, today);
       created++;
       // Notify after commit: new draft invoice, updated template, customer context.
-      publishLiveEvent(["billingRecurringTemplates", "billingInvoices", "customers"]).catch(() => {});
+      publishLiveEvent([
+        "billingRecurringTemplates",
+        "billingInvoices",
+        "customers",
+      ]).catch(() => {});
     } catch (err) {
       if (err instanceof Error && err.message.includes("DEDUPE")) {
         skipped++;
       } else {
         failed++;
-        const errorMessage = (err instanceof Error ? err.message : String(err)).slice(0, 500);
+        const errorMessage = (
+          err instanceof Error ? err.message : String(err)
+        ).slice(0, 500);
         logger.warn(
           { err, templateId: template.id, period },
           "Recurring invoice generation failed",
@@ -313,7 +329,9 @@ export async function runRecurringGeneration(today: string): Promise<{
  * bypassing the nextGenerationDate check. Still deduplicates by period.
  * Throws with statusCode 404 if not found, 409 if already generated for this period.
  */
-export async function generateTemplateNow(id: number): Promise<{ invoiceId: number; period: string }> {
+export async function generateTemplateNow(
+  id: number,
+): Promise<{ invoiceId: number; period: string }> {
   const [template] = await db
     .select()
     .from(recurringInvoiceTemplatesTable)
@@ -374,7 +392,10 @@ async function generateFromTemplate(
           // For manual triggers, surface a 409 so the UI can show a clear message.
           // Do NOT advance nextGenerationDate — the admin triggered this manually,
           // so the scheduled date should remain intact.
-          throw appError(409, `Koncept faktury pro období ${period} již existuje.`);
+          throw appError(
+            409,
+            `Koncept faktury pro období ${period} již existuje.`,
+          );
         }
         // Scheduler path: advance nextGenerationDate so we don't get stuck
         await tx
@@ -462,7 +483,10 @@ async function generateFromTemplate(
     // successful dedup — the generation already happened concurrently.
     if (isUniqueViolation(err)) {
       if (manualTrigger) {
-        throw appError(409, `Koncept faktury pro období ${period} již existuje.`);
+        throw appError(
+          409,
+          `Koncept faktury pro období ${period} již existuje.`,
+        );
       }
       throw new Error("DEDUPE");
     }
@@ -470,23 +494,32 @@ async function generateFromTemplate(
   }
 }
 
-let schedulerStarted = false;
+export type SchedulerStopHandle = Readonly<{
+  stop(): void;
+}>;
+
+let schedulerHandle: SchedulerStopHandle | undefined;
 
 /**
  * Start the daily recurring invoice generation scheduler.
  * Runs once per day (configurable via RECURRING_CHECK_INTERVAL_HOURS env).
  */
-export function startRecurringInvoiceScheduler(): void {
-  if (schedulerStarted) return;
-  schedulerStarted = true;
+export function startRecurringInvoiceScheduler(): SchedulerStopHandle {
+  if (schedulerHandle) return schedulerHandle;
 
+  const abortController = new AbortController();
   const hours = Number(process.env.RECURRING_CHECK_INTERVAL_HOURS);
-  const intervalMs = (Number.isFinite(hours) && hours > 0 ? hours : 24) * 60 * 60 * 1000;
+  const intervalMs =
+    (Number.isFinite(hours) && hours > 0 ? hours : 24) * 60 * 60 * 1000;
+  let stopped = false;
 
-  const tick = () =>
-    withSchedulerLock(SCHEDULER_LOCK_KEYS.recurringInvoices, async () => {
+  const tick = (): void => {
+    if (stopped) return;
+    void withSchedulerLock(SCHEDULER_LOCK_KEYS.recurringInvoices, async () => {
+      if (abortController.signal.aborted) return;
       const today = new Date().toISOString().split("T")[0]!;
-      const { processed, created, skipped, failed } = await runRecurringGeneration(today);
+      const { processed, created, skipped, failed } =
+        await runRecurringGeneration(today, abortController.signal);
       if (processed > 0) {
         logger.info(
           { processed, created, skipped, failed },
@@ -496,6 +529,7 @@ export function startRecurringInvoiceScheduler(): void {
     }).catch((err) =>
       logger.error({ err }, "Recurring invoice generation sweep failed"),
     );
+  };
 
   const timer = setInterval(tick, intervalMs);
   timer.unref();
@@ -504,8 +538,21 @@ export function startRecurringInvoiceScheduler(): void {
   const initial = setTimeout(tick, 30_000);
   initial.unref();
 
+  const handle: SchedulerStopHandle = {
+    stop(): void {
+      if (stopped) return;
+      stopped = true;
+      abortController.abort();
+      clearTimeout(initial);
+      clearInterval(timer);
+      if (schedulerHandle === handle) schedulerHandle = undefined;
+    },
+  };
+  schedulerHandle = handle;
+
   logger.info(
     { intervalHours: intervalMs / (60 * 60 * 1000) },
     "Recurring invoice scheduler started",
   );
+  return handle;
 }

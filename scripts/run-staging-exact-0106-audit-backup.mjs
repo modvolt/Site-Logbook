@@ -14,6 +14,12 @@ import {
 } from "./check-staging-provisioning.mjs";
 import { validateExact0106BackupGate } from "./check-staging-audit-0107-binding.mjs";
 import {
+  assertApprovedDockerBoundary,
+  cleanupFrozenCompose,
+  freezeRenderedCompose,
+  runFrozenComposeOneShot,
+} from "./staging-frozen-compose-runtime.mjs";
+import {
   argument,
   AUDIT_0107,
   AUDIT_0107_FILES,
@@ -42,19 +48,27 @@ function wrap(error) {
     typeof error?.code === "string"
       ? error.code
       : "EXACT_0106_AUDIT_BACKUP_INVALID";
-  throw new StagingExact0106AuditBackupRunnerError(
+  const wrapped = new StagingExact0106AuditBackupRunnerError(
     code,
     error instanceof Error ? error.message : String(error),
   );
+  if (error?.cleanupError) {
+    Object.defineProperty(wrapped, "cleanupError", {
+      value: error.cleanupError,
+      enumerable: false,
+    });
+  }
+  throw wrapped;
 }
 
 function defaultExecute(command, args) {
   return spawnSync(command, args, { encoding: "utf8", windowsHide: true });
 }
 
-function checked(execute, args, label) {
+function checked(execute, args, label, { allowFailure = false } = {}) {
   const result = execute("docker", args);
   if (result.error || result.status !== 0) {
+    if (allowFailure) return undefined;
     audit0107Fail(
       "EXACT_0106_AUDIT_BACKUP_COMMAND_FAILED",
       `${label} failed without approved evidence.`,
@@ -115,6 +129,7 @@ function resolveCompose(execute, composeArgs, inspect, lineage) {
     );
     return Object.freeze({
       binding,
+      value,
       resolvedComposeSha256: sha256Canonical(value),
     });
   } catch {
@@ -249,6 +264,7 @@ export function runStagingExact0106AuditBackup({
   composeFile = "docker-compose.staging.yml",
   envFile = ".env.staging",
   expectedSourceSha,
+  expectedSchemaFingerprintSha256,
   confirmation,
   lineageMode,
   opaqueLegacyRowsJson,
@@ -263,6 +279,12 @@ export function runStagingExact0106AuditBackup({
       audit0107Fail(
         "EXACT_0106_AUDIT_BACKUP_SOURCE_INVALID",
         "The exact candidate source SHA is required.",
+      );
+    }
+    if (!/^sha256:[0-9a-f]{64}$/.test(expectedSchemaFingerprintSha256 ?? "")) {
+      audit0107Fail(
+        "EXACT_0106_AUDIT_BACKUP_SCHEMA_FINGERPRINT_INVALID",
+        "The reviewed audit schema fingerprint is required.",
       );
     }
     if (confirmation !== AUDIT_0107.backupConfirmation) {
@@ -290,134 +312,154 @@ export function runStagingExact0106AuditBackup({
       "--profile",
       "exact-0106-audit-backup",
     ];
-    const initialResolved = resolveCompose(
+    const sourceResolved = resolveCompose(
       execute,
       composeArgs,
       inspect,
       lineage,
     );
-    const initialPostgres = assertOnlyPostgresRunning(
-      execute,
-      composeArgs,
-      initialResolved.binding,
-      "initial quiescence check",
-    );
-    const initialRuntimeBinding = runtimeBinding(
-      initialResolved,
-      initialPostgres,
-    );
-    const preStatefulResolved = resolveCompose(
-      execute,
-      composeArgs,
-      inspect,
-      lineage,
-    );
-    const preStatefulPostgres = assertOnlyPostgresRunning(
-      execute,
-      composeArgs,
-      preStatefulResolved.binding,
-      "pre-backup quiescence check",
-      initialPostgres.containerId,
-    );
-    const preStatefulRuntimeBinding = runtimeBinding(
-      preStatefulResolved,
-      preStatefulPostgres,
-    );
-    sameRuntimeBinding(
-      initialRuntimeBinding,
-      preStatefulRuntimeBinding,
-      "pre-backup revalidation",
-    );
-    const startedAt = now().toISOString();
-    let stdout;
-    let finalRuntimeBinding;
+    const frozen = freezeRenderedCompose({
+      resolvedValue: sourceResolved.value,
+      projectName: inspect.inputs.composeProjectName,
+      profile: "exact-0106-audit-backup",
+      targetService: "exact-0106-audit-backup",
+      environmentOverrides: {
+        STAGING_EXACT_0106_BACKUP_ACTION: AUDIT_0107.backupAction,
+        STAGING_EXACT_0106_BACKUP_CONFIRMATION: AUDIT_0107.backupConfirmation,
+        STAGING_AUDIT_SCHEMA_ACTION: "inspect",
+        AUDIT_SCHEMA_EXPECTED_FINGERPRINT_SHA256:
+          expectedSchemaFingerprintSha256,
+        AUDIT_SCHEMA_LINEAGE_MODE: lineage.mode,
+        AUDIT_SCHEMA_OPAQUE_LEGACY_ROWS_JSON: lineage.opaqueLegacyRowsJson,
+      },
+      label: "exact-0106 audit backup",
+    });
+    let backupResult;
+    let primaryError;
+    let cleanupError;
     try {
-      stdout = checked(
+      const frozenResolved = Object.freeze({
+        binding: sourceResolved.binding,
+        resolvedComposeSha256: frozen.resolvedSha256,
+      });
+      const initialPostgres = assertOnlyPostgresRunning(
         execute,
-        [
-          ...composeArgs,
-          "run",
-          "--rm",
-          "--no-deps",
-          "-e",
-          `STAGING_EXACT_0106_BACKUP_ACTION=${AUDIT_0107.backupAction}`,
-          "-e",
-          `STAGING_EXACT_0106_BACKUP_CONFIRMATION=${AUDIT_0107.backupConfirmation}`,
-          "-e",
-          "STAGING_AUDIT_SCHEMA_ACTION=inspect",
-          "-e",
-          `AUDIT_SCHEMA_LINEAGE_MODE=${lineage.mode}`,
-          "-e",
-          `AUDIT_SCHEMA_OPAQUE_LEGACY_ROWS_JSON=${lineage.opaqueLegacyRowsJson}`,
-          "exact-0106-audit-backup",
-          "node",
-          "dist/audit-schema-exact-0106-backup.mjs",
-        ],
-        "exact-0106 audit backup one-shot",
+        frozen.composeArgs,
+        sourceResolved.binding,
+        "initial observed-boundary check",
       );
-    } finally {
-      const finalResolved = resolveCompose(
+      const boundary = (oneShotContainerId, phase) =>
+        assertApprovedDockerBoundary({
+          runDocker: (args, label, options) =>
+            checked(execute, args, label, options),
+          postgres: initialPostgres,
+          projectName: inspect.inputs.composeProjectName,
+          oneShotContainerId,
+          phase,
+        });
+      boundary(undefined, "initial observed boundary");
+      const initialRuntimeBinding = runtimeBinding(
+        frozenResolved,
+        initialPostgres,
+      );
+      const preStatefulPostgres = assertOnlyPostgresRunning(
         execute,
-        composeArgs,
-        inspect,
-        lineage,
+        frozen.composeArgs,
+        sourceResolved.binding,
+        "pre-backup observed-boundary check",
+        initialPostgres.containerId,
       );
+      const preStatefulRuntimeBinding = runtimeBinding(
+        frozenResolved,
+        preStatefulPostgres,
+      );
+      sameRuntimeBinding(
+        initialRuntimeBinding,
+        preStatefulRuntimeBinding,
+        "pre-backup revalidation",
+      );
+      const startedAt = now().toISOString();
+      const stdout = runFrozenComposeOneShot({
+        runDocker: (args, label, options) =>
+          checked(execute, args, label, options),
+        frozen,
+        assertBoundary: boundary,
+      });
       const finalPostgres = assertOnlyPostgresRunning(
         execute,
-        composeArgs,
-        finalResolved.binding,
-        "final quiescence check",
+        frozen.composeArgs,
+        sourceResolved.binding,
+        "final observed-boundary check",
         preStatefulPostgres.containerId,
       );
-      finalRuntimeBinding = runtimeBinding(finalResolved, finalPostgres);
+      const finalRuntimeBinding = runtimeBinding(frozenResolved, finalPostgres);
       sameRuntimeBinding(
         preStatefulRuntimeBinding,
         finalRuntimeBinding,
         "post-backup revalidation",
       );
-    }
-    const gate = validateExact0106BackupGate(
-      parseMarker(stdout),
-      expectedSourceSha,
-      lineage,
-    );
-    const completedAt = now().toISOString();
-    if (
-      canonicalTimestamp(completedAt, "completedAt") <
-      canonicalTimestamp(startedAt, "startedAt")
-    ) {
-      audit0107Fail(
-        "EXACT_0106_AUDIT_BACKUP_TIME_INVALID",
-        "completedAt must not precede startedAt.",
+      const gate = validateExact0106BackupGate(
+        parseMarker(stdout),
+        expectedSourceSha,
+        lineage,
       );
+      const completedAt = now().toISOString();
+      if (
+        canonicalTimestamp(completedAt, "completedAt") <
+        canonicalTimestamp(startedAt, "startedAt")
+      ) {
+        audit0107Fail(
+          "EXACT_0106_AUDIT_BACKUP_TIME_INVALID",
+          "completedAt must not precede startedAt.",
+        );
+      }
+      backupResult = Object.freeze({
+        schemaVersion: 1,
+        kind: "site-logbook-staging-exact-0106-audit-backup-execution",
+        decision: "PASS",
+        productionTargetsTouched: false,
+        startedAt,
+        completedAt,
+        sourceSha: expectedSourceSha,
+        expectedSchemaFingerprintSha256,
+        inspectDeploymentInputsSha256: `sha256:${inspect.sha256}`,
+        runtimeBinding: finalRuntimeBinding,
+        lineage: Object.freeze({
+          mode: lineage.mode,
+          opaqueLegacyRows: lineage.opaqueLegacyRows,
+          opaqueLegacyRowsSha256: lineage.opaqueLegacyRowsSha256,
+        }),
+        gate,
+        runtimeIsolation: Object.freeze({
+          exactApprovedContainersAtObservedBoundaries: true,
+          samePostgresContainerAtObservedBoundaries: true,
+          continuousIsolationInferred: false,
+          apiStarted: false,
+          webStarted: false,
+          auditSchema0107GateStarted: false,
+        }),
+        nextGate: "audit-0107-transition-binding-required",
+        authorizes0107: false,
+        authorizesApplicationStart: false,
+      });
+    } catch (error) {
+      primaryError = error;
+    } finally {
+      try {
+        cleanupFrozenCompose(frozen);
+      } catch (error) {
+        cleanupError = error;
+      }
     }
-    return Object.freeze({
-      schemaVersion: 1,
-      kind: "site-logbook-staging-exact-0106-audit-backup-execution",
-      decision: "PASS",
-      productionTargetsTouched: false,
-      startedAt,
-      completedAt,
-      sourceSha: expectedSourceSha,
-      inspectDeploymentInputsSha256: `sha256:${inspect.sha256}`,
-      runtimeBinding: finalRuntimeBinding,
-      lineage: Object.freeze({
-        mode: lineage.mode,
-        opaqueLegacyRows: lineage.opaqueLegacyRows,
-        opaqueLegacyRowsSha256: lineage.opaqueLegacyRowsSha256,
-      }),
-      gate,
-      runtimeIsolation: Object.freeze({
-        onlyPostgresRunningAtEveryBoundary: true,
-        samePostgresContainerAtEveryBoundary: true,
-        apiStarted: false,
-        webStarted: false,
-        auditSchema0107GateStarted: false,
-      }),
-      nextGate: "audit-0107-transition-binding-required",
-      authorizes0107: false,
-      authorizesApplicationStart: false,
-    });
+    if (primaryError && cleanupError) {
+      Object.defineProperty(primaryError, "cleanupError", {
+        value: cleanupError,
+        enumerable: false,
+      });
+    }
+    if (primaryError) throw primaryError;
+    if (cleanupError) throw cleanupError;
+    return backupResult;
   } catch (error) {
     wrap(error);
   }
@@ -453,6 +495,9 @@ function main() {
     composeFile: argument("--compose-file") ?? "docker-compose.staging.yml",
     envFile: argument("--env-file") ?? ".env.staging",
     expectedSourceSha: requiredArgument("--expected-source-sha"),
+    expectedSchemaFingerprintSha256: requiredArgument(
+      "--expected-schema-fingerprint-sha256",
+    ),
     confirmation: requiredArgument("--confirm"),
     lineageMode: requiredArgument("--lineage-mode"),
     opaqueLegacyRowsJson: requiredArgument("--opaque-legacy-rows-json"),

@@ -6,12 +6,30 @@ import {
   createRuntimeMigrationReleaseBinding,
   validateAudit0107ReleaseEvidence,
 } from "../check-audit-0107-release-evidence.mjs";
+import { AUDIT_0107 } from "../staging-audit-0107-contract.mjs";
 
 const BUILD_SHA = "a".repeat(40);
 const CLEAN_OPAQUE_SHA256 =
   "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945";
-const TARGET_KNOWN_ROWS_SHA256 =
-  "sha256:d34407b4cdb8b0dc8bb9d07cd6cd500be5853d3112e142fe44e0efa5b8cd7cc1";
+const TARGET_KNOWN_ROWS_SHA256 = AUDIT_0107.targetKnownRowsSha256;
+const SCHEMA_FINGERPRINT_SHA256 = `sha256:${"c".repeat(64)}`;
+const VERIFIED_TABLE_NAMES = [
+  "drizzle.__drizzle_migrations",
+  "public.activities",
+  "public.customers",
+  "public.jobs",
+  "public.users",
+];
+const VERIFIED_TABLE_COUNTS = {
+  "drizzle.__drizzle_migrations": 106,
+  "public.activities": 20,
+  "public.customers": 8,
+  "public.jobs": 12,
+  "public.users": 4,
+};
+const VERIFIED_TABLE_COUNTS_SHA256 = digest(
+  Buffer.from(JSON.stringify(VERIFIED_TABLE_COUNTS), "utf8"),
+);
 
 function digest(bytes) {
   return `sha256:${crypto.createHash("sha256").update(bytes).digest("hex")}`;
@@ -23,6 +41,16 @@ function artifact(value, canonical = true) {
     "utf8",
   );
   return { b64: bytes.toString("base64"), sha256: digest(bytes) };
+}
+
+function backupIntegrity() {
+  return {
+    schemaVersion: "site-logbook.audit-schema-backup-integrity/v1",
+    verifiedTableNames: [...VERIFIED_TABLE_NAMES],
+    verifiedTableCounts: { ...VERIFIED_TABLE_COUNTS },
+    verifiedTableCountsSha256: VERIFIED_TABLE_COUNTS_SHA256,
+    backupRowBindingSha256: `sha256:${"b".repeat(64)}`,
+  };
 }
 
 function lineage() {
@@ -55,7 +83,7 @@ function backupEvidence() {
     restoreAgeHours: 0.033,
     restoreDurationMs: 60_000,
     verifiedTableCount: 5,
-    verifiedTablesSha256: `sha256:${"8".repeat(64)}`,
+    verifiedTablesSha256: VERIFIED_TABLE_COUNTS_SHA256,
     destructiveRestorePerformed: false,
   };
 }
@@ -88,6 +116,7 @@ function intent() {
     kind: "site-logbook-staging-audit-0107-intent",
     productionTargetsTouched: false,
     sourceSha: BUILD_SHA,
+    expectedSchemaFingerprintSha256: SCHEMA_FINGERPRINT_SHA256,
     transitionInputsSha256: `sha256:${"1".repeat(64)}`,
     derivedInspectInputsSha256: `sha256:${"2".repeat(64)}`,
     backupExecutionSha256: `sha256:${"3".repeat(64)}`,
@@ -98,6 +127,7 @@ function intent() {
       opaqueLegacyRowsSha256: CLEAN_OPAQUE_SHA256,
     },
     backupEvidence: backupEvidence(),
+    backupIntegrity: backupIntegrity(),
     confirmation: "APPLY_0107_AUDIT_EVIDENCE_TO_ISOLATED_SITE_LOGBOOK_STAGING",
     authorizesOnly: "isolated-exact-0106-to-0107-audit-transition",
     authorizesApplicationStart: false,
@@ -115,6 +145,7 @@ function execution(intentSha256) {
     startedAt: "2026-08-12T08:00:00.000Z",
     completedAt: "2026-08-12T08:05:00.000Z",
     sourceSha: BUILD_SHA,
+    expectedSchemaFingerprintSha256: SCHEMA_FINGERPRINT_SHA256,
     transitionInputsSha256: `sha256:${"1".repeat(64)}`,
     derivedInspectInputsSha256: `sha256:${"2".repeat(64)}`,
     backupExecutionSha256: `sha256:${"3".repeat(64)}`,
@@ -139,8 +170,7 @@ function execution(intentSha256) {
         idx: 107,
         when: 1786484628859,
         tag: "0107_canonical_audit_evidence",
-        sha256:
-          "sha256:5523f25b4c941919612f2f87a2d8fa371acd9922c3d3166b8d761000365e1339",
+        sha256: `sha256:${AUDIT_0107.migrationSha256}`,
       },
       transition: {
         inputSha256: `sha256:${"1".repeat(64)}`,
@@ -151,10 +181,12 @@ function execution(intentSha256) {
         backupMaxPayloadBytes: 256 * 1024 * 1024,
         backupSizeBytes: 4096,
         backupEvidence: backup,
+        backupIntegrity: backupIntegrity(),
       },
       authorizesApplicationStart: true,
     },
     backupEvidence: backup,
+    backupIntegrity: backupIntegrity(),
     lineage: {
       mode: "clean",
       knownMigrationCount: 107,
@@ -164,8 +196,9 @@ function execution(intentSha256) {
       opaqueLegacyMeaningInferred: false,
     },
     runtimeIsolation: {
-      onlyPostgresRunningAtEveryBoundary: true,
-      samePostgresContainerAtEveryBoundary: true,
+      exactApprovedContainersAtObservedBoundaries: true,
+      samePostgresContainerAtObservedBoundaries: true,
+      continuousIsolationInferred: false,
       apiStarted: false,
       webStarted: false,
       auditSchema0107GateStartedOnlyAsOneShot: true,
@@ -188,19 +221,25 @@ function steady() {
     lineage: lineage(),
     schema: {
       targetTag: "0107_canonical_audit_evidence",
-      targetSqlSha256:
-        "sha256:5523f25b4c941919612f2f87a2d8fa371acd9922c3d3166b8d761000365e1339",
+      targetSqlSha256: `sha256:${AUDIT_0107.migrationSha256}`,
       targetSnapshotSha256:
         "sha256:4973350b31c540f44a539ff896342b8d8b95b8fe394a9a257ba828276824afbb",
       auditEventRows: 0,
       auditOutboxRows: 0,
       auditHeadRows: 1,
+      expectedSchemaFingerprintSha256: SCHEMA_FINGERPRINT_SHA256,
+      schemaFingerprintSha256: SCHEMA_FINGERPRINT_SHA256,
     },
     authorizesApplicationStart: true,
   };
 }
 
-function release(executionSha256, intentSha256, steadySha256) {
+function release(
+  executionSha256,
+  intentSha256,
+  steadySha256,
+  predecessorSha256,
+) {
   return {
     schemaVersion: 5,
     kind: "site-logbook-staging-audit-0107-release-evidence",
@@ -214,7 +253,7 @@ function release(executionSha256, intentSha256, steadySha256) {
     predecessorReleaseEvidence: {
       schemaVersion: 4,
       decision: "PASS",
-      fileSha256: `sha256:${"5".repeat(64)}`,
+      fileSha256: predecessorSha256,
     },
     artifacts: {
       audit0107ExecutionSha256: executionSha256,
@@ -247,6 +286,14 @@ function release(executionSha256, intentSha256, steadySha256) {
 }
 
 function validInput(mutator = () => {}) {
+  const predecessorArtifact = artifact(
+    {
+      schemaVersion: 4,
+      run: { id: "reviewed-v4-predecessor" },
+      decisionEvidence: { state: "offline-reviewed" },
+    },
+    false,
+  );
   const intentValue = intent();
   const initialIntent = artifact(intentValue);
   const executionValue = execution(initialIntent.sha256);
@@ -258,6 +305,7 @@ function validInput(mutator = () => {}) {
     executionArtifact.sha256,
     intentArtifact.sha256,
     steadyArtifact.sha256,
+    predecessorArtifact.sha256,
   );
   mutator({ executionValue, intentValue, steadyValue, releaseValue });
   const finalIntent = artifact(intentValue);
@@ -274,6 +322,9 @@ function validInput(mutator = () => {}) {
     deploymentConfigSha256: `sha256:${"7".repeat(64)}`,
     livePostgresTargetSha256:
       runtimeBinding().livePostgresTarget.projectionSha256,
+    predecessorReleaseEvidenceB64: predecessorArtifact.b64,
+    predecessorReleaseEvidenceSha256: predecessorArtifact.sha256,
+    expectedPredecessorReleaseEvidenceSha256: predecessorArtifact.sha256,
     releaseEvidenceB64: releaseArtifact.b64,
     releaseEvidenceSha256: releaseArtifact.sha256,
     executionEvidenceB64: finalExecution.b64,
@@ -323,6 +374,24 @@ test("keeps the predecessor schema-v4 evidence as a separate immutable binding",
         now: Date.parse("2026-08-12T08:15:00.000Z"),
       }),
     /predecessorReleaseEvidence\.schemaVersion must equal 4/,
+  );
+});
+
+test("rejects substituted raw predecessor bytes and independently expected digest drift", () => {
+  const substituted = validInput();
+  const replacement = artifact({ schemaVersion: 4, replacement: true }, false);
+  substituted.predecessorReleaseEvidenceB64 = replacement.b64;
+  substituted.predecessorReleaseEvidenceSha256 = replacement.sha256;
+  assert.throws(
+    () => validateAudit0107ReleaseEvidence(substituted),
+    /predecessorReleaseEvidenceSha256/,
+  );
+
+  const expectedDrift = validInput();
+  expectedDrift.expectedPredecessorReleaseEvidenceSha256 = `sha256:${"9".repeat(64)}`;
+  assert.throws(
+    () => validateAudit0107ReleaseEvidence(expectedDrift),
+    /predecessorReleaseEvidenceSha256/,
   );
 });
 
@@ -439,5 +508,31 @@ test("rejects weakened one-shot isolation and non-exact known journal lineage", 
         now: Date.parse("2026-08-12T08:15:00.000Z"),
       }),
     /knownAppliedRowsSha256/,
+  );
+});
+
+test("binds the exact schema fingerprint and backup-integrity evidence across intent, execution and gate", () => {
+  const schemaDrift = validInput(({ intentValue }) => {
+    intentValue.expectedSchemaFingerprintSha256 = `sha256:${"9".repeat(64)}`;
+  });
+  assert.throws(
+    () => validateAudit0107ReleaseEvidence(schemaDrift),
+    /intent\.expectedSchemaFingerprintSha256/,
+  );
+
+  const backupDrift = validInput(({ executionValue }) => {
+    executionValue.backupIntegrity.verifiedTableCounts["public.jobs"] = 13;
+  });
+  assert.throws(
+    () => validateAudit0107ReleaseEvidence(backupDrift),
+    /verifiedTableCountsSha256/,
+  );
+
+  const gateDrift = validInput(({ executionValue }) => {
+    executionValue.schemaGate.transition.backupIntegrity.backupRowBindingSha256 = `sha256:${"9".repeat(64)}`;
+  });
+  assert.throws(
+    () => validateAudit0107ReleaseEvidence(gateDrift),
+    /schemaGate\.transition\.backupIntegrity/,
   );
 });
