@@ -15,14 +15,32 @@ fixed `docker exec` argv, bounded canonical outputs and an AbortSignal.
 This is still **not an executable production backup**. The build emits a narrow
 producer CLI only into the explicitly selected, marker-baked `control-plane`
 image target; the default/final production API target excludes that bundle. The
-CLI validates fixed operations and one bounded canonical regular non-symlink
-request file at `/app/dist/production-exact-0096-backup-producer.mjs`, but every
-operation terminates with `PRODUCTION_BACKUP_PRODUCER_OPERATION_UNWIRED`.
-No production Compose service or activation command is present, and the
-host-owned disposable PostgreSQL 16 container/network/volume lifecycle remains
-unwired. Hermetic tests prove build separation, primitive, adapter and contract
-behavior only; they do not prove that Docker, PostgreSQL, AWS S3 or production
-ran.
+CLI validates fixed operations, operation-specific exact request fields and one
+bounded canonical regular non-symlink request file at
+`/app/dist/production-exact-0096-backup-producer.mjs`. It has a tested,
+secret-rejecting canonical dispatch boundary, but the shipped executable supplies
+no handler registry and therefore still terminates with
+`PRODUCTION_BACKUP_PRODUCER_OPERATION_UNWIRED`. A handler registry must contain
+every and only the reviewed operations; partial activation is rejected.
+
+No production Compose service or activation command is present. One atomic
+exported snapshot requires a single long-lived producer process so the exporting
+`REPEATABLE READ READ ONLY` transaction remains open across relation measurement
+and `pg_dump`. The current host adapter invokes a new `docker exec node` process
+for each operation, so it cannot preserve that transaction and production
+activation remains blocked. The host-owned disposable PostgreSQL 16
+container/network/volume lifecycle is also unwired. Hermetic tests prove build
+separation, primitive, dispatch, adapter and contract behavior only; they do not
+prove that Docker, PostgreSQL, AWS S3 or production ran.
+
+On 2026-08-12 the live Site Logbook API container independently confirmed the
+exact production storage identity `https://fsn1.your-objectstorage.com`, region
+`fsn1`, bucket `modvoltdata`, and private prefix `private`. Bucket versioning was
+changed from `Disabled` to `Enabled` under explicit operator approval and then
+re-read as `Enabled`; object counts under `private/` and `private/backups/`
+remained unchanged. This closes only the provider-versioning prerequisite. No
+backup object, restore receipt, producer lifecycle, migration authorization, or
+application-start authorization was created by that operation.
 
 A caller can no longer construct `PASS` from selected JavaScript objects or even
 from an independently supplied valid trace string. The async DI orchestrator reads
