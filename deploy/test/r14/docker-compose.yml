@@ -79,6 +79,21 @@ services:
       retries: 30
     networks: [r14_internal]
 
+  migrate:
+    image: ${R14_API_IMAGE:?set exact-SHA local R14 API image}
+    pull_policy: never
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://site_logbook_r14:r14-postgres-synthetic-only@postgres:5432/site_logbook_r14
+    command: ["node", "/app/dist/migrate.mjs"]
+    networks: [r14_internal]
+    tmpfs:
+      - /tmp
+
   api:
     image: ${R14_API_IMAGE:?set exact-SHA local R14 API image}
     pull_policy: never
@@ -86,12 +101,15 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       minio-init:
         condition: service_completed_successfully
       provider-fakes:
         condition: service_healthy
     environment:
       NODE_ENV: test
+      SITE_LOGBOOK_RUNTIME_ENVIRONMENT: staging
       PORT: "5000"
       BUILD_SHA: ${R14_SOURCE_SHA:?set exact Git SHA}
       DATABASE_URL: postgresql://site_logbook_r14:r14-postgres-synthetic-only@postgres:5432/site_logbook_r14
