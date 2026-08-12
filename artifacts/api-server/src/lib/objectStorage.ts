@@ -102,6 +102,7 @@ export type ProductionExactVersionedObjectHead = Readonly<{
     kind: "hetzner-object-storage";
     endpointOriginSha256: string;
     region: "fsn1" | "nbg1" | "hel1";
+    encryptionBoundary: "client-envelope-only";
     transport: "https";
     versioning: "enabled";
   }>;
@@ -113,6 +114,7 @@ type ProductionExactHetznerBinding = Readonly<{
   kind: "hetzner-object-storage";
   endpointOriginSha256: string;
   region: "fsn1" | "nbg1" | "hel1";
+  encryptionBoundary: "client-envelope-only";
   transport: "https";
   versioning: "enabled";
 }>;
@@ -956,7 +958,7 @@ export class ObjectStorageService {
     } = {},
   ): Promise<ProductionExactVersionedObjectHead> {
     if (
-      !/^production\/exact-0096\/[A-Za-z0-9][A-Za-z0-9._/-]{7,511}$/.test(
+      !/^private\/production\/exact-0096\/[A-Za-z0-9][A-Za-z0-9._/-]{7,511}$/.test(
         input.key,
       ) ||
       input.key.split("/").some((segment) => ["", ".", ".."].includes(segment))
@@ -1002,6 +1004,7 @@ export class ObjectStorageService {
         Metadata: {
           sha256: input.encryptedPayloadSha256.slice("sha256:".length),
           "client-side-encryption": "mve1",
+          "encryption-boundary": "client-envelope-only",
           "storage-provider": "hetzner-object-storage",
         },
       }),
@@ -1060,6 +1063,7 @@ export class ObjectStorageService {
         metadataDigest !==
           input.encryptedPayloadSha256.slice("sha256:".length) ||
         head.Metadata?.["client-side-encryption"] !== "mve1" ||
+        head.Metadata?.["encryption-boundary"] !== "client-envelope-only" ||
         head.Metadata?.["storage-provider"] !== "hetzner-object-storage" ||
         !Number.isFinite(observedAt.getTime())
       ) {
@@ -1114,6 +1118,8 @@ export class ObjectStorageService {
       storageProvider.endpointOriginSha256 !==
         expected.storageProvider.endpointOriginSha256 ||
       storageProvider.region !== expected.storageProvider.region ||
+      storageProvider.encryptionBoundary !==
+        expected.storageProvider.encryptionBoundary ||
       storageProvider.transport !== expected.storageProvider.transport ||
       storageProvider.versioning !== expected.storageProvider.versioning
     ) {
@@ -1147,6 +1153,7 @@ export class ObjectStorageService {
       result.Metadata?.sha256 !==
         expected.headObjectSha256Metadata.slice("sha256:".length) ||
       result.Metadata?.["client-side-encryption"] !== "mve1" ||
+      result.Metadata?.["encryption-boundary"] !== "client-envelope-only" ||
       result.Metadata?.["storage-provider"] !== "hetzner-object-storage"
     ) {
       if (result.Body instanceof Readable) result.Body.destroy();
@@ -1155,6 +1162,73 @@ export class ObjectStorageService {
       );
     }
     return result.Body;
+  }
+
+  async headProductionExactVersionedBackup(
+    expected: Pick<
+      ProductionExactVersionedObjectHead,
+      "bucket" | "key" | "versionId"
+    >,
+    signal: AbortSignal,
+    dependencies: {
+      client?: ProductionExactS3Client;
+      endpoint?: string;
+      region?: string;
+      now?: () => Date;
+    } = {},
+  ): Promise<ProductionExactVersionedObjectHead> {
+    if (signal.aborted) {
+      throw new Error("Production exact backup HEAD requires a live signal.");
+    }
+    const storageProvider = productionExactHetznerBinding(
+      dependencies.endpoint ?? process.env.S3_ENDPOINT,
+      dependencies.region ?? process.env.S3_REGION,
+    );
+    const client = dependencies.client ?? getClient();
+    const versioning = await client.send(
+      new GetBucketVersioningCommand({ Bucket: expected.bucket }),
+      { abortSignal: signal },
+    );
+    if (versioning.Status !== "Enabled") {
+      throw new Error(
+        "Production exact backup HEAD requires bucket versioning to remain Enabled.",
+      );
+    }
+    const head = await client.send(
+      new HeadObjectCommand({
+        Bucket: expected.bucket,
+        Key: expected.key,
+        VersionId: expected.versionId,
+      }),
+      { abortSignal: signal },
+    );
+    const observedAt = (dependencies.now ?? (() => new Date()))();
+    if (
+      head.VersionId !== expected.versionId ||
+      !Number.isSafeInteger(head.ContentLength) ||
+      Number(head.ContentLength) < 1 ||
+      !head.ETag ||
+      !/^"[0-9a-f]{32,64}(?:-[1-9][0-9]*)?"$/.test(head.ETag) ||
+      !/^[0-9a-f]{64}$/.test(head.Metadata?.sha256 ?? "") ||
+      head.Metadata?.["client-side-encryption"] !== "mve1" ||
+      head.Metadata?.["encryption-boundary"] !== "client-envelope-only" ||
+      head.Metadata?.["storage-provider"] !== "hetzner-object-storage" ||
+      !Number.isFinite(observedAt.getTime())
+    ) {
+      throw new Error(
+        "Production exact backup independent HEAD did not reproduce the exact version binding.",
+      );
+    }
+    return Object.freeze({
+      bucket: expected.bucket,
+      key: expected.key,
+      versionId: expected.versionId,
+      headObservedAt: observedAt.toISOString(),
+      headContentLength: Number(head.ContentLength),
+      headEtag: head.ETag,
+      headObjectSha256Metadata: `sha256:${head.Metadata.sha256}`,
+      storageProvider,
+    });
   }
 
   /** List every object below the configured private prefix for recovery. */

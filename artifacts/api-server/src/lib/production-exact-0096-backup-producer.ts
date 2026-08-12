@@ -550,6 +550,10 @@ export class ProductionExact0096SnapshotSession {
       await client.connect();
       await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
       await client.query("SET TRANSACTION DEFERRABLE");
+      await client.query(
+        "SELECT set_config('idle_in_transaction_session_timeout', $1, true)",
+        [`${Math.min(input.queryTimeoutMs, 15 * 60_000)}ms`],
+      );
       const exported = await client.query<{ snapshot_id: string }>(
         "SELECT pg_export_snapshot() AS snapshot_id",
       );

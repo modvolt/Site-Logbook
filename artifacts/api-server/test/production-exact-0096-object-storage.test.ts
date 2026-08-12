@@ -22,7 +22,7 @@ const endpointOriginSha256 = `sha256:${createHash("sha256")
 
 function input() {
   return {
-    key: "production/exact-0096/prod-backup-0001.dump.enc",
+    key: "private/production/exact-0096/prod-backup-0001.dump.enc",
     body: Readable.from(Buffer.alloc(32)),
     contentLength: 32,
     encryptedPayloadSha256: digest,
@@ -38,6 +38,7 @@ function head(versionId = "version-0001") {
     Metadata: {
       sha256: "a".repeat(64),
       "client-side-encryption": "mve1",
+      "encryption-boundary": "client-envelope-only",
       "storage-provider": "hetzner-object-storage",
     },
   };
@@ -81,6 +82,7 @@ describe("production exact-0096 Hetzner Object Storage binding", () => {
     expect(put.Metadata).toEqual({
       sha256: "a".repeat(64),
       "client-side-encryption": "mve1",
+      "encryption-boundary": "client-envelope-only",
       "storage-provider": "hetzner-object-storage",
     });
     expect(commands[2]).toBeInstanceOf(HeadObjectCommand);
@@ -91,6 +93,7 @@ describe("production exact-0096 Hetzner Object Storage binding", () => {
       kind: "hetzner-object-storage",
       endpointOriginSha256,
       region,
+      encryptionBoundary: "client-envelope-only",
       transport: "https",
       versioning: "enabled",
     });
@@ -202,7 +205,7 @@ describe("production exact-0096 Hetzner Object Storage binding", () => {
   it("streams GET only when versioning and exact MVE1 metadata repeat", async () => {
     const expected: ProductionExactVersionedObjectHead = {
       bucket: dependencies.bucket,
-      key: "production/exact-0096/prod-backup-0003.dump.enc",
+      key: "private/production/exact-0096/prod-backup-0003.dump.enc",
       versionId: "version-0003",
       headObservedAt: "2026-08-12T10:00:00.000Z",
       headContentLength: 32,
@@ -212,6 +215,7 @@ describe("production exact-0096 Hetzner Object Storage binding", () => {
         kind: "hetzner-object-storage",
         endpointOriginSha256,
         region,
+        encryptionBoundary: "client-envelope-only",
         transport: "https",
         versioning: "enabled",
       },
@@ -238,7 +242,7 @@ describe("production exact-0096 Hetzner Object Storage binding", () => {
   it("rejects provider-binding drift before reading the object", async () => {
     const expected: ProductionExactVersionedObjectHead = {
       bucket: dependencies.bucket,
-      key: "production/exact-0096/prod-backup-0004.dump.enc",
+      key: "private/production/exact-0096/prod-backup-0004.dump.enc",
       versionId: "version-0004",
       headObservedAt: "2026-08-12T10:00:00.000Z",
       headContentLength: 32,
@@ -248,6 +252,7 @@ describe("production exact-0096 Hetzner Object Storage binding", () => {
         kind: "hetzner-object-storage",
         endpointOriginSha256,
         region,
+        encryptionBoundary: "client-envelope-only",
         transport: "https",
         versioning: "enabled",
       },

@@ -12,7 +12,7 @@ payload in memory, stage authenticated restore plaintext before exposing it to
 exact-version HEAD/GET. The host dependency adapter is default-dark and uses only
 fixed `docker exec` argv, bounded canonical outputs and an AbortSignal.
 
-This is still **not an executable production backup**. The build emits a narrow
+This is still **not an activated production backup**. The build emits a narrow
 producer CLI only into the explicitly selected, marker-baked `control-plane`
 image target; the default/final production API target excludes that bundle. The
 CLI validates fixed operations, operation-specific exact request fields and one
@@ -20,18 +20,59 @@ bounded canonical regular non-symlink request file at
 `/app/dist/production-exact-0096-backup-producer.mjs`. It has a tested,
 secret-rejecting canonical dispatch boundary, but the shipped executable supplies
 no handler registry and therefore still terminates with
-`PRODUCTION_BACKUP_PRODUCER_OPERATION_UNWIRED`. A handler registry must contain
+`PRODUCTION_BACKUP_PRODUCER_OPERATION_UNWIRED` unless a reviewed activation
+constructs the full handler registry. A handler registry must contain
 every and only the reviewed operations; partial activation is rejected.
 
-No production Compose service or activation command is present. One atomic
-exported snapshot requires a single long-lived producer process so the exporting
-`REPEATABLE READ READ ONLY` transaction remains open across relation measurement
-and `pg_dump`. The current host adapter invokes a new `docker exec node` process
-for each operation, so it cannot preserve that transaction and production
-activation remains blocked. The host-owned disposable PostgreSQL 16
-container/network/volume lifecycle is also unwired. Hermetic tests prove build
-separation, primitive, dispatch, adapter and contract behavior only; they do not
-prove that Docker, PostgreSQL, AWS S3 or production ran.
+No production Compose service or activation command is present. The reviewed
+host session now starts one interactive `docker exec node ... --session` producer
+for the whole executor run. Its process-owned registry can retain the exporting
+`REPEATABLE READ READ ONLY` transaction across relation measurement and
+`pg_dump`; requests remain canonical exclusive regular files and stdin carries
+only operation/path envelopes. Any malformed request or handler failure is
+terminal and session shutdown closes process-owned state.
+
+Putting all eleven executor handlers inside that single process is intentionally
+rejected. Five operations are producer-owned and must share the process:
+`openExportedReadOnlySnapshot`, `readFrozenRelationManifestMeasurements`,
+`createBoundedPgDumpCustom`, `encryptAndPersistVersionedPayload`, and
+`headExactVersionedPayloadReadOnly`. The other six are host-owned:
+`observeExecutorIdentity`, `observeImmutableProductionSourceReadOnly`,
+`proveProductionWritersStopped`, `restoreIntoNewDisposablePostgres16`,
+`observeRestoredJournalSchemaAndContentReadOnly`, and
+`reobserveProductionSourceReadOnly`. They require Docker daemon observation or
+resource ownership which the control-plane container must not obtain. Mounting a
+Docker socket into that process would violate the reviewed trust boundary.
+
+The exact missing activation interface is a host-owned composite registry: its
+six host handlers plus one already-running producer-session client for the five
+producer handlers, followed by unconditional close/poison cleanup. The producer
+registry also needs canonical artifact constructors for the frozen relation
+manifest, dump-to-persist state and independent exact-version HEAD. Until that
+split registry is implemented and reviewed, the executable continues to return
+`PRODUCTION_BACKUP_PRODUCER_OPERATION_UNWIRED`; an environment token cannot
+bypass it.
+
+The host-owned disposable PostgreSQL 16 lifecycle now creates one labeled
+internal network, one labeled volume and one container from an immutable image,
+with no published ports, a read-only root, all capabilities dropped except the
+five PostgreSQL-init requirements (`CHOWN`, `DAC_OVERRIDE`, `FOWNER`, `SETGID`,
+`SETUID`), and no production source volume/network attachment. It independently
+inspects both the running
+executor container/image and PostgreSQL image before asserting their bindings,
+streams only authenticated plaintext to fixed-argv `pg_restore --exit-on-error`,
+and removes the container, volume and network in bounded cleanup. Hermetic tests
+prove the lifecycle argv, identity checks and cleanup contract; they do not prove
+that Docker, PostgreSQL, Hetzner S3 or production ran.
+
+The local Node rehearsal was run on 2026-08-13 against immutable local image ID
+`sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777`.
+It passed a 1,645-byte PostgreSQL 16 custom dump through a local authenticated
+MVE1 AES-256-GCM envelope (1,735 bytes), authenticated/decrypted it before
+`pg_restore`, reproduced `exact-0096`, observed an internal network with no
+published ports and the 1 CPU / 1,536 MiB / 256 PID caps, then verified exact
+container, volume and network cleanup. It used no external network, S3 or
+production resource.
 
 On 2026-08-12 the live Site Logbook API container independently confirmed the
 exact production storage identity `https://fsn1.your-objectstorage.com`, region
@@ -65,7 +106,10 @@ than normalized. A
 
 ## Frozen production source and writer boundaries
 
-The plan accepts only `site-logbook-production` and binds all of these values:
+The plan accepts only `site-logbook-production` and separately binds the immutable
+live source SHA/image and immutable executor build SHA/image. This permits a new
+reviewed control-plane image to back up an older deployed application without
+misstating either identity. It also binds all of these values:
 
 - an exact 40-character source commit;
 - digest-addressed application and PostgreSQL images; mutable tags are rejected;
@@ -142,10 +186,15 @@ exact-version primitive supports only the official Hetzner Object Storage HTTPS
 endpoints, requires a read-only `GetBucketVersioning` result of `Enabled` before
 PUT, and rejects GCS, MinIO, AWS or arbitrary S3-compatible endpoints. The
 payload is already encrypted client-side with the independently versioned MVE1
-envelope, so no unsupported AWS SSE-KMS claim is made. A read-only HEAD of the
+envelope. Provider evidence says `encryptionBoundary=client-envelope-only`, so
+no unsupported AWS SSE-KMS claim is made and no additional SSE-C secret is
+introduced. Hetzner documents SSE-C as its only supported server-side encryption
+mode in its [supported-actions matrix](https://docs.hetzner.com/storage/object-storage/supported-actions/).
+A read-only HEAD of the
 exact stored version must bind:
 
-- strict production bucket and `production/exact-0096/...` object key;
+- strict production bucket and user-owned
+  `private/production/exact-0096/...` object key;
 - durable non-placeholder object version ID;
 - exact content length, ETag, and encrypted-payload SHA-256 metadata;
 - exact `mve1` client-side-encryption metadata;
@@ -229,7 +278,13 @@ bytes to the restore consumer.
 - `production-exact-0096-backup-signature.mjs`: exact plan/trace/receipt detached
   signature envelope in the existing host/evidence trust domain;
 - `production-exact-0096-backup-host-adapter.mjs`: default-dark fixed-argv host
-  dependency adapter and exclusive canonical artifact persistence;
+  dependency adapter, one-process session and exclusive canonical artifact
+  persistence;
+- `production-exact-0096-disposable-restore-lifecycle.mjs`: host-owned isolated
+  PostgreSQL 16 network/volume/container creation, streamed restore and cleanup;
+- `production-exact-0096-disposable-restore-rehearsal.mjs`: exact-confirmation,
+  local-only Node binary-stream `pg_dump` to `pg_restore` rehearsal with capped
+  synthetic containers and verified exact cleanup;
 - `production-exact-0096-backup-producer.ts`: exported-snapshot relation hashing,
   streaming dump/MVE1 encryption and exact object transfer primitives;
 - `src/production-exact-0096-backup-producer.ts`: fixed-argv, request-file-only,

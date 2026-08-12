@@ -6,6 +6,7 @@ export type ProductionHetznerObjectStorageEndpointBinding = Readonly<{
   kind: "hetzner-object-storage";
   endpointOriginSha256: string;
   region: ProductionHetznerObjectStorageRegion;
+  encryptionBoundary: "client-envelope-only";
   transport: "https";
   versioning: "enabled";
 }>;
@@ -82,6 +83,7 @@ export function parseProductionHetznerObjectStorageEndpoint(
     kind: "hetzner-object-storage" as const,
     endpointOriginSha256: sha256(parsed.origin),
     region: regionInput as ProductionHetznerObjectStorageRegion,
+    encryptionBoundary: "client-envelope-only" as const,
     transport: "https" as const,
     versioning: "enabled" as const,
   });

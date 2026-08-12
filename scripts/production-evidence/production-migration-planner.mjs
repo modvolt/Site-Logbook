@@ -203,14 +203,13 @@ function parseBackupBinding(value, expected) {
     value.backupSignatureEnvelopeSha256 !== backupSignature.sha256 ||
     value.backupDetachedSignatureSha256 !==
       productionMigrationSha256(detachedSignature) ||
-    backupPlan.value.sourceSha !== expected.sourceSha ||
+    backupPlan.value.liveSource.sha !== expected.sourceSha ||
     backupPlan.value.sourceDatabase.name !== expected.database.name ||
     backupPlan.value.sourceDatabase.user !== expected.database.currentUser ||
     backupPlan.value.baseline.knownAppliedRowsSha256 !==
       PRODUCTION_MIGRATION_PREFIX_STATES[0].knownAppliedRowsSha256 ||
     backupPlan.value.runtimeBindingSha256 !== expected.runtimeBindingSha256 ||
-    backupPlan.value.runtimeBinding.applicationImageRef !==
-      expected.applicationImageRef ||
+    backupPlan.value.liveSource.imageRef !== expected.applicationImageRef ||
     backupPlan.value.runtimeBinding.postgresImageRef !==
       expected.postgresImageRef ||
     backupReceipt.value.decision !== "PASS" ||

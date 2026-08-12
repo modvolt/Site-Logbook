@@ -79,7 +79,7 @@ const TRACE_STEP_KINDS = Object.freeze([
 ]);
 const BUCKET = /^(?!xn--)(?!.*\.\.)[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/;
 const OBJECT_KEY =
-  /^production\/exact-0096\/[A-Za-z0-9][A-Za-z0-9._/-]{7,511}$/;
+  /^private\/production\/exact-0096\/[A-Za-z0-9][A-Za-z0-9._/-]{7,511}$/;
 const ETAG = /^"[0-9a-f]{32,64}(?:-[1-9][0-9]*)?"$/;
 
 function sameCanonical(left, right) {
@@ -105,15 +105,15 @@ function validateProducer(value, plan) {
     producer.schemaVersion !== "site-logbook.production-backup-executor/v1" ||
     producer.kind !== "production-exact-0096-backup-executor" ||
     exactBackupSourceSha(producer.buildSha, "trace.producer.buildSha") !==
-      plan.sourceSha ||
+      plan.executor.buildSha ||
     exactBackupImmutableImage(
       producer.executorImageRef,
       "trace.producer.executorImageRef",
-    ) !== plan.runtimeBinding.applicationImageRef
+    ) !== plan.executor.imageRef
   ) {
     productionExact0096BackupFail(
       "PRODUCTION_BACKUP_EXECUTOR_INVALID",
-      "Trace producer must be the exact immutable reviewed source build.",
+      "Trace producer must be the exact immutable reviewed executor build, independently of the live source build.",
     );
   }
   exactBackupHexId(producer.invocationId, "trace.producer.invocationId");
@@ -244,12 +244,20 @@ function validateVersionedObject(value, payload, plan) {
   );
   const storageProvider = exactBackupObject(
     object.storageProvider,
-    ["endpointOriginSha256", "kind", "region", "transport", "versioning"],
+    [
+      "endpointOriginSha256",
+      "kind",
+      "region",
+      "encryptionBoundary",
+      "transport",
+      "versioning",
+    ],
     "trace.payloadWrite.payload.object.storageProvider",
   );
   if (
     storageProvider.kind !== "hetzner-object-storage" ||
     !["fsn1", "nbg1", "hel1"].includes(storageProvider.region) ||
+    storageProvider.encryptionBoundary !== "client-envelope-only" ||
     storageProvider.transport !== "https" ||
     storageProvider.versioning !== "enabled"
   ) {
@@ -490,6 +498,7 @@ function validateDisposableRestoreRuntime(value, plan) {
     "trace.restore.runtimeBinding.volumeCreatedAt",
   );
   if (
+    binding.executorImageRef !== plan.executor.imageRef ||
     binding.containerId === plan.runtimeBinding.containerId ||
     binding.networkId === plan.runtimeBinding.networkId ||
     binding.volumeName === plan.runtimeBinding.volumeName
@@ -668,7 +677,7 @@ function validateSourceAfter(
     writers.maintenanceWindowId !==
       plan.stoppedWritersProof.maintenanceWindowId ||
     writers.proofId === plan.stoppedWritersProof.proofId ||
-    writers.sourceSha !== plan.sourceSha ||
+    writers.sourceSha !== plan.liveSource.sha ||
     writers.runtimeBindingSha256 !== plan.runtimeBindingSha256 ||
     writers.databaseIdentitySha256 !== canonicalDigest(plan.sourceDatabase) ||
     after.stoppedWritersProofSha256 !== canonicalDigest(writers) ||
@@ -987,7 +996,7 @@ export async function runProductionExact0096BackupEvidenceExecutor({
     Object.freeze({
       boundary: "before",
       maintenanceWindowId: plan.stoppedWritersProof.maintenanceWindowId,
-      sourceSha: plan.sourceSha,
+      sourceSha: plan.liveSource.sha,
       runtimeBindingSha256: plan.runtimeBindingSha256,
     }),
   );

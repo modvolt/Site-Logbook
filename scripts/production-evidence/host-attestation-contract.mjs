@@ -4,6 +4,10 @@ import {
   randomBytes,
   verify as verifySignature,
 } from "node:crypto";
+import {
+  PINNED_PRODUCTION_PUBLISHER_PROVENANCE_KEYS,
+  PINNED_PRODUCTION_PUBLISHER_PROVENANCE_KEY_SHA256,
+} from "../../artifacts/api-server/src/lib/production-publisher-provenance-pinned-keys.mjs";
 
 const SHA = /^[0-9a-f]{40}$/;
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
@@ -42,7 +46,10 @@ export const HOST_ATTESTATION_KIND =
   "site-logbook-production-audit-0107-host-attestation";
 export const HOST_RUNNER_VERSION =
   "site-logbook-production-host-evidence-runner/v1";
-export const PINNED_IMAGE_PROVENANCE_KEYS = Object.freeze({});
+export const PINNED_IMAGE_PROVENANCE_KEYS =
+  PINNED_PRODUCTION_PUBLISHER_PROVENANCE_KEYS;
+export const PINNED_IMAGE_PROVENANCE_KEY_SHA256 =
+  PINNED_PRODUCTION_PUBLISHER_PROVENANCE_KEY_SHA256;
 
 export class ProductionHostEvidenceError extends Error {
   constructor(code, message) {

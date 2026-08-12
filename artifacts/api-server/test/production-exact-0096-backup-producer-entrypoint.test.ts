@@ -1,12 +1,16 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Readable } from "node:stream";
 import { describe, expect, it } from "vitest";
 import {
   PRODUCTION_EXACT_0096_PRODUCER_OPERATIONS,
+  PRODUCTION_EXACT_0096_SESSION_OPERATIONS,
   readCanonicalProductionBackupProducerRequest,
   runProductionExact0096BackupProducerCli,
+  runProductionExact0096BackupProducerSession,
   type ProductionExact0096ProducerOperationHandlers,
+  type ProductionExact0096SessionOperationHandlers,
 } from "../src/production-exact-0096-backup-producer";
 
 function handlers(
@@ -25,6 +29,92 @@ function handlers(
 }
 
 describe("production exact-0096 producer CLI boundary", () => {
+  it("keeps one handler registry alive across the ordered snapshot operations and closes once", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "producer-session-"));
+    const openRequest = join(directory, "01-open.json");
+    const measureRequest = join(directory, "02-measure.json");
+    const snapshotHandleId = "8".repeat(64);
+    let liveSnapshot = false;
+    let closed = 0;
+    try {
+      await writeFile(
+        openRequest,
+        '{"transactionMode":"repeatable-read-read-only"}\n',
+      );
+      await writeFile(
+        measureRequest,
+        `${JSON.stringify({ snapshotHandleId })}\n`,
+      );
+      const registry = Object.fromEntries(
+        PRODUCTION_EXACT_0096_SESSION_OPERATIONS.map((operation) => [
+          operation,
+          async () => {
+            if (operation === "openExportedReadOnlySnapshot") {
+              liveSnapshot = true;
+              return {
+                snapshotHandleId,
+                snapshotTokenSha256: `sha256:${"a".repeat(64)}`,
+              };
+            }
+            if (operation === "readFrozenRelationManifestMeasurements") {
+              if (!liveSnapshot) throw new Error("snapshot was not retained");
+              return { measuredFromLiveSnapshot: true };
+            }
+            throw new Error("unexpected operation");
+          },
+        ]),
+      ) as unknown as ProductionExact0096SessionOperationHandlers;
+      const commands = [
+        { operation: "openExportedReadOnlySnapshot", requestPath: openRequest },
+        {
+          operation: "readFrozenRelationManifestMeasurements",
+          requestPath: measureRequest,
+        },
+      ]
+        .map((value) => `${JSON.stringify(value)}\n`)
+        .join("");
+      const stdout: string[] = [];
+      const stderr: string[] = [];
+      const status = await runProductionExact0096BackupProducerSession(
+        Readable.from([commands]),
+        {
+          stdout: (value) => stdout.push(value),
+          stderr: (value) => stderr.push(value),
+        },
+        {
+          isReviewedContainerPath: (value) =>
+            value === openRequest || value === measureRequest,
+          operationHandlers: registry,
+          close: async () => {
+            liveSnapshot = false;
+            closed += 1;
+          },
+        },
+      );
+      expect(status).toBe(0);
+      expect(stderr).toEqual([]);
+      expect(stdout).toEqual([
+        `{"snapshotHandleId":"${snapshotHandleId}","snapshotTokenSha256":"sha256:${"a".repeat(64)}"}\n`,
+        '{"measuredFromLiveSnapshot":true}\n',
+      ]);
+      expect(closed).toBe(1);
+      expect(liveSnapshot).toBe(false);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps the long-lived session default-dark and fails terminally on malformed protocol", async () => {
+    const errors: string[] = [];
+    expect(
+      await runProductionExact0096BackupProducerSession(
+        Readable.from(['{"operation":"observeExecutorIdentity"}\n']),
+        { stdout: () => undefined, stderr: (value) => errors.push(value) },
+      ),
+    ).toBe(1);
+    expect(errors).toEqual(["PRODUCTION_BACKUP_PRODUCER_OPERATION_UNWIRED\n"]);
+  });
+
   it("accepts only one bounded canonical request file and remains default-dark", async () => {
     const directory = await mkdtemp(join(tmpdir(), "producer-entrypoint-"));
     const request = join(directory, "request.json");
@@ -177,12 +267,12 @@ describe("production exact-0096 producer CLI boundary", () => {
       for (const invalid of [
         {
           bucket: "staging-backups",
-          key: "production/exact-0096/a-good-name",
+          key: "private/production/exact-0096/a-good-name",
           versionId: "version-123",
         },
         {
           bucket: "modvoltdata",
-          key: "production/exact-0096/../escape",
+          key: "private/production/exact-0096/../escape",
           versionId: "version-123",
         },
       ]) {

@@ -1,5 +1,7 @@
 import { lstat, open } from "node:fs/promises";
 import { isAbsolute } from "node:path";
+import { createInterface } from "node:readline";
+import type { Readable } from "node:stream";
 import { pathToFileURL } from "node:url";
 
 const MAX_REQUEST_BYTES = 512 * 1024;
@@ -13,7 +15,7 @@ const BOUNDED_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/;
 const VERSION_ID = /^[A-Za-z0-9][A-Za-z0-9._~+/=-]{0,255}$/;
 const BUCKET = /^(?!xn--)(?!.*\.\.)[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/;
 const EXACT_BACKUP_KEY =
-  /^production\/exact-0096\/[A-Za-z0-9][A-Za-z0-9._/-]{7,511}$/;
+  /^private\/production\/exact-0096\/[A-Za-z0-9][A-Za-z0-9._/-]{7,511}$/;
 const ETAG = /^"[0-9a-f]{32,64}(?:-[1-9][0-9]*)?"$/;
 const FORBIDDEN_KEY =
   /^(?:password|passwd|privateKey|secretKey|clientSecret|credential|databaseUrl|connectionString|snapshotToken|accessToken|authToken|apiKey)$/i;
@@ -36,6 +38,13 @@ export const PRODUCTION_EXACT_0096_PRODUCER_OPERATIONS = Object.freeze([
   "observeRestoredJournalSchemaAndContentReadOnly",
   "reobserveProductionSourceReadOnly",
 ] as const);
+export const PRODUCTION_EXACT_0096_SESSION_OPERATIONS = Object.freeze([
+  "openExportedReadOnlySnapshot",
+  "readFrozenRelationManifestMeasurements",
+  "createBoundedPgDumpCustom",
+  "encryptAndPersistVersionedPayload",
+  "headExactVersionedPayloadReadOnly",
+] as const);
 
 export type ProductionExact0096ProducerOperation =
   (typeof PRODUCTION_EXACT_0096_PRODUCER_OPERATIONS)[number];
@@ -47,6 +56,14 @@ export type ProductionExact0096ProducerOperationHandler = (
 export type ProductionExact0096ProducerOperationHandlers = Readonly<
   Record<
     ProductionExact0096ProducerOperation,
+    ProductionExact0096ProducerOperationHandler
+  >
+>;
+export type ProductionExact0096SessionOperation =
+  (typeof PRODUCTION_EXACT_0096_SESSION_OPERATIONS)[number];
+export type ProductionExact0096SessionOperationHandlers = Readonly<
+  Record<
+    ProductionExact0096SessionOperation,
     ProductionExact0096ProducerOperationHandler
   >
 >;
@@ -173,6 +190,22 @@ function validateOperationHandlers(
     }
   }
   return handlers as ProductionExact0096ProducerOperationHandlers;
+}
+
+function validateSessionOperationHandlers(
+  value: unknown,
+): ProductionExact0096SessionOperationHandlers {
+  const handlers = exactObject(
+    value,
+    PRODUCTION_EXACT_0096_SESSION_OPERATIONS,
+    "PRODUCTION_BACKUP_PRODUCER_HANDLERS_INVALID",
+  );
+  for (const operation of PRODUCTION_EXACT_0096_SESSION_OPERATIONS) {
+    if (typeof handlers[operation] !== "function") {
+      fail("PRODUCTION_BACKUP_PRODUCER_HANDLERS_INVALID");
+    }
+  }
+  return handlers as ProductionExact0096SessionOperationHandlers;
 }
 
 function exactString(
@@ -319,12 +352,20 @@ function validateVersionedObjectArtifact(
   exactTimestamp(object.headObservedAt);
   const provider = exactObject(
     object.storageProvider,
-    ["endpointOriginSha256", "kind", "region", "transport", "versioning"],
+    [
+      "endpointOriginSha256",
+      "kind",
+      "region",
+      "encryptionBoundary",
+      "transport",
+      "versioning",
+    ],
     "PRODUCTION_BACKUP_PRODUCER_REQUEST_INVALID",
   );
   if (
     provider.kind !== "hetzner-object-storage" ||
     !["fsn1", "nbg1", "hel1"].includes(String(provider.region)) ||
+    provider.encryptionBoundary !== "client-envelope-only" ||
     provider.transport !== "https" ||
     provider.versioning !== "enabled"
   ) {
@@ -464,6 +505,141 @@ function canonicalProducerOutput(value: unknown): string {
   return canonical;
 }
 
+async function dispatchProductionExact0096ProducerOperation(
+  operation: ProductionExact0096ProducerOperation,
+  requestPath: string,
+  dependencies: {
+    isReviewedContainerPath?: (value: string) => boolean;
+    operationHandlers: ProductionExact0096ProducerOperationHandlers;
+  },
+): Promise<string> {
+  const request = await readCanonicalProductionBackupProducerRequest(
+    requestPath,
+    dependencies,
+  );
+  validateOperationRequest(operation, request);
+  const handlers = validateOperationHandlers(dependencies.operationHandlers);
+  const output = await handlers[operation](request);
+  return canonicalProducerOutput(output);
+}
+
+/**
+ * Serve the fixed producer operations from one process. The process-owned
+ * handler registry is deliberately constructed once, so an exported snapshot
+ * transaction and its encrypted dump state can remain live across the ordered
+ * measure/dump/persist calls. Requests still cross the reviewed, canonical,
+ * regular-file boundary; stdin carries no credentials or artifact bodies.
+ *
+ * The protocol is one canonical JSON line per request:
+ * `{\"operation\":\"...\",\"requestPath\":\"/...json\"}`. A response is the
+ * operation's canonical artifact line. Any malformed request or handler error
+ * is terminal, closes the session, and emits only a stable error code.
+ */
+export async function runProductionExact0096BackupProducerSession(
+  input: Readable,
+  io: { stdout(value: string): void; stderr(value: string): void } = {
+    stdout: (value) => process.stdout.write(value),
+    stderr: (value) => process.stderr.write(value),
+  },
+  dependencies: {
+    isReviewedContainerPath?: (value: string) => boolean;
+    operationHandlers?: ProductionExact0096SessionOperationHandlers;
+    close?: () => Promise<void>;
+  } = {},
+): Promise<number> {
+  let code = 0;
+  try {
+    if (dependencies.operationHandlers === undefined) {
+      fail("PRODUCTION_BACKUP_PRODUCER_OPERATION_UNWIRED");
+    }
+    const handlers = validateSessionOperationHandlers(
+      dependencies.operationHandlers,
+    );
+    const lines = createInterface({ input, crlfDelay: Infinity });
+    let requestCount = 0;
+    for await (const raw of lines) {
+      requestCount += 1;
+      if (
+        requestCount > PRODUCTION_EXACT_0096_PRODUCER_OPERATIONS.length ||
+        Buffer.byteLength(raw) < 2 ||
+        Buffer.byteLength(raw) > 2048
+      ) {
+        fail("PRODUCTION_BACKUP_PRODUCER_SESSION_INVALID");
+      }
+      let envelope: unknown;
+      try {
+        envelope = JSON.parse(raw);
+      } catch {
+        fail("PRODUCTION_BACKUP_PRODUCER_SESSION_INVALID");
+      }
+      const command = exactObject(
+        envelope,
+        ["operation", "requestPath"],
+        "PRODUCTION_BACKUP_PRODUCER_SESSION_INVALID",
+      );
+      if (canonicalJson(command) !== `${raw}\n`) {
+        fail("PRODUCTION_BACKUP_PRODUCER_SESSION_INVALID");
+      }
+      const operation = exactString(command.operation, OPERATION, 64);
+      if (
+        !PRODUCTION_EXACT_0096_SESSION_OPERATIONS.includes(
+          operation as ProductionExact0096SessionOperation,
+        )
+      ) {
+        fail("PRODUCTION_BACKUP_PRODUCER_SESSION_INVALID");
+      }
+      const requestPath = exactString(
+        command.requestPath,
+        /^(?!.*[\r\n\0]).{3,512}$/,
+        512,
+      );
+      const pathAccepted = dependencies.isReviewedContainerPath
+        ? dependencies.isReviewedContainerPath(requestPath)
+        : isAbsolute(requestPath) &&
+          SAFE_PATH.test(requestPath) &&
+          !requestPath.split("/").some((part) => part === "..");
+      if (!pathAccepted) {
+        fail("PRODUCTION_BACKUP_PRODUCER_SESSION_INVALID");
+      }
+      const request = await readCanonicalProductionBackupProducerRequest(
+        requestPath,
+        dependencies,
+      );
+      validateOperationRequest(
+        operation as ProductionExact0096SessionOperation,
+        request,
+      );
+      io.stdout(
+        canonicalProducerOutput(
+          await handlers[operation as ProductionExact0096SessionOperation](
+            request,
+          ),
+        ),
+      );
+    }
+    if (requestCount === 0) {
+      fail("PRODUCTION_BACKUP_PRODUCER_SESSION_INVALID");
+    }
+  } catch (error) {
+    code = 1;
+    const errorCode =
+      error instanceof ProductionExact0096ProducerEntrypointError
+        ? error.code
+        : "PRODUCTION_BACKUP_PRODUCER_FAILED";
+    io.stderr(`${errorCode}\n`);
+  } finally {
+    try {
+      await dependencies.close?.();
+    } catch {
+      if (code === 0) {
+        code = 1;
+        io.stderr("PRODUCTION_BACKUP_PRODUCER_SESSION_CLOSE_FAILED\n");
+      }
+    }
+  }
+  return code;
+}
+
 export async function readCanonicalProductionBackupProducerRequest(
   requestPath: string,
   dependencies: {
@@ -551,11 +727,6 @@ export async function runProductionExact0096BackupProducerCli(
       fail("PRODUCTION_BACKUP_PRODUCER_ARGUMENT_INVALID");
     }
     const operation = argv[0] as ProductionExact0096ProducerOperation;
-    const request = await readCanonicalProductionBackupProducerRequest(
-      argv[2],
-      dependencies,
-    );
-    validateOperationRequest(operation, request);
     if (dependencies.operationHandlers === undefined) {
       // The shipped CLI remains default-dark until a reviewed lifecycle creates
       // and injects the complete fixed handler registry. A partial registry is
@@ -563,9 +734,12 @@ export async function runProductionExact0096BackupProducerCli(
       // reachable while snapshot/restore state is absent.
       fail("PRODUCTION_BACKUP_PRODUCER_OPERATION_UNWIRED");
     }
-    const handlers = validateOperationHandlers(dependencies.operationHandlers);
-    const output = await handlers[operation](request);
-    io.stdout(canonicalProducerOutput(output));
+    io.stdout(
+      await dispatchProductionExact0096ProducerOperation(operation, argv[2], {
+        ...dependencies,
+        operationHandlers: dependencies.operationHandlers,
+      }),
+    );
     return 0;
   } catch (error) {
     const code =
@@ -578,7 +752,8 @@ export async function runProductionExact0096BackupProducerCli(
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
-  process.exitCode = await runProductionExact0096BackupProducerCli(
-    process.argv.slice(2),
-  );
+  process.exitCode =
+    process.argv[2] === "--session"
+      ? await runProductionExact0096BackupProducerSession(process.stdin)
+      : await runProductionExact0096BackupProducerCli(process.argv.slice(2));
 }

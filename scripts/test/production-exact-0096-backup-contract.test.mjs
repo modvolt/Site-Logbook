@@ -84,6 +84,8 @@ test("freezes exact 97+2 journal, manifest and non-authorizing plan", () => {
     PRODUCTION_EXACT_0096_RELATION_MANIFEST.relationNamesSha256,
   );
   assert.equal(plan.value.authorizesProductionMigration, false);
+  assert.notEqual(plan.value.liveSource.sha, plan.value.executor.buildSha);
+  assert.notEqual(plan.value.liveSource.imageRef, plan.value.executor.imageRef);
   assert.equal(
     parseProductionExact0096BackupPlan(plan.canonical).sha256,
     plan.sha256,
@@ -268,11 +270,14 @@ test("rejects staging identities, mutable refs and non-identifiers", () => {
       input.runtimeBinding.networkName = "production network with spaces";
     },
     (input) => {
-      input.sourceSha = input.sourceSha.toUpperCase();
+      input.liveSource.sha = input.liveSource.sha.toUpperCase();
     },
     (input) => {
       input.runtimeBinding.applicationImageRef =
         input.runtimeBinding.applicationImageRef.toUpperCase();
+    },
+    (input) => {
+      input.executor.imageRef = "ghcr.io/modvolt/control-plane:latest";
     },
   ]) {
     const input = fixturePlanInput();
@@ -377,6 +382,29 @@ test("binds dump to the exported snapshot token and overall data snapshot", () =
   }
 });
 
+test("binds live source and executor identities independently", () => {
+  for (const mutate of [
+    (trace) => {
+      trace.producer.buildSha = trace.sourceBefore.runtimeBinding.sourceSha;
+    },
+    (trace) => {
+      trace.producer.executorImageRef =
+        trace.sourceBefore.runtimeBinding.applicationImageRef;
+    },
+    (trace) => {
+      trace.restore.runtimeBinding.executorImageRef =
+        trace.sourceBefore.runtimeBinding.applicationImageRef;
+    },
+  ]) {
+    const { plan, trace } = traceMutation(mutate);
+    assert.throws(
+      () =>
+        validateProductionExact0096BackupExecutorTrace(trace, plan.canonical),
+      /EXECUTOR_INVALID|RESTORE_NOT_DISPOSABLE/,
+    );
+  }
+});
+
 test("streaming overflow terminates producer, removes partial object and can never PASS", () => {
   const { plan, trace } = traceMutation((candidate) => {
     candidate.payloadWrite.status = "overflow-rejected";
@@ -413,7 +441,7 @@ test("binds exact bucket, key, version, HEAD size/digest and Hetzner identity", 
     },
     (trace) => {
       trace.payloadWrite.payload.object.key =
-        "production/exact-0096/../other.enc";
+        "private/production/exact-0096/../other.enc";
     },
     (trace) => {
       trace.payloadWrite.payload.object.versionId = "null";

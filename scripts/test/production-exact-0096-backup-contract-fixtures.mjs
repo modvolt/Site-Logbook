@@ -14,6 +14,7 @@ import {
 
 export const fixtureDigest = (character) => `sha256:${character.repeat(64)}`;
 export const fixtureSourceSha = "a".repeat(40);
+export const fixtureExecutorBuildSha = "b".repeat(40);
 
 const artifactDigest = (value) =>
   productionExact0096BackupSha256(
@@ -59,6 +60,13 @@ export function fixtureProductionRuntimeBinding() {
   };
 }
 
+export function fixtureExecutorBinding() {
+  return {
+    buildSha: fixtureExecutorBuildSha,
+    imageRef: `ghcr.io/modvolt/site-logbook-control-plane@${fixtureDigest("9")}`,
+  };
+}
+
 export function fixtureStoppedWritersProof({
   proofId = "9".repeat(64),
   quiescentSince = "2026-08-12T09:58:00.000Z",
@@ -90,7 +98,11 @@ export function fixturePlanInput() {
   return {
     operationId: "prod-backup-op-20260812",
     createdAt: "2026-08-12T10:00:00.000Z",
-    sourceSha: fixtureSourceSha,
+    liveSource: {
+      sha: fixtureSourceSha,
+      imageRef: runtimeBinding.applicationImageRef,
+    },
+    executor: fixtureExecutorBinding(),
     sourceDatabase,
     runtimeBinding,
     stoppedWritersProof: fixtureStoppedWritersProof({
@@ -140,7 +152,7 @@ export function fixtureTableSnapshot({
 
 export function fixtureRestoreRuntimeBinding() {
   return {
-    executorImageRef: `ghcr.io/modvolt/site-logbook-api@${fixtureDigest("1")}`,
+    executorImageRef: fixtureExecutorBinding().imageRef,
     containerId: "b".repeat(64),
     postgresImageRef: `docker.io/library/postgres@${fixtureDigest("3")}`,
     postgresImageId: fixtureDigest("4"),
@@ -188,7 +200,7 @@ export function fixtureExecutorTrace(plan) {
   };
   const object = {
     bucket: "site-logbook-production-backups",
-    key: "production/exact-0096/prod-backup-20260812-0001.dump.enc",
+    key: "private/production/exact-0096/prod-backup-20260812-0001.dump.enc",
     versionId: "s3-version-00000001",
     headObservedAt: "2026-08-12T10:01:20.000Z",
     headContentLength: 1024 * 1024,
@@ -198,6 +210,7 @@ export function fixtureExecutorTrace(plan) {
       kind: "hetzner-object-storage",
       endpointOriginSha256: fixtureDigest("e"),
       region: "fsn1",
+      encryptionBoundary: "client-envelope-only",
       transport: "https",
       versioning: "enabled",
     },
@@ -286,8 +299,8 @@ export function fixtureExecutorTrace(plan) {
     producer: {
       schemaVersion: "site-logbook.production-backup-executor/v1",
       kind: "production-exact-0096-backup-executor",
-      buildSha: fixtureSourceSha,
-      executorImageRef: plan.value.runtimeBinding.applicationImageRef,
+      buildSha: fixtureExecutorBuildSha,
+      executorImageRef: plan.value.executor.imageRef,
       invocationId: "7".repeat(64),
     },
     sourceBefore,

@@ -5,6 +5,9 @@ implemented. Activation remains fail-closed until separate offline custody
 ceremonies pin reviewed public SPKI keys in both production key maps and fresh
 signed release-chain artifacts are available.
 
+The executable Windows custody procedure and exact four-role boundary are in
+`21-production-signing-key-custody-runbook.md`.
+
 This runner does not deploy, migrate, build, push, or write to Coolify. It
 creates a bounded, secret-free observation from read-only inputs. The
 pre-import production bootstrap trusts the observation only after verifying a

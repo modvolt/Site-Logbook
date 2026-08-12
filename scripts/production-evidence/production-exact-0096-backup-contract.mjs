@@ -7,11 +7,11 @@ import {
 } from "./production-migration-contract.mjs";
 
 export const PRODUCTION_EXACT_0096_BACKUP_PLAN_SCHEMA =
-  "site-logbook.production-exact-0096-backup-plan/v2";
+  "site-logbook.production-exact-0096-backup-plan/v3";
 export const PRODUCTION_EXACT_0096_BACKUP_RECEIPT_SCHEMA =
-  "site-logbook.production-exact-0096-backup-restore-receipt/v2";
+  "site-logbook.production-exact-0096-backup-restore-receipt/v3";
 export const PRODUCTION_EXACT_0096_EXECUTOR_TRACE_SCHEMA =
-  "site-logbook.production-exact-0096-backup-executor-trace/v1";
+  "site-logbook.production-exact-0096-backup-executor-trace/v2";
 export const PRODUCTION_EXACT_0096_TABLE_SNAPSHOT_SCHEMA =
   "site-logbook.production-exact-0096-table-snapshot/v2";
 export const PRODUCTION_EXACT_0096_WRITERS_PROOF_SCHEMA =

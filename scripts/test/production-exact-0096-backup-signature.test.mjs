@@ -75,6 +75,19 @@ test("binds exact plan, executor trace and receipt to the host/evidence trust do
   assert.equal(verified.value.keyId, keyId);
   assert.equal(verified.publicKeySha256, publicKeySha256);
   assert.equal(verified.value.authorizesProductionMigration, false);
+  assert.equal(verified.value.liveSourceSha, plan.value.liveSource.sha);
+  assert.equal(
+    verified.value.liveSourceImageRef,
+    plan.value.liveSource.imageRef,
+  );
+  assert.equal(
+    verified.value.executorBuildSha,
+    execution.trace.value.producer.buildSha,
+  );
+  assert.equal(
+    verified.value.executorImageRef,
+    execution.trace.value.producer.executorImageRef,
+  );
 });
 
 test("rejects uppercase normalization, unknown keys, wrong pins and substituted bytes", async () => {

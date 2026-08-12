@@ -11,6 +11,7 @@ import {
   createProductionExact0096BackupArtifact,
   exactBackupDigest,
   exactBackupId,
+  exactBackupImmutableImage,
   exactBackupObject,
   exactBackupSourceSha,
   exactBackupTimestamp,
@@ -30,7 +31,9 @@ const PLAN_FIELDS = [
   "confirmation",
   "createdAt",
   "environmentId",
+  "executor",
   "kind",
+  "liveSource",
   "operationId",
   "payloadCeilingBytes",
   "productionTargetsTouched",
@@ -44,10 +47,25 @@ const PLAN_FIELDS = [
   "schemaVersion",
   "snapshotContract",
   "sourceDatabase",
-  "sourceSha",
   "stoppedWritersProof",
   "stoppedWritersProofSha256",
 ];
+
+function validateLiveSource(value, field = "liveSource") {
+  const source = exactBackupObject(value, ["imageRef", "sha"], field);
+  return Object.freeze({
+    sha: exactBackupSourceSha(source.sha, `${field}.sha`),
+    imageRef: exactBackupImmutableImage(source.imageRef, `${field}.imageRef`),
+  });
+}
+
+function validateExecutor(value, field = "executor") {
+  const executor = exactBackupObject(value, ["buildSha", "imageRef"], field);
+  return Object.freeze({
+    buildSha: exactBackupSourceSha(executor.buildSha, `${field}.buildSha`),
+    imageRef: exactBackupImmutableImage(executor.imageRef, `${field}.imageRef`),
+  });
+}
 
 function exactFrozenBaseline(value, field) {
   if (
@@ -162,7 +180,8 @@ export function validateProductionExact0096BackupPlan(value) {
   }
   exactBackupId(plan.operationId, "plan.operationId");
   const createdAt = exactBackupTimestamp(plan.createdAt, "plan.createdAt");
-  const sourceSha = exactBackupSourceSha(plan.sourceSha, "plan.sourceSha");
+  const liveSource = validateLiveSource(plan.liveSource, "plan.liveSource");
+  const executor = validateExecutor(plan.executor, "plan.executor");
   const database = validateProductionSourceDatabase(
     plan.sourceDatabase,
     "plan.sourceDatabase",
@@ -172,7 +191,8 @@ export function validateProductionExact0096BackupPlan(value) {
     "plan.runtimeBinding",
   );
   if (
-    runtime.sourceSha !== sourceSha ||
+    runtime.sourceSha !== liveSource.sha ||
+    runtime.applicationImageRef !== liveSource.imageRef ||
     plan.runtimeBindingSha256 !==
       productionExact0096BackupSha256(
         canonicalProductionExact0096BackupJson(runtime),
@@ -204,7 +224,7 @@ export function validateProductionExact0096BackupPlan(value) {
         "plan.stoppedWritersProof.observedAt",
       ) >
       PRODUCTION_EXACT_0096_WRITERS_PROOF_MAX_AGE_MS ||
-    writers.sourceSha !== sourceSha ||
+    writers.sourceSha !== liveSource.sha ||
     writers.runtimeBindingSha256 !== runtimeBindingSha256 ||
     writers.databaseIdentitySha256 !== databaseIdentitySha256
   ) {
@@ -236,13 +256,19 @@ export function validateProductionExact0096BackupPlan(value) {
   validateSnapshotContract(plan.snapshotContract, "plan.snapshotContract");
   validateRestoreContract(plan.restoreContract, "plan.restoreContract");
   validateProductionBackupSafety(plan.safety, "plan.safety");
-  return Object.freeze({ ...plan, sourceDatabase: database });
+  return Object.freeze({
+    ...plan,
+    liveSource,
+    executor,
+    sourceDatabase: database,
+  });
 }
 
 export function createProductionExact0096BackupPlan({
   operationId,
   createdAt,
-  sourceSha,
+  liveSource,
+  executor,
   sourceDatabase,
   runtimeBinding,
   stoppedWritersProof,
@@ -273,7 +299,8 @@ export function createProductionExact0096BackupPlan({
       exactBackupTimestamp(createdAt, "createdAt"),
     ).toISOString(),
     environmentId: PRODUCTION_EXACT_0096_ENVIRONMENT_ID,
-    sourceSha: exactBackupSourceSha(sourceSha),
+    liveSource: validateLiveSource(liveSource),
+    executor: validateExecutor(executor),
     sourceDatabase: validateProductionSourceDatabase(
       sourceDatabase,
       "sourceDatabase",

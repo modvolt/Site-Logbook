@@ -20,7 +20,7 @@ import {
 } from "./production-exact-0096-backup-receipt.mjs";
 
 export const PRODUCTION_EXACT_0096_BACKUP_SIGNATURE_SCHEMA =
-  "site-logbook.production-exact-0096-backup-signature-envelope/v1";
+  "site-logbook.production-exact-0096-backup-signature-envelope/v2";
 export const PRODUCTION_EXACT_0096_BACKUP_SIGNATURE_DOMAIN =
   "site-logbook.production-exact-0096-backup-executor-signature/v1";
 
@@ -60,8 +60,24 @@ export function createProductionExact0096BackupSignatureEnvelope({
     planCanonical,
     executorTraceCanonical,
   );
-  const sourceSha = exactLowercase(plan.value.sourceSha, "plan.sourceSha", 40);
-  exactBackupSourceSha(sourceSha, "plan.sourceSha");
+  const liveSourceSha = exactLowercase(
+    plan.value.liveSource.sha,
+    "plan.liveSource.sha",
+    40,
+  );
+  exactBackupSourceSha(liveSourceSha, "plan.liveSource.sha");
+  const liveSourceImageRef = exactLowercase(
+    plan.value.liveSource.imageRef,
+    "plan.liveSource.imageRef",
+    512,
+  );
+  exactBackupImmutableImage(liveSourceImageRef, "plan.liveSource.imageRef");
+  const executorBuildSha = exactLowercase(
+    trace.value.producer.buildSha,
+    "trace.producer.buildSha",
+    40,
+  );
+  exactBackupSourceSha(executorBuildSha, "trace.producer.buildSha");
   const executorImageRef = exactLowercase(
     trace.value.producer.executorImageRef,
     "trace.producer.executorImageRef",
@@ -83,7 +99,9 @@ export function createProductionExact0096BackupSignatureEnvelope({
     kind: "site-logbook-production-exact-0096-backup-signature-envelope",
     signatureDomain: PRODUCTION_EXACT_0096_BACKUP_SIGNATURE_DOMAIN,
     keyId: canonicalKeyId,
-    sourceSha,
+    liveSourceSha,
+    liveSourceImageRef,
+    executorBuildSha,
     executorImageRef,
     planSha256: plan.sha256,
     executorTraceSha256: trace.sha256,
@@ -101,15 +119,17 @@ export function parseProductionExact0096BackupSignatureEnvelope(
     parsed,
     [
       "authorizesProductionMigration",
+      "executorBuildSha",
       "executorImageRef",
       "executorTraceSha256",
       "keyId",
       "kind",
+      "liveSourceImageRef",
+      "liveSourceSha",
       "planSha256",
       "receiptSha256",
       "schemaVersion",
       "signatureDomain",
-      "sourceSha",
     ],
     "backupSignatureEnvelope",
   );
