@@ -370,7 +370,6 @@ export function createProductionExact0096BackupLongLivedHostSession(
       killTimer = setTimeout(() => {
         if (!closed) child.kill("SIGKILL");
       }, 2_000);
-      killTimer.unref();
     }
   };
   const deliverResponse = (line) => {
@@ -524,7 +523,6 @@ export function createProductionExact0096BackupLongLivedHostSession(
               ),
             config.timeoutMs,
           );
-          timer.unref();
         }),
       ]);
     } finally {
@@ -605,7 +603,6 @@ export function createProductionExact0096BackupLongLivedHostSession(
               poison(error);
               reject(error);
             }, config.timeoutMs);
-            timer.unref();
           }),
         ]);
       } finally {
@@ -718,7 +715,6 @@ export async function runProductionExact0096BackupWithLongLivedHostSession({
     overallTimedOut = true;
     controller.abort(new Error("PRODUCTION_BACKUP_OVERALL_TIMEOUT"));
   }, overallTimeoutMs);
-  deadline.unref();
   let session;
   let result;
   let primaryError;
@@ -788,7 +784,6 @@ export async function runProductionExact0096BackupWithLongLivedHostSession({
               ),
             exactConfig(config).timeoutMs,
           );
-          settlementTimer.unref();
         }),
       ]);
     } catch (error) {

@@ -464,7 +464,6 @@ async function endPoolBounded(pool, signal) {
         ),
       CLEANUP_TIMEOUT_MS,
     );
-    cleanupTimer.unref?.();
   });
   try {
     const boundedCleanup = Promise.race([
@@ -943,7 +942,6 @@ export async function runProductionMigrationCli(
       ),
     overallTimeoutMs,
   );
-  overallTimer.unref?.();
   const runSignal = controller.signal;
   let pool;
   let result;
