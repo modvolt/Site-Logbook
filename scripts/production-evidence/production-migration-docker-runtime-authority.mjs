@@ -24,7 +24,7 @@ const CONTAINER_PROJECTION = [
   '"Mounts":{{json .Mounts}},"NetworkSettings":{"Networks":{{json .NetworkSettings.Networks}}}}',
 ].join("");
 const IMAGE_PROJECTION =
-  '{"Id":{{json .Id}},"RepoDigests":{{json .RepoDigests}},"Labels":{{json .Config.Labels}}}';
+  '{"Id":{{json .Id}},"RepoDigests":{{json .RepoDigests}},"Labels":{{json (index .Config "Labels")}}}';
 const VOLUME_PROJECTION =
   '{"Name":{{json .Name}},"CreatedAt":{{json .CreatedAt}},"Labels":{{json .Labels}}}';
 const NETWORK_PROJECTION =

@@ -407,6 +407,13 @@ test("prepare derives and durably persists one canonical plan from read-only run
           args.includes("--force"),
       ),
     );
+    assert.ok(
+      harness.calls
+        .filter(({ args }) => args[0] === "image" && args[1] === "inspect")
+        .every(({ args }) =>
+          args.some((arg) => arg.includes('(index .Config "Labels")')),
+        ),
+    );
     assert.equal(
       harness.calls.some(({ args }) =>
         args.some((arg) => /restore|migration|producer\.mjs|s3/i.test(arg)),

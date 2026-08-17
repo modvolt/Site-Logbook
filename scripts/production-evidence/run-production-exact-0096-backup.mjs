@@ -75,7 +75,7 @@ const CONTAINER_PROJECTION = [
   '"HostConfig":{"Binds":{{json .HostConfig.Binds}},"PortBindings":{{json .HostConfig.PortBindings}}}}',
 ].join("");
 const IMAGE_PROJECTION =
-  '{"Id":{{json .Id}},"RepoDigests":{{json .RepoDigests}},"Labels":{{json .Config.Labels}}}';
+  '{"Id":{{json .Id}},"RepoDigests":{{json .RepoDigests}},"Labels":{{json (index .Config "Labels")}}}';
 const NETWORK_PROJECTION =
   '{"Id":{{json .Id}},"Name":{{json .Name}},"Internal":{{json .Internal}},"Containers":{{json .Containers}}}';
 const VOLUME_PROJECTION =
