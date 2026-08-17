@@ -41,6 +41,8 @@ function dockerProjection(value) {
 
 async function fixturePlan() {
   const input = fixturePlanInput();
+  input.executor.imageRef = `site-logbook-control-plane@${input.executor.imageRef.split("@")[1]}`;
+  input.runtimeBinding.postgresImageRef = `postgres@${input.runtimeBinding.postgresImageRef.split("@")[1]}`;
   input.runtimeBinding.volumeLabelsSha256 = productionExact0096BackupSha256(
     canonicalProductionExact0096BackupJson({}),
   );
@@ -49,6 +51,13 @@ async function fixturePlan() {
       canonicalProductionExact0096BackupJson(input.runtimeBinding),
     );
   return createProductionExact0096BackupPlan(input);
+}
+
+function fixtureRestoreBindingForPlan(plan) {
+  return {
+    ...fixtureRestoreRuntimeBinding(),
+    executorImageRef: plan.value.executor.imageRef,
+  };
 }
 
 function fixturePreparationIntent(plan) {
@@ -568,7 +577,7 @@ test("host handlers reach a real PASS receipt with fixed container lifecycle and
           restoreId: trace.restore.restoreId,
           startedAt: trace.restore.startedAt,
           database: trace.restore.database,
-          runtimeBinding: fixtureRestoreRuntimeBinding(),
+          runtimeBinding: fixtureRestoreBindingForPlan(plan),
           async close() {
             lifecycleClosed += 1;
           },
@@ -667,7 +676,7 @@ test("real receipt path fails closed when measured source or restore schema drif
                 restoreId: trace.restore.restoreId,
                 startedAt: trace.restore.startedAt,
                 database: trace.restore.database,
-                runtimeBinding: fixtureRestoreRuntimeBinding(),
+                runtimeBinding: fixtureRestoreBindingForPlan(plan),
                 async close() {},
               }),
               async runComposite(input) {

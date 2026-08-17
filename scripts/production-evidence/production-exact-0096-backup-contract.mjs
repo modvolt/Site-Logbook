@@ -46,7 +46,7 @@ const VERSION_ID = /^[A-Za-z0-9][A-Za-z0-9._~+/=-]{0,255}$/;
 const DATABASE_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_$-]{0,62}$/;
 const CANONICAL_TABLE = /^[a-z_][a-z0-9_$]*\.[a-z_][a-z0-9_$]*$/;
 const IMMUTABLE_IMAGE =
-  /^[a-z0-9][a-z0-9._:-]*(?:\/[a-z0-9][a-z0-9._-]*)+@sha256:[0-9a-f]{64}$/;
+  /^[a-z0-9][a-z0-9._:-]*(?:\/[a-z0-9][a-z0-9._-]*)*@sha256:[0-9a-f]{64}$/;
 const SECRET_VALUE_PATTERNS = [
   /-----BEGIN (?:RSA |EC |OPENSSH |PGP )?PRIVATE KEY-----/i,
   /\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis):\/\/[^\s:@/]+:[^\s@/]+@/i,
