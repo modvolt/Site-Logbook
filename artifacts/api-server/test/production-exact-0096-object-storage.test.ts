@@ -45,7 +45,7 @@ function head(versionId = "version-0001") {
 }
 
 const dependencies = {
-  bucket: "site-logbook-production-backups",
+  bucket: "modvoltdata",
   endpoint,
   region,
 };
@@ -112,8 +112,28 @@ describe("production exact-0096 Hetzner Object Storage binding", () => {
           client: client as never,
           endpoint: invalidEndpoint,
         }),
-      ).rejects.toThrow(/canonical HTTPS Hetzner/);
+      ).rejects.toThrow(/source-pinned to the canonical fsn1 endpoint/);
     }
+    expect(client.send).not.toHaveBeenCalled();
+  });
+
+  it("rejects another valid Hetzner region or bucket before object I/O", async () => {
+    const client = { send: vi.fn() };
+    await expect(
+      new ObjectStorageService().putProductionExactVersionedBackup(input(), {
+        ...dependencies,
+        client: client as never,
+        endpoint: "https://nbg1.your-objectstorage.com",
+        region: "nbg1",
+      }),
+    ).rejects.toThrow(/source-pinned/);
+    await expect(
+      new ObjectStorageService().putProductionExactVersionedBackup(input(), {
+        ...dependencies,
+        bucket: "other-valid-bucket",
+        client: client as never,
+      }),
+    ).rejects.toThrow(/bucket is invalid/);
     expect(client.send).not.toHaveBeenCalled();
   });
 
@@ -268,7 +288,7 @@ describe("production exact-0096 Hetzner Object Storage binding", () => {
           region: "hel1",
         },
       ),
-    ).rejects.toThrow(/does not match the reviewed Hetzner binding/);
+    ).rejects.toThrow(/source-pinned to the canonical fsn1 endpoint/);
     expect(client.send).not.toHaveBeenCalled();
   });
 });

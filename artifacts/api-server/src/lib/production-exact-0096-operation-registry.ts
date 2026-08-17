@@ -27,6 +27,27 @@ type DumpState = Readonly<{
   snapshot: ProductionExact0096SnapshotArtifact;
 }>;
 
+function immutableObjectBinding(
+  value: ProductionExactVersionedObjectHead,
+): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    bucket: value.bucket,
+    key: value.key,
+    versionId: value.versionId,
+    headContentLength: value.headContentLength,
+    headEtag: value.headEtag,
+    headObjectSha256Metadata: value.headObjectSha256Metadata,
+    storageProvider: Object.freeze({
+      kind: value.storageProvider.kind,
+      endpointOriginSha256: value.storageProvider.endpointOriginSha256,
+      region: value.storageProvider.region,
+      encryptionBoundary: value.storageProvider.encryptionBoundary,
+      transport: value.storageProvider.transport,
+      versioning: value.storageProvider.versioning,
+    }),
+  });
+}
+
 export function createProductionExact0096SessionOperationRegistry(
   input: {
     activation: string;
@@ -205,8 +226,13 @@ export function createProductionExact0096SessionOperationRegistry(
         input.signal,
       );
       if (
-        JSON.stringify({ ...observed, headObservedAt: null }) !==
-        JSON.stringify({ ...expected, headObservedAt: null })
+        observed === expected ||
+        !Number.isFinite(Date.parse(observed.headObservedAt)) ||
+        !Number.isFinite(Date.parse(expected.headObservedAt)) ||
+        Date.parse(observed.headObservedAt) <
+          Date.parse(expected.headObservedAt) ||
+        JSON.stringify(immutableObjectBinding(observed)) !==
+          JSON.stringify(immutableObjectBinding(expected))
       ) {
         throw new Error("PRODUCTION_BACKUP_OBJECT_BINDING_INVALID");
       }

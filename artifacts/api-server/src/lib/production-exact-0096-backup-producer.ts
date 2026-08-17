@@ -539,6 +539,7 @@ export class ProductionExact0096SnapshotSession {
       dependencies.clientFactory ??
       ((connectionString, timeoutMs) => {
         return new pg.Client({
+          application_name: "site-logbook-production-exact-0096-producer",
           connectionString,
           connectionTimeoutMillis: timeoutMs,
           query_timeout: timeoutMs,

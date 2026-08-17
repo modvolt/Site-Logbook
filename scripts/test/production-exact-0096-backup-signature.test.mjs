@@ -40,8 +40,13 @@ test("migration backup authority aliases the single host/evidence trust root", (
     PINNED_PRODUCTION_MIGRATION_BACKUP_KEY_SHA256,
     PINNED_PRODUCTION_HOST_EVIDENCE_KEY_SHA256,
   );
-  assert.deepEqual(PINNED_PRODUCTION_HOST_EVIDENCE_KEYS, {});
-  assert.equal(PINNED_PRODUCTION_HOST_EVIDENCE_KEY_SHA256, null);
+  assert.deepEqual(Object.keys(PINNED_PRODUCTION_HOST_EVIDENCE_KEYS), [
+    "ed25519:production-host-evidence-2026-08",
+  ]);
+  assert.equal(
+    PINNED_PRODUCTION_HOST_EVIDENCE_KEY_SHA256,
+    "sha256:caba1ae8a341ed7703769c06cde1e48a632d4d59f12b957fa2983a3319388af0",
+  );
 });
 
 test("binds exact plan, executor trace and receipt to the host/evidence trust domain", async () => {

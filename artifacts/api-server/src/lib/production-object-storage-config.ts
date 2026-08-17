@@ -17,6 +17,11 @@ export type ProductionHetznerObjectStorageConfiguration = Readonly<{
   forcePathStyle: false;
 }>;
 
+export const PRODUCTION_EXACT_0096_HETZNER_ENDPOINT =
+  "https://fsn1.your-objectstorage.com";
+export const PRODUCTION_EXACT_0096_HETZNER_REGION = "fsn1";
+export const PRODUCTION_EXACT_0096_HETZNER_BUCKET = "modvoltdata";
+
 const HETZNER_REGIONS = new Set<ProductionHetznerObjectStorageRegion>([
   "fsn1",
   "nbg1",
@@ -105,6 +110,16 @@ export function requireProductionHetznerObjectStorageConfiguration(
   ) {
     throw new Error(
       "PRODUCTION_HETZNER_OBJECT_STORAGE_INVALID: S3_BUCKET must be a canonical DNS-compatible bucket name.",
+    );
+  }
+
+  if (
+    env.S3_ENDPOINT !== PRODUCTION_EXACT_0096_HETZNER_ENDPOINT ||
+    env.S3_REGION !== PRODUCTION_EXACT_0096_HETZNER_REGION ||
+    bucket !== PRODUCTION_EXACT_0096_HETZNER_BUCKET
+  ) {
+    throw new Error(
+      "PRODUCTION_HETZNER_OBJECT_STORAGE_INVALID: production is source-pinned to modvoltdata at the canonical fsn1 endpoint.",
     );
   }
 

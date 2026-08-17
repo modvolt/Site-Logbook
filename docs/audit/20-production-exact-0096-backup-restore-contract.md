@@ -12,20 +12,20 @@ payload in memory, stage authenticated restore plaintext before exposing it to
 exact-version HEAD/GET. The host dependency adapter is default-dark and uses only
 fixed `docker exec` argv, bounded canonical outputs and an AbortSignal.
 
-This is still **not an activated production backup**. The build emits a narrow
-producer CLI only into the explicitly selected, marker-baked `control-plane`
-image target; the default/final production API target excludes that bundle. The
-CLI validates fixed operations, operation-specific exact request fields and one
-bounded canonical regular non-symlink request file at
-`/app/dist/production-exact-0096-backup-producer.mjs`. It has a tested,
-secret-rejecting canonical dispatch boundary, but the shipped executable supplies
-no handler registry and therefore still terminates with
-`PRODUCTION_BACKUP_PRODUCER_OPERATION_UNWIRED` unless a reviewed activation
-constructs the full handler registry. A handler registry must contain
-every and only the reviewed operations; partial activation is rejected.
+This is still **not an activated production backup**. The build emits the narrow
+producer and host-worker CLIs only into the explicitly selected, marker-baked
+`control-plane` image target; the default/final production API target excludes
+both bundles. Without the exact producer activation environment value the shipped
+session still returns `PRODUCTION_BACKUP_PRODUCER_OPERATION_UNWIRED`. With that
+value it constructs every and only the five process-owned operations from the
+source-pinned 91-relation exact-0096 manifest, inherited `DATABASE_URL`, inherited
+backup keyring and inherited Hetzner S3 environment. Partial activation is
+rejected.
 
-No production Compose service or activation command is present. The reviewed
-host session now starts one interactive `docker exec node ... --session` producer
+No production Compose service is present. The default-dark host executable
+`scripts/production-evidence/run-production-exact-0096-backup.mjs` now supplies
+the activation boundary. It starts one interactive
+`docker exec node ... --session` producer
 for the whole executor run. Its process-owned registry can retain the exporting
 `REPEATABLE READ READ ONLY` transaction across relation measurement and
 `pg_dump`; requests remain canonical exclusive regular files and stdin carries
@@ -44,14 +44,62 @@ rejected. Five operations are producer-owned and must share the process:
 resource ownership which the control-plane container must not obtain. Mounting a
 Docker socket into that process would violate the reviewed trust boundary.
 
-The exact missing activation interface is a host-owned composite registry: its
-six host handlers plus one already-running producer-session client for the five
-producer handlers, followed by unconditional close/poison cleanup. The producer
-registry also needs canonical artifact constructors for the frozen relation
-manifest, dump-to-persist state and independent exact-version HEAD. Until that
-split registry is implemented and reviewed, the executable continues to return
-`PRODUCTION_BACKUP_PRODUCER_OPERATION_UNWIRED`; an environment token cannot
-bypass it.
+The host executable constructs the exact composite registry from a synchronous
+six-handler factory bound to the adapter's internal `AbortSignal` plus the one
+already-running five-operation producer session. It creates and independently
+inspects a digest-addressed control-plane container, gives it no Docker socket,
+persists only mode-0600 request files, and transfers secrets only through one
+mode-0600 Docker env file. Secrets, database URLs, encryption keys and S3
+credentials never appear in argv, stdout or evidence. The host owns bounded
+source/container observation, two complete 60-second writer-free DB windows,
+the disposable PostgreSQL 16 lifecycle, exact restore observation, exclusive
+trace/receipt persistence and unconditional restore/control-plane cleanup.
+
+The host worker downloads only the evidence-bound Hetzner object version,
+authenticates and stages the complete MVE1 plaintext before feeding fixed-argv
+`pg_restore`, then measures all 91 restored relations. The `pg_restore` child
+receives only `PATH`, `PGHOST`, `PGDATABASE`, and `PGUSER`; production database,
+S3, and envelope-key environment variables are not inherited across that child
+process boundary. The control-plane process
+temporarily joins the new internal restore network; the restore PostgreSQL
+container never joins the production network or mounts the production volume.
+No backup plaintext or secret is transported through stdout.
+
+The runner has three exact commands. `prepare` requires
+`PREPARE_EXACT_0096_PRODUCTION_BACKUP_PLAN_READ_ONLY_NO_BACKUP`, one exact
+secret-free immutable preparation intent, and an exclusive output path. It
+verifies the reviewed executor/source/runtime identities, starts only the narrow
+temporary host-worker container, reads database identity, the exact journal, and
+the authoritative schema fingerprint, then measures a complete 60-second
+writer-free window. Only those observed values are passed to the canonical plan
+creator. Database identity, journal inventory, schema fingerprint, timestamps,
+and stopped-writer proof are forbidden in the intent and cannot be self-authored
+by the caller. `prepare` calls no producer, object storage, restore, or migration
+operation. It removes the temporary container before persisting the canonical
+plan via no-clobber mode-0600 create, file sync, exact readback, and parent
+directory sync.
+
+`preflight` requires
+`READ_ONLY_EXACT_0096_PRODUCTION_BACKUP_PREFLIGHT_NO_CHANGES` and uses only
+Docker image/container/network/volume `inspect`; it creates no container, object
+or evidence. `execute` additionally requires
+`RUN_EXACT_0096_PRODUCTION_BACKUP_AND_DISPOSABLE_RESTORE_NO_MIGRATION`, one
+canonical plan and one canonical host request. Missing or altered confirmation,
+mutable images, a non-0600 secret file, unexpected env names, running network
+peers, active DB sessions/write locks, journal drift, image/source drift or an
+unbounded timeout fail before the corresponding mutation.
+The exact Hetzner env-file contract requires `S3_FORCE_PATH_STYLE=false`;
+missing, true, or differently encoded values fail before any Docker operation.
+It also source-pins `S3_BUCKET=modvoltdata`,
+`S3_ENDPOINT=https://fsn1.your-objectstorage.com`, and `S3_REGION=fsn1`.
+Another syntactically valid Hetzner region, endpoint, or bucket fails before
+Docker in host prepare/preflight/execute and before provider I/O in the exact
+object-storage primitive.
+
+Implementation and hermetic synthetic coverage do not assert that production,
+Docker or Hetzner ran. A real backup remains a separately attended operation
+requiring stopped production writers and then a separately reviewed detached
+receipt signature. Its PASS receipt still authorizes no migration.
 
 The host-owned disposable PostgreSQL 16 lifecycle now creates one labeled
 internal network, one labeled volume and one container from an immutable image,
@@ -96,6 +144,11 @@ derive a receipt. The runner then requires a second exact exclusive-persistence
 acknowledgement before returning either artifact. Changing the trace changes
 `executorTraceSha256` and invalidates the receipt.
 
+Each no-clobber evidence write syncs the file before close, verifies exact
+readback, and on the Linux production host syncs the parent directory before it
+acknowledges persistence. Thus an acknowledged receipt is not based only on page
+cache or an unsynced new directory entry.
+
 The plan, receipt and detached-signature envelope permanently set
 `authorizesProductionMigration=false`. The signature uses a separate domain string
 but the same source-pinned offline host/evidence Ed25519 key ID and public-key pin;
@@ -121,6 +174,17 @@ misstating either identity. It also binds all of these values:
   `0096_far_smiling_tiger`, 99 total rows, no `0100`, no unexpected known row,
   and the two frozen opaque production rows without inferred meaning;
 - a reviewed non-zero schema fingerprint.
+- the exact storage binding: bucket `modvoltdata`, canonical fsn1 HTTPS endpoint
+  and endpoint-origin digest, region `fsn1`, path-style disabled, and object
+  prefix `private/production/exact-0096/`.
+
+The fingerprint is not copied from the plan into runtime evidence. The host
+worker opens a read-only repeatable-read transaction and feeds the live database
+through the authoritative `readAuditSchemaCatalogProjection()` and
+`auditSchemaFingerprintSha256()` helpers. Source-before, disposable restore, and
+source-after outputs carry that independently measured value, and each must equal
+the reviewed plan fingerprint. Any source or restore schema drift fails before a
+receipt can be created.
 
 The stopped-writers proof is bound to the source SHA, canonical runtime-binding
 digest, canonical database-identity digest, and maintenance-window ID. It admits
@@ -128,11 +192,17 @@ no writer container, application session, active write transaction, or observed
 database write. It must cover at least 60 seconds and be at most five minutes old
 when the plan is created.
 
-The trace must reproduce that exact first proof. After the disposable restore it
-must obtain a different proof ID under the same maintenance window and re-bind the
-same source/runtime/database. The second observation must be at or after restore
-completion and no more than five minutes before trace completion. Either boundary
-failing makes a `PASS` receipt impossible.
+The plan proof is a pre-execution authorization/precondition and is never reused
+as observed execution evidence. The runner first observes the live source, then
+measures a new complete writer-free window and emits a new proof ID under the same
+maintenance window with the same source/runtime/database bindings. Receipt
+validation requires `plan.createdAt <= source observedAt <= proof.quiescentSince
+<= proof.observedAt <= exported-snapshot observedAt`; the source-to-proof interval
+is bounded to five minutes. After the disposable restore it obtains another
+different proof ID, re-binds the same source/runtime/database, and requires its
+observation at or after restore completion and no more than five minutes before
+trace completion. Reusing the plan proof, swapping IDs, or violating either
+temporal boundary makes a `PASS` receipt impossible.
 
 ## Exact catalog and deterministic content snapshot
 
@@ -181,10 +251,13 @@ deleted, no object created, and no payload. That terminal result can never yield
 receipt.
 
 A successful payload requires PostgreSQL 16 custom format and AES-256-GCM envelope
-encryption. Its exact dump digest and data-snapshot digest are retained. The current
-exact-version primitive supports only the official Hetzner Object Storage HTTPS
-endpoints, requires a read-only `GetBucketVersioning` result of `Enabled` before
-PUT, and rejects GCS, MinIO, AWS or arbitrary S3-compatible endpoints. The
+encryption. Its exact dump digest and data-snapshot digest are retained. The
+current exact-version primitive supports only the source-pinned
+`https://fsn1.your-objectstorage.com` endpoint, `fsn1` region, `modvoltdata`
+bucket, and `private/production/exact-0096/` prefix. It requires a read-only
+`GetBucketVersioning` result of `Enabled` before PUT and rejects other valid
+Hetzner locations/buckets as well as GCS, MinIO, AWS or arbitrary S3-compatible
+endpoints. The
 payload is already encrypted client-side with the independently versioned MVE1
 envelope. Provider evidence says `encryptionBoundary=client-envelope-only`, so
 no unsupported AWS SSE-KMS claim is made and no additional SSE-C secret is
@@ -293,3 +366,7 @@ bytes to the restore consumer.
   producer artifacts;
 - `production-exact-0096-backup-contract.test.mjs`: positive and adversarial
   contract tests without Docker, PostgreSQL, network, or production access.
+- `production-exact-0096-host-runner.test.mjs`: default-dark preflight tests plus
+  an end-to-end host-handler path through the real receipt executor, including a
+  PASS receipt and source/restore schema-drift fail-closed cases, with all
+  Docker/worker/provider calls hermetically substituted and no external I/O.

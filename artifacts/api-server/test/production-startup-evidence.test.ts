@@ -213,7 +213,7 @@ function fixture() {
     MIGRATIONS_DIR: "/app/migrations",
     S3_ENDPOINT: "https://fsn1.your-objectstorage.com",
     S3_REGION: "fsn1",
-    S3_BUCKET: "site-logbook-production-backups",
+    S3_BUCKET: "modvoltdata",
     S3_ACCESS_KEY_ID: "fixture-access-key",
     S3_SECRET_ACCESS_KEY: "fixture-secret-key",
     S3_FORCE_PATH_STYLE: "false",
@@ -416,6 +416,11 @@ describe("production startup evidence", () => {
     for (const changed of [
       { S3_ENDPOINT: "http://minio:9000" },
       { S3_ENDPOINT: "https://nbg1.your-objectstorage.com" },
+      {
+        S3_ENDPOINT: "https://nbg1.your-objectstorage.com",
+        S3_REGION: "nbg1",
+      },
+      { S3_BUCKET: "other-valid-bucket" },
       { S3_FORCE_PATH_STYLE: "true" },
     ]) {
       await expect(
@@ -501,7 +506,7 @@ describe("production startup evidence", () => {
     resetProductionRuntimeBindingForTest();
   });
 
-  it("keeps real production activation locked until the reviewed trust roots are provisioned", async () => {
+  it("keeps real production activation locked until a signed host attestation is supplied", async () => {
     const { input } = fixture();
     const summary = validateProductionAudit0107ReleaseEvidence(input);
     await expect(
@@ -520,6 +525,6 @@ describe("production startup evidence", () => {
         databaseUser: summary.databaseUser,
         schemaFingerprintSha256: summary.schemaFingerprintSha256,
       }),
-    ).rejects.toThrow(/PRODUCTION_HOST_TRUST_ROOT_UNPROVISIONED/);
+    ).rejects.toThrow(/PRODUCTION_HOST_ATTESTATION_ENV_MISSING/);
   });
 });

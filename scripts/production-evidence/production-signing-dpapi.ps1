@@ -158,7 +158,9 @@ if ($Operation -eq "clipboard") {
   Start-Sleep -Seconds $ClipboardSeconds
   $current = Get-Clipboard -Raw
   if ($current -eq $value) {
-    Set-Clipboard -Value ""
+    # Windows PowerShell 5.1 treats an empty string as a null clipboard value.
+    # Overwrite the secret with a single harmless space instead.
+    Set-Clipboard -Value ([char]32)
     [Console]::Out.WriteLine("clipboard=cleared")
   } else {
     [Console]::Out.WriteLine("clipboard=changed-not-cleared")

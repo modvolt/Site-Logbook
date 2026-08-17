@@ -6,6 +6,7 @@ import {
   PRODUCTION_EXACT_0096_BACKUP_CONFIRMATION,
   PRODUCTION_EXACT_0096_EXECUTOR_TRACE_SCHEMA,
   PRODUCTION_EXACT_0096_RELATION_MANIFEST,
+  PRODUCTION_EXACT_0096_STORAGE_BINDING,
   PRODUCTION_EXACT_0096_TABLE_SNAPSHOT_SCHEMA,
   PRODUCTION_EXACT_0096_WRITERS_PROOF_SCHEMA,
   canonicalProductionExact0096BackupJson,
@@ -116,7 +117,7 @@ export function fixturePlanInput() {
 }
 
 export function fixtureTableSnapshot({
-  observedAt = "2026-08-12T10:00:10.000Z",
+  observedAt = "2026-08-12T10:01:20.000Z",
   snapshotTokenSha256 = fixtureDigest("b"),
 } = {}) {
   const tableMeasurements = Object.fromEntries(
@@ -177,38 +178,41 @@ function step(sequence, kind, occurredAt, artifact) {
 
 export function fixtureExecutorTrace(plan) {
   const sourceBefore = {
-    observedAt: "2026-08-12T09:58:30.000Z",
+    observedAt: "2026-08-12T10:00:10.000Z",
     database: fixtureProductionDatabase(),
     inventory: fixtureExact0096Inventory(),
     runtimeBinding: fixtureProductionRuntimeBinding(),
     schemaFingerprintSha256: fixtureDigest("a"),
   };
-  const stoppedWritersProofBefore = structuredClone(
-    plan.value.stoppedWritersProof,
-  );
+  const stoppedWritersProofBefore = fixtureStoppedWritersProof({
+    proofId: "f".repeat(64),
+    quiescentSince: "2026-08-12T10:00:15.000Z",
+    observedAt: "2026-08-12T10:01:15.000Z",
+  });
   const sourceSnapshot = fixtureTableSnapshot();
   const dump = {
     dumpId: "prod-dump-20260812-0001",
     backupFormat: "pg_dump-custom",
     pgDumpMajor: 16,
     exitCode: 0,
-    completedAt: "2026-08-12T10:01:00.000Z",
+    completedAt: "2026-08-12T10:02:00.000Z",
     snapshotTokenSha256: sourceSnapshot.snapshotTokenSha256,
     sourceDataSnapshotSha256: sourceSnapshot.dataSnapshotSha256,
     plaintextBytes: 900_000,
     plaintextSha256: fixtureDigest("d"),
   };
   const object = {
-    bucket: "site-logbook-production-backups",
+    bucket: PRODUCTION_EXACT_0096_STORAGE_BINDING.bucket,
     key: "private/production/exact-0096/prod-backup-20260812-0001.dump.enc",
     versionId: "s3-version-00000001",
-    headObservedAt: "2026-08-12T10:01:20.000Z",
+    headObservedAt: "2026-08-12T10:02:20.000Z",
     headContentLength: 1024 * 1024,
     headEtag: `"${"f".repeat(32)}"`,
     headObjectSha256Metadata: fixtureDigest("f"),
     storageProvider: {
       kind: "hetzner-object-storage",
-      endpointOriginSha256: fixtureDigest("e"),
+      endpointOriginSha256:
+        PRODUCTION_EXACT_0096_STORAGE_BINDING.endpointOriginSha256,
       region: "fsn1",
       encryptionBoundary: "client-envelope-only",
       transport: "https",
@@ -225,7 +229,7 @@ export function fixtureExecutorTrace(plan) {
     encryptedPayloadSha256: object.headObjectSha256Metadata,
     sourceDumpSha256: dump.plaintextSha256,
     sourceDataSnapshotSha256: sourceSnapshot.dataSnapshotSha256,
-    createdAt: "2026-08-12T10:01:10.000Z",
+    createdAt: "2026-08-12T10:02:10.000Z",
     object,
   };
   const payloadWrite = {
@@ -245,14 +249,14 @@ export function fixtureExecutorTrace(plan) {
     payload,
   };
   const restoreSnapshot = fixtureTableSnapshot({
-    observedAt: "2026-08-12T10:03:50.000Z",
+    observedAt: "2026-08-12T10:04:50.000Z",
     snapshotTokenSha256: fixtureDigest("c"),
   });
   const restore = {
     restoreId: "prod-restore-drill-20260812-0001",
     environmentId: "site-logbook-production-backup-restore-drill",
-    startedAt: "2026-08-12T10:02:00.000Z",
-    completedAt: "2026-08-12T10:04:00.000Z",
+    startedAt: "2026-08-12T10:03:00.000Z",
+    completedAt: "2026-08-12T10:05:00.000Z",
     database: {
       name: "site_logbook_restore_20260812",
       user: "site_logbook_restore",
@@ -275,8 +279,8 @@ export function fixtureExecutorTrace(plan) {
   };
   const afterProof = fixtureStoppedWritersProof({
     proofId: "e".repeat(64),
-    quiescentSince: "2026-08-12T10:04:00.000Z",
-    observedAt: "2026-08-12T10:05:00.000Z",
+    quiescentSince: "2026-08-12T10:05:00.000Z",
+    observedAt: "2026-08-12T10:06:00.000Z",
   });
   const sourceAfter = {
     observedAt: afterProof.observedAt,
@@ -286,7 +290,7 @@ export function fixtureExecutorTrace(plan) {
     stoppedWritersProofSha256: artifactDigest(afterProof),
     schemaFingerprintSha256: fixtureDigest("a"),
     tableSnapshot: fixtureTableSnapshot({
-      observedAt: "2026-08-12T10:04:10.000Z",
+      observedAt: "2026-08-12T10:05:10.000Z",
       snapshotTokenSha256: fixtureDigest("9"),
     }),
     productionDatabaseWrites: false,

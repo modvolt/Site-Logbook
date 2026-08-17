@@ -3,7 +3,6 @@ import { spawn as spawnProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdir, open, readFile, rm } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
-import { createInterface } from "node:readline";
 import { promisify } from "node:util";
 import {
   PRODUCTION_EXACT_0096_MAX_ARTIFACT_BYTES,
@@ -231,6 +230,9 @@ async function persistExclusive(config, kind, canonical) {
       `${kind} readback differs from written canonical bytes.`,
     );
   }
+  // The file sync above makes bytes durable; syncing the parent makes the
+  // no-clobber directory entry durable on the Linux production host.
+  await syncProductionExact0096EvidenceDirectory(config.evidenceDirectory);
   const storageIdentitySha256 = `sha256:${createHash("sha256")
     .update(
       canonicalProductionExact0096BackupJson({
@@ -247,6 +249,18 @@ async function persistExclusive(config, kind, canonical) {
     persistedExclusive: true,
     storageIdentitySha256,
   });
+}
+
+export async function syncProductionExact0096EvidenceDirectory(
+  directory,
+  { openDirectory = open, platform = process.platform } = {},
+) {
+  const directoryHandle = await openDirectory(directory, "r");
+  try {
+    if (platform !== "win32") await directoryHandle.sync();
+  } finally {
+    await directoryHandle.close();
+  }
 }
 
 export function createProductionExact0096BackupHostDependencies(
@@ -329,38 +343,114 @@ export function createProductionExact0096BackupLongLivedHostSession(
     );
   }
   let terminalError = null;
+  let terminalErrorObserved = false;
   let closed = false;
+  let closing = false;
   let stderr = "";
+  let killTimer;
+  let stdoutLineBytes = 0;
+  const stdoutLine = Buffer.allocUnsafe(
+    PRODUCTION_EXACT_0096_MAX_ARTIFACT_BYTES,
+  );
+  let responseExpected = false;
   const responseLines = [];
   const waiters = [];
-  const lines = createInterface({ input: child.stdout, crlfDelay: Infinity });
   const rejectWaiters = (error) => {
     terminalError = terminalError ?? error;
-    while (waiters.length > 0) waiters.shift().reject(terminalError);
+    while (waiters.length > 0) {
+      terminalErrorObserved = true;
+      waiters.shift().reject(terminalError);
+    }
   };
   const poison = (error) => {
+    const firstFailure = terminalError === null;
     rejectWaiters(error);
-    if (!closed) {
+    if (!closed && firstFailure) {
       child.kill("SIGTERM");
-      const killTimer = setTimeout(() => {
+      killTimer = setTimeout(() => {
         if (!closed) child.kill("SIGKILL");
       }, 2_000);
       killTimer.unref();
     }
   };
-  lines.on("line", (line) => {
+  const deliverResponse = (line) => {
+    if (terminalError) return;
+    if (!responseExpected) {
+      poison(
+        new ProductionExact0096HostAdapterError(
+          "PRODUCTION_BACKUP_HOST_OUTPUT_INVALID",
+          "Long-lived producer emitted a surplus response line.",
+        ),
+      );
+      return;
+    }
+    responseExpected = false;
     const waiter = waiters.shift();
-    if (waiter) waiter.resolve(`${line}\n`);
-    else responseLines.push(`${line}\n`);
+    if (waiter) {
+      waiter.resolve(line);
+      return;
+    }
+    if (responseLines.length === 0) {
+      responseLines.push(line);
+      return;
+    }
+    poison(
+      new ProductionExact0096HostAdapterError(
+        "PRODUCTION_BACKUP_HOST_OUTPUT_INVALID",
+        "Long-lived producer emitted surplus response lines.",
+      ),
+    );
+  };
+  child.stdout.on("data", (chunk) => {
+    if (terminalError) return;
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    let offset = 0;
+    while (offset < bytes.length) {
+      const newline = bytes.indexOf(0x0a, offset);
+      const end = newline === -1 ? bytes.length : newline;
+      const segmentBytes = end - offset;
+      const nextLineBytes = stdoutLineBytes + segmentBytes;
+      const completeBytes = nextLineBytes + (newline === -1 ? 0 : 1);
+      if (
+        completeBytes > PRODUCTION_EXACT_0096_MAX_ARTIFACT_BYTES ||
+        (newline === -1 &&
+          nextLineBytes >= PRODUCTION_EXACT_0096_MAX_ARTIFACT_BYTES)
+      ) {
+        poison(
+          new ProductionExact0096HostAdapterError(
+            "PRODUCTION_BACKUP_HOST_OUTPUT_INVALID",
+            "Long-lived producer response exceeded the reviewed byte boundary.",
+          ),
+        );
+        return;
+      }
+      if (segmentBytes > 0) {
+        bytes.copy(stdoutLine, stdoutLineBytes, offset, end);
+        stdoutLineBytes = nextLineBytes;
+      }
+      if (newline === -1) return;
+      stdoutLine[stdoutLineBytes] = 0x0a;
+      const line = stdoutLine.subarray(0, stdoutLineBytes + 1).toString("utf8");
+      stdoutLineBytes = 0;
+      deliverResponse(line);
+      if (terminalError) return;
+      offset = newline + 1;
+    }
   });
   child.stderr.on("data", (chunk) => {
     const remaining = 64 * 1024 - Buffer.byteLength(stderr);
     if (remaining > 0) {
       stderr += Buffer.from(chunk).subarray(0, remaining).toString("utf8");
     }
+    poison(
+      new ProductionExact0096HostAdapterError(
+        "PRODUCTION_BACKUP_HOST_SESSION_FAILED",
+        "Long-lived producer emitted stderr.",
+      ),
+    );
   });
   child.once("error", () =>
-    rejectWaiters(
+    poison(
       new ProductionExact0096HostAdapterError(
         "PRODUCTION_BACKUP_HOST_SESSION_FAILED",
         "Long-lived producer failed to start.",
@@ -370,32 +460,42 @@ export function createProductionExact0096BackupLongLivedHostSession(
   const exited = new Promise((resolve) => {
     child.once("close", (code) => {
       closed = true;
-      if (Number(code ?? -1) !== 0 || stderr !== "") {
+      if (killTimer) clearTimeout(killTimer);
+      const exitCode = Number(code ?? -1);
+      if (
+        exitCode !== 0 ||
+        stderr !== "" ||
+        waiters.length > 0 ||
+        responseLines.length > 0 ||
+        stdoutLineBytes > 0 ||
+        responseExpected ||
+        (!closing && terminalError === null)
+      ) {
         rejectWaiters(
           new ProductionExact0096HostAdapterError(
             "PRODUCTION_BACKUP_HOST_SESSION_FAILED",
-            "Long-lived producer closed non-zero or emitted stderr.",
+            "Long-lived producer closed before a clean session shutdown.",
           ),
         );
       }
-      resolve(Number(code ?? -1));
+      resolve(exitCode);
     });
   });
-  signal.addEventListener(
-    "abort",
-    () => {
-      poison(
-        new ProductionExact0096HostAdapterError(
-          "PRODUCTION_BACKUP_HOST_SESSION_ABORTED",
-          "Long-lived producer was aborted.",
-        ),
-      );
-    },
-    { once: true },
-  );
+  const abortSession = () => {
+    poison(
+      new ProductionExact0096HostAdapterError(
+        "PRODUCTION_BACKUP_HOST_SESSION_ABORTED",
+        "Long-lived producer was aborted.",
+      ),
+    );
+  };
+  signal.addEventListener("abort", abortSession, { once: true });
 
   const nextResponse = () => {
-    if (terminalError) return Promise.reject(terminalError);
+    if (terminalError) {
+      terminalErrorObserved = true;
+      return Promise.reject(terminalError);
+    }
     const buffered = responseLines.shift();
     if (buffered) return Promise.resolve(buffered);
     if (closed) {
@@ -451,6 +551,7 @@ export function createProductionExact0096BackupLongLivedHostSession(
           operation: method,
           requestPath: request.containerPath,
         });
+        responseExpected = true;
         if (!child.stdin.write(command, "utf8")) {
           await new Promise((resolve) => child.stdin.once("drain", resolve));
         }
@@ -462,6 +563,7 @@ export function createProductionExact0096BackupLongLivedHostSession(
           throw error;
         }
       } finally {
+        responseExpected = false;
         await rm(request.hostPath, { force: true });
       }
     };
@@ -485,25 +587,35 @@ export function createProductionExact0096BackupLongLivedHostSession(
   return Object.freeze({
     handlers: producerHandlers,
     async close() {
+      const cleanupAfterTerminalFailure =
+        terminalError !== null && terminalErrorObserved;
+      closing = true;
       if (!closed) child.stdin.end();
       let timer;
-      const exitCode = await Promise.race([
-        exited,
-        new Promise((_, reject) => {
-          timer = setTimeout(() => {
-            const error = new ProductionExact0096HostAdapterError(
-              "PRODUCTION_BACKUP_HOST_SESSION_TIMEOUT",
-              "Long-lived producer close exceeded the reviewed timeout.",
-            );
-            poison(error);
-            reject(error);
-          }, config.timeoutMs);
-          timer.unref();
-        }),
-      ]).finally(() => {
+      let exitCode;
+      try {
+        [exitCode] = await Promise.race([
+          Promise.all([exited, sequence]),
+          new Promise((_, reject) => {
+            timer = setTimeout(() => {
+              const error = new ProductionExact0096HostAdapterError(
+                "PRODUCTION_BACKUP_HOST_SESSION_TIMEOUT",
+                "Long-lived producer close exceeded the reviewed timeout.",
+              );
+              poison(error);
+              reject(error);
+            }, config.timeoutMs);
+            timer.unref();
+          }),
+        ]);
+      } finally {
+        signal.removeEventListener("abort", abortSession);
         if (timer) clearTimeout(timer);
-      });
-      if (exitCode !== 0 || stderr !== "") {
+      }
+      if (
+        !cleanupAfterTerminalFailure &&
+        (exitCode !== 0 || stderr !== "" || terminalError !== null)
+      ) {
         fail(
           "PRODUCTION_BACKUP_HOST_SESSION_FAILED",
           "Long-lived producer did not close cleanly.",
@@ -537,7 +649,7 @@ function exactHandlerSet(value, methods, code) {
  */
 export function createProductionExact0096BackupCompositeDependencies(
   rawConfig,
-  { activation, hostHandlers, producerHandlers },
+  { activation, hostHandlers, hostSignal, producerHandlers },
 ) {
   const config = exactConfig(rawConfig);
   if (activation !== PRODUCTION_EXACT_0096_COMPOSITE_ACTIVATION) {
@@ -546,8 +658,18 @@ export function createProductionExact0096BackupCompositeDependencies(
       "The composite stays dark without the exact reviewed activation binding.",
     );
   }
+  if (
+    typeof hostHandlers !== "function" ||
+    !(hostSignal instanceof AbortSignal) ||
+    hostSignal.aborted
+  ) {
+    fail(
+      "PRODUCTION_BACKUP_HOST_HANDLERS_INVALID",
+      "Host handlers must be a factory bound to the live internal AbortSignal.",
+    );
+  }
   const host = exactHandlerSet(
-    hostHandlers,
+    hostHandlers(hostSignal),
     HOST_METHODS,
     "PRODUCTION_BACKUP_HOST_HANDLERS_INVALID",
   );
@@ -591,12 +713,17 @@ export async function runProductionExact0096BackupWithLongLivedHostSession({
   const controller = new AbortController();
   const abort = () => controller.abort(signal.reason);
   signal.addEventListener("abort", abort, { once: true });
-  const deadline = setTimeout(
-    () => controller.abort(new Error("PRODUCTION_BACKUP_OVERALL_TIMEOUT")),
-    overallTimeoutMs,
-  );
+  let overallTimedOut = false;
+  const deadline = setTimeout(() => {
+    overallTimedOut = true;
+    controller.abort(new Error("PRODUCTION_BACKUP_OVERALL_TIMEOUT"));
+  }, overallTimeoutMs);
   deadline.unref();
   let session;
+  let result;
+  let primaryError;
+  let rejectForAbort;
+  let executionSettlement;
   try {
     session = createProductionExact0096BackupLongLivedHostSession(config, {
       invocationId,
@@ -607,28 +734,76 @@ export async function runProductionExact0096BackupWithLongLivedHostSession({
       planCanonical,
       dependencies: createProductionExact0096BackupCompositeDependencies(
         config,
-        { activation, hostHandlers, producerHandlers: session.handlers },
+        {
+          activation,
+          hostHandlers,
+          hostSignal: controller.signal,
+          producerHandlers: session.handlers,
+        },
       ),
     });
-    return await Promise.race([
-      execution,
-      new Promise((_, reject) => {
-        controller.signal.addEventListener(
-          "abort",
-          () =>
-            reject(
-              new ProductionExact0096HostAdapterError(
-                "PRODUCTION_BACKUP_OVERALL_TIMEOUT",
-                "The complete backup/restore executor exceeded its reviewed deadline.",
-              ),
-            ),
-          { once: true },
+    executionSettlement = execution.then(
+      () => undefined,
+      () => undefined,
+    );
+    const aborted = new Promise((_, reject) => {
+      rejectForAbort = () =>
+        reject(
+          new ProductionExact0096HostAdapterError(
+            overallTimedOut
+              ? "PRODUCTION_BACKUP_OVERALL_TIMEOUT"
+              : "PRODUCTION_BACKUP_HOST_SESSION_ABORTED",
+            overallTimedOut
+              ? "The complete backup/restore executor exceeded its reviewed deadline."
+              : "The complete backup/restore executor was aborted.",
+          ),
         );
-      }),
-    ]);
-  } finally {
-    clearTimeout(deadline);
-    signal.removeEventListener("abort", abort);
-    await session?.close();
+      controller.signal.addEventListener("abort", rejectForAbort, {
+        once: true,
+      });
+      if (controller.signal.aborted) rejectForAbort();
+    });
+    result = await Promise.race([execution, aborted]);
+  } catch (error) {
+    primaryError = error;
   }
+  clearTimeout(deadline);
+  signal.removeEventListener("abort", abort);
+  if (rejectForAbort) {
+    controller.signal.removeEventListener("abort", rejectForAbort);
+  }
+  if (controller.signal.aborted && executionSettlement) {
+    let settlementTimer;
+    try {
+      await Promise.race([
+        executionSettlement,
+        new Promise((_, reject) => {
+          settlementTimer = setTimeout(
+            () =>
+              reject(
+                new ProductionExact0096HostAdapterError(
+                  "PRODUCTION_BACKUP_HOST_SETTLEMENT_TIMEOUT",
+                  "Aborted host execution did not settle within the reviewed boundary.",
+                ),
+              ),
+            exactConfig(config).timeoutMs,
+          );
+          settlementTimer.unref();
+        }),
+      ]);
+    } catch (error) {
+      primaryError = error;
+    } finally {
+      if (settlementTimer) clearTimeout(settlementTimer);
+    }
+  }
+  let closeError;
+  try {
+    await session?.close();
+  } catch (error) {
+    closeError = error;
+  }
+  if (primaryError !== undefined) throw primaryError;
+  if (closeError !== undefined) throw closeError;
+  return result;
 }

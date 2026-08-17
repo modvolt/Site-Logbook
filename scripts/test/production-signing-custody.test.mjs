@@ -72,6 +72,10 @@ test(
   "creates four independent protected roles and only explicit bounded exports",
   { skip: process.platform !== "win32" },
   () => {
+    const dpapiSource = readFileSync(DPAPI, "utf8");
+    assert.match(dpapiSource, /Set-Clipboard -Value \(\[char\]32\)/);
+    assert.doesNotMatch(dpapiSource, /Set-Clipboard -Value ""/);
+
     const root = mkdtempSync(join(tmpdir(), "site-logbook-signing-custody-"));
     try {
       const vault = join(root, "vault");

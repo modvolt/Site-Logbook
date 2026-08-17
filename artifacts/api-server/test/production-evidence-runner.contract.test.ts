@@ -241,15 +241,17 @@ function createFixture(lifetimeMs = 10 * 60_000) {
 }
 
 describe("production host attestation runtime trust boundary", () => {
-  it("is fail-closed until a reviewed public trust root is source-pinned", async () => {
+  it("uses the reviewed source pin and rejects an attestation from any other key", async () => {
     const fixture = createFixture();
-    expect(PINNED_PRODUCTION_HOST_ATTESTATION_KEYS).toEqual({});
+    expect(Object.keys(PINNED_PRODUCTION_HOST_ATTESTATION_KEYS)).toEqual([
+      "ed25519:production-host-evidence-2026-08",
+    ]);
     await expect(
       requireObservedProductionHostRunner(fixture.binding, {
         env: fixture.env,
         now: NOW,
       }),
-    ).rejects.toThrow(/PRODUCTION_HOST_TRUST_ROOT_UNPROVISIONED/);
+    ).rejects.toThrow(/PRODUCTION_HOST_ATTESTATION_KEY_UNTRUSTED/);
   });
 
   it("accepts a fresh exact binding signed by an injected test trust root", async () => {

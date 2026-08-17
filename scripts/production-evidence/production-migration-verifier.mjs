@@ -20,6 +20,7 @@ import {
   validateProductionMigrationInventory,
 } from "./production-migration-contract.mjs";
 import {
+  parseProductionMigrationBackupBinding,
   validateProductionMigrationIntent,
   validateProductionMigrationIntentPersistenceReceipt,
   validateProductionMigrationPlan,
@@ -174,7 +175,26 @@ function parseBoundPlanIntent(
       planCanonical,
       intentCanonical,
     );
-  return { planArtifact, plan, intentArtifact, intent, persistenceArtifact };
+  const baselineLive = parseProductionMigrationLiveIdentity(
+    plan.baselineLiveIdentityCanonical,
+    "plan.baselineLiveIdentityCanonical",
+  );
+  const backup = parseProductionMigrationBackupBinding(plan, {
+    sourceSha: plan.sourceSha,
+    database: plan.database,
+    runtimeBindingSha256: baselineLive.value.runtimeBindingSha256,
+    applicationImageRef: baselineLive.value.applicationImageRef,
+    postgresImageRef: baselineLive.value.postgresImageRef,
+  });
+  return {
+    planArtifact,
+    plan,
+    intentArtifact,
+    intent,
+    persistenceArtifact,
+    baselineLive,
+    backup,
+  };
 }
 
 function validateTransactionEvidenceCanonical(canonical, index, binding) {
@@ -211,10 +231,7 @@ function validateTransactionEvidenceCanonical(canonical, index, binding) {
     transaction.liveIdentityCanonical,
     `transactionEvidence[${index}].liveIdentityCanonical`,
   );
-  const expectedLive = parseProductionMigrationLiveIdentity(
-    binding.plan.baselineLiveIdentityCanonical,
-    "plan.baselineLiveIdentityCanonical",
-  );
+  const expectedLive = binding.baselineLive;
   if (
     transaction.schemaVersion !==
       PRODUCTION_MIGRATION_TRANSACTION_EVIDENCE_SCHEMA ||
@@ -230,10 +247,10 @@ function validateTransactionEvidenceCanonical(canonical, index, binding) {
     before.stateIndex !== index ||
     after.stateIndex !== index + 1 ||
     transaction.liveIdentitySha256 !== live.artifact.sha256 ||
-    live.value.sourceSha !== binding.plan.sourceSha ||
+    live.value.sourceSha !== binding.backup.liveSource.sha ||
     canonicalProductionMigrationJson(live.database) !==
       canonicalProductionMigrationJson(binding.plan.database) ||
-    live.value.applicationImageRef !== expectedLive.value.applicationImageRef ||
+    live.value.applicationImageRef !== binding.backup.liveSource.imageRef ||
     live.value.postgresImageRef !== expectedLive.value.postgresImageRef ||
     live.value.runtimeBindingSha256 !==
       expectedLive.value.runtimeBindingSha256 ||
@@ -539,16 +556,13 @@ export function classifyProductionMigrationRecovery({
     liveIdentityCanonical,
     "recovery.liveIdentityCanonical",
   );
-  const expectedLive = parseProductionMigrationLiveIdentity(
-    verified.plan.baselineLiveIdentityCanonical,
-    "plan.baselineLiveIdentityCanonical",
-  );
+  const expectedLive = verified.baselineLive;
   if (
-    liveIdentity.value.sourceSha !== verified.plan.sourceSha ||
+    liveIdentity.value.sourceSha !== verified.backup.liveSource.sha ||
     canonicalProductionMigrationJson(liveIdentity.database) !==
       canonicalProductionMigrationJson(verified.plan.database) ||
     liveIdentity.value.applicationImageRef !==
-      expectedLive.value.applicationImageRef ||
+      verified.backup.liveSource.imageRef ||
     liveIdentity.value.postgresImageRef !==
       expectedLive.value.postgresImageRef ||
     liveIdentity.value.runtimeBindingSha256 !==
@@ -752,19 +766,16 @@ export function createProductionMigrationTransitionChain({
     finalLiveIdentityCanonical,
     "finalLiveIdentityCanonical",
   );
-  const expectedLive = parseProductionMigrationLiveIdentity(
-    verified.plan.baselineLiveIdentityCanonical,
-    "plan.baselineLiveIdentityCanonical",
-  );
+  const expectedLive = verified.baselineLive;
   if (
     finalLive.state.stateIndex !== 10 ||
     canonicalProductionMigrationJson(finalLive.value.inventory) !==
       canonicalProductionMigrationJson(finalInventory) ||
-    finalLive.value.sourceSha !== verified.plan.sourceSha ||
+    finalLive.value.sourceSha !== verified.backup.liveSource.sha ||
     canonicalProductionMigrationJson(finalLive.database) !==
       canonicalProductionMigrationJson(verified.plan.database) ||
     finalLive.value.applicationImageRef !==
-      expectedLive.value.applicationImageRef ||
+      verified.backup.liveSource.imageRef ||
     finalLive.value.postgresImageRef !== expectedLive.value.postgresImageRef ||
     finalLive.value.runtimeBindingSha256 !==
       expectedLive.value.runtimeBindingSha256

@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { PassThrough, Readable } from "node:stream";
-import { mkdtemp, rm } from "node:fs/promises";
+import { access, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -11,6 +11,10 @@ import {
   measureProductionExact0096Relations,
   streamDecryptProductionExact0096Mve1,
 } from "../src/lib/production-exact-0096-backup-producer";
+import {
+  PRODUCTION_EXACT_0096_REGISTRY_ACTIVATION,
+  createProductionExact0096SessionOperationRegistry,
+} from "../src/lib/production-exact-0096-operation-registry";
 import { decryptBackupArtifactPayload } from "../src/lib/secret-envelope";
 import type { EncryptionKeyring } from "../src/lib/secret-envelope";
 
@@ -41,6 +45,132 @@ function fakePgDump(payload: Buffer) {
 }
 
 describe("production exact-0096 producer", () => {
+  it("performs a fresh exact-version HEAD, preserves the PUT binding and closes all process-owned state", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "producer-registry-"));
+    const controller = new AbortController();
+    const digest = (value: string) => `sha256:${value.repeat(64)}`;
+    const snapshot = Object.freeze({
+      schemaVersion: "site-logbook.production-exact-0096-table-snapshot/v2",
+      observedAt: "2026-08-12T10:00:00.000Z",
+      transactionMode: "repeatable-read-read-only",
+      exportedSnapshotUsed: true,
+      exportedSnapshotIdPersisted: false,
+      snapshotTokenSha256: digest("1"),
+      catalogManifest: Object.freeze({ relationNames: ["public.jobs"] }),
+      tableMeasurements: Object.freeze({
+        "public.jobs": Object.freeze({
+          rowCount: 1,
+          contentSha256: digest("2"),
+        }),
+      }),
+      tableMeasurementsSha256: digest("3"),
+      dataSnapshotSha256: digest("4"),
+      unsupportedRelations: Object.freeze([]),
+    });
+    const dump = Object.freeze({
+      directory,
+      encryptedPath: join(directory, "dump.mve1"),
+      dumpId: "prod-dump-registry",
+      completedAt: "2026-08-12T10:01:00.000Z",
+      plaintextBytes: 4096,
+      plaintextSha256: digest("5"),
+      encryptedPayloadBytes: 4200,
+      encryptedPayloadSha256: digest("6"),
+      envelopeKeyId: "backup-key-version-2026-08",
+    });
+    const persisted = Object.freeze({
+      bucket: "modvoltdata",
+      key: "private/production/exact-0096/prod-dump-registry.dump.mve1",
+      versionId: "version-registry-1",
+      headObservedAt: "2026-08-12T10:02:00.000Z",
+      headContentLength: dump.encryptedPayloadBytes,
+      headEtag: `"${"7".repeat(64)}"`,
+      headObjectSha256Metadata: dump.encryptedPayloadSha256,
+      storageProvider: Object.freeze({
+        kind: "hetzner-object-storage" as const,
+        endpointOriginSha256: digest("8"),
+        region: "fsn1" as const,
+        encryptionBoundary: "client-envelope-only" as const,
+        transport: "https" as const,
+        versioning: "enabled" as const,
+      }),
+    });
+    const freshHead = Object.freeze({
+      ...persisted,
+      headObservedAt: "2026-08-12T10:02:01.000Z",
+    });
+    const session = {
+      snapshotTokenSha256: snapshot.snapshotTokenSha256,
+      measure: vi.fn(async () => snapshot),
+      createEncryptedDump: vi.fn(async () => dump),
+      close: vi.fn(async () => undefined),
+    };
+    const headObject = vi
+      .fn()
+      .mockResolvedValueOnce(freshHead)
+      .mockResolvedValueOnce(
+        Object.freeze({ ...freshHead, headEtag: `"${"9".repeat(64)}"` }),
+      )
+      .mockResolvedValueOnce(persisted);
+    const registry = createProductionExact0096SessionOperationRegistry(
+      {
+        activation: PRODUCTION_EXACT_0096_REGISTRY_ACTIVATION,
+        databaseUrl: "postgres://backup:unused@db/site_logbook",
+        manifest: Object.freeze({
+          relationNames: Object.freeze(["public.jobs"]),
+          relationNamesSha256: digest("a"),
+        }),
+        queryTimeoutMs: 60_000,
+        signal: controller.signal,
+      },
+      {
+        snapshotOpen: vi.fn(async () => session) as never,
+        persistDump: vi.fn(async () => persisted) as never,
+        headObject,
+      },
+    );
+    try {
+      const opened = await registry.handlers.openExportedReadOnlySnapshot({});
+      await registry.handlers.readFrozenRelationManifestMeasurements({
+        snapshotHandleId: opened.snapshotHandleId,
+      });
+      const created = await registry.handlers.createBoundedPgDumpCustom({
+        snapshotHandleId: opened.snapshotHandleId,
+        ceilingBytes: 64 * 1024,
+      });
+      const write = await registry.handlers.encryptAndPersistVersionedPayload({
+        dumpId: created.dumpId,
+        ceilingBytes: 64 * 1024,
+      });
+      const identity = {
+        bucket: write.payload.object.bucket,
+        key: write.payload.object.key,
+        versionId: write.payload.object.versionId,
+      };
+      const rebound =
+        await registry.handlers.headExactVersionedPayloadReadOnly(identity);
+      expect(rebound).toBe(persisted);
+      expect(headObject).toHaveBeenCalledTimes(1);
+      expect(headObject.mock.calls[0][0]).toEqual(identity);
+      expect(headObject.mock.calls[0][0]).not.toBe(persisted);
+      expect(headObject.mock.calls[0][1]).toBe(controller.signal);
+      await expect(
+        registry.handlers.headExactVersionedPayloadReadOnly(identity),
+      ).rejects.toThrow(/OBJECT_BINDING_INVALID/);
+      await expect(
+        registry.handlers.headExactVersionedPayloadReadOnly(identity),
+      ).rejects.toThrow(/OBJECT_BINDING_INVALID/);
+    } finally {
+      await registry.close();
+      await registry.close();
+    }
+    expect(session.close).toHaveBeenCalledTimes(1);
+    await expect(access(directory)).rejects.toThrow();
+    await expect(
+      registry.handlers.openExportedReadOnlySnapshot({}),
+    ).rejects.toThrow(/REGISTRY_CLOSED/);
+  });
+
   it("canonicalizes nested JSON without losing decimal text", () => {
     expect(
       canonicalizeProductionExact0096JsonText(

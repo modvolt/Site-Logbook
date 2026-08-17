@@ -8,6 +8,7 @@ import {
   createProductionMigrationLiveIdentity,
 } from "../production-evidence/production-migration-contract.mjs";
 import { createProductionExact0096BackupPlan } from "../production-evidence/production-exact-0096-backup-planner.mjs";
+import { canonicalProductionExact0096BackupJson } from "../production-evidence/production-exact-0096-backup-contract.mjs";
 import { runProductionExact0096BackupEvidenceExecutor } from "../production-evidence/production-exact-0096-backup-receipt.mjs";
 import {
   createProductionExact0096BackupSignatureEnvelope,
@@ -37,7 +38,9 @@ export function fixtureInventory(stateIndex = 0) {
   });
 }
 
-async function buildFixturePlanInput() {
+async function buildFixturePlanInput(
+  backupPlanInput = fixtureBackupPlanInput(),
+) {
   const database = {
     name: "site_logbook",
     sessionUser: "site_logbook_executor",
@@ -52,12 +55,17 @@ async function buildFixturePlanInput() {
     capturedAt: "2026-08-12T09:55:00.000Z",
     authorizesProductionMigration: false,
   });
-  const backupPlan = createProductionExact0096BackupPlan(
-    fixtureBackupPlanInput(),
+  const backupPlan = createProductionExact0096BackupPlan(backupPlanInput);
+  const dependencies = fixtureExecutorDependencies(backupPlan);
+  const executorIdentity = JSON.parse(
+    await dependencies.observeExecutorIdentity(),
   );
+  executorIdentity.buildSha = backupPlan.value.executor.buildSha;
+  dependencies.observeExecutorIdentity = async () =>
+    canonicalProductionExact0096BackupJson(executorIdentity);
   const backupExecution = await runProductionExact0096BackupEvidenceExecutor({
     planCanonical: backupPlan.canonical,
-    dependencies: fixtureExecutorDependencies(backupPlan),
+    dependencies,
   });
   const backupSignatureEnvelope =
     createProductionExact0096BackupSignatureEnvelope({
@@ -77,7 +85,7 @@ async function buildFixturePlanInput() {
   const live = createProductionMigrationLiveIdentity({
     sourceSha: fixtureSourceSha,
     database,
-    applicationImageRef: backupPlan.value.runtimeBinding.applicationImageRef,
+    applicationImageRef: backupPlan.value.liveSource.imageRef,
     postgresImageRef: backupPlan.value.runtimeBinding.postgresImageRef,
     runtimeBindingSha256: backupPlan.value.runtimeBindingSha256,
     inventory: fixtureInventory(0),
@@ -147,6 +155,10 @@ const INTEGRATED_PLAN_INPUT = await buildFixturePlanInput();
 
 export function fixturePlanInput() {
   return structuredClone(INTEGRATED_PLAN_INPUT);
+}
+
+export function fixturePlanInputForBackup(backupPlanInput) {
+  return buildFixturePlanInput(structuredClone(backupPlanInput));
 }
 
 export function fixtureIntentInput(planCanonical) {

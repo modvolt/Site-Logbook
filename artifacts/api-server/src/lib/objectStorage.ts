@@ -17,7 +17,12 @@ import { createHash, randomUUID } from "crypto";
 import { Readable } from "stream";
 import { pipeline } from "stream/promises";
 import type { Response as ExpressResponse } from "express";
-import { parseProductionHetznerObjectStorageEndpoint } from "./production-object-storage-config";
+import {
+  PRODUCTION_EXACT_0096_HETZNER_BUCKET,
+  PRODUCTION_EXACT_0096_HETZNER_ENDPOINT,
+  PRODUCTION_EXACT_0096_HETZNER_REGION,
+  parseProductionHetznerObjectStorageEndpoint,
+} from "./production-object-storage-config";
 import { resolveS3TestRequestTimeout } from "./s3-test-request-timeout";
 
 function abortReason(signal: AbortSignal): Error {
@@ -123,6 +128,14 @@ function productionExactHetznerBinding(
   endpointInput: string | undefined,
   regionInput: string | undefined,
 ): ProductionExactHetznerBinding {
+  if (
+    endpointInput !== PRODUCTION_EXACT_0096_HETZNER_ENDPOINT ||
+    regionInput !== PRODUCTION_EXACT_0096_HETZNER_REGION
+  ) {
+    throw new Error(
+      "PRODUCTION_HETZNER_OBJECT_STORAGE_INVALID: exact-0096 is source-pinned to the canonical fsn1 endpoint.",
+    );
+  }
   return parseProductionHetznerObjectStorageEndpoint(
     endpointInput,
     regionInput,
@@ -979,7 +992,7 @@ export class ObjectStorageService {
     );
     const client = dependencies.client ?? getClient();
     const bucket = dependencies.bucket ?? getBucket();
-    if (!/^(?!xn--)(?!.*\.\.)[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(bucket)) {
+    if (bucket !== PRODUCTION_EXACT_0096_HETZNER_BUCKET) {
       throw new Error("Production exact backup bucket is invalid.");
     }
 
@@ -1109,6 +1122,11 @@ export class ObjectStorageService {
         "Production exact backup restore requires a live signal.",
       );
     }
+    if (expected.bucket !== PRODUCTION_EXACT_0096_HETZNER_BUCKET) {
+      throw new Error(
+        "Production exact backup restore bucket differs from modvoltdata.",
+      );
+    }
     const storageProvider = productionExactHetznerBinding(
       dependencies.endpoint ?? process.env.S3_ENDPOINT,
       dependencies.region ?? process.env.S3_REGION,
@@ -1179,6 +1197,11 @@ export class ObjectStorageService {
   ): Promise<ProductionExactVersionedObjectHead> {
     if (signal.aborted) {
       throw new Error("Production exact backup HEAD requires a live signal.");
+    }
+    if (expected.bucket !== PRODUCTION_EXACT_0096_HETZNER_BUCKET) {
+      throw new Error(
+        "Production exact backup HEAD bucket differs from modvoltdata.",
+      );
     }
     const storageProvider = productionExactHetznerBinding(
       dependencies.endpoint ?? process.env.S3_ENDPOINT,

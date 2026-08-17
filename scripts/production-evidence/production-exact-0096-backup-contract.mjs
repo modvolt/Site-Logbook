@@ -28,6 +28,15 @@ export const PRODUCTION_EXACT_0096_MAX_ENCRYPTED_PAYLOAD_BYTES =
   256 * 1024 * 1024;
 export const PRODUCTION_EXACT_0096_MAX_ARTIFACT_BYTES = 512 * 1024;
 export const PRODUCTION_EXACT_0096_WRITERS_PROOF_MAX_AGE_MS = 5 * 60 * 1000;
+export const PRODUCTION_EXACT_0096_STORAGE_BINDING = Object.freeze({
+  bucket: "modvoltdata",
+  endpoint: "https://fsn1.your-objectstorage.com",
+  endpointOriginSha256:
+    "sha256:01f46b908e238eed3d4bff18c4d1dbc3820120a5c030dee2ed12d21bdaf63dc1",
+  region: "fsn1",
+  forcePathStyle: false,
+  objectPrefix: "private/production/exact-0096/",
+});
 
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
 const GIT_SHA = /^[0-9a-f]{40}$/;

@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   PRODUCTION_EXACT_0096_MAX_ENCRYPTED_PAYLOAD_BYTES,
   PRODUCTION_EXACT_0096_RELATION_MANIFEST,
+  PRODUCTION_EXACT_0096_STORAGE_BINDING,
   canonicalProductionExact0096BackupJson,
   createProductionExact0096BackupArtifact,
   parseCanonicalProductionExact0096BackupArtifact,
@@ -84,6 +85,10 @@ test("freezes exact 97+2 journal, manifest and non-authorizing plan", () => {
     PRODUCTION_EXACT_0096_RELATION_MANIFEST.relationNamesSha256,
   );
   assert.equal(plan.value.authorizesProductionMigration, false);
+  assert.deepEqual(
+    plan.value.storageBinding,
+    PRODUCTION_EXACT_0096_STORAGE_BINDING,
+  );
   assert.notEqual(plan.value.liveSource.sha, plan.value.executor.buildSha);
   assert.notEqual(plan.value.liveSource.imageRef, plan.value.executor.imageRef);
   assert.equal(
@@ -334,6 +339,32 @@ test("writers proof is fresh and bound to exact source, runtime and database", (
   }
 });
 
+test("execution rejects plan-proof replay and source/proof chronology drift", () => {
+  for (const mutate of [
+    (trace, plan) => {
+      trace.stoppedWritersProofBefore = structuredClone(
+        plan.value.stoppedWritersProof,
+      );
+    },
+    (trace) => {
+      trace.stoppedWritersProofBefore.quiescentSince =
+        "2026-08-12T10:00:00.000Z";
+    },
+    (trace) => {
+      trace.sourceBefore.observedAt = "2026-08-12T09:59:59.000Z";
+    },
+  ]) {
+    const plan = createProductionExact0096BackupPlan(fixturePlanInput());
+    const trace = fixtureExecutorTrace(plan);
+    mutate(trace, plan);
+    assert.throws(
+      () =>
+        validateProductionExact0096BackupExecutorTrace(trace, plan.canonical),
+      /WRITERS_PROOF_INVALID/,
+    );
+  }
+});
+
 test("requires the exact frozen relation set and deterministic content digest per relation", () => {
   const valid = fixtureTableSnapshot();
   assert.equal(
@@ -437,6 +468,9 @@ test("binds exact bucket, key, version, HEAD size/digest and Hetzner identity", 
       trace.payloadWrite.payload.object.bucket = "Site Logbook";
     },
     (trace) => {
+      trace.payloadWrite.payload.object.bucket = "other-valid-bucket";
+    },
+    (trace) => {
       trace.payloadWrite.payload.object.key = "other/backup.enc";
     },
     (trace) => {
@@ -459,6 +493,9 @@ test("binds exact bucket, key, version, HEAD size/digest and Hetzner identity", 
       trace.payloadWrite.payload.object.storageProvider.endpointOriginSha256 = `sha256:${"0".repeat(64)}`;
     },
     (trace) => {
+      trace.payloadWrite.payload.object.storageProvider.region = "nbg1";
+    },
+    (trace) => {
       trace.payloadWrite.payload.object.storageProvider.transport = "http";
     },
     (trace) => {
@@ -472,6 +509,31 @@ test("binds exact bucket, key, version, HEAD size/digest and Hetzner identity", 
     const { plan, trace } = traceMutation(mutate);
     assert.throws(() =>
       validateProductionExact0096BackupExecutorTrace(trace, plan.canonical),
+    );
+  }
+});
+
+test("plan parser rejects any substituted exact storage destination", () => {
+  const plan = createProductionExact0096BackupPlan(fixturePlanInput());
+  for (const mutate of [
+    (value) => {
+      value.storageBinding.bucket = "other-valid-bucket";
+    },
+    (value) => {
+      value.storageBinding.endpoint = "https://nbg1.your-objectstorage.com";
+    },
+    (value) => {
+      value.storageBinding.region = "nbg1";
+    },
+    (value) => {
+      value.storageBinding.objectPrefix = "private/other/";
+    },
+  ]) {
+    const value = structuredClone(plan.value);
+    mutate(value);
+    assert.throws(
+      () => validateProductionExact0096BackupPlan(value),
+      /STORAGE_BINDING_INVALID/,
     );
   }
 });

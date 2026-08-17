@@ -49,16 +49,32 @@ const ED25519_PKCS8_SEED_PREFIX = Buffer.from(
   "302e020100300506032b657004220420",
   "hex",
 );
+const WINDOWS_ROOT =
+  process.env.SystemRoot ?? process.env.SYSTEMROOT ?? process.env.WINDIR;
 const POWERSHELL =
-  process.env.SystemRoot == null
-    ? "powershell.exe"
-    : join(
-        process.env.SystemRoot,
+  process.platform === "win32" && WINDOWS_ROOT != null
+    ? join(
+        WINDOWS_ROOT,
         "System32",
         "WindowsPowerShell",
         "v1.0",
         "powershell.exe",
-      );
+      )
+    : "powershell.exe";
+const WINDOWS_POWERSHELL_ENV = Object.freeze(
+  process.platform === "win32" && WINDOWS_ROOT != null
+    ? {
+        ...process.env,
+        PSModulePath: join(
+          WINDOWS_ROOT,
+          "System32",
+          "WindowsPowerShell",
+          "v1.0",
+          "Modules",
+        ),
+      }
+    : { ...process.env },
+);
 
 function fail(message) {
   throw new Error(`PRODUCTION_SIGNING_CUSTODY_INVALID: ${message}`);
@@ -176,6 +192,7 @@ function runDpapi(operation, path, role, input) {
   const result = spawnSync(POWERSHELL, args, {
     input,
     encoding: "utf8",
+    env: WINDOWS_POWERSHELL_ENV,
     windowsHide: true,
     maxBuffer: 32 * 1024,
   });
@@ -204,7 +221,11 @@ function runClipboard(path, seconds, input) {
         "-ClipboardSeconds",
         String(seconds),
       ],
-      { stdio: ["pipe", "inherit", "inherit"], windowsHide: true },
+      {
+        env: WINDOWS_POWERSHELL_ENV,
+        stdio: ["pipe", "inherit", "inherit"],
+        windowsHide: true,
+      },
     );
     child.once("error", () =>
       rejectPromise(

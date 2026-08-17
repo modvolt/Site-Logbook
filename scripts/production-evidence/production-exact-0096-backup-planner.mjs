@@ -6,6 +6,7 @@ import {
   PRODUCTION_EXACT_0096_MAX_ENCRYPTED_PAYLOAD_BYTES,
   PRODUCTION_EXACT_0096_RELATION_MANIFEST,
   PRODUCTION_EXACT_0096_RESTORE_ENVIRONMENT_ID,
+  PRODUCTION_EXACT_0096_STORAGE_BINDING,
   PRODUCTION_EXACT_0096_WRITERS_PROOF_MAX_AGE_MS,
   canonicalProductionExact0096BackupJson,
   createProductionExact0096BackupArtifact,
@@ -47,6 +48,7 @@ const PLAN_FIELDS = [
   "schemaVersion",
   "snapshotContract",
   "sourceDatabase",
+  "storageBinding",
   "stoppedWritersProof",
   "stoppedWritersProofSha256",
 ];
@@ -78,6 +80,21 @@ function exactFrozenBaseline(value, field) {
     );
   }
   return value;
+}
+
+function exactStorageBinding(value, field) {
+  if (
+    canonicalProductionExact0096BackupJson(value) !==
+    canonicalProductionExact0096BackupJson(
+      PRODUCTION_EXACT_0096_STORAGE_BINDING,
+    )
+  ) {
+    productionExact0096BackupFail(
+      "PRODUCTION_BACKUP_STORAGE_BINDING_INVALID",
+      `${field} must be the source-pinned modvoltdata/fsn1/private exact backup destination.`,
+    );
+  }
+  return PRODUCTION_EXACT_0096_STORAGE_BINDING;
 }
 
 function validateRequiredEncryption(value, field) {
@@ -245,6 +262,10 @@ export function validateProductionExact0096BackupPlan(value) {
     );
   }
   exactFrozenBaseline(plan.baseline, "plan.baseline");
+  const storageBinding = exactStorageBinding(
+    plan.storageBinding,
+    "plan.storageBinding",
+  );
   exactBackupDigest(
     plan.schemaFingerprintSha256,
     "plan.schemaFingerprintSha256",
@@ -261,6 +282,7 @@ export function validateProductionExact0096BackupPlan(value) {
     liveSource,
     executor,
     sourceDatabase: database,
+    storageBinding,
   });
 }
 
@@ -314,6 +336,7 @@ export function createProductionExact0096BackupPlan({
       canonicalProductionExact0096BackupJson(writers),
     ),
     baseline: PRODUCTION_EXACT_0096_BASELINE,
+    storageBinding: PRODUCTION_EXACT_0096_STORAGE_BINDING,
     schemaFingerprintSha256: exactBackupDigest(
       schemaFingerprintSha256,
       "schemaFingerprintSha256",

@@ -3,6 +3,11 @@ import { isAbsolute } from "node:path";
 import { createInterface } from "node:readline";
 import type { Readable } from "node:stream";
 import { pathToFileURL } from "node:url";
+import {
+  PRODUCTION_EXACT_0096_REGISTRY_ACTIVATION,
+  createProductionExact0096SessionOperationRegistry,
+} from "./lib/production-exact-0096-operation-registry";
+import { PRODUCTION_EXACT_0096_RUNTIME_RELATION_MANIFEST } from "./lib/production-exact-0096-relation-manifest";
 
 const MAX_REQUEST_BYTES = 512 * 1024;
 const MAX_PAYLOAD_BYTES = 256 * 1024 * 1024;
@@ -45,6 +50,8 @@ export const PRODUCTION_EXACT_0096_SESSION_OPERATIONS = Object.freeze([
   "encryptAndPersistVersionedPayload",
   "headExactVersionedPayloadReadOnly",
 ] as const);
+export const PRODUCTION_EXACT_0096_PRODUCER_ACTIVATION_ENV =
+  "PRODUCTION_EXACT_0096_PRODUCER_ACTIVATION";
 
 export type ProductionExact0096ProducerOperation =
   (typeof PRODUCTION_EXACT_0096_PRODUCER_OPERATIONS)[number];
@@ -751,9 +758,53 @@ export async function runProductionExact0096BackupProducerCli(
   }
 }
 
+export async function runShippedProductionExact0096ProducerSession(
+  input: Readable,
+  environment: NodeJS.ProcessEnv = process.env,
+  io: { stdout(value: string): void; stderr(value: string): void } = {
+    stdout: (value) => process.stdout.write(value),
+    stderr: (value) => process.stderr.write(value),
+  },
+): Promise<number> {
+  if (
+    environment[PRODUCTION_EXACT_0096_PRODUCER_ACTIVATION_ENV] !==
+    PRODUCTION_EXACT_0096_REGISTRY_ACTIVATION
+  ) {
+    return runProductionExact0096BackupProducerSession(input, io);
+  }
+  const databaseUrl = environment.DATABASE_URL;
+  if (!databaseUrl) {
+    return runProductionExact0096BackupProducerSession(input, io);
+  }
+  const controller = new AbortController();
+  const abort = () =>
+    controller.abort(new Error("PRODUCTION_BACKUP_PRODUCER_ABORTED"));
+  process.once("SIGINT", abort);
+  process.once("SIGTERM", abort);
+  let registry:
+    | ReturnType<typeof createProductionExact0096SessionOperationRegistry>
+    | undefined;
+  try {
+    registry = createProductionExact0096SessionOperationRegistry({
+      activation: PRODUCTION_EXACT_0096_REGISTRY_ACTIVATION,
+      databaseUrl,
+      manifest: PRODUCTION_EXACT_0096_RUNTIME_RELATION_MANIFEST,
+      queryTimeoutMs: 5 * 60_000,
+      signal: controller.signal,
+    });
+    return await runProductionExact0096BackupProducerSession(input, io, {
+      operationHandlers: registry.handlers,
+      close: registry.close,
+    });
+  } finally {
+    process.removeListener("SIGINT", abort);
+    process.removeListener("SIGTERM", abort);
+  }
+}
+
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   process.exitCode =
     process.argv[2] === "--session"
-      ? await runProductionExact0096BackupProducerSession(process.stdin)
+      ? await runShippedProductionExact0096ProducerSession(process.stdin)
       : await runProductionExact0096BackupProducerCli(process.argv.slice(2));
 }

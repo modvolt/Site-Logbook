@@ -227,8 +227,10 @@ function validateVersionedObject(value, payload, plan) {
   );
   if (
     !BUCKET.test(bucket) ||
+    bucket !== plan.storageBinding.bucket ||
     /^(?:\d{1,3}\.){3}\d{1,3}$/.test(bucket) ||
     !OBJECT_KEY.test(key) ||
+    !key.startsWith(plan.storageBinding.objectPrefix) ||
     key.split("/").some((segment) => ["", ".", ".."].includes(segment)) ||
     object.headContentLength !== payload.encryptedPayloadBytes ||
     object.headObjectSha256Metadata !== payload.encryptedPayloadSha256
@@ -256,7 +258,9 @@ function validateVersionedObject(value, payload, plan) {
   );
   if (
     storageProvider.kind !== "hetzner-object-storage" ||
-    !["fsn1", "nbg1", "hel1"].includes(storageProvider.region) ||
+    storageProvider.region !== plan.storageBinding.region ||
+    storageProvider.endpointOriginSha256 !==
+      plan.storageBinding.endpointOriginSha256 ||
     storageProvider.encryptionBoundary !== "client-envelope-only" ||
     storageProvider.transport !== "https" ||
     storageProvider.versioning !== "enabled"
@@ -789,19 +793,27 @@ export function validateProductionExact0096BackupExecutorTrace(
     sourceSnapshot.observedAt,
     "trace.sourceSnapshot.observedAt",
   );
+  const beforeQuiescentSince = exactBackupTimestamp(
+    before.quiescentSince,
+    "trace.stoppedWritersProofBefore.quiescentSince",
+  );
   if (
-    !sameCanonical(before, plan.stoppedWritersProof) ||
-    sourceObservedAt > beforeObservedAt ||
+    before.proofId === plan.stoppedWritersProof.proofId ||
+    before.maintenanceWindowId !==
+      plan.stoppedWritersProof.maintenanceWindowId ||
+    before.sourceSha !== plan.liveSource.sha ||
+    before.runtimeBindingSha256 !== plan.runtimeBindingSha256 ||
+    before.databaseIdentitySha256 !== canonicalDigest(plan.sourceDatabase) ||
+    sourceObservedAt < planCreatedAt ||
+    beforeQuiescentSince < sourceObservedAt ||
+    beforeObservedAt < beforeQuiescentSince ||
     beforeObservedAt - sourceObservedAt >
       PRODUCTION_EXACT_0096_WRITERS_PROOF_MAX_AGE_MS ||
-    beforeObservedAt > planCreatedAt ||
-    planCreatedAt - beforeObservedAt >
-      PRODUCTION_EXACT_0096_WRITERS_PROOF_MAX_AGE_MS ||
-    snapshotObservedAt < planCreatedAt
+    snapshotObservedAt < beforeObservedAt
   ) {
     productionExact0096BackupFail(
       "PRODUCTION_BACKUP_WRITERS_PROOF_INVALID",
-      "Trace must begin from the plan-bound fresh writer-free boundary.",
+      "Trace must bind a fresh writer-free boundary measured after the live source observation.",
     );
   }
   const dump = validateDump(trace.dump, plan, sourceSnapshot);

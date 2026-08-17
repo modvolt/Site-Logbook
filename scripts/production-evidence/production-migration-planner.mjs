@@ -30,7 +30,10 @@ import {
   parseProductionExact0096BackupExecutorTrace,
   parseProductionExact0096BackupReceipt,
 } from "./production-exact-0096-backup-receipt.mjs";
-import { parseProductionExact0096BackupSignatureEnvelope } from "./production-exact-0096-backup-signature.mjs";
+import {
+  PRODUCTION_EXACT_0096_BACKUP_SIGNATURE_SCHEMA,
+  parseProductionExact0096BackupSignatureEnvelope,
+} from "./production-exact-0096-backup-signature.mjs";
 
 const INTENT_ID = /^[0-9a-f]{64}$/;
 
@@ -156,7 +159,7 @@ function parseRolePrecondition(canonical, expected) {
   return Object.freeze({ artifact, value, projection, rolePlan, capturedAt });
 }
 
-function parseBackupBinding(value, expected) {
+export function parseProductionMigrationBackupBinding(value, expected) {
   const backupPlan = parseProductionExact0096BackupPlan(
     value.backupPlanCanonical,
   );
@@ -194,6 +197,10 @@ function parseBackupBinding(value, expected) {
     );
   }
   const signatureCanonical = detachedSignature.toString("base64");
+  const liveSource = backupPlan.value.liveSource;
+  const executor = backupPlan.value.executor;
+  const producer = backupTrace.value.producer;
+  const signatureEnvelope = backupSignature.value;
   if (
     signatureCanonical !== value.backupDetachedSignatureB64 ||
     detachedSignature.length !== 64 ||
@@ -203,13 +210,25 @@ function parseBackupBinding(value, expected) {
     value.backupSignatureEnvelopeSha256 !== backupSignature.sha256 ||
     value.backupDetachedSignatureSha256 !==
       productionMigrationSha256(detachedSignature) ||
-    backupPlan.value.liveSource.sha !== expected.sourceSha ||
+    liveSource.sha !== expected.sourceSha ||
+    liveSource.imageRef !== expected.applicationImageRef ||
+    executor.buildSha === liveSource.sha ||
+    executor.imageRef === liveSource.imageRef ||
+    producer.buildSha !== executor.buildSha ||
+    producer.executorImageRef !== executor.imageRef ||
+    producer.buildSha === liveSource.sha ||
+    producer.executorImageRef === liveSource.imageRef ||
+    signatureEnvelope.schemaVersion !==
+      PRODUCTION_EXACT_0096_BACKUP_SIGNATURE_SCHEMA ||
+    signatureEnvelope.liveSourceSha !== liveSource.sha ||
+    signatureEnvelope.liveSourceImageRef !== liveSource.imageRef ||
+    signatureEnvelope.executorBuildSha !== executor.buildSha ||
+    signatureEnvelope.executorImageRef !== executor.imageRef ||
     backupPlan.value.sourceDatabase.name !== expected.database.name ||
     backupPlan.value.sourceDatabase.user !== expected.database.currentUser ||
     backupPlan.value.baseline.knownAppliedRowsSha256 !==
       PRODUCTION_MIGRATION_PREFIX_STATES[0].knownAppliedRowsSha256 ||
     backupPlan.value.runtimeBindingSha256 !== expected.runtimeBindingSha256 ||
-    backupPlan.value.liveSource.imageRef !== expected.applicationImageRef ||
     backupPlan.value.runtimeBinding.postgresImageRef !==
       expected.postgresImageRef ||
     backupReceipt.value.decision !== "PASS" ||
@@ -226,6 +245,10 @@ function parseBackupBinding(value, expected) {
     backupTrace,
     backupReceipt,
     backupSignature,
+    liveSource,
+    executor,
+    producer,
+    signatureEnvelope,
   });
 }
 
@@ -338,7 +361,7 @@ export function validateProductionMigrationPlan(value) {
       "Plan baseline live identity must equal the exact target observation.",
     );
   }
-  parseBackupBinding(plan, {
+  parseProductionMigrationBackupBinding(plan, {
     sourceSha: plan.sourceSha,
     database,
     runtimeBindingSha256: live.value.runtimeBindingSha256,

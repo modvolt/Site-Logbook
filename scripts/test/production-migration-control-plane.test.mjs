@@ -31,10 +31,12 @@ import {
   fixtureIntentInput,
   fixtureInventory,
   fixturePlanInput,
+  fixturePlanInputForBackup,
   fixtureIntentId,
   fixtureRunId,
   fixtureSourceSha,
 } from "./production-migration-control-plane-fixtures.mjs";
+import { fixturePlanInput as fixtureExactBackupPlanInput } from "./production-exact-0096-backup-contract-fixtures.mjs";
 
 const migrationsUrl = new URL("../../lib/db/migrations/", import.meta.url);
 
@@ -199,6 +201,107 @@ test("freezes exact 97-known plus two opaque to ordered 107-known transition", (
     PRODUCTION_MIGRATION_EXECUTOR_INTERFACE.constraints.includes(
       "no-generic-migrate-fallback",
     ),
+  );
+});
+
+test("binds backup v3 live source and executor as distinct exact identities", async () => {
+  const input = fixturePlanInput();
+  const plan = createProductionMigrationPlan(input);
+  const backupPlan = JSON.parse(plan.value.backupPlanCanonical);
+  const backupTrace = JSON.parse(plan.value.backupExecutorTraceCanonical);
+  const signatureEnvelope = JSON.parse(
+    plan.value.backupSignatureEnvelopeCanonical,
+  );
+
+  assert.equal(plan.value.sourceSha, backupPlan.liveSource.sha);
+  assert.equal(
+    JSON.parse(plan.value.baselineLiveIdentityCanonical).applicationImageRef,
+    backupPlan.liveSource.imageRef,
+  );
+  assert.notEqual(backupPlan.liveSource.sha, backupPlan.executor.buildSha);
+  assert.notEqual(backupPlan.liveSource.imageRef, backupPlan.executor.imageRef);
+  assert.equal(backupTrace.producer.buildSha, backupPlan.executor.buildSha);
+  assert.equal(
+    backupTrace.producer.executorImageRef,
+    backupPlan.executor.imageRef,
+  );
+  assert.equal(
+    signatureEnvelope.schemaVersion,
+    "site-logbook.production-exact-0096-backup-signature-envelope/v2",
+  );
+  assert.equal(signatureEnvelope.liveSourceSha, backupPlan.liveSource.sha);
+  assert.equal(
+    signatureEnvelope.liveSourceImageRef,
+    backupPlan.liveSource.imageRef,
+  );
+  assert.equal(
+    signatureEnvelope.executorBuildSha,
+    backupPlan.executor.buildSha,
+  );
+  assert.equal(
+    signatureEnvelope.executorImageRef,
+    backupPlan.executor.imageRef,
+  );
+
+  const aliasedBackupPlanInput = fixtureExactBackupPlanInput();
+  aliasedBackupPlanInput.executor = {
+    buildSha: aliasedBackupPlanInput.liveSource.sha,
+    imageRef: aliasedBackupPlanInput.liveSource.imageRef,
+  };
+  await assert.rejects(
+    () => fixturePlanInputForBackup(aliasedBackupPlanInput),
+    /PRODUCTION_BACKUP_RESTORE_NOT_DISPOSABLE|PRODUCTION_BACKUP_EXECUTOR_INVALID/,
+  );
+
+  const swappedPlanInput = fixturePlanInput();
+  const swappedBackupPlan = JSON.parse(swappedPlanInput.backupPlanCanonical);
+  const originalLiveSource = swappedBackupPlan.liveSource;
+  swappedBackupPlan.liveSource = {
+    sha: swappedBackupPlan.executor.buildSha,
+    imageRef: swappedBackupPlan.executor.imageRef,
+  };
+  swappedBackupPlan.executor = {
+    buildSha: originalLiveSource.sha,
+    imageRef: originalLiveSource.imageRef,
+  };
+  swappedPlanInput.backupPlanCanonical =
+    canonicalProductionMigrationJson(swappedBackupPlan);
+  assert.throws(
+    () => createProductionMigrationPlan(swappedPlanInput),
+    /PRODUCTION_BACKUP_RUNTIME_BINDING_INVALID|PRODUCTION_BACKUP_SOURCE_BINDING_INVALID/,
+  );
+
+  const swappedTraceInput = fixturePlanInput();
+  const swappedTracePlan = JSON.parse(swappedTraceInput.backupPlanCanonical);
+  const swappedTrace = JSON.parse(
+    swappedTraceInput.backupExecutorTraceCanonical,
+  );
+  swappedTrace.producer.buildSha = swappedTracePlan.liveSource.sha;
+  swappedTrace.producer.executorImageRef = swappedTracePlan.liveSource.imageRef;
+  swappedTraceInput.backupExecutorTraceCanonical =
+    canonicalProductionMigrationJson(swappedTrace);
+  assert.throws(
+    () => createProductionMigrationPlan(swappedTraceInput),
+    /PRODUCTION_BACKUP_EXECUTOR_INVALID/,
+  );
+
+  const swappedSignatureInput = fixturePlanInput();
+  const swappedSignature = JSON.parse(
+    swappedSignatureInput.backupSignatureEnvelopeCanonical,
+  );
+  [swappedSignature.liveSourceSha, swappedSignature.executorBuildSha] = [
+    swappedSignature.executorBuildSha,
+    swappedSignature.liveSourceSha,
+  ];
+  [swappedSignature.liveSourceImageRef, swappedSignature.executorImageRef] = [
+    swappedSignature.executorImageRef,
+    swappedSignature.liveSourceImageRef,
+  ];
+  swappedSignatureInput.backupSignatureEnvelopeCanonical =
+    canonicalProductionMigrationJson(swappedSignature);
+  assert.throws(
+    () => createProductionMigrationPlan(swappedSignatureInput),
+    /PRODUCTION_BACKUP_SIGNATURE_BINDING_INVALID/,
   );
 });
 
