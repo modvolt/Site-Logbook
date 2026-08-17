@@ -530,7 +530,6 @@ async function inspectSourceBoundary(
   if (
     container.Id !== plan.runtimeBinding.containerId ||
     container.State?.Status !== "running" ||
-    container.Config?.Image !== plan.runtimeBinding.postgresImageRef ||
     imageIdDigest(container.Image) !== plan.runtimeBinding.postgresImageId ||
     image.Id !== plan.runtimeBinding.postgresImageId ||
     !Array.isArray(image.RepoDigests) ||

@@ -134,7 +134,10 @@ async function createHarness(
     Id: sourceId,
     Image: plan.value.runtimeBinding.postgresImageId,
     Name: "/source-postgres",
-    Config: { Image: plan.value.runtimeBinding.postgresImageRef, User: "" },
+    // Coolify may have created the already-running source container from a
+    // mutable compose tag. The immutable boundary is the observed image ID
+    // plus the exact RepoDigest, not the historical Config.Image spelling.
+    Config: { Image: "postgres:16-alpine", User: "" },
     State: { Status: "running" },
     Mounts: [
       {
