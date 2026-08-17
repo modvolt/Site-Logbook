@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   measureProductionExact0096AuditSchemaFingerprint,
   productionExact0096PgRestoreEnvironment,
+  summarizeProductionExact0096WriterWindow,
 } from "../src/production-exact-0096-backup-host-worker";
 
 describe("production exact-0096 host worker process boundary", () => {
@@ -54,5 +55,45 @@ describe("production exact-0096 host worker process boundary", () => {
     ).toBe(true);
     expect(queries.join("\n")).toContain("pg_get_functiondef");
     expect(queries.join("\n")).toContain("pg_get_triggerdef");
+  });
+
+  it("does not classify read-only health-check transactions as database writes", () => {
+    expect(
+      summarizeProductionExact0096WriterWindow(
+        {
+          activeApplicationSessions: 0,
+          activeWriteTransactions: 0,
+          databaseWriteTuples: 148_260,
+          completedTransactions: 4_809_428,
+        },
+        {
+          activeApplicationSessions: 0,
+          activeWriteTransactions: 0,
+          databaseWriteTuples: 148_260,
+          completedTransactions: 4_809_436,
+        },
+      ),
+    ).toEqual({
+      activeApplicationSessions: 0,
+      activeWriteTransactions: 0,
+      databaseWritesObserved: 0,
+    });
+
+    expect(
+      summarizeProductionExact0096WriterWindow(
+        {
+          activeApplicationSessions: 0,
+          activeWriteTransactions: 0,
+          databaseWriteTuples: 148_260,
+          completedTransactions: 4_809_436,
+        },
+        {
+          activeApplicationSessions: 0,
+          activeWriteTransactions: 0,
+          databaseWriteTuples: 148_261,
+          completedTransactions: 4_809_437,
+        },
+      ).databaseWritesObserved,
+    ).toBe(1);
   });
 });

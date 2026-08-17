@@ -255,7 +255,16 @@ async function observeDatabase(
   }
 }
 
-async function writerSample(client: pg.Client): Promise<Readonly<JsonObject>> {
+type ProductionExact0096WriterSample = Readonly<{
+  activeApplicationSessions: number;
+  activeWriteTransactions: number;
+  databaseWriteTuples: number;
+  completedTransactions: number;
+}>;
+
+async function writerSample(
+  client: pg.Client,
+): Promise<ProductionExact0096WriterSample> {
   const result = await client.query<{
     active_application_sessions: string;
     active_write_transactions: string;
@@ -294,6 +303,41 @@ async function writerSample(client: pg.Client): Promise<Readonly<JsonObject>> {
   });
 }
 
+export function summarizeProductionExact0096WriterWindow(
+  first: ProductionExact0096WriterSample,
+  second: ProductionExact0096WriterSample,
+): Readonly<{
+  activeApplicationSessions: number;
+  activeWriteTransactions: number;
+  databaseWritesObserved: number;
+}> {
+  const tupleDelta = second.databaseWriteTuples - first.databaseWriteTuples;
+  const transactionDelta =
+    second.completedTransactions - first.completedTransactions;
+  if (
+    !Number.isSafeInteger(tupleDelta) ||
+    tupleDelta < 0 ||
+    !Number.isSafeInteger(transactionDelta) ||
+    transactionDelta < 0
+  ) {
+    fail("PRODUCTION_BACKUP_HOST_WORKER_DATABASE_INVALID");
+  }
+  return Object.freeze({
+    activeApplicationSessions: Math.max(
+      first.activeApplicationSessions,
+      second.activeApplicationSessions,
+    ),
+    activeWriteTransactions: Math.max(
+      first.activeWriteTransactions,
+      second.activeWriteTransactions,
+    ),
+    // PostgreSQL counts read-only health checks in xact_commit. Only tuple
+    // mutations are write evidence; completed transactions are retained above
+    // solely to fail closed if the statistics counters reset during the window.
+    databaseWritesObserved: tupleDelta,
+  });
+}
+
 async function observeWriterWindow(
   request: Readonly<JsonObject>,
   signal: AbortSignal,
@@ -325,24 +369,12 @@ async function observeWriterWindow(
     await delay(Number(exact.gracePeriodMs), undefined, { signal });
     await client.query("SELECT pg_stat_clear_snapshot()");
     const second = await writerSample(client);
-    const tupleDelta =
-      Number(second.databaseWriteTuples) - Number(first.databaseWriteTuples);
-    const transactionDelta =
-      Number(second.completedTransactions) -
-      Number(first.completedTransactions);
+    const summary = summarizeProductionExact0096WriterWindow(first, second);
     return Object.freeze({
       quiescentSince,
       observedAt: new Date().toISOString(),
       gracePeriodMs: exact.gracePeriodMs,
-      activeApplicationSessions: Math.max(
-        Number(first.activeApplicationSessions),
-        Number(second.activeApplicationSessions),
-      ),
-      activeWriteTransactions: Math.max(
-        Number(first.activeWriteTransactions),
-        Number(second.activeWriteTransactions),
-      ),
-      databaseWritesObserved: Math.max(tupleDelta, transactionDelta),
+      ...summary,
     });
   } finally {
     if (began) await client.query("ROLLBACK").catch(() => undefined);
