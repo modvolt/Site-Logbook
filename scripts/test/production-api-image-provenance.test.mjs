@@ -1392,7 +1392,7 @@ test("rejects symlinked and multiply-linked inputs before custody signing", asyn
         { ...fixture.request, publicationReceipt: symlinkPath },
         fixture.authority,
       ),
-      expectProducerCode("PRODUCTION_API_PROVENANCE_INPUT_INVALID"),
+      expectProducerCode("PRODUCTION_API_PROVENANCE_PATH_INVALID"),
     );
     assert.equal(fixture.signerCalls(), 0);
   });
@@ -1416,7 +1416,7 @@ test("rejects symlinked and multiply-linked inputs before custody signing", asyn
         { ...fixture.request, apiOciProvenance: symlinkPath },
         fixture.authority,
       ),
-      expectProducerCode("PRODUCTION_API_PROVENANCE_INPUT_INVALID"),
+      expectProducerCode("PRODUCTION_API_PROVENANCE_PATH_INVALID"),
     );
     assert.equal(fixture.signerCalls(), 0);
   });
