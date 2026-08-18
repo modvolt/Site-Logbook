@@ -30,6 +30,7 @@ import {
   deleteDraft,
   getUnbilledCustomerDetail,
 } from "../src/lib/invoice-service";
+import { createManualMovement } from "../src/lib/warehouse-service";
 
 /**
  * Task #124 — invoice price propagation pipeline (DB-backed).
@@ -237,6 +238,12 @@ describe("invoice price propagation", () => {
       .values({ name: `Jistič ${TAG}`, quantity: "0", code: "JST-1" })
       .returning();
     itemIds.push(item.id);
+    await createManualMovement(
+      db,
+      item.id,
+      { direction: "in", quantity: 10 },
+      actor,
+    );
 
     const dn = await makeDoc({
       docType: "delivery_note",
@@ -844,6 +851,12 @@ describe("invoice price propagation", () => {
       .values({ name: `Svorka ${TAG}`, ean: "9666666666666", unit: "ks" })
       .returning();
     itemIds.push(item.id);
+    await createManualMovement(
+      db,
+      item.id,
+      { direction: "in", quantity: 10 },
+      actor,
+    );
     const primary = await makeDoc({
       docType: "invoice",
       status: "needs_review",

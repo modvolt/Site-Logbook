@@ -36,8 +36,8 @@ import type {
   AnalyzeJobDocumentsResult,
   ApprovedCostLine,
   AssignWarehouseInput,
+  AssignWarehouseMaterialGroup409,
   AssignWarehouseMaterialGroupBody,
-  AssignWarehouseMaterialGroupResult,
   AssignWarehouseResult,
   Attachment,
   AttachmentInput,
@@ -276,6 +276,7 @@ import type {
   ReviewQueueSkipInput,
   ReviewQueueSkipResult,
   RiskSummary,
+  RunWarehouseMaterialBackfill409,
   SaveJobSheetInput,
   SendCredentialsEmailInput,
   SendInvoiceEmailInput,
@@ -323,7 +324,6 @@ import type {
   WarehouseJobMarginTrend,
   WarehouseJobsMarginSummary,
   WarehouseMaterialBackfillReport,
-  WarehouseMaterialBackfillResult,
   WarehouseMovement,
   WarehouseMovementInput,
   WarehouseMovementPatch,
@@ -10563,22 +10563,20 @@ export const getRunWarehouseMaterialBackfillUrl = () => {
 };
 
 /**
- * @summary Re-run the safe name-based backfill for unlinked materials (admin only)
+ * @deprecated
+ * @summary Disabled legacy bulk backfill; use an approved maintenance plan
  */
 export const runWarehouseMaterialBackfill = async (
   options?: RequestInit,
-): Promise<WarehouseMaterialBackfillResult> => {
-  return customFetch<WarehouseMaterialBackfillResult>(
-    getRunWarehouseMaterialBackfillUrl(),
-    {
-      ...options,
-      method: "POST",
-    },
-  );
+): Promise<unknown> => {
+  return customFetch<unknown>(getRunWarehouseMaterialBackfillUrl(), {
+    ...options,
+    method: "POST",
+  });
 };
 
 export const getRunWarehouseMaterialBackfillMutationOptions = <
-  TError = ErrorType<unknown>,
+  TError = ErrorType<RunWarehouseMaterialBackfill409>,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
@@ -10617,13 +10615,15 @@ export type RunWarehouseMaterialBackfillMutationResult = NonNullable<
   Awaited<ReturnType<typeof runWarehouseMaterialBackfill>>
 >;
 
-export type RunWarehouseMaterialBackfillMutationError = ErrorType<unknown>;
+export type RunWarehouseMaterialBackfillMutationError =
+  ErrorType<RunWarehouseMaterialBackfill409>;
 
 /**
- * @summary Re-run the safe name-based backfill for unlinked materials (admin only)
+ * @deprecated
+ * @summary Disabled legacy bulk backfill; use an approved maintenance plan
  */
 export const useRunWarehouseMaterialBackfill = <
-  TError = ErrorType<unknown>,
+  TError = ErrorType<RunWarehouseMaterialBackfill409>,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
@@ -10647,25 +10647,23 @@ export const getAssignWarehouseMaterialGroupUrl = () => {
 };
 
 /**
- * @summary Manually assign all unlinked materials in an ambiguous group to a chosen warehouse card (admin only)
+ * @deprecated
+ * @summary Disabled legacy bulk assignment; use reviewed individual ID changes or an approved maintenance plan
  */
 export const assignWarehouseMaterialGroup = async (
   assignWarehouseMaterialGroupBody: AssignWarehouseMaterialGroupBody,
   options?: RequestInit,
-): Promise<AssignWarehouseMaterialGroupResult> => {
-  return customFetch<AssignWarehouseMaterialGroupResult>(
-    getAssignWarehouseMaterialGroupUrl(),
-    {
-      ...options,
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...options?.headers },
-      body: JSON.stringify(assignWarehouseMaterialGroupBody),
-    },
-  );
+): Promise<unknown> => {
+  return customFetch<unknown>(getAssignWarehouseMaterialGroupUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(assignWarehouseMaterialGroupBody),
+  });
 };
 
 export const getAssignWarehouseMaterialGroupMutationOptions = <
-  TError = ErrorType<void>,
+  TError = ErrorType<AssignWarehouseMaterialGroup409>,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
@@ -10707,13 +10705,15 @@ export type AssignWarehouseMaterialGroupMutationResult = NonNullable<
 >;
 export type AssignWarehouseMaterialGroupMutationBody =
   BodyType<AssignWarehouseMaterialGroupBody>;
-export type AssignWarehouseMaterialGroupMutationError = ErrorType<void>;
+export type AssignWarehouseMaterialGroupMutationError =
+  ErrorType<AssignWarehouseMaterialGroup409>;
 
 /**
- * @summary Manually assign all unlinked materials in an ambiguous group to a chosen warehouse card (admin only)
+ * @deprecated
+ * @summary Disabled legacy bulk assignment; use reviewed individual ID changes or an approved maintenance plan
  */
 export const useAssignWarehouseMaterialGroup = <
-  TError = ErrorType<void>,
+  TError = ErrorType<AssignWarehouseMaterialGroup409>,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<

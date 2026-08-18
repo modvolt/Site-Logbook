@@ -37,7 +37,7 @@ Potvrzené blockery:
 
 - `artifacts/api-server/src/middlewares/audit.ts` zapisuje obecný audit až po dokončení odpovědi jako fire-and-forget; úspěšná změna proto může existovat bez auditního řádku.
 - `lib/db/src/schema/audit-log.ts` nemá event UUID, schema version, actor/source kind, correlation/idempotency, authoritative before/after, reason, artifact reference, completeness ani hash-chain metadata.
-- Obecná redakce používá otevřený case-sensitive denylist a jinak serializuje request body; nejde o strict allowlist ani autoritativní persisted delta.
+- Lokální R09-C odstranila serializaci request body z generic middleware; `audit_log.summary` je nyní pouze metadata-only metoda a bearer-redigovaná cesta. Stále však nejde o atomický ani autoritativní persisted delta a starý `audit_log` zůstává non-evidentiary telemetry.
 - `GET /customers/:id/device-credentials` dešifruje a vrací credentialy, zatímco view/copy audit je samostatný klientský POST; skutečné zveřejnění tajemství tedy nelze prokázat.
 - AI aplikace a Gmail import nemají vždy atomický immutable provenance event. `ai_raw_json` je mutable raw payload, nikoli minimalizovaný důkaz.
 - Neexistuje canonical JSONL/manifest/checksum verifier ani externí append-only export.
@@ -66,8 +66,9 @@ Potvrzené blockery:
 - lokální R13-B nyní `updateInvoiceStatus()` serializuje přes `FOR UPDATE`, takže souběh `paid`/`sent` neztratí platební údaje; obecný aggregate revision/ETag standard však chybí;
 - dvojí billing je omezen aplikačními zámky, ale DB dovolí dvě live vazby na stejný zdroj;
 - external-account mutace byly v lokálním R11-C řezu odděleny od offline epochy explicitním stabilním route contractem, pre-ledger vault step-up a encrypted-at-rest replay metadata; změna zatím není commitnutá, publikovaná ani nasazená a obecný online opt-in pro ostatní domény chybí;
-- lokální R11-B řadí item locky a odstraňuje doložený A→B/B→A cross-source deadlock; same-source/different-target a vyšší transakce s více reconcile calls vyžadují společný source+item lock planner před prvním reconcile;
-- sklad dnes úmyslně dovoluje zápornou zásobu; policy už je schválena, ale běžný nonnegative invariant a auditovaný controlled override zatím nejsou implementovány;
+- lokální R11-B řadí item locky a odstraňuje doložený A→B/B→A cross-source deadlock; R11-D po lock waitu znovu načte source ledger a nový nezamknutý target odmítne konfliktem; R11-F/G/H přidává sdílený batch item-lock plán a převádí cost-document stock lines, material sync i warehouse backfill. Vnější transakce s několika navazujícími batch fázemi stále vyžadují jeden společný outer plan před prvním reconcile;
+- lokální R11-E už běžné záporné warehouse delty po item locku kontroluje proti authoritative součtu append-only ledgeru a odmítá je konfliktem 409; auditovaný controlled override, globální multi-source planner a publikace/nasazení této změny zatím chybí;
+- R11-I uzavírá empty-ledger same-source závod explicitním try advisory source lockem a přesouvá `cancel-last` pod item lock + nonnegative invariant. Předchozí R11-H bulk backfill je po review nahrazen fail-closed 409 na API i read-only UI; bezpečný restartovatelný NFKC maintenance plane stále neexistuje. Outer cost-document flow s několika batch fázemi zůstává otevřený;
 - API container spouští migrátor při startu; advisory lock nemá bounded wait, `lock_timeout` ani `statement_timeout`;
 - chybí jednotný restartovatelný backfill s canonical plan hashem, checkpointem, resume a reconciliation na realistickém objemu.
 

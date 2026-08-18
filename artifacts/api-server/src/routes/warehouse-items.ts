@@ -1,9 +1,28 @@
 import { Router, type IRouter } from "express";
-import { and, count, eq, isNull, lte, sql, desc, ilike, inArray } from "drizzle-orm";
-import { db, warehouseItemsTable, auditLogTable, materialsTable, activityMaterialsTable } from "@workspace/db";
+import {
+  and,
+  count,
+  eq,
+  isNull,
+  lte,
+  sql,
+  desc,
+  ilike,
+  inArray,
+} from "drizzle-orm";
+import {
+  db,
+  warehouseItemsTable,
+  auditLogTable,
+  materialsTable,
+  activityMaterialsTable,
+} from "@workspace/db";
 import { warehouseMovementsTable } from "@workspace/db";
 import { warehousePriceHistoryTable } from "@workspace/db";
-import { billingDocumentsTable, billingDocumentLinesTable } from "@workspace/db";
+import {
+  billingDocumentsTable,
+  billingDocumentLinesTable,
+} from "@workspace/db";
 import {
   CreateWarehouseItemBody,
   UpdateWarehouseItemParams,
@@ -19,14 +38,12 @@ import {
   ListWarehouseItemsQueryParams,
   ListWarehouseItemPriceHistoryParams,
   CancelLastWarehouseMovementParams,
-  AssignWarehouseMaterialGroupBody,
 } from "@workspace/api-zod";
 import {
   listItemMovements,
   listMovements,
   createManualMovement,
-  reconcileMaterialStockMovement,
-  reconcileActivityMaterialStockMovement,
+  cancelLastManualMovement,
   type Actor,
   type AppError,
 } from "../lib/warehouse-service";
@@ -37,13 +54,18 @@ import { requireRole } from "../middlewares/auth";
 const router: IRouter = Router();
 
 const toStr = (v: number | null | undefined): string | null | undefined =>
-  v != null ? String(v) : v as null | undefined;
+  v != null ? String(v) : (v as null | undefined);
 
 function actorOf(req: { auth?: { userId: number; name: string } }): Actor {
   return { userId: req.auth?.userId ?? null, name: req.auth?.name ?? "Systém" };
 }
 
-const NUMERIC_FIELDS = ["quantity", "purchasePrice", "salePrice", "minQuantity"] as const;
+const NUMERIC_FIELDS = [
+  "quantity",
+  "purchasePrice",
+  "salePrice",
+  "minQuantity",
+] as const;
 
 function serializeWarehouseItem(
   w: typeof warehouseItemsTable.$inferSelect,
@@ -62,7 +84,9 @@ function serializeWarehouseItem(
   };
 }
 
-function numericToStrings(data: Record<string, unknown>): Record<string, unknown> {
+function numericToStrings(
+  data: Record<string, unknown>,
+): Record<string, unknown> {
   const out: Record<string, unknown> = { ...data };
   for (const f of NUMERIC_FIELDS) {
     if (f in out) out[f] = toStr(out[f] as number | null | undefined);
@@ -78,10 +102,22 @@ router.get("/warehouse-summary", async (_req, res): Promise<void> => {
   const [agg] = await db
     .select({
       itemCount: count(),
-      itemsBelowMin: sql<number>`sum(case when ${warehouseItemsTable.minQuantity} is not null and ${warehouseItemsTable.quantity} <= ${warehouseItemsTable.minQuantity} then 1 else 0 end)`.mapWith(Number),
-      itemsWithoutPrice: sql<number>`sum(case when ${warehouseItemsTable.purchasePrice} is null then 1 else 0 end)`.mapWith(Number),
-      itemsWithNoPriceAtAll: sql<number>`sum(case when ${warehouseItemsTable.purchasePrice} is null and not exists (select 1 from ${warehousePriceHistoryTable} where ${warehousePriceHistoryTable.warehouseItemId} = ${warehouseItemsTable.id}) then 1 else 0 end)`.mapWith(Number),
-      stockValue: sql<number>`coalesce(sum(${warehouseItemsTable.quantity} * ${warehouseItemsTable.purchasePrice}), 0)`.mapWith(Number),
+      itemsBelowMin:
+        sql<number>`sum(case when ${warehouseItemsTable.minQuantity} is not null and ${warehouseItemsTable.quantity} <= ${warehouseItemsTable.minQuantity} then 1 else 0 end)`.mapWith(
+          Number,
+        ),
+      itemsWithoutPrice:
+        sql<number>`sum(case when ${warehouseItemsTable.purchasePrice} is null then 1 else 0 end)`.mapWith(
+          Number,
+        ),
+      itemsWithNoPriceAtAll:
+        sql<number>`sum(case when ${warehouseItemsTable.purchasePrice} is null and not exists (select 1 from ${warehousePriceHistoryTable} where ${warehousePriceHistoryTable.warehouseItemId} = ${warehouseItemsTable.id}) then 1 else 0 end)`.mapWith(
+          Number,
+        ),
+      stockValue:
+        sql<number>`coalesce(sum(${warehouseItemsTable.quantity} * ${warehouseItemsTable.purchasePrice}), 0)`.mapWith(
+          Number,
+        ),
     })
     .from(warehouseItemsTable);
 
@@ -143,11 +179,21 @@ router.get("/warehouse-items", async (req, res): Promise<void> => {
     res.status(400).json({ error: query.error.message });
     return;
   }
-  const { category, supplierName, belowMin, noPrice, noPriceAtAll, missingCostPrice, changedAfter } = query.data;
+  const {
+    category,
+    supplierName,
+    belowMin,
+    noPrice,
+    noPriceAtAll,
+    missingCostPrice,
+    changedAfter,
+  } = query.data;
 
   const conds = [];
-  if (category) conds.push(ilike(warehouseItemsTable.category, `%${category}%`));
-  if (supplierName) conds.push(ilike(warehouseItemsTable.supplierName, `%${supplierName}%`));
+  if (category)
+    conds.push(ilike(warehouseItemsTable.category, `%${category}%`));
+  if (supplierName)
+    conds.push(ilike(warehouseItemsTable.supplierName, `%${supplierName}%`));
   if (belowMin === true) {
     conds.push(
       and(
@@ -188,7 +234,6 @@ router.get("/warehouse-items", async (req, res): Promise<void> => {
     );
   }
 
-
   const items = await db
     .select()
     .from(warehouseItemsTable)
@@ -208,7 +253,9 @@ router.get("/warehouse-items", async (req, res): Promise<void> => {
           .from(warehousePriceHistoryTable)
           .where(inArray(warehousePriceHistoryTable.warehouseItemId, itemIds))
           .groupBy(warehousePriceHistoryTable.warehouseItemId)
-      : Promise.resolve([] as Array<{ warehouseItemId: number; latestDate: string }>),
+      : Promise.resolve(
+          [] as Array<{ warehouseItemId: number; latestDate: string }>,
+        ),
     itemIds.length
       ? db
           .select({
@@ -224,12 +271,15 @@ router.get("/warehouse-items", async (req, res): Promise<void> => {
             ),
           )
           .groupBy(warehouseMovementsTable.warehouseItemId)
-      : Promise.resolve([] as Array<{ warehouseItemId: number; missingCount: number }>),
+      : Promise.resolve(
+          [] as Array<{ warehouseItemId: number; missingCount: number }>,
+        ),
   ]);
 
   const priceDateMap = new Map<number, string>();
   for (const r of priceRows) {
-    if (r.latestDate) priceDateMap.set(r.warehouseItemId, new Date(r.latestDate).toISOString());
+    if (r.latestDate)
+      priceDateMap.set(r.warehouseItemId, new Date(r.latestDate).toISOString());
   }
 
   const missingCostMap = new Map<number, number>();
@@ -239,7 +289,11 @@ router.get("/warehouse-items", async (req, res): Promise<void> => {
 
   res.json(
     items.map((item) => ({
-      ...serializeWarehouseItem(item, priceDateMap.get(item.id) ?? null, priceDateMap.has(item.id)),
+      ...serializeWarehouseItem(
+        item,
+        priceDateMap.get(item.id) ?? null,
+        priceDateMap.has(item.id),
+      ),
       missingCostPriceCount: missingCostMap.get(item.id) ?? null,
       hasCostGap: (missingCostMap.get(item.id) ?? 0) > 0,
     })),
@@ -294,7 +348,8 @@ router.post("/warehouse-items/import", async (req, res): Promise<void> => {
       const provided: Record<string, unknown> = { name };
       if (raw.category !== undefined) provided.category = raw.category;
       if (raw.unit !== undefined) provided.unit = raw.unit;
-      if (raw.purchasePrice !== undefined) provided.purchasePrice = raw.purchasePrice;
+      if (raw.purchasePrice !== undefined)
+        provided.purchasePrice = raw.purchasePrice;
       if (raw.salePrice !== undefined) provided.salePrice = raw.salePrice;
       if (raw.minQuantity !== undefined) provided.minQuantity = raw.minQuantity;
 
@@ -383,15 +438,23 @@ router.delete("/warehouse-items/:id", async (req, res): Promise<void> => {
 
   if (movCount > 0 || priceCount > 0) {
     const parts: string[] = [];
-    if (movCount > 0) parts.push(`${movCount} pohyb${movCount === 1 ? "" : movCount < 5 ? "y" : "ů"} na skladě`);
-    if (priceCount > 0) parts.push(`${priceCount} záznam${priceCount === 1 ? "" : priceCount < 5 ? "y" : "ů"} cenové historie`);
+    if (movCount > 0)
+      parts.push(
+        `${movCount} pohyb${movCount === 1 ? "" : movCount < 5 ? "y" : "ů"} na skladě`,
+      );
+    if (priceCount > 0)
+      parts.push(
+        `${priceCount} záznam${priceCount === 1 ? "" : priceCount < 5 ? "y" : "ů"} cenové historie`,
+      );
     res.status(409).json({
       error: `Položku „${item.name}" nelze smazat — má ${parts.join(" a ")}. Místo smazání ji ponechte ve skladu (bude mít nulový stav, ale historie zůstane dohledatelná).`,
     });
     return;
   }
 
-  await db.delete(warehouseItemsTable).where(eq(warehouseItemsTable.id, params.data.id));
+  await db
+    .delete(warehouseItemsTable)
+    .where(eq(warehouseItemsTable.id, params.data.id));
 
   res.sendStatus(204);
 });
@@ -400,272 +463,253 @@ router.delete("/warehouse-items/:id", async (req, res): Promise<void> => {
 // Price history
 // ---------------------------------------------------------------------------
 
-router.get("/warehouse-items/:id/price-history", async (req, res): Promise<void> => {
-  const params = ListWarehouseItemPriceHistoryParams.safeParse(req.params);
-  if (!params.success) {
-    res.status(400).json({ error: params.error.message });
-    return;
-  }
-  const [item] = await db
-    .select({ id: warehouseItemsTable.id })
-    .from(warehouseItemsTable)
-    .where(eq(warehouseItemsTable.id, params.data.id));
-  if (!item) {
-    res.status(404).json({ error: "Warehouse item not found" });
-    return;
-  }
+router.get(
+  "/warehouse-items/:id/price-history",
+  async (req, res): Promise<void> => {
+    const params = ListWarehouseItemPriceHistoryParams.safeParse(req.params);
+    if (!params.success) {
+      res.status(400).json({ error: params.error.message });
+      return;
+    }
+    const [item] = await db
+      .select({ id: warehouseItemsTable.id })
+      .from(warehouseItemsTable)
+      .where(eq(warehouseItemsTable.id, params.data.id));
+    if (!item) {
+      res.status(404).json({ error: "Warehouse item not found" });
+      return;
+    }
 
-  const rows = await db
-    .select()
-    .from(warehousePriceHistoryTable)
-    .where(eq(warehousePriceHistoryTable.warehouseItemId, params.data.id))
-    .orderBy(desc(warehousePriceHistoryTable.createdAt));
+    const rows = await db
+      .select()
+      .from(warehousePriceHistoryTable)
+      .where(eq(warehousePriceHistoryTable.warehouseItemId, params.data.id))
+      .orderBy(desc(warehousePriceHistoryTable.createdAt));
 
-  res.json(
-    rows.map((r) => ({
-      ...r,
-      purchasePrice: Number(r.purchasePrice),
-      documentDate: r.documentDate ? r.documentDate.toISOString() : null,
-      createdAt: r.createdAt.toISOString(),
-    })),
-  );
-});
+    res.json(
+      rows.map((r) => ({
+        ...r,
+        purchasePrice: Number(r.purchasePrice),
+        documentDate: r.documentDate ? r.documentDate.toISOString() : null,
+        createdAt: r.createdAt.toISOString(),
+      })),
+    );
+  },
+);
 
 // ---------------------------------------------------------------------------
 // Stock movements (ledger / kniha pohybů)
 // ---------------------------------------------------------------------------
 
-router.get("/warehouse-items/:id/movements", async (req, res): Promise<void> => {
-  const params = ListWarehouseItemMovementsParams.safeParse(req.params);
-  if (!params.success) {
-    res.status(400).json({ error: params.error.message });
-    return;
-  }
-  const [item] = await db
-    .select({ id: warehouseItemsTable.id })
-    .from(warehouseItemsTable)
-    .where(eq(warehouseItemsTable.id, params.data.id));
-  if (!item) {
-    res.status(404).json({ error: "Warehouse item not found" });
-    return;
-  }
-  res.json(await listItemMovements(db, params.data.id));
-});
+router.get(
+  "/warehouse-items/:id/movements",
+  async (req, res): Promise<void> => {
+    const params = ListWarehouseItemMovementsParams.safeParse(req.params);
+    if (!params.success) {
+      res.status(400).json({ error: params.error.message });
+      return;
+    }
+    const [item] = await db
+      .select({ id: warehouseItemsTable.id })
+      .from(warehouseItemsTable)
+      .where(eq(warehouseItemsTable.id, params.data.id));
+    if (!item) {
+      res.status(404).json({ error: "Warehouse item not found" });
+      return;
+    }
+    res.json(await listItemMovements(db, params.data.id));
+  },
+);
 
-router.post("/warehouse-items/:id/movements/cancel-last", async (req, res): Promise<void> => {
-  const params = CancelLastWarehouseMovementParams.safeParse(req.params);
-  if (!params.success) {
-    res.status(400).json({ error: params.error.message });
-    return;
-  }
+router.post(
+  "/warehouse-items/:id/movements/cancel-last",
+  async (req, res): Promise<void> => {
+    const params = CancelLastWarehouseMovementParams.safeParse(req.params);
+    if (!params.success) {
+      res.status(400).json({ error: params.error.message });
+      return;
+    }
 
-  const actor = actorOf(req);
+    const actor = actorOf(req);
 
-  try {
-    const result = await db.transaction(async (tx) => {
-      // Find the latest manual movement for this item that hasn't been reversed
-      const [last] = await tx
-        .select()
+    try {
+      const result = await db.transaction((tx) =>
+        cancelLastManualMovement(tx, params.data.id, actor),
+      );
+
+      const [serialized] = await listMovements(db, {
+        movementId: result.id,
+        warehouseItemId: params.data.id,
+        limit: 1,
+      });
+      res.status(201).json(serialized ?? result);
+    } catch (err) {
+      const e = err as AppError;
+      res.status(e.statusCode ?? 500).json({ error: e.message });
+    }
+  },
+);
+
+router.post(
+  "/warehouse-items/:id/movements",
+  async (req, res): Promise<void> => {
+    const params = CreateWarehouseMovementParams.safeParse(req.params);
+    if (!params.success) {
+      res.status(400).json({ error: params.error.message });
+      return;
+    }
+    const parsed = CreateWarehouseMovementBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.message });
+      return;
+    }
+
+    // Idempotency: if key provided, check for existing movement first
+    const idempotencyKey = (parsed.data as any).idempotencyKey ?? null;
+    if (idempotencyKey) {
+      const [existing] = await db
+        .select({ id: warehouseMovementsTable.id })
         .from(warehouseMovementsTable)
         .where(
           and(
             eq(warehouseMovementsTable.warehouseItemId, params.data.id),
-            eq(warehouseMovementsTable.sourceType, "manual"),
+            eq(warehouseMovementsTable.idempotencyKey, idempotencyKey),
           ),
         )
-        .orderBy(desc(warehouseMovementsTable.createdAt), desc(warehouseMovementsTable.id))
         .limit(1);
-
-      if (!last) {
-        throw Object.assign(new Error("Žádný ruční pohyb k stornování."), { statusCode: 404 });
+      if (existing) {
+        const [serialized] = await listMovements(db, {
+          warehouseItemId: params.data.id,
+          limit: 500,
+        });
+        const found = (
+          await listMovements(db, {
+            warehouseItemId: params.data.id,
+            limit: 1000,
+          })
+        ).find((m) => m.id === existing.id);
+        res.status(409).json(found ?? serialized);
+        return;
       }
+    }
 
-      // If the last movement is itself a storno, refuse to storno a storno
-      if (last.note && /^Storno pohybu #\d+/.test(last.note)) {
-        throw Object.assign(
-          new Error("Poslední pohyb je již storno — nelze stornovat znovu."),
-          { statusCode: 409 },
-        );
-      }
-
-      // Insert a reversal movement (opposite direction, same quantity)
-      const reverseDirection: "in" | "out" = last.direction === "in" ? "out" : "in";
-      const [reversal] = await tx
-        .insert(warehouseMovementsTable)
-        .values({
-          warehouseItemId: last.warehouseItemId,
-          direction: reverseDirection,
-          quantity: last.quantity,
-          unitPrice: last.unitPrice,
-          sourceType: "manual",
-          sourceId: null,
-          note: `Storno pohybu #${last.id}`,
-          createdByUserId: actor.userId,
-          createdByName: actor.name,
-        })
-        .returning();
-
-      // Recompute quantity
-      const qRes = (await tx.execute(sql`
-        select coalesce(sum(case when direction = 'in' then quantity else -quantity end), 0) as qty
-        from warehouse_movements
-        where warehouse_item_id = ${params.data.id}
-      `)) as unknown as { rows: Array<{ qty: string | number }> };
-      const qty = round2(num(qRes.rows[0]?.qty ?? 0));
-      await tx
-        .update(warehouseItemsTable)
-        .set({ quantity: String(qty) })
-        .where(eq(warehouseItemsTable.id, params.data.id));
-
-      return reversal;
-    });
-
-    const [serialized] = await listMovements(db, {
-      warehouseItemId: params.data.id,
-      limit: 1,
-    });
-    res.status(201).json(serialized ?? result);
-  } catch (err) {
-    const e = err as AppError;
-    res.status(e.statusCode ?? 500).json({ error: e.message });
-  }
-});
-
-router.post("/warehouse-items/:id/movements", async (req, res): Promise<void> => {
-  const params = CreateWarehouseMovementParams.safeParse(req.params);
-  if (!params.success) {
-    res.status(400).json({ error: params.error.message });
-    return;
-  }
-  const parsed = CreateWarehouseMovementBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
-    return;
-  }
-
-  // Idempotency: if key provided, check for existing movement first
-  const idempotencyKey = (parsed.data as any).idempotencyKey ?? null;
-  if (idempotencyKey) {
-    const [existing] = await db
-      .select({ id: warehouseMovementsTable.id })
-      .from(warehouseMovementsTable)
-      .where(
-        and(
-          eq(warehouseMovementsTable.warehouseItemId, params.data.id),
-          eq(warehouseMovementsTable.idempotencyKey, idempotencyKey),
-        ),
-      )
-      .limit(1);
-    if (existing) {
+    try {
+      await createManualMovement(
+        db,
+        params.data.id,
+        {
+          direction: parsed.data.direction,
+          quantity: parsed.data.quantity,
+          unitPrice: parsed.data.unitPrice ?? null,
+          note: parsed.data.note ?? null,
+          idempotencyKey,
+        },
+        actorOf(req),
+      );
+      // Re-read with joins so the response matches the WarehouseMovement shape.
       const [serialized] = await listMovements(db, {
         warehouseItemId: params.data.id,
-        limit: 500,
+        limit: 1,
       });
-      const found = (await listMovements(db, { warehouseItemId: params.data.id, limit: 1000 }))
-        .find((m) => m.id === existing.id);
-      res.status(409).json(found ?? serialized);
+      res.status(201).json(serialized);
+    } catch (err) {
+      // PG unique violation (23505) = duplicate idempotency key raced past pre-check
+      if ((err as any)?.code === "23505") {
+        res.status(409).json({
+          error:
+            "Pohyb s tímto klíčem byl již zaznamenán (duplicitní požadavek).",
+        });
+        return;
+      }
+      const e = err as AppError;
+      res.status(e.statusCode ?? 500).json({ error: e.message });
+    }
+  },
+);
+
+router.patch(
+  "/warehouse-movements/:id",
+  requireRole("admin", "master"),
+  async (req, res): Promise<void> => {
+    const params = UpdateWarehouseMovementParams.safeParse(req.params);
+    if (!params.success) {
+      res.status(400).json({ error: params.error.message });
       return;
     }
-  }
 
-  try {
-    await createManualMovement(
-      db,
-      params.data.id,
-      {
-        direction: parsed.data.direction,
-        quantity: parsed.data.quantity,
-        unitPrice: parsed.data.unitPrice ?? null,
-        note: parsed.data.note ?? null,
-        idempotencyKey,
-      },
-      actorOf(req),
-    );
-    // Re-read with joins so the response matches the WarehouseMovement shape.
-    const [serialized] = await listMovements(db, {
-      warehouseItemId: params.data.id,
-      limit: 1,
-    });
-    res.status(201).json(serialized);
-  } catch (err) {
-    // PG unique violation (23505) = duplicate idempotency key raced past pre-check
-    if ((err as any)?.code === "23505") {
-      res.status(409).json({ error: "Pohyb s tímto klíčem byl již zaznamenán (duplicitní požadavek)." });
+    const parsed = UpdateWarehouseMovementBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.message });
       return;
     }
-    const e = err as AppError;
-    res.status(e.statusCode ?? 500).json({ error: e.message });
-  }
-});
 
-router.patch("/warehouse-movements/:id", requireRole("admin", "master"), async (req, res): Promise<void> => {
-  const params = UpdateWarehouseMovementParams.safeParse(req.params);
-  if (!params.success) {
-    res.status(400).json({ error: params.error.message });
-    return;
-  }
-
-  const parsed = UpdateWarehouseMovementBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
-    return;
-  }
-
-  const [movement] = await db
-    .select()
-    .from(warehouseMovementsTable)
-    .where(eq(warehouseMovementsTable.id, params.data.id));
-
-  if (!movement) {
-    res.status(404).json({ error: "Movement not found" });
-    return;
-  }
-
-  if (movement.direction !== "out") {
-    res.status(400).json({ error: "Nákupní cenu lze opravit pouze na výdejovém pohybu (OUT)." });
-    return;
-  }
-
-  const oldPrice = movement.costPriceAtTime != null ? Number(movement.costPriceAtTime) : null;
-  const newPrice = parsed.data.costPriceAtTime;
-
-  const costStr = newPrice != null ? String(newPrice) : null;
-
-  await db.transaction(async (tx) => {
-    await tx
-      .update(warehouseMovementsTable)
-      .set({ costPriceAtTime: costStr })
+    const [movement] = await db
+      .select()
+      .from(warehouseMovementsTable)
       .where(eq(warehouseMovementsTable.id, params.data.id));
 
-    await tx.insert(auditLogTable).values({
-      actorUserId: req.auth?.userId ?? null,
-      actorName: req.auth?.name ?? "Systém",
-      action: "update_cost_price",
-      entityType: "warehouse_movement",
-      entityId: params.data.id,
-      summary: `Nákupní cena pohybu #${params.data.id} opravena: ${oldPrice ?? "—"} → ${newPrice ?? "—"} Kč`,
-      method: req.method,
-      path: req.path,
+    if (!movement) {
+      res.status(404).json({ error: "Movement not found" });
+      return;
+    }
+
+    if (movement.direction !== "out") {
+      res.status(400).json({
+        error: "Nákupní cenu lze opravit pouze na výdejovém pohybu (OUT).",
+      });
+      return;
+    }
+
+    const oldPrice =
+      movement.costPriceAtTime != null
+        ? Number(movement.costPriceAtTime)
+        : null;
+    const newPrice = parsed.data.costPriceAtTime;
+
+    const costStr = newPrice != null ? String(newPrice) : null;
+
+    await db.transaction(async (tx) => {
+      await tx
+        .update(warehouseMovementsTable)
+        .set({ costPriceAtTime: costStr })
+        .where(eq(warehouseMovementsTable.id, params.data.id));
+
+      await tx.insert(auditLogTable).values({
+        actorUserId: req.auth?.userId ?? null,
+        actorName: req.auth?.name ?? "Systém",
+        action: "update_cost_price",
+        entityType: "warehouse_movement",
+        entityId: params.data.id,
+        summary: `Nákupní cena pohybu #${params.data.id} opravena: ${oldPrice ?? "—"} → ${newPrice ?? "—"} Kč`,
+        method: req.method,
+        path: req.path,
+      });
     });
-  });
 
-  const all = await listMovements(db, { warehouseItemId: movement.warehouseItemId, limit: 1000 });
-  const updated = all.find((m) => m.id === params.data.id) ?? all[0];
+    const all = await listMovements(db, {
+      warehouseItemId: movement.warehouseItemId,
+      limit: 1000,
+    });
+    const updated = all.find((m) => m.id === params.data.id) ?? all[0];
 
-  res.json(updated);
-});
+    res.json(updated);
+  },
+);
 
-router.get("/warehouse-movements/job-margin-trend", async (req, res): Promise<void> => {
-  const jobId = parseInt(req.query.jobId as string, 10);
-  if (!Number.isInteger(jobId) || jobId <= 0) {
-    res.status(400).json({ error: "jobId (integer) je povinný parametr." });
-    return;
-  }
-  const granularity = req.query.granularity === "month" ? "month" : "week";
+router.get(
+  "/warehouse-movements/job-margin-trend",
+  async (req, res): Promise<void> => {
+    const jobId = parseInt(req.query.jobId as string, 10);
+    if (!Number.isInteger(jobId) || jobId <= 0) {
+      res.status(400).json({ error: "jobId (integer) je povinný parametr." });
+      return;
+    }
+    const granularity = req.query.granularity === "month" ? "month" : "week";
 
-  // Bucket OUT movements by ISO week or calendar month, ordered ascending
-  const rows = granularity === "month"
-    ? (await db.execute(sql`
+    // Bucket OUT movements by ISO week or calendar month, ordered ascending
+    const rows =
+      granularity === "month"
+        ? ((await db.execute(sql`
         select
           date_trunc('month', ${warehouseMovementsTable.createdAt})::date::text as period,
           coalesce(sum(case when ${warehouseMovementsTable.unitPrice} is not null then ${warehouseMovementsTable.unitPrice} * ${warehouseMovementsTable.quantity} else 0 end), 0)             as period_sale_value,
@@ -675,8 +719,14 @@ router.get("/warehouse-movements/job-margin-trend", async (req, res): Promise<vo
           and ${warehouseMovementsTable.direction} = 'out'
         group by date_trunc('month', ${warehouseMovementsTable.createdAt})
         order by period asc
-      `)) as unknown as { rows: Array<{ period: string; period_sale_value: string; period_cost_value: string }> }
-    : (await db.execute(sql`
+      `)) as unknown as {
+            rows: Array<{
+              period: string;
+              period_sale_value: string;
+              period_cost_value: string;
+            }>;
+          })
+        : ((await db.execute(sql`
         select
           date_trunc('week', ${warehouseMovementsTable.createdAt})::date::text as period,
           coalesce(sum(case when ${warehouseMovementsTable.unitPrice} is not null then ${warehouseMovementsTable.unitPrice} * ${warehouseMovementsTable.quantity} else 0 end), 0)             as period_sale_value,
@@ -686,33 +736,52 @@ router.get("/warehouse-movements/job-margin-trend", async (req, res): Promise<vo
           and ${warehouseMovementsTable.direction} = 'out'
         group by date_trunc('week', ${warehouseMovementsTable.createdAt})
         order by period asc
-      `)) as unknown as { rows: Array<{ period: string; period_sale_value: string; period_cost_value: string }> };
+      `)) as unknown as {
+            rows: Array<{
+              period: string;
+              period_sale_value: string;
+              period_cost_value: string;
+            }>;
+          });
 
-  // Compute cumulative values
-  let cumSale = 0;
-  let cumCost = 0;
-  const points = rows.rows.map((r) => {
-    cumSale = round2(cumSale + num(r.period_sale_value));
-    cumCost = round2(cumCost + num(r.period_cost_value));
-    const cumulativeMarginPct = cumSale > 0
-      ? round2(((cumSale - cumCost) / cumSale) * 100)
-      : null;
-    return { period: r.period, cumulativeSaleValue: cumSale, cumulativeCostValue: cumCost, cumulativeMarginPct };
-  });
+    // Compute cumulative values
+    let cumSale = 0;
+    let cumCost = 0;
+    const points = rows.rows.map((r) => {
+      cumSale = round2(cumSale + num(r.period_sale_value));
+      cumCost = round2(cumCost + num(r.period_cost_value));
+      const cumulativeMarginPct =
+        cumSale > 0 ? round2(((cumSale - cumCost) / cumSale) * 100) : null;
+      return {
+        period: r.period,
+        cumulativeSaleValue: cumSale,
+        cumulativeCostValue: cumCost,
+        cumulativeMarginPct,
+      };
+    });
 
-  const settings = await ensureBillingSettings();
-  res.json({ jobId, points, alertThresholdPercent: num(settings.marginAlertThresholdPercent) });
-});
+    const settings = await ensureBillingSettings();
+    res.json({
+      jobId,
+      points,
+      alertThresholdPercent: num(settings.marginAlertThresholdPercent),
+    });
+  },
+);
 
-router.get("/warehouse-movements/activity-margin-trend", async (req, res): Promise<void> => {
-  const activityId = parseInt(req.query.activityId as string, 10);
-  if (!Number.isInteger(activityId) || activityId <= 0) {
-    res.status(400).json({ error: "activityId (integer) je povinný parametr." });
-    return;
-  }
+router.get(
+  "/warehouse-movements/activity-margin-trend",
+  async (req, res): Promise<void> => {
+    const activityId = parseInt(req.query.activityId as string, 10);
+    if (!Number.isInteger(activityId) || activityId <= 0) {
+      res
+        .status(400)
+        .json({ error: "activityId (integer) je povinný parametr." });
+      return;
+    }
 
-  // Bucket OUT movements for this activity by ISO week (via activity_material source link)
-  const rows = (await db.execute(sql`
+    // Bucket OUT movements for this activity by ISO week (via activity_material source link)
+    const rows = (await db.execute(sql`
     select
       date_trunc('week', ${warehouseMovementsTable.createdAt})::date::text as period,
       coalesce(sum(case when ${warehouseMovementsTable.unitPrice} is not null then ${warehouseMovementsTable.unitPrice} * ${warehouseMovementsTable.quantity} else 0 end), 0)             as period_sale_value,
@@ -725,31 +794,44 @@ router.get("/warehouse-movements/activity-margin-trend", async (req, res): Promi
       and ${warehouseMovementsTable.direction} = 'out'
     group by date_trunc('week', ${warehouseMovementsTable.createdAt})
     order by period asc
-  `)) as unknown as { rows: Array<{ period: string; period_sale_value: string; period_cost_value: string }> };
+  `)) as unknown as {
+      rows: Array<{
+        period: string;
+        period_sale_value: string;
+        period_cost_value: string;
+      }>;
+    };
 
-  // Compute cumulative values
-  let cumSale = 0;
-  let cumCost = 0;
-  const points = rows.rows.map((r) => {
-    cumSale = round2(cumSale + num(r.period_sale_value));
-    cumCost = round2(cumCost + num(r.period_cost_value));
-    const cumulativeMarginPct = cumSale > 0
-      ? round2(((cumSale - cumCost) / cumSale) * 100)
-      : null;
-    return { period: r.period, cumulativeSaleValue: cumSale, cumulativeCostValue: cumCost, cumulativeMarginPct };
-  });
+    // Compute cumulative values
+    let cumSale = 0;
+    let cumCost = 0;
+    const points = rows.rows.map((r) => {
+      cumSale = round2(cumSale + num(r.period_sale_value));
+      cumCost = round2(cumCost + num(r.period_cost_value));
+      const cumulativeMarginPct =
+        cumSale > 0 ? round2(((cumSale - cumCost) / cumSale) * 100) : null;
+      return {
+        period: r.period,
+        cumulativeSaleValue: cumSale,
+        cumulativeCostValue: cumCost,
+        cumulativeMarginPct,
+      };
+    });
 
-  res.json({ activityId, points });
-});
+    res.json({ activityId, points });
+  },
+);
 
-router.get("/warehouse-movements/job-margin-summary", async (req, res): Promise<void> => {
-  const jobId = parseInt(req.query.jobId as string, 10);
-  if (!Number.isInteger(jobId) || jobId <= 0) {
-    res.status(400).json({ error: "jobId (integer) je povinný parametr." });
-    return;
-  }
+router.get(
+  "/warehouse-movements/job-margin-summary",
+  async (req, res): Promise<void> => {
+    const jobId = parseInt(req.query.jobId as string, 10);
+    if (!Number.isInteger(jobId) || jobId <= 0) {
+      res.status(400).json({ error: "jobId (integer) je povinný parametr." });
+      return;
+    }
 
-  const agg = (await db.execute(sql`
+    const agg = (await db.execute(sql`
     select
       coalesce(sum(${warehouseMovementsTable.quantity}), 0)                                                          as total_qty_out,
       coalesce(sum(case when ${warehouseMovementsTable.unitPrice} is not null then ${warehouseMovementsTable.unitPrice} * ${warehouseMovementsTable.quantity} else 0 end), 0)          as total_sale_value,
@@ -759,28 +841,40 @@ router.get("/warehouse-movements/job-margin-summary", async (req, res): Promise<
     from ${warehouseMovementsTable}
     where ${warehouseMovementsTable.jobId} = ${jobId}
       and ${warehouseMovementsTable.direction} = 'out'
-  `)) as unknown as { rows: Array<{ total_qty_out: string; total_sale_value: string; total_cost_value: string; covered_qty_out: string; covered_cost_qty_out: string }> };
+  `)) as unknown as {
+      rows: Array<{
+        total_qty_out: string;
+        total_sale_value: string;
+        total_cost_value: string;
+        covered_qty_out: string;
+        covered_cost_qty_out: string;
+      }>;
+    };
 
-  const row = agg.rows[0]!;
-  const totalSaleValue = round2(num(row.total_sale_value));
-  const totalCostValue = round2(num(row.total_cost_value));
-  const marginPercent = totalSaleValue > 0
-    ? round2(((totalSaleValue - totalCostValue) / totalSaleValue) * 100)
-    : null;
+    const row = agg.rows[0]!;
+    const totalSaleValue = round2(num(row.total_sale_value));
+    const totalCostValue = round2(num(row.total_cost_value));
+    const marginPercent =
+      totalSaleValue > 0
+        ? round2(((totalSaleValue - totalCostValue) / totalSaleValue) * 100)
+        : null;
 
-  res.json({
-    jobId,
-    totalQtyOut: round2(num(row.total_qty_out)),
-    totalSaleValue,
-    totalCostValue,
-    coveredQtyOut: round2(num(row.covered_qty_out)),
-    coveredCostQtyOut: round2(num(row.covered_cost_qty_out)),
-    marginPercent,
-  });
-});
+    res.json({
+      jobId,
+      totalQtyOut: round2(num(row.total_qty_out)),
+      totalSaleValue,
+      totalCostValue,
+      coveredQtyOut: round2(num(row.covered_qty_out)),
+      coveredCostQtyOut: round2(num(row.covered_cost_qty_out)),
+      marginPercent,
+    });
+  },
+);
 
-router.get("/warehouse-movements/jobs-margin-summary", async (_req, res): Promise<void> => {
-  const rows = (await db.execute(sql`
+router.get(
+  "/warehouse-movements/jobs-margin-summary",
+  async (_req, res): Promise<void> => {
+    const rows = (await db.execute(sql`
     select
       ${warehouseMovementsTable.jobId}                                                                                  as job_id,
       coalesce(sum(${warehouseMovementsTable.quantity}), 0)                                                             as total_qty_out,
@@ -792,28 +886,42 @@ router.get("/warehouse-movements/jobs-margin-summary", async (_req, res): Promis
     where ${warehouseMovementsTable.direction} = 'out'
       and ${warehouseMovementsTable.jobId} is not null
     group by ${warehouseMovementsTable.jobId}
-  `)) as unknown as { rows: Array<{ job_id: number; total_qty_out: string; total_sale_value: string; total_cost_value: string; covered_qty_out: string; covered_cost_qty_out: string }> };
-
-  const items = rows.rows.map((row) => {
-    const totalSaleValue = round2(num(row.total_sale_value));
-    const totalCostValue = round2(num(row.total_cost_value));
-    const marginPercent = totalSaleValue > 0
-      ? round2(((totalSaleValue - totalCostValue) / totalSaleValue) * 100)
-      : null;
-    return {
-      jobId: Number(row.job_id),
-      totalQtyOut: round2(num(row.total_qty_out)),
-      totalSaleValue,
-      totalCostValue,
-      coveredQtyOut: round2(num(row.covered_qty_out)),
-      coveredCostQtyOut: round2(num(row.covered_cost_qty_out)),
-      marginPercent,
+  `)) as unknown as {
+      rows: Array<{
+        job_id: number;
+        total_qty_out: string;
+        total_sale_value: string;
+        total_cost_value: string;
+        covered_qty_out: string;
+        covered_cost_qty_out: string;
+      }>;
     };
-  });
 
-  const settings = await ensureBillingSettings();
-  res.json({ items, alertThresholdPercent: num(settings.marginAlertThresholdPercent) });
-});
+    const items = rows.rows.map((row) => {
+      const totalSaleValue = round2(num(row.total_sale_value));
+      const totalCostValue = round2(num(row.total_cost_value));
+      const marginPercent =
+        totalSaleValue > 0
+          ? round2(((totalSaleValue - totalCostValue) / totalSaleValue) * 100)
+          : null;
+      return {
+        jobId: Number(row.job_id),
+        totalQtyOut: round2(num(row.total_qty_out)),
+        totalSaleValue,
+        totalCostValue,
+        coveredQtyOut: round2(num(row.covered_qty_out)),
+        coveredCostQtyOut: round2(num(row.covered_cost_qty_out)),
+        marginPercent,
+      };
+    });
+
+    const settings = await ensureBillingSettings();
+    res.json({
+      items,
+      alertThresholdPercent: num(settings.marginAlertThresholdPercent),
+    });
+  },
+);
 
 router.get("/warehouse-movements", async (req, res): Promise<void> => {
   const query = ListWarehouseMovementsQueryParams.safeParse(req.query);
@@ -828,37 +936,44 @@ router.get("/warehouse-movements", async (req, res): Promise<void> => {
 // Warehouse ↔ material backfill report & safe re-run (admin only)
 // ---------------------------------------------------------------------------
 
-router.get("/warehouse-material-backfill/report", requireRole("admin", "master"), async (_req, res): Promise<void> => {
-  // 1. Unlinked materials whose name matches EXACTLY ONE warehouse item (can auto-link).
-  const canLinkMaterials = (await db.execute(sql`
+router.get(
+  "/warehouse-material-backfill/report",
+  requireRole("admin", "master"),
+  async (_req, res): Promise<void> => {
+    // 1. Unlinked materials whose name matches EXACTLY ONE warehouse item (can auto-link).
+    const canLinkMaterials = (await db.execute(sql`
     SELECT count(*) AS n
     FROM ${materialsTable} m
     WHERE m.warehouse_item_id IS NULL
       AND (SELECT count(*) FROM ${warehouseItemsTable} wi WHERE lower(wi.name) = lower(m.name)) = 1
   `)) as unknown as { rows: Array<{ n: string }> };
 
-  const canLinkActivity = (await db.execute(sql`
+    const canLinkActivity = (await db.execute(sql`
     SELECT count(*) AS n
     FROM ${activityMaterialsTable} am
     WHERE am.warehouse_item_id IS NULL
       AND (SELECT count(*) FROM ${warehouseItemsTable} wi WHERE lower(wi.name) = lower(am.name)) = 1
   `)) as unknown as { rows: Array<{ n: string }> };
 
-  const canLink = Number(canLinkMaterials.rows[0]?.n ?? 0) + Number(canLinkActivity.rows[0]?.n ?? 0);
+    const canLink =
+      Number(canLinkMaterials.rows[0]?.n ?? 0) +
+      Number(canLinkActivity.rows[0]?.n ?? 0);
 
-  // 2. Total unlinked (regardless of whether a match exists).
-  const totalUnlinkedMaterials = (await db.execute(sql`
+    // 2. Total unlinked (regardless of whether a match exists).
+    const totalUnlinkedMaterials = (await db.execute(sql`
     SELECT count(*) AS n FROM ${materialsTable} WHERE warehouse_item_id IS NULL
   `)) as unknown as { rows: Array<{ n: string }> };
 
-  const totalUnlinkedActivity = (await db.execute(sql`
+    const totalUnlinkedActivity = (await db.execute(sql`
     SELECT count(*) AS n FROM ${activityMaterialsTable} WHERE warehouse_item_id IS NULL
   `)) as unknown as { rows: Array<{ n: string }> };
 
-  const totalUnlinked = Number(totalUnlinkedMaterials.rows[0]?.n ?? 0) + Number(totalUnlinkedActivity.rows[0]?.n ?? 0);
+    const totalUnlinked =
+      Number(totalUnlinkedMaterials.rows[0]?.n ?? 0) +
+      Number(totalUnlinkedActivity.rows[0]?.n ?? 0);
 
-  // 3. Ambiguous names: warehouse has >1 item with that name AND at least one unlinked material uses it.
-  const ambiguousRows = (await db.execute(sql`
+    // 3. Ambiguous names: warehouse has >1 item with that name AND at least one unlinked material uses it.
+    const ambiguousRows = (await db.execute(sql`
     WITH ambiguous_items AS (
       SELECT lower(name) AS lname, count(*) AS item_count
       FROM ${warehouseItemsTable}
@@ -885,151 +1000,52 @@ router.get("/warehouse-material-backfill/report", requireRole("admin", "master")
     GROUP BY a.lname
     ORDER BY a.lname
   `)) as unknown as {
-    rows: Array<{
-      name: string;
-      material_count: number;
-      activity_material_count: number;
-      warehouse_items: Array<{ id: number; name: string }>;
-    }>;
-  };
+      rows: Array<{
+        name: string;
+        material_count: number;
+        activity_material_count: number;
+        warehouse_items: Array<{ id: number; name: string }>;
+      }>;
+    };
 
-  const ambiguousGroups = ambiguousRows.rows.map((r) => ({
-    name: r.name,
-    materialCount: Number(r.material_count),
-    activityMaterialCount: Number(r.activity_material_count),
-    warehouseItems: r.warehouse_items,
-  }));
+    const ambiguousGroups = ambiguousRows.rows.map((r) => ({
+      name: r.name,
+      materialCount: Number(r.material_count),
+      activityMaterialCount: Number(r.activity_material_count),
+      warehouseItems: r.warehouse_items,
+    }));
 
-  const totalAmbiguous = ambiguousGroups.reduce(
-    (s, g) => s + g.materialCount + g.activityMaterialCount,
-    0,
-  );
+    const totalAmbiguous = ambiguousGroups.reduce(
+      (s, g) => s + g.materialCount + g.activityMaterialCount,
+      0,
+    );
 
-  res.json({ totalUnlinked, canLink, totalAmbiguous, ambiguousGroups });
-});
+    res.json({ totalUnlinked, canLink, totalAmbiguous, ambiguousGroups });
+  },
+);
 
-router.post("/warehouse-material-backfill/assign", requireRole("admin", "master"), async (req, res): Promise<void> => {
-  const parsed = AssignWarehouseMaterialGroupBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
-    return;
-  }
+router.post(
+  "/warehouse-material-backfill/assign",
+  requireRole("admin", "master"),
+  async (_req, res): Promise<void> => {
+    res.status(409).json({
+      code: "warehouse_material_backfill_maintenance_required",
+      error:
+        "Ruční hromadné přiřazení je dočasně vypnuté. Použijte jednotlivé ID přiřazení nebo řízený maintenance plán s přesným NFKC manifestem.",
+    });
+  },
+);
 
-  const { name, warehouseItemId } = parsed.data;
-  const actor = actorOf(req);
-
-  // Verify the target warehouse item exists.
-  const [targetItem] = await db
-    .select({ id: warehouseItemsTable.id, name: warehouseItemsTable.name })
-    .from(warehouseItemsTable)
-    .where(eq(warehouseItemsTable.id, warehouseItemId));
-
-  if (!targetItem) {
-    res.status(404).json({ error: "Skladová karta nenalezena." });
-    return;
-  }
-
-  let materialsAssigned = 0;
-  let activityMaterialsAssigned = 0;
-
-  await db.transaction(async (tx) => {
-    // Fetch all unlinked job materials with this name.
-    const jobMaterials = await tx
-      .select()
-      .from(materialsTable)
-      .where(
-        and(
-          isNull(materialsTable.warehouseItemId),
-          sql`lower(${materialsTable.name}) = lower(${name})`,
-        ),
-      );
-
-    for (const mat of jobMaterials) {
-      await tx
-        .update(materialsTable)
-        .set({ warehouseItemId })
-        .where(eq(materialsTable.id, mat.id));
-      await reconcileMaterialStockMovement(tx, { ...mat, warehouseItemId }, actor);
-      materialsAssigned++;
-    }
-
-    // Fetch all unlinked activity materials with this name.
-    const activityMaterials = await tx
-      .select()
-      .from(activityMaterialsTable)
-      .where(
-        and(
-          isNull(activityMaterialsTable.warehouseItemId),
-          sql`lower(${activityMaterialsTable.name}) = lower(${name})`,
-        ),
-      );
-
-    for (const mat of activityMaterials) {
-      await tx
-        .update(activityMaterialsTable)
-        .set({ warehouseItemId })
-        .where(eq(activityMaterialsTable.id, mat.id));
-      await reconcileActivityMaterialStockMovement(
-        tx,
-        { ...mat, warehouseItemId, jobId: null },
-        actor,
-      );
-      activityMaterialsAssigned++;
-    }
-  });
-
-  await db.insert(auditLogTable).values({
-    actorUserId: req.auth?.userId ?? null,
-    actorName: req.auth?.name ?? "Systém",
-    action: "warehouse_material_ambiguous_assign",
-    entityType: "warehouse",
-    entityId: warehouseItemId,
-    summary: `Ruční přiřazení skupiny „${name}": ${materialsAssigned} materiálů zakázek, ${activityMaterialsAssigned} materiálů aktivit → karta #${warehouseItemId} „${targetItem.name}"`,
-    method: req.method,
-    path: req.path,
-  });
-
-  res.json({ materialsAssigned, activityMaterialsAssigned });
-});
-
-router.post("/warehouse-material-backfill/run", requireRole("admin", "master"), async (req, res): Promise<void> => {
-  const mResult = (await db.execute(sql`
-    UPDATE ${materialsTable} m
-    SET warehouse_item_id = wi.id
-    FROM ${warehouseItemsTable} wi
-    WHERE lower(m.name) = lower(wi.name)
-      AND m.warehouse_item_id IS NULL
-      AND (
-        SELECT count(*) FROM ${warehouseItemsTable} wi2 WHERE lower(wi2.name) = lower(wi.name)
-      ) = 1
-  `)) as unknown as { rowCount?: number | null };
-
-  const amResult = (await db.execute(sql`
-    UPDATE ${activityMaterialsTable} am
-    SET warehouse_item_id = wi.id
-    FROM ${warehouseItemsTable} wi
-    WHERE lower(am.name) = lower(wi.name)
-      AND am.warehouse_item_id IS NULL
-      AND (
-        SELECT count(*) FROM ${warehouseItemsTable} wi2 WHERE lower(wi2.name) = lower(wi.name)
-      ) = 1
-  `)) as unknown as { rowCount?: number | null };
-
-  const materialsLinked = mResult.rowCount ?? 0;
-  const activityMaterialsLinked = amResult.rowCount ?? 0;
-
-  await db.insert(auditLogTable).values({
-    actorUserId: req.auth?.userId ?? null,
-    actorName: req.auth?.name ?? "Systém",
-    action: "warehouse_material_backfill",
-    entityType: "warehouse",
-    entityId: null,
-    summary: `Backfill skladu: ${materialsLinked} materiálů zakázek, ${activityMaterialsLinked} materiálů aktivit propojeno`,
-    method: req.method,
-    path: req.path,
-  });
-
-  res.json({ materialsLinked, activityMaterialsLinked });
-});
+router.post(
+  "/warehouse-material-backfill/run",
+  requireRole("admin", "master"),
+  async (_req, res): Promise<void> => {
+    res.status(409).json({
+      code: "warehouse_material_backfill_maintenance_required",
+      error:
+        "Automatický backfill je dočasně vypnutý. Vyžaduje bounded, restartovatelný maintenance plán s přesným NFKC manifestem.",
+    });
+  },
+);
 
 export default router;

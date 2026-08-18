@@ -89,10 +89,13 @@ import { logger } from "./logger";
 import {
   reconcileDocumentStockMovements,
   reconcileSourceMovements,
+  reconcileSourceMovementBatch,
   reconcileMaterialStockMovement,
   reconcileActivityMaterialStockMovement,
+  buildMaterialSourceMovementRequest,
   backfillOutMovementCostPrices,
   resolveWarehouseItemIdByName,
+  type SourceMovementReconcileRequest,
 } from "./warehouse-service";
 import {
   buildApprovedCostDocumentAccountingEvidence,
@@ -4769,32 +4772,25 @@ export async function syncJobMaterialsForDocument(
         (m.sourceId == null || !desired.has(m.sourceId)),
     )
     .map((m) => m.id);
-  if (toDelete.length) {
-    // Reverse the stock issue of each propagated material before removing it,
-    // then drop the material rows.
-    for (const materialId of toDelete) {
-      await reconcileSourceMovements(tx, "material", materialId, null, actor);
-    }
-    await tx.delete(materialsTable).where(inArray(materialsTable.id, toDelete));
-  }
-
   const activityToDelete = existingActivity
     .filter((m) => m.sourceId == null || !desiredActivity.has(m.sourceId))
     .map((m) => m.id);
-  if (activityToDelete.length) {
-    for (const materialId of activityToDelete) {
-      await reconcileSourceMovements(
-        tx,
-        "activity_material",
-        materialId,
-        null,
-        actor,
-      );
-    }
-    await tx
-      .delete(activityMaterialsTable)
-      .where(inArray(activityMaterialsTable.id, activityToDelete));
-  }
+
+  // Build one complete lock plan before the first stock movement. Deletions
+  // remain ordered before surviving materials, matching the historical
+  // movement order, but no phase can acquire item locks independently.
+  const reconcileRequests: SourceMovementReconcileRequest[] = [
+    ...toDelete.map((sourceId) => ({
+      sourceType: "material" as const,
+      sourceId,
+      desired: null,
+    })),
+    ...activityToDelete.map((sourceId) => ({
+      sourceType: "activity_material" as const,
+      sourceId,
+      desired: null,
+    })),
+  ];
 
   // Reconcile the stock issue (výdej) for every propagated material that still
   // exists — a job material that matches a warehouse item draws it down.
@@ -4803,27 +4799,40 @@ export async function syncJobMaterialsForDocument(
       .select()
       .from(materialsTable)
       .where(eq(materialsTable.id, materialId));
-    await reconcileMaterialStockMovement(tx, m ?? null, actor);
+    if (m) {
+      reconcileRequests.push(
+        await buildMaterialSourceMovementRequest(tx, "material", m),
+      );
+    }
   }
   for (const materialId of affectedActivityMaterialIds) {
     const [m] = await tx
       .select()
       .from(activityMaterialsTable)
       .where(eq(activityMaterialsTable.id, materialId));
-    await reconcileActivityMaterialStockMovement(
-      tx,
-      m
-        ? {
-            id: m.id,
-            name: m.name,
-            quantity: m.quantity,
-            pricePerUnit: m.pricePerUnit,
-            jobId: null,
-            warehouseItemId: m.warehouseItemId,
-          }
-        : null,
-      actor,
-    );
+    if (m) {
+      reconcileRequests.push(
+        await buildMaterialSourceMovementRequest(tx, "activity_material", {
+          id: m.id,
+          name: m.name,
+          quantity: m.quantity,
+          pricePerUnit: m.pricePerUnit,
+          jobId: null,
+          warehouseItemId: m.warehouseItemId,
+        }),
+      );
+    }
+  }
+
+  await reconcileSourceMovementBatch(tx, reconcileRequests, actor);
+
+  if (toDelete.length) {
+    await tx.delete(materialsTable).where(inArray(materialsTable.id, toDelete));
+  }
+  if (activityToDelete.length) {
+    await tx
+      .delete(activityMaterialsTable)
+      .where(inArray(activityMaterialsTable.id, activityToDelete));
   }
 }
 

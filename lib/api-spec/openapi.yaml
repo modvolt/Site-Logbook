@@ -2903,20 +2903,29 @@ paths:
     post:
       operationId: runWarehouseMaterialBackfill
       tags: [warehouse]
-      summary: Re-run the safe name-based backfill for unlinked materials (admin only)
+      deprecated: true
+      summary: Disabled legacy bulk backfill; use an approved maintenance plan
       responses:
-        "200":
-          description: Counts of rows updated
+        "409":
+          description: Bulk mutation is fail-closed until a bounded NFKC maintenance plan is approved
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/WarehouseMaterialBackfillResult"
+                type: object
+                required: [code, error]
+                properties:
+                  code:
+                    type: string
+                    enum: [warehouse_material_backfill_maintenance_required]
+                  error:
+                    type: string
 
   /warehouse-material-backfill/assign:
     post:
       operationId: assignWarehouseMaterialGroup
       tags: [warehouse]
-      summary: Manually assign all unlinked materials in an ambiguous group to a chosen warehouse card (admin only)
+      deprecated: true
+      summary: Disabled legacy bulk assignment; use reviewed individual ID changes or an approved maintenance plan
       requestBody:
         required: true
         content:
@@ -2924,16 +2933,19 @@ paths:
             schema:
               $ref: "#/components/schemas/AssignWarehouseMaterialGroupBody"
       responses:
-        "200":
-          description: Counts of materials updated and movements created
+        "409":
+          description: Bulk mutation is fail-closed until a bounded NFKC maintenance plan is approved
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/AssignWarehouseMaterialGroupResult"
-        "400":
-          description: Validation error
-        "404":
-          description: Warehouse item not found
+                type: object
+                required: [code, error]
+                properties:
+                  code:
+                    type: string
+                    enum: [warehouse_material_backfill_maintenance_required]
+                  error:
+                    type: string
 
   /warehouse-movements:
     get:

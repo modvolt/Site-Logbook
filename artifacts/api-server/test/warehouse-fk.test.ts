@@ -11,6 +11,7 @@ import {
   warehouseMovementsTable,
 } from "@workspace/db";
 import {
+  createManualMovement,
   reconcileMaterialStockMovement,
   reconcileActivityMaterialStockMovement,
   reconcileSourceMovements,
@@ -50,13 +51,32 @@ async function makeJob(): Promise<number> {
   return j.id;
 }
 
-async function makeWarehouseItem(name: string, purchasePrice?: string): Promise<number> {
+async function makeWarehouseItem(
+  name: string,
+  purchasePrice?: string,
+): Promise<number> {
   const [item] = await db
     .insert(warehouseItemsTable)
     .values({ name, quantity: "0", purchasePrice: purchasePrice ?? null })
     .returning();
   warehouseItemIds.push(item.id);
   return item.id;
+}
+
+async function seedOpeningStock(
+  warehouseItemId: number,
+  quantity = 100,
+): Promise<void> {
+  await createManualMovement(
+    db,
+    warehouseItemId,
+    {
+      direction: "in",
+      quantity,
+      note: "Test opening stock",
+    },
+    ACTOR,
+  );
 }
 
 beforeAll(async () => {
@@ -70,19 +90,27 @@ beforeAll(async () => {
 afterAll(async () => {
   // Clean up in reverse-dependency order
   if (materialIds.length) {
-    await db.delete(materialsTable).where(inArray(materialsTable.id, materialIds));
+    await db
+      .delete(materialsTable)
+      .where(inArray(materialsTable.id, materialIds));
   }
   if (activityMaterialIds.length) {
-    await db.delete(activityMaterialsTable).where(inArray(activityMaterialsTable.id, activityMaterialIds));
+    await db
+      .delete(activityMaterialsTable)
+      .where(inArray(activityMaterialsTable.id, activityMaterialIds));
   }
   if (activityIds.length) {
-    await db.delete(activitiesTable).where(inArray(activitiesTable.id, activityIds));
+    await db
+      .delete(activitiesTable)
+      .where(inArray(activitiesTable.id, activityIds));
   }
   if (jobIds.length) {
     await db.delete(jobsTable).where(inArray(jobsTable.id, jobIds));
   }
   if (warehouseItemIds.length) {
-    await db.delete(warehouseItemsTable).where(inArray(warehouseItemsTable.id, warehouseItemIds));
+    await db
+      .delete(warehouseItemsTable)
+      .where(inArray(warehouseItemsTable.id, warehouseItemIds));
   }
   await db.delete(customersTable).where(eq(customersTable.id, customerId));
 });
@@ -96,13 +124,17 @@ describe("duplicate-name items", () => {
     const id1 = await makeWarehouseItem(name);
     const id2 = await makeWarehouseItem(name);
 
-    const resolved = await db.transaction((tx) => resolveWarehouseItemIdByName(tx, name));
+    const resolved = await db.transaction((tx) =>
+      resolveWarehouseItemIdByName(tx, name),
+    );
     expect(resolved).toBeNull();
 
     // But an exact-unique name resolves correctly
     const unique = `Kabel ${TAG} unique`;
     const uid = await makeWarehouseItem(unique);
-    const resolvedUnique = await db.transaction((tx) => resolveWarehouseItemIdByName(tx, unique));
+    const resolvedUnique = await db.transaction((tx) =>
+      resolveWarehouseItemIdByName(tx, unique),
+    );
     expect(resolvedUnique).toBe(uid);
 
     warehouseItemIds.push(id1, id2, uid);
@@ -112,11 +144,19 @@ describe("duplicate-name items", () => {
     const name = `Materiál ${TAG} dupe2`;
     const id1 = await makeWarehouseItem(name, "100");
     const id2 = await makeWarehouseItem(name, "200");
+    await seedOpeningStock(id1);
 
     const jobId = await makeJob();
     const [m] = await db
       .insert(materialsTable)
-      .values({ jobId, name, quantity: "3", pricePerUnit: "150", warehouseItemId: id1, done: true })
+      .values({
+        jobId,
+        name,
+        quantity: "3",
+        pricePerUnit: "150",
+        warehouseItemId: id1,
+        done: true,
+      })
       .returning();
     materialIds.push(m.id);
 
@@ -151,11 +191,18 @@ describe("item rename stability", () => {
     const originalName = `Vodič ${TAG} orig`;
     const renamedName = `Vodič ${TAG} renamed`;
     const itemId = await makeWarehouseItem(originalName, "50");
+    await seedOpeningStock(itemId);
 
     const jobId = await makeJob();
     const [m] = await db
       .insert(materialsTable)
-      .values({ jobId, name: originalName, quantity: "2", warehouseItemId: itemId, done: true })
+      .values({
+        jobId,
+        name: originalName,
+        quantity: "2",
+        warehouseItemId: itemId,
+        done: true,
+      })
       .returning();
     materialIds.push(m.id);
 
@@ -166,7 +213,9 @@ describe("item rename stability", () => {
       .where(eq(warehouseItemsTable.id, itemId));
 
     // A name-based lookup would now find nothing for originalName
-    const byName = await db.transaction((tx) => resolveWarehouseItemIdByName(tx, originalName));
+    const byName = await db.transaction((tx) =>
+      resolveWarehouseItemIdByName(tx, originalName),
+    );
     expect(byName).toBeNull();
 
     // But reconcile by ID must still work (material.warehouseItemId = itemId)
@@ -192,7 +241,7 @@ describe("item rename stability", () => {
       .select({ quantity: warehouseItemsTable.quantity })
       .from(warehouseItemsTable)
       .where(eq(warehouseItemsTable.id, itemId));
-    expect(Number(item.quantity)).toBeLessThan(0); // issued → negative
+    expect(Number(item.quantity)).toBe(98);
   });
 });
 
@@ -202,11 +251,18 @@ describe("item rename stability", () => {
 describe("material lifecycle movements", () => {
   it("creating a material with warehouseItemId issues stock", async () => {
     const itemId = await makeWarehouseItem(`Spínač ${TAG}`, "30");
+    await seedOpeningStock(itemId);
     const jobId = await makeJob();
 
     const [m] = await db
       .insert(materialsTable)
-      .values({ jobId, name: `Spínač ${TAG}`, quantity: "5", warehouseItemId: itemId, done: true })
+      .values({
+        jobId,
+        name: `Spínač ${TAG}`,
+        quantity: "5",
+        warehouseItemId: itemId,
+        done: true,
+      })
       .returning();
     materialIds.push(m.id);
 
@@ -216,17 +272,24 @@ describe("material lifecycle movements", () => {
       .select({ quantity: warehouseItemsTable.quantity })
       .from(warehouseItemsTable)
       .where(eq(warehouseItemsTable.id, itemId));
-    expect(Number(item.quantity)).toBe(-5);
+    expect(Number(item.quantity)).toBe(95);
   });
 
   it("editing quantity updates the ledger with a delta", async () => {
     const itemId = await makeWarehouseItem(`Relé ${TAG}`, "80");
+    await seedOpeningStock(itemId);
     const jobId = await makeJob();
 
     // Create with qty 4
     const [m1] = await db
       .insert(materialsTable)
-      .values({ jobId, name: `Relé ${TAG}`, quantity: "4", warehouseItemId: itemId, done: true })
+      .values({
+        jobId,
+        name: `Relé ${TAG}`,
+        quantity: "4",
+        warehouseItemId: itemId,
+        done: true,
+      })
       .returning();
     materialIds.push(m1.id);
     await db.transaction((tx) => reconcileMaterialStockMovement(tx, m1, ACTOR));
@@ -243,16 +306,23 @@ describe("material lifecycle movements", () => {
       .select({ quantity: warehouseItemsTable.quantity })
       .from(warehouseItemsTable)
       .where(eq(warehouseItemsTable.id, itemId));
-    expect(Number(item.quantity)).toBe(-7);
+    expect(Number(item.quantity)).toBe(93);
   });
 
   it("deleting material reverses its stock issue (storno), preserving movement history", async () => {
     const itemId = await makeWarehouseItem(`Jistič ${TAG}`, "120");
+    await seedOpeningStock(itemId);
     const jobId = await makeJob();
 
     const [m] = await db
       .insert(materialsTable)
-      .values({ jobId, name: `Jistič ${TAG}`, quantity: "3", warehouseItemId: itemId, done: true })
+      .values({
+        jobId,
+        name: `Jistič ${TAG}`,
+        quantity: "3",
+        warehouseItemId: itemId,
+        done: true,
+      })
       .returning();
     // Note: NOT adding to materialIds since we delete it below
 
@@ -264,12 +334,12 @@ describe("material lifecycle movements", () => {
       await reconcileSourceMovements(tx, "material", m.id, null, ACTOR);
     });
 
-    // Quantity back to 0
+    // Quantity back to its opening balance.
     const [item] = await db
       .select({ quantity: warehouseItemsTable.quantity })
       .from(warehouseItemsTable)
       .where(eq(warehouseItemsTable.id, itemId));
-    expect(Number(item.quantity)).toBe(0);
+    expect(Number(item.quantity)).toBe(100);
 
     // Audit: movement rows must still exist (append-only ledger)
     const movements = await db
@@ -291,6 +361,7 @@ describe("material lifecycle movements", () => {
 describe("activity material FK", () => {
   it("activity material linked by warehouseItemId issues stock correctly", async () => {
     const itemId = await makeWarehouseItem(`Konektor ${TAG}`, "15");
+    await seedOpeningStock(itemId);
 
     const [act] = await db
       .insert(activitiesTable)
@@ -300,19 +371,35 @@ describe("activity material FK", () => {
 
     const [am] = await db
       .insert(activityMaterialsTable)
-      .values({ activityId: act.id, name: `Konektor ${TAG}`, quantity: "10", warehouseItemId: itemId })
+      .values({
+        activityId: act.id,
+        name: `Konektor ${TAG}`,
+        quantity: "10",
+        warehouseItemId: itemId,
+      })
       .returning();
     activityMaterialIds.push(am.id);
 
     await db.transaction((tx) =>
-      reconcileActivityMaterialStockMovement(tx, { id: am.id, name: am.name, quantity: am.quantity, pricePerUnit: am.pricePerUnit, jobId: null, warehouseItemId: am.warehouseItemId }, ACTOR)
+      reconcileActivityMaterialStockMovement(
+        tx,
+        {
+          id: am.id,
+          name: am.name,
+          quantity: am.quantity,
+          pricePerUnit: am.pricePerUnit,
+          jobId: null,
+          warehouseItemId: am.warehouseItemId,
+        },
+        ACTOR,
+      ),
     );
 
     const [item] = await db
       .select({ quantity: warehouseItemsTable.quantity })
       .from(warehouseItemsTable)
       .where(eq(warehouseItemsTable.id, itemId));
-    expect(Number(item.quantity)).toBe(-10);
+    expect(Number(item.quantity)).toBe(90);
   });
 });
 
@@ -325,14 +412,14 @@ describe("resolveWarehouseItemIdByName", () => {
     const itemId = await makeWarehouseItem(name);
 
     const resolved = await db.transaction((tx) =>
-      resolveWarehouseItemIdByName(tx, name.toUpperCase())
+      resolveWarehouseItemIdByName(tx, name.toUpperCase()),
     );
     expect(resolved).toBe(itemId);
   });
 
   it("returns null for a name that doesn't match any item", async () => {
     const resolved = await db.transaction((tx) =>
-      resolveWarehouseItemIdByName(tx, `NonExistent ${TAG} xyz`)
+      resolveWarehouseItemIdByName(tx, `NonExistent ${TAG} xyz`),
     );
     expect(resolved).toBeNull();
   });

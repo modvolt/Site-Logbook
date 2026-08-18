@@ -18,6 +18,8 @@ import { and, desc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 import {
   billingDocumentsTable,
   billingDocumentLinesTable,
+  materialsTable,
+  activityMaterialsTable,
   jobsTable,
   warehouseItemsTable,
   warehouseMovementsTable,
@@ -27,11 +29,19 @@ import {
 import { num, round2 } from "./invoice-calc";
 import { materialShouldIssueStock } from "./material-consumption-policy";
 
-export type AppError = Error & { statusCode: number };
+export class WarehouseAppError extends Error {
+  readonly statusCode: number;
+
+  constructor(statusCode: number, message: string) {
+    super(message);
+    this.name = "WarehouseAppError";
+    this.statusCode = statusCode;
+  }
+}
+
+export type AppError = WarehouseAppError;
 function appError(statusCode: number, message: string): AppError {
-  const err = new Error(message) as AppError;
-  err.statusCode = statusCode;
-  return err;
+  return new WarehouseAppError(statusCode, message);
 }
 
 export interface Actor {
@@ -51,7 +61,7 @@ export type MovementSourceType =
   | "activity_material"
   | "manual";
 
-interface DesiredContribution {
+export interface DesiredContribution {
   warehouseItemId: number;
   /** Signed: positive = receipt (in), negative = issue (out). */
   signedQty: number;
@@ -61,15 +71,16 @@ interface DesiredContribution {
   note: string | null;
 }
 
-/**
- * Lock the warehouse item row, recompute its quantity from the full signed sum
- * of its movements, and persist it. Must run inside the caller's transaction
- * AFTER any new movement for the item has been inserted.
- */
-async function recomputeItemQuantity(
+export interface SourceMovementReconcileRequest {
+  sourceType: MovementSourceType;
+  sourceId: number;
+  desired: DesiredContribution | null;
+}
+
+async function currentItemQuantity(
   tx: DbTx,
   warehouseItemId: number,
-): Promise<void> {
+): Promise<number> {
   const res = (await tx.execute(sql`
     select coalesce(sum(case when ${warehouseMovementsTable.direction} = 'in'
                               then ${warehouseMovementsTable.quantity}
@@ -77,7 +88,34 @@ async function recomputeItemQuantity(
     from ${warehouseMovementsTable}
     where ${warehouseMovementsTable.warehouseItemId} = ${warehouseItemId}
   `)) as unknown as { rows: Array<{ qty: string | number }> };
-  const qty = round2(num(res.rows[0]?.qty ?? 0));
+  return round2(num(res.rows[0]?.qty ?? 0));
+}
+
+async function assertNormalMovementNonnegative(
+  tx: DbTx,
+  warehouseItemId: number,
+  delta: number,
+): Promise<void> {
+  if (delta >= 0) return;
+  const currentQuantity = await currentItemQuantity(tx, warehouseItemId);
+  if (round2(currentQuantity + delta) < 0) {
+    throw appError(
+      409,
+      "Nedostatečná skladová zásoba. Operaci nelze dokončit bez schválené výjimky.",
+    );
+  }
+}
+
+/**
+ * Recompute an item's quantity from the full signed movement sum and persist
+ * it. The caller must already hold the item lock and must invoke this only
+ * after any new movement for the item has been inserted.
+ */
+async function recomputeItemQuantity(
+  tx: DbTx,
+  warehouseItemId: number,
+): Promise<void> {
+  const qty = await currentItemQuantity(tx, warehouseItemId);
   await tx
     .update(warehouseItemsTable)
     .set({ quantity: String(qty) })
@@ -103,6 +141,26 @@ async function appliedSignedFor(
   return num(res.rows[0]?.qty ?? 0);
 }
 
+async function loadSourceMovementRows(
+  tx: DbTx,
+  sourceType: MovementSourceType,
+  sourceId: number,
+) {
+  return tx
+    .select({
+      warehouseItemId: warehouseMovementsTable.warehouseItemId,
+      billingDocumentId: warehouseMovementsTable.billingDocumentId,
+      jobId: warehouseMovementsTable.jobId,
+    })
+    .from(warehouseMovementsTable)
+    .where(
+      and(
+        eq(warehouseMovementsTable.sourceType, sourceType),
+        eq(warehouseMovementsTable.sourceId, sourceId),
+      ),
+    );
+}
+
 async function lockItem(
   tx: DbTx,
   warehouseItemId: number,
@@ -126,6 +184,51 @@ async function lockItemsInAscendingOrder(
   );
   for (const warehouseItemId of orderedIds) {
     await lockItem(tx, warehouseItemId);
+  }
+}
+
+const SOURCE_LOCK_ORDER: Record<MovementSourceType, number> = {
+  activity_material: 1,
+  billing_document_line: 2,
+  manual: 3,
+  material: 4,
+};
+
+// Explicit int32 advisory-lock classes avoid hash collisions and keep the
+// warehouse source lock namespace separate from every other advisory lock.
+const SOURCE_LOCK_CLASS: Record<MovementSourceType, number> = {
+  activity_material: 1_397_500_101,
+  billing_document_line: 1_397_500_102,
+  manual: 1_397_500_103,
+  material: 1_397_500_104,
+};
+
+async function lockSourcesInStableOrder(
+  tx: DbTx,
+  requests: readonly SourceMovementReconcileRequest[],
+): Promise<void> {
+  const ordered = [...requests].sort(
+    (left, right) =>
+      SOURCE_LOCK_ORDER[left.sourceType] -
+        SOURCE_LOCK_ORDER[right.sourceType] || left.sourceId - right.sourceId,
+  );
+  for (const request of ordered) {
+    if (
+      !Number.isInteger(request.sourceId) ||
+      request.sourceId <= 0 ||
+      request.sourceId > 2_147_483_647
+    ) {
+      throw appError(500, "Warehouse reconcile source ID is invalid.");
+    }
+    const result = (await tx.execute(sql`
+      select pg_try_advisory_xact_lock(${SOURCE_LOCK_CLASS[request.sourceType]}, ${request.sourceId}) as locked
+    `)) as unknown as { rows: Array<{ locked: boolean }> };
+    if (result.rows[0]?.locked !== true) {
+      throw appError(
+        409,
+        "Skladový zdroj právě zpracovává jiná operace. Žádná změna nebyla uložena; opakujte požadavek.",
+      );
+    }
   }
 }
 
@@ -168,6 +271,10 @@ async function appendDelta(
   if (Math.abs(delta) < EPSILON) return;
   const { purchasePrice } = await lockItem(tx, params.warehouseItemId);
   const isOut = delta < 0;
+  // The normal runtime has no controlled-override surface. Until a dedicated
+  // role, bounded limit, mandatory reason and immutable audit event exist, any
+  // movement that would make authoritative stock negative must fail closed.
+  await assertNormalMovementNonnegative(tx, params.warehouseItemId, delta);
   // Capture the purchase price at the time of issue for OUT movements so that
   // gross-profit statistics can be computed per period.
   // If the item has no current purchase_price, fall back to the most recent
@@ -196,32 +303,33 @@ async function appendDelta(
   await recomputeItemQuantity(tx, params.warehouseItemId);
 }
 
-/**
- * Make the ledger reflect `desired` for one source. Appends delta movements:
- * any item the source previously touched but no longer targets is reversed to
- * zero, and the target item is adjusted to the desired signed quantity.
- */
-export async function reconcileSourceMovements(
+async function reconcileProtectedSourceMovements(
   tx: DbTx,
   sourceType: MovementSourceType,
   sourceId: number,
   desired: DesiredContribution | null,
+  protectedItemIds: ReadonlySet<number>,
   actor: Actor,
 ): Promise<void> {
-  // Items this source has already moved (so we can reverse stale targets).
-  const existingRows = await tx
-    .select({
-      warehouseItemId: warehouseMovementsTable.warehouseItemId,
-      billingDocumentId: warehouseMovementsTable.billingDocumentId,
-      jobId: warehouseMovementsTable.jobId,
-    })
-    .from(warehouseMovementsTable)
-    .where(
-      and(
-        eq(warehouseMovementsTable.sourceType, sourceType),
-        eq(warehouseMovementsTable.sourceId, sourceId),
-      ),
+  // Re-read after every item in the batch has been locked. A concurrent
+  // reconcile of the same source can commit an additional target while this
+  // transaction waits. A newly visible target outside the planned set cannot
+  // be acquired now without violating the global numeric lock order, so fail
+  // closed and let the caller retry from a fresh transaction.
+  const existingRows = await loadSourceMovementRows(tx, sourceType, sourceId);
+  const unprotectedItemIds = [
+    ...new Set(
+      existingRows
+        .map((row) => row.warehouseItemId)
+        .filter((warehouseItemId) => !protectedItemIds.has(warehouseItemId)),
+    ),
+  ].sort((left, right) => left - right);
+  if (unprotectedItemIds.length > 0) {
+    throw appError(
+      409,
+      "Skladová evidence zdroje byla souběžně změněna. Opakujte operaci.",
     );
+  }
 
   // Keep the original business-document links on reversal rows. Without this,
   // the stock total is correct but the storno disappears from job/document
@@ -243,17 +351,8 @@ export async function reconcileSourceMovements(
     });
   }
 
-  // Every reconcile transaction takes all item locks in the same order before
-  // reading any applied contribution. Without this pre-lock, concurrent A→B
-  // and B→A rematches can each hold their old item while waiting for the other.
-  // Taking the locks before appliedSignedFor also prevents stale applied reads
-  // for this already-discovered set of affected items. Serializing two
-  // reconciles of the same source that discover different new targets remains
-  // a separate source-identity concurrency concern.
-  await lockItemsInAscendingOrder(tx, [
-    ...existing.keys(),
-    ...(desired ? [desired.warehouseItemId] : []),
-  ]);
+  // The protected rows are now stable for this transaction. Applied sums are
+  // read only after the ordered locks and the refreshed source snapshot.
 
   for (const {
     warehouseItemId,
@@ -299,6 +398,93 @@ export async function reconcileSourceMovements(
       actor,
     });
   }
+}
+
+/**
+ * Reconcile several sources under one shared, ascending item-lock plan.
+ *
+ * A caller that mutates several sources in one transaction must use this
+ * primitive instead of invoking `reconcileSourceMovements` in a loop. The
+ * complete discovered item set is locked before the first applied sum or
+ * movement write, preventing opposite source order from becoming opposite row
+ * lock order. Source order still controls movement insertion order.
+ */
+export async function reconcileSourceMovementBatch(
+  tx: DbTx,
+  requests: readonly SourceMovementReconcileRequest[],
+  actor: Actor,
+): Promise<void> {
+  if (requests.length === 0) return;
+
+  const protectedBySource = new Map<string, Set<number>>();
+  const allProtectedItemIds = new Set<number>();
+  for (const request of requests) {
+    const sourceKey = `${request.sourceType}:${request.sourceId}`;
+    if (protectedBySource.has(sourceKey)) {
+      throw appError(
+        500,
+        `Duplicate warehouse reconcile source: ${sourceKey}.`,
+      );
+    }
+    protectedBySource.set(sourceKey, new Set<number>());
+  }
+
+  // A source lock closes the empty-ledger race: two first reconciles of the
+  // same source may target disjoint item rows and would otherwise never
+  // contend. Try-locks fail closed instead of waiting, so callers that still
+  // invoke multiple reconcile batches cannot introduce a new advisory-lock
+  // deadlock through opposite source order.
+  await lockSourcesInStableOrder(tx, requests);
+
+  for (const request of requests) {
+    const sourceKey = `${request.sourceType}:${request.sourceId}`;
+    const existingRows = await loadSourceMovementRows(
+      tx,
+      request.sourceType,
+      request.sourceId,
+    );
+    const protectedItemIds = new Set([
+      ...existingRows.map((row) => row.warehouseItemId),
+      ...(request.desired ? [request.desired.warehouseItemId] : []),
+    ]);
+    protectedBySource.set(sourceKey, protectedItemIds);
+    for (const warehouseItemId of protectedItemIds) {
+      allProtectedItemIds.add(warehouseItemId);
+    }
+  }
+
+  await lockItemsInAscendingOrder(tx, allProtectedItemIds);
+
+  for (const request of requests) {
+    const sourceKey = `${request.sourceType}:${request.sourceId}`;
+    await reconcileProtectedSourceMovements(
+      tx,
+      request.sourceType,
+      request.sourceId,
+      request.desired,
+      protectedBySource.get(sourceKey)!,
+      actor,
+    );
+  }
+}
+
+/**
+ * Make the ledger reflect `desired` for one source. Appends delta movements:
+ * any item the source previously touched but no longer targets is reversed to
+ * zero, and the target item is adjusted to the desired signed quantity.
+ */
+export async function reconcileSourceMovements(
+  tx: DbTx,
+  sourceType: MovementSourceType,
+  sourceId: number,
+  desired: DesiredContribution | null,
+  actor: Actor,
+): Promise<void> {
+  await reconcileSourceMovementBatch(
+    tx,
+    [{ sourceType, sourceId, desired }],
+    actor,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -378,6 +564,7 @@ export async function reconcileDocumentStockMovements(
 
   const approved = doc.status === "approved";
   const maps = approved ? await loadItemMaps(tx) : null;
+  const requests: SourceMovementReconcileRequest[] = [];
 
   for (const line of lines) {
     const isStockReceipt =
@@ -387,23 +574,20 @@ export async function reconcileDocumentStockMovements(
       line.allocationType === "stock";
 
     if (!isStockReceipt) {
-      await reconcileSourceMovements(
-        tx,
-        "billing_document_line",
-        line.id,
-        null,
-        actor,
-      );
+      requests.push({
+        sourceType: "billing_document_line",
+        sourceId: line.id,
+        desired: null,
+      });
       continue;
     }
 
     const item = await resolveOrCreateItemForLine(tx, line, maps!);
     const qty = round2(num(line.quantity));
-    await reconcileSourceMovements(
-      tx,
-      "billing_document_line",
-      line.id,
-      {
+    requests.push({
+      sourceType: "billing_document_line",
+      sourceId: line.id,
+      desired: {
         warehouseItemId: item.id,
         signedQty: qty, // receipt → +
         unitPrice:
@@ -416,9 +600,10 @@ export async function reconcileDocumentStockMovements(
           ? `Příjem z dokladu ${doc.documentNumber}`
           : "Příjem z dokladu",
       },
-      actor,
-    );
+    });
   }
+
+  await reconcileSourceMovementBatch(tx, requests, actor);
 }
 
 /**
@@ -501,7 +686,7 @@ async function resolveOrCreateItemForLine(
 // Job / activity material issues (výdej / odpis)
 // ---------------------------------------------------------------------------
 
-interface MaterialLike {
+export interface MaterialLike {
   id: number;
   name: string;
   quantity: string | null;
@@ -559,13 +744,11 @@ export async function resolveWarehouseItemIdByName(
   return rows.length === 1 ? rows[0].id : null;
 }
 
-async function reconcileMaterialLike(
+export async function buildMaterialSourceMovementRequest(
   tx: DbTx,
   sourceType: "material" | "activity_material",
-  material: MaterialLike | null,
-  actor: Actor,
-): Promise<void> {
-  if (!material) return;
+  material: MaterialLike,
+): Promise<SourceMovementReconcileRequest> {
   const item = await resolveItemForMaterial(tx, material);
   const qty = material.quantity == null ? 0 : round2(num(material.quantity));
   const shouldIssue = materialShouldIssueStock(sourceType, material);
@@ -581,7 +764,22 @@ async function reconcileMaterialLike(
           note: "Výdej na zakázku",
         }
       : null;
-  await reconcileSourceMovements(tx, sourceType, material.id, desired, actor);
+  return { sourceType, sourceId: material.id, desired };
+}
+
+async function reconcileMaterialLike(
+  tx: DbTx,
+  sourceType: "material" | "activity_material",
+  material: MaterialLike | null,
+  actor: Actor,
+): Promise<void> {
+  if (!material) return;
+  const request = await buildMaterialSourceMovementRequest(
+    tx,
+    sourceType,
+    material,
+  );
+  await reconcileSourceMovementBatch(tx, [request], actor);
 }
 
 /** Reconcile a single job material's issue movement. */
@@ -600,6 +798,16 @@ export async function reconcileActivityMaterialStockMovement(
   actor: Actor,
 ): Promise<void> {
   await reconcileMaterialLike(tx, "activity_material", material, actor);
+}
+
+export async function runUnambiguousWarehouseMaterialBackfill(
+  _db: AnyDb,
+  _actor: Actor,
+): Promise<{ materialsLinked: number; activityMaterialsLinked: number }> {
+  throw appError(
+    409,
+    "Automatický skladový backfill vyžaduje řízený maintenance plán s přesným NFKC manifestem.",
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -677,6 +885,11 @@ export async function createManualMovement(
     if (!item) throw appError(404, "Skladová položka nenalezena.");
     await lockItem(tx, warehouseItemId);
     const isOut = input.direction === "out";
+    await assertNormalMovementNonnegative(
+      tx,
+      warehouseItemId,
+      isOut ? -qty : qty,
+    );
     // If the item has no current purchase_price, fall back to the most recent
     // price-history entry so fewer OUT movements end up with a NULL cost_price_at_time.
     let costPriceAtTime: string | null = null;
@@ -739,6 +952,65 @@ export async function createManualMovement(
   });
 }
 
+/**
+ * Append a reversal for the latest manual movement under the same item lock
+ * used by every other stock writer. Selecting the candidate only after the
+ * lock prevents two concurrent requests from reversing the same movement.
+ */
+export async function cancelLastManualMovement(
+  tx: DbTx,
+  warehouseItemId: number,
+  actor: Actor,
+): Promise<WarehouseMovement> {
+  await lockItem(tx, warehouseItemId);
+  const [last] = await tx
+    .select()
+    .from(warehouseMovementsTable)
+    .where(
+      and(
+        eq(warehouseMovementsTable.warehouseItemId, warehouseItemId),
+        eq(warehouseMovementsTable.sourceType, "manual"),
+      ),
+    )
+    .orderBy(
+      desc(warehouseMovementsTable.createdAt),
+      desc(warehouseMovementsTable.id),
+    )
+    .limit(1);
+
+  if (!last) {
+    throw appError(404, "Žádný ruční pohyb ke stornování.");
+  }
+  if (last.note && /^Storno pohybu #\d+/.test(last.note)) {
+    throw appError(
+      409,
+      "Poslední pohyb je již storno — nelze stornovat znovu.",
+    );
+  }
+
+  const signedDelta =
+    last.direction === "in" ? -num(last.quantity) : num(last.quantity);
+  await assertNormalMovementNonnegative(tx, warehouseItemId, signedDelta);
+  const reverseDirection: "in" | "out" = last.direction === "in" ? "out" : "in";
+  const [reversal] = await tx
+    .insert(warehouseMovementsTable)
+    .values({
+      warehouseItemId,
+      direction: reverseDirection,
+      quantity: last.quantity,
+      unitPrice: last.unitPrice,
+      costPriceAtTime: null,
+      sourceType: "manual",
+      sourceId: null,
+      note: `Storno pohybu #${last.id}`,
+      createdByUserId: actor.userId,
+      createdByName: actor.name,
+    })
+    .returning();
+  await recomputeItemQuantity(tx, warehouseItemId);
+  return reversal;
+}
+
 // ---------------------------------------------------------------------------
 // Reads
 // ---------------------------------------------------------------------------
@@ -795,6 +1067,7 @@ function serializeMovement(row: MovementJoinRow): SerializedMovement {
 }
 
 export interface MovementFilters {
+  movementId?: number;
   warehouseItemId?: number;
   jobId?: number;
   billingDocumentId?: number;
@@ -809,6 +1082,8 @@ export async function listMovements(
   filters: MovementFilters,
 ): Promise<SerializedMovement[]> {
   const conds = [];
+  if (filters.movementId != null)
+    conds.push(eq(warehouseMovementsTable.id, filters.movementId));
   if (filters.warehouseItemId != null)
     conds.push(
       eq(warehouseMovementsTable.warehouseItemId, filters.warehouseItemId),

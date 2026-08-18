@@ -38,6 +38,7 @@ import {
 } from "./middlewares/request-body";
 import { limitPublicBearerRequests } from "./middlewares/public-bearer-rate-limit";
 import { trustedProxyRanges } from "./lib/trusted-proxy";
+import { WarehouseAppError } from "./lib/warehouse-service";
 
 const app: Express = express();
 
@@ -274,6 +275,24 @@ app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
       res.status(409).json({
         error: "Váš přístup byl mezitím ukončen. Přihlaste se znovu.",
         code: err.code,
+        requestId,
+      });
+    }
+    return;
+  }
+
+  if (
+    err instanceof WarehouseAppError &&
+    [400, 404, 409].includes(err.statusCode)
+  ) {
+    req.log?.warn(
+      { requestId, method, path, statusCode: err.statusCode },
+      "Warehouse operation rejected",
+    );
+    if (!res.headersSent) {
+      res.status(err.statusCode).json({
+        error: err.message,
+        code: "warehouse_operation_rejected",
         requestId,
       });
     }

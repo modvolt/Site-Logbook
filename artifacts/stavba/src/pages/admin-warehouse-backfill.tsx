@@ -2,19 +2,13 @@ import { useState } from "react";
 import {
   useGetWarehouseMaterialBackfillReport,
   getGetWarehouseMaterialBackfillReportQueryKey,
-  useRunWarehouseMaterialBackfill,
-  useAssignWarehouseMaterialGroup,
 } from "@workspace/api-client-react";
 import type { WarehouseMaterialBackfillAmbiguousGroup } from "@workspace/api-client-react";
-import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useToast } from "@/hooks/use-toast";
 import {
   AlertTriangle,
   CheckCircle2,
-  Link2,
-  PackageSearch,
   RefreshCw,
   ShieldAlert,
 } from "lucide-react";
@@ -50,38 +44,12 @@ function StatCard({
 
 function AmbiguousGroup({
   group,
-  onAssigned,
 }: {
   group: WarehouseMaterialBackfillAmbiguousGroup;
-  onAssigned: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [selectedId, setSelectedId] = useState<number | "">("");
-  const { toast } = useToast();
-  const assign = useAssignWarehouseMaterialGroup();
 
   const total = group.materialCount + group.activityMaterialCount;
-
-  const handleAssign = async () => {
-    if (!selectedId) return;
-    try {
-      const result = await assign.mutateAsync({
-        data: { name: group.name, warehouseItemId: Number(selectedId) },
-      });
-      const total = result.materialsAssigned + result.activityMaterialsAssigned;
-      toast({
-        title: `Přiřazeno ${total} ${total === 1 ? "řádek" : total < 5 ? "řádky" : "řádků"}`,
-        description: `${result.materialsAssigned} mat. zakázek, ${result.activityMaterialsAssigned} mat. aktivit → karta #${selectedId}`,
-      });
-      onAssigned();
-    } catch {
-      toast({
-        title: "Přiřazení selhalo",
-        description: "Zkuste to znovu nebo zkontrolujte připojení.",
-        variant: "destructive",
-      });
-    }
-  };
 
   return (
     <div className="border rounded-lg overflow-hidden">
@@ -93,7 +61,8 @@ function AmbiguousGroup({
           <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
           <span className="font-medium text-sm">{group.name}</span>
           <span className="text-xs text-muted-foreground ml-1">
-            {total} {total === 1 ? "řádek" : total < 5 ? "řádky" : "řádků"} bez odkazu
+            {total} {total === 1 ? "řádek" : total < 5 ? "řádky" : "řádků"} bez
+            odkazu
           </span>
         </div>
         <span className="text-xs text-muted-foreground">
@@ -104,69 +73,45 @@ function AmbiguousGroup({
         <div className="border-t bg-muted/10 px-4 py-3 space-y-3">
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
-              <p className="text-xs text-muted-foreground mb-1">Materiály zakázek bez odkazu</p>
+              <p className="text-xs text-muted-foreground mb-1">
+                Materiály zakázek bez odkazu
+              </p>
               <p className="font-mono font-semibold">{group.materialCount}</p>
             </div>
             <div>
-              <p className="text-xs text-muted-foreground mb-1">Materiály aktivit bez odkazu</p>
-              <p className="font-mono font-semibold">{group.activityMaterialCount}</p>
+              <p className="text-xs text-muted-foreground mb-1">
+                Materiály aktivit bez odkazu
+              </p>
+              <p className="font-mono font-semibold">
+                {group.activityMaterialCount}
+              </p>
             </div>
           </div>
 
           <div>
-            <p className="text-xs text-muted-foreground mb-2">Konfliktní skladové karty:</p>
+            <p className="text-xs text-muted-foreground mb-2">
+              Konfliktní skladové karty:
+            </p>
             <div className="space-y-1">
               {group.warehouseItems.map((wi) => (
                 <div
                   key={wi.id}
                   className="flex items-center gap-2 text-xs bg-background border rounded px-3 py-1.5"
                 >
-                  <span className="font-mono text-muted-foreground">#{wi.id}</span>
+                  <span className="font-mono text-muted-foreground">
+                    #{wi.id}
+                  </span>
                   <span className="font-medium">{wi.name}</span>
                 </div>
               ))}
             </div>
           </div>
 
-          {/* Assign action */}
-          <div className="rounded-lg border bg-background p-3 space-y-2">
-            <p className="text-xs font-medium text-foreground">
-              Přiřadit všechny nepropojené řádky k vybrané kartě
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Všechna {total > 0 ? `${total} nepropojená ` : "nepropojená "}použití jména „{group.name}" budou přiřazena
-              k vybrané kartě a pohyby skladu budou zaregistrovány.
-            </p>
-            <div className="flex gap-2 flex-col sm:flex-row sm:items-center">
-              <select
-                className="flex-1 h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
-                value={selectedId}
-                onChange={(e) =>
-                  setSelectedId(e.target.value ? Number(e.target.value) : "")
-                }
-              >
-                <option value="">-- Vyberte skladovou kartu --</option>
-                {group.warehouseItems.map((wi) => (
-                  <option key={wi.id} value={wi.id}>
-                    #{wi.id} — {wi.name}
-                  </option>
-                ))}
-              </select>
-              <Button
-                size="sm"
-                disabled={!selectedId || assign.isPending}
-                onClick={handleAssign}
-                className="shrink-0"
-              >
-                {assign.isPending ? (
-                  <RefreshCw className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-                ) : (
-                  <Link2 className="w-3.5 h-3.5 mr-1.5" />
-                )}
-                Přiřadit
-              </Button>
-            </div>
-          </div>
+          <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200">
+            Hromadné přiřazení je bezpečnostně vypnuté. Tato skupina musí být
+            zpracována řízeným maintenance plánem podle přesných ID, nikoli jen
+            podle názvu.
+          </p>
         </div>
       )}
     </div>
@@ -174,42 +119,10 @@ function AmbiguousGroup({
 }
 
 export default function AdminWarehouseBackfill() {
-  const queryClient = useQueryClient();
-  const { toast } = useToast();
-  const [running, setRunning] = useState(false);
-
-  const { data, isLoading, error, refetch } = useGetWarehouseMaterialBackfillReport({
-    query: { queryKey: getGetWarehouseMaterialBackfillReportQueryKey() },
-  });
-
-  const runBackfill = useRunWarehouseMaterialBackfill();
-
-  const handleRun = async () => {
-    setRunning(true);
-    try {
-      const result = await runBackfill.mutateAsync();
-      const total = result.materialsLinked + result.activityMaterialsLinked;
-      toast({
-        title: total > 0 ? `Propojeno ${total} řádků` : "Vše již bylo propojeno",
-        description:
-          total > 0
-            ? `${result.materialsLinked} materiálů zakázek, ${result.activityMaterialsLinked} materiálů aktivit`
-            : "Žádné nové unambiguous shody nenalezeny.",
-      });
-      queryClient.invalidateQueries({ queryKey: getGetWarehouseMaterialBackfillReportQueryKey() });
-    } catch {
-      toast({
-        title: "Backfill selhal",
-        variant: "destructive",
-      });
-    } finally {
-      setRunning(false);
-    }
-  };
-
-  const handleAssigned = () => {
-    queryClient.invalidateQueries({ queryKey: getGetWarehouseMaterialBackfillReportQueryKey() });
-  };
+  const { data, isLoading, error, refetch } =
+    useGetWarehouseMaterialBackfillReport({
+      query: { queryKey: getGetWarehouseMaterialBackfillReportQueryKey() },
+    });
 
   return (
     <div className="p-4 md:p-6 w-full">
@@ -219,9 +132,9 @@ export default function AdminWarehouseBackfill() {
           <h1 className="text-2xl font-bold">Sklad – propojení materiálů</h1>
         </div>
         <p className="text-sm text-muted-foreground mb-6">
-          Migrace 0063 přidala cizí klíč ze zakázkových materiálů na skladové karty. Tato stránka
-          ukazuje, kolik řádků ještě není propojeno, a umožňuje bezpečně spustit dopojení podle
-          shody jmen.
+          Tato stránka je pouze diagnostický report nepropojených materiálů.
+          Hromadné změny podle shody názvu jsou vypnuté, dokud nebude schválený
+          bounded maintenance plán s přesným NFKC manifestem a kontrolou ID.
         </p>
 
         {isLoading && (
@@ -234,7 +147,9 @@ export default function AdminWarehouseBackfill() {
         {error && (
           <div className="rounded-xl border border-rose-200 bg-rose-50 dark:border-rose-900 dark:bg-rose-950/20 p-4 flex items-center gap-3">
             <AlertTriangle className="w-5 h-5 text-rose-500 shrink-0" />
-            <p className="text-sm text-rose-700 dark:text-rose-300">Nepodařilo se načíst report.</p>
+            <p className="text-sm text-rose-700 dark:text-rose-300">
+              Nepodařilo se načíst report.
+            </p>
             <Button size="sm" variant="ghost" onClick={() => refetch()}>
               <RefreshCw className="w-4 h-4 mr-1" /> Zkusit znovu
             </Button>
@@ -254,7 +169,7 @@ export default function AdminWarehouseBackfill() {
               <StatCard
                 label="Lze automaticky propojit"
                 value={data.canLink}
-                sub="jednoznačná shoda jména — bezpečné spustit"
+                sub="kandidáti reportu; nejde o autorizaci zápisu"
                 highlight={data.canLink === 0 ? "ok" : "warn"}
               />
               <StatCard
@@ -265,30 +180,14 @@ export default function AdminWarehouseBackfill() {
               />
             </div>
 
-            {/* Action */}
-            <div className="rounded-xl border bg-card p-4 mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="flex items-start gap-3">
-                <Link2 className="w-5 h-5 text-muted-foreground mt-0.5 shrink-0" />
-                <div>
-                  <p className="text-sm font-medium">Spustit bezpečný backfill</p>
-                  <p className="text-xs text-muted-foreground">
-                    Propojí pouze řádky, kde existuje přesně jedna skladová karta se shodným jménem.
-                    Již propojené řádky a víceznačné shody zůstanou nedotčeny.
-                  </p>
-                </div>
-              </div>
-              <Button
-                onClick={handleRun}
-                disabled={running || data.canLink === 0}
-                className="shrink-0"
-              >
-                {running ? (
-                  <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <PackageSearch className="w-4 h-4 mr-2" />
-                )}
-                {data.canLink === 0 ? "Vše propojeno" : `Propojit ${data.canLink} řádků`}
-              </Button>
+            <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/20">
+              <p className="text-sm font-medium text-amber-900 dark:text-amber-200">
+                Zápisové akce jsou dočasně vypnuté
+              </p>
+              <p className="mt-1 text-xs text-amber-800 dark:text-amber-300">
+                Report může obsahovat kandidáty podle názvu, ale neprovádí ani
+                nenabízí jejich automatické či skupinové přiřazení.
+              </p>
             </div>
 
             {/* All good */}
@@ -306,16 +205,16 @@ export default function AdminWarehouseBackfill() {
               <div>
                 <h2 className="text-base font-semibold mb-3 flex items-center gap-2">
                   <AlertTriangle className="w-4 h-4 text-amber-500" />
-                  Víceznačné shody – vyžadují ruční řešení ({data.ambiguousGroups.length})
+                  Víceznačné shody – vyžadují ruční řešení (
+                  {data.ambiguousGroups.length})
                 </h2>
                 <p className="text-xs text-muted-foreground mb-3">
-                  Tato jména odpovídají více než jedné skladové kartě. Vyberte správnou kartu u
-                  každé skupiny a klikněte na „Přiřadit" — všechna nepropojená použití daného
-                  jména budou nalinkovány najednou.
+                  Tato jména odpovídají více než jedné skladové kartě. Seznam je
+                  pouze podklad pro budoucí řízené řešení podle přesných ID.
                 </p>
                 <div className="space-y-2">
                   {data.ambiguousGroups.map((g) => (
-                    <AmbiguousGroup key={g.name} group={g} onAssigned={handleAssigned} />
+                    <AmbiguousGroup key={g.name} group={g} />
                   ))}
                 </div>
               </div>
