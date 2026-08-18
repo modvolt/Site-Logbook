@@ -1,5 +1,51 @@
 # Deploying Stavba
 
+> [!CAUTION]
+> **STOP — current production 0096→0107 / HOLD v2 release boundary.** Parts of
+> this document describe legacy v1/v5 or ordinary operational procedures. They
+> are not production authority when they conflict with the current contracts in
+> [18 — host observation and attestation](docs/audit/18-production-host-attestation-runbook.md),
+> [19 — 0096→0107 control plane](docs/audit/19-production-0096-0107-control-plane-contract.md),
+> [20 — exact-0096 backup and isolated restore](docs/audit/20-production-exact-0096-backup-restore-contract.md),
+> [20 — database-role separation](docs/audit/20-production-db-role-separation-contract.md),
+> [21 — signing-key custody](docs/audit/21-production-signing-key-custody-runbook.md),
+> [22 — runtime credential cutover](docs/audit/22-production-runtime-db-credential-cutover.md),
+> [23 — activation HOLD v2](docs/audit/23-production-activation-hold-v2.md), and
+> [24 — activation-bundle producer](docs/audit/24-production-activation-bundle-producer.md).
+> Do not use Base64/environment evidence transport, direct `dist/index.mjs`
+> startup, rendered secret-bearing Compose, a generic live restore, or mutable
+> local image tags for this production release. On conflict, missing evidence,
+> or an ambiguous result, preserve the artifacts and stop; never retry blind.
+
+### Current production release order
+
+1. Require the exact reviewed PR head to pass all gates, merge it through the
+   reviewed two-parent merge procedure, and require the first `main` run for
+   that merge SHA to pass before freezing the production source SHA.
+2. Separately approve the four-image production publication `preflight` and
+   `complete` phases; retain the immutable image refs, publication receipt, OCI
+   provenance and signed API-image provenance.
+3. Stop writers in a separately approved maintenance window, create the exact
+   0096 backup, retain the durable S3 object/version, prove an isolated restore,
+   and verify the signed `PASS` receipt.
+4. Bootstrap the separated database roles, observe and assemble the baseline,
+   execute the ten individually receipt-backed migrations, apply the role
+   ceremony, and finalize the non-authorizing 0096→0107 transition.
+5. Perform the separately approved runtime database-credential cutover and
+   require its authoritative `PASS` receipt.
+6. Separately approve and save the exact Coolify secrets and desired
+   configuration.
+7. Deploy the reviewed immutable API and web images with
+   `activation-bundle-v2.json` absent; the API must start and remain in HOLD.
+8. Collect fresh sealed Coolify, Docker and PostgreSQL observations for that
+   exact HOLD challenge, then obtain the separate explicit activation approval.
+9. Produce both signatures over the complete fresh bundle, publish it through
+   the digest-gated host operator, then verify activation and production smoke.
+
+Merge, registry publication, maintenance/S3 write, role or migration mutation,
+runtime credential mutation, Coolify save, deployment, activation approval and
+signing, and Linux bundle publication remain separate approval boundaries.
+
 Stavba runs anywhere Docker runs — no Replit infrastructure required. The
 production runtime is three services plus an externally managed Hetzner Object
 Storage bucket:
@@ -16,12 +62,14 @@ to one origin (the session cookie depends on this).
 
 ---
 
-## 1. Render and verify the production Compose contract
+## 1. Review the production Compose contract without rendering secrets
 
-```bash
-cp .env.example .env      # then edit the secrets
-docker compose config     # inspect exact resolved bytes before approval
-```
+Review the committed `.env.example` and `docker-compose.yml` structurally.
+Do not run, retain, or submit `docker compose config` against production
+settings: interpolation can expose `DATABASE_URL` and other secrets. The final
+desired/deployed configuration equality and resolved Compose digest are
+authoritative only when derived from the sealed post-HOLD observers and bound
+into the signed activation chain.
 
 Root Compose intentionally has no `build:` entries and is not a development
 quick-start. Starting it is a production action and requires separately
@@ -35,11 +83,11 @@ What happens on startup:
    applied or exact-noop verified `0107_canonical_audit_evidence` and emitted
    canonical execution plus read-only steady-state artifacts. Root Compose does
    not run that transition.
-3. `api` verifies the production target, raw intent/execution/steady/release
-   chain, exact Coolify IDs, zero pending changes, desired/deployed config
-   equality, immutable image provenance, live PostgreSQL identity and exact
-   schema fingerprint. It then serves port 5000 **without running a migrator**.
-   Missing, stale or mismatched evidence keeps the container stopped.
+3. `api` starts `production-api-entrypoint.mjs` and serves only its loopback
+   process-health endpoint in HOLD. It does not import the application, workers,
+   database readiness code or object-storage clients, and it never runs a
+   migrator. Missing, stale or mismatched evidence keeps every external route in
+   HOLD; only the complete fresh signed bundle can import the application once.
 4. `web` (nginx) serves the PWA on port 8080 and proxies `/api` to `api`.
 
 To stop services without deleting persistent data, use `docker compose down`.
@@ -114,7 +162,10 @@ This repo's `docker-compose.yml` is Coolify-ready.
    root Compose has no MinIO fallback and never creates or mutates the bucket.
    Uploads remain proxied through the API, so no public storage subdomain or
    browser CORS policy is needed.
-5. **Deploy only after approval.** API startup is read-only and never runs a migration.
+5. **Deploy only after its separate approval.** Deployment starts the reviewed
+   API image in HOLD with `activation-bundle-v2.json` absent. It does not run a
+   migration or activate the application; fresh observation, explicit approval,
+   signing and host publication follow as separate steps.
 
 ### Using managed Postgres / S3 instead of the bundled services
 
@@ -131,6 +182,13 @@ This repo's `docker-compose.yml` is Coolify-ready.
 ---
 
 ## 3. Environment variables
+
+The current production runtime contract is defined by the committed
+`.env.example` and `docker-compose.yml`. HOLD v2 accepts no canonical evidence,
+host attestation or expected configuration digest from environment variables.
+Historical `AUDIT_*`, `PRODUCTION_AUDIT_*_B64`,
+`PRODUCTION_HOST_ATTESTATION_B64` and `PRODUCTION_EXPECTED_*` names are
+legacy/staging or control-plane notes, not production API startup authority.
 
 | Variable                                                                           | Required          | Default           | Notes                                                                                                                        |
 | ---------------------------------------------------------------------------------- | ----------------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------- |
@@ -164,24 +222,20 @@ This repo's `docker-compose.yml` is Coolify-ready.
 | `PG_DUMP_PATH`                                                                     | no                | `pg_dump`         | Path to the `pg_dump` binary if not on `PATH`.                                                                               |
 | `MIGRATIONS_DIR`                                                                   | no                | `/app/migrations` | Where the API reads SQL migrations (set in the image).                                                                       |
 | `BUILD_SHA`                                                                        | yes               | —                 | Exact 40-character commit SHA baked into the API image and bound by release evidence.                                        |
-| `AUDIT_0107_RELEASE_EVIDENCE_B64` / `AUDIT_0107_RELEASE_EVIDENCE_SHA256`           | yes               | —                 | Canonical schema-v5 release approval and its separately recorded digest.                                                     |
-| `AUDIT_0107_EXECUTION_EVIDENCE_B64` / `AUDIT_0107_EXECUTION_EVIDENCE_SHA256`       | yes               | —                 | Canonical one-shot execution evidence. It must retain `authorizesApplicationStart=false`.                                    |
-| `AUDIT_0107_INTENT_EVIDENCE_B64` / `AUDIT_0107_INTENT_EVIDENCE_SHA256`             | yes               | —                 | Canonical pre-transition intent; its exact bytes and runtime binding must match execution.                                   |
-| `AUDIT_0107_STEADY_STATE_EVIDENCE_B64` / `AUDIT_0107_STEADY_STATE_EVIDENCE_SHA256` | yes               | —                 | Canonical read-only steady-0107 evidence with `authorizesApplicationStart=true`.                                             |
-| `AUDIT_0107_RESOLVED_COMPOSE_SHA256`                                               | yes               | —                 | Separately reviewed digest of canonical resolved Compose observed by the isolated host runner.                               |
-| `AUDIT_0107_DEPLOYMENT_CONFIG_SHA256`                                              | yes               | —                 | Digest of the canonical secret-free Coolify/deployment configuration after reviewing all pending changes.                    |
-| `AUDIT_0107_LIVE_POSTGRES_TARGET_SHA256`                                           | yes               | —                 | Digest of the canonical live Postgres container/image/volume/network projection observed throughout the transition.          |
+| `AUDIT_0107_RELEASE_EVIDENCE_B64` / `AUDIT_0107_RELEASE_EVIDENCE_SHA256`           | no (legacy)       | —                 | Retired v1/v5 environment transport; not accepted by current production API startup.                                         |
+| `AUDIT_0107_EXECUTION_EVIDENCE_B64` / `AUDIT_0107_EXECUTION_EVIDENCE_SHA256`       | no (legacy)       | —                 | Retired v1/v5 environment transport; not accepted by current production API startup.                                         |
+| `AUDIT_0107_INTENT_EVIDENCE_B64` / `AUDIT_0107_INTENT_EVIDENCE_SHA256`             | no (legacy)       | —                 | Retired v1/v5 environment transport; not accepted by current production API startup.                                         |
+| `AUDIT_0107_STEADY_STATE_EVIDENCE_B64` / `AUDIT_0107_STEADY_STATE_EVIDENCE_SHA256` | no (legacy)       | —                 | Retired v1/v5 environment transport; not accepted by current production API startup.                                         |
+| `AUDIT_0107_RESOLVED_COMPOSE_SHA256`                                               | no (legacy)       | —                 | Retired copied-digest transport; only sealed final observers are authoritative.                                              |
+| `AUDIT_0107_DEPLOYMENT_CONFIG_SHA256`                                              | no (legacy)       | —                 | Retired copied-digest transport; only sealed final observers are authoritative.                                              |
+| `AUDIT_0107_LIVE_POSTGRES_TARGET_SHA256`                                           | no (legacy)       | —                 | Retired copied-digest transport; only sealed final observers are authoritative.                                              |
 | `MAX_REQUEST_BODY_MB`                                                              | no                | `50`              | Max JSON/form body size (CSV bulk imports, base64 uploads). Raise nginx `client_max_body_size` too if set above 100.         |
 
-Production additionally requires every `PRODUCTION_*_IMAGE` as an approved
-`repository@sha256:<64hex>` ref; `PRODUCTION_EXPECTED_{SOURCE_SHA,API_IMAGE,DATABASE_NAME,DATABASE_USER,TARGET_SHA256,AUDIT_SCHEMA_FINGERPRINT_SHA256,PRE_MIGRATION_BACKUP_EVIDENCE_SHA256,BACKUP_INTEGRITY_SHA256,0096_0107_TRANSITION_CHAIN_SHA256,ACTIVATION_APPROVAL_SHA256}`;
-and matching raw `PRODUCTION_AUDIT_0107_{TARGET,INTENT,EXECUTION,STEADY,RELEASE}_EVIDENCE_B64/_SHA256`
-pairs, `PRODUCTION_ACTIVATION_APPROVAL_EVIDENCE_B64/_SHA256`, and
-`PRODUCTION_HOST_ATTESTATION_B64` plus
-`PRODUCTION_HOST_ATTESTATION_SIGNATURE_B64`. None has a mutable or discovery
-fallback. The old unprefixed
-`AUDIT_0107_*` variables belong only to the staging/control-plane v5 checker and
-are not accepted by production API startup.
+Production requires every `PRODUCTION_*_IMAGE` as an approved
+`repository@sha256:<64hex>` ref. The only runtime evidence transport is the
+fixed read-only evidence mount described by the HOLD v2 contract, with the two
+pinned public-key files present before container creation and the canonical
+`activation-bundle-v2.json` absent until its separately approved publication.
 
 \* Required when using the bundled `postgres` service; otherwise supply
 `DATABASE_URL` directly.
@@ -217,51 +271,20 @@ execution and application startup are separate approval boundaries.
   The generic command is not production authorization and must not be used to
   bypass a numbered one-shot gate.
 
-### Startup release guard (fail closed before serving)
+### Current HOLD v2 startup guard
 
-This tree contains the in-process validator, canonical serialization helper,
-read-only production host observer, detached-signature verifier and the
-pre-import production startup wiring. Manually completing self-consistent JSON
-is not observed production evidence and does not make this rollout ready. Both
-reviewed public-key maps are intentionally empty until their separate offline
-custody ceremonies are completed, so the shipped production adapter currently
-fails closed with `PRODUCTION_HOST_TRUST_ROOT_UNPROVISIONED`. Activation also
-requires source-pinned publisher provenance trust, fresh canonical observations
-and signatures over the exact reviewed release chain.
+The former six-artifact/Base64 environment guard, direct
+`node --enable-source-maps /app/dist/index.mjs` command, schema-v5 copied-digest
+procedure and empty-trust-map state are legacy and are not production authority.
+Do not reproduce or recover through that path.
 
-The safe image command is `node --enable-source-maps /app/dist/index.mjs`.
-`dist/index.mjs` performs the guard in-process before dynamically importing the
-Express app, opening the port or loading workers. The safe runtime image does
-not contain `dist/migrate.mjs` or mutating gate entrypoints. It validates six
-canonical production artifacts against separately configured SHA-256 values:
-
-1. the exact Coolify production target and immutable images;
-2. the exact pre-transition production intent;
-3. the exact one-shot production execution, which must preserve the intent
-   binding and by design does **not** authorize API startup;
-4. the later read-only steady-0107 proof, which binds the live database identity,
-   exact image SHA, known migration count/hash set, the opaque legacy-row digest,
-   live schema fingerprint and `0100` exclusion;
-5. the canonical release evidence that binds the target, transition, steady
-   state and predecessor release bytes;
-6. explicit production start approval over the exact preceding bytes.
-
-The existing schema-v4 exact-0105 release evidence remains a separate immutable
-predecessor artifact. Do not edit it into schema v5; v5 records only its exact
-file digest and adds the new control artifacts plus release approval. The v5
-artifact also binds the reviewed resolved Compose, canonical secret-free
-deployment configuration and live Postgres projection digests. These digests
-must be copied from the verified host execution and reconciled with the exact
-reviewed Coolify view after resolving every pending change; the container does
-not query the Coolify control plane and therefore cannot establish that fact by
-itself.
-
-The separately signed publisher provenance records the production build profile
-and absence of mutating entrypoints. The host producer verifies that detached
-signature and binds its subject digest to the live immutable API image ref. A
-staging `control-plane` image is not an admissible value for
-`PRODUCTION_API_IMAGE`; its baked marker prevents staging-mode startup from the
-safe production target.
+The production image starts only through `production-api-entrypoint.mjs`. The
+two distinct reviewed public keys are source-pinned, and the fixed mounted
+bundle is verified before the application module can be imported. The complete
+semantic result—not an unsigned request, an environment value or a manually
+assembled digest—supplies the runtime source/image/configuration, backup,
+migration, credential, PostgreSQL and API-image-provenance bindings. A staging
+`control-plane` image remains inadmissible as `PRODUCTION_API_IMAGE`.
 
 After startup, a single-flight runtime watchdog revalidates the live journal by
 exact `(created_at, hash)` identity plus current database/user and the complete
@@ -273,33 +296,26 @@ restart only through the complete startup guard. This controls the approved
 database/schema binding, while host/Coolify state between short-lived signed
 observations remains an external monitoring boundary.
 
-The host attestation is intentionally valid for at most 15 minutes. It is a
-startup credential, not a renewable lease inside the API: an already running
-process does not self-refresh it, while any later container restart must pass
-the complete guard with a fresh observation and signature. Consequently, an
-expired attestation can produce an intentional restart loop with
-`PRODUCTION_HOST_ATTESTATION_EXPIRED`. Configure a **host-level** Coolify/node
-alert on repeated container restarts, unhealthy state and non-zero API exits;
-an in-process alert is insufficient because the guarded app and its alert
-workers never start in this failure mode.
+The activation bundle has a five-minute issuance/expiry window and is bound to
+the current process nonce plus its exact Docker container identity. It is not a
+renewable lease. Any new process challenge requires fresh observations,
+approval and signatures over a new no-clobber bundle. Configure a host-level
+Coolify/node alert on repeated container restarts, HOLD/unhealthy state and
+non-zero API exits; application workers cannot alert before activation.
 
-Safe recovery is to stop the restart loop, keep the API unavailable, and use
-read-only host/Coolify/PostgreSQL inspection to determine whether the exact
-image, desired/deployed configuration, database identity and schema still match
-the approved release. Resolve real drift through its separately approved
-procedure. Then reacquire the raw projections, produce and review a fresh
-short-lived host attestation, sign it offline, update only the public
-attestation/signature transport values, and restart the same reviewed immutable
-image through the full startup guard. Never extend timestamps, reuse an expired
-attestation, disable the guard, add an emergency trust key, switch to the
-control-plane image, or repeatedly restart until one attempt happens to pass.
+Safe recovery keeps the API in HOLD, preserves a rejected bundle under a
+separate audit filename outside the fixed live path, resolves any real drift
+through its own approved procedure, and starts the same reviewed immutable image
+with the live bundle filename absent. Reacquire every observation and approval
+for the new challenge, then use the attended producer and digest-gated host
+publication again. Never edit timestamps, nonces, digests or signatures; add an
+emergency trust key; switch to the control-plane image; delete unreviewed
+evidence merely to retry; or repeatedly restart until an attempt passes.
 
-The currently observed Coolify state (one pending Compose change and mutable
-image/build references in desired configuration) does **not** satisfy this
-contract. Activation remains blocked until pending changes are zero, deployed
-and desired canonical digests match, every production image is an approved
-immutable digest, and the production host producer emits the complete backup
-and 0096→0107 transition-chain evidence.
+Never treat a deployment-state snapshot written in this document as current.
+Only fresh sealed Coolify, Docker and PostgreSQL observations from the exact
+HOLD ceremony can establish zero pending changes, desired/deployed equality,
+resolved Compose identity and the live database binding.
 
 ### If the deployed DB falls behind the code
 
@@ -327,6 +343,13 @@ execution receipt. The generic migrator command is not a recovery procedure.
 
 ## 5. Database backups & restore
 
+> [!WARNING]
+> The scheduled/manual API backups below are ordinary operational backups. They
+> do not satisfy the exact-0096 release gate. The current release must use the
+> signed plan, exact Hetzner S3 object version, isolated PostgreSQL restore
+> lifecycle and authoritative `PASS` receipt in
+> [the exact-0096 contract](docs/audit/20-production-exact-0096-backup-restore-contract.md).
+
 The API takes **automated `pg_dump` backups** and uploads them to the same object
 storage bucket as uploads, under the `backups/` prefix. Backups use Postgres's
 custom format (`pg_dump -Fc`), which is compressed and restorable with
@@ -345,7 +368,7 @@ custom format (`pg_dump -Fc`), which is compressed and restorable with
   `postgresql-client-16`. If object storage is not configured, backups are
   skipped (logged, not fatal).
 
-### Restoring from a backup
+### Restoring an operational backup into an isolated database
 
 1. Download the desired backup (admin UI or `GET /api/backups/:id/download`).
    The file is named `stavba-<timestamp>.pgcustom`.
@@ -362,21 +385,31 @@ custom format (`pg_dump -Fc`), which is compressed and restorable with
      stavba-<timestamp>.pgcustom
    ```
 
-   To restore into the live database, point `-d` at it (stop the API first to
-   avoid concurrent writes). `--no-owner --no-acl` avoids role-ownership errors
-   when restoring across different Postgres users.
+   `--no-owner --no-acl` avoids role-ownership errors when restoring across
+   different Postgres users.
 
-3. Point the app's `DATABASE_URL` at the restored database (or swap it in place)
-   only after a separately approved exact migration gate has verified the
-   restored lineage. Restarting the production API is read-only and never runs
-   migrations.
+   Never point this generic procedure at the live production database. A live
+   restore or database swap is a distinct destructive recovery action requiring
+   its own reviewed runbook, exact target resolution and explicit approval; it
+   is not part of the current release procedure.
+
+3. Keep the restored database isolated and validate its lineage and contents as
+   a recovery drill. Do not point the production application at it through this
+   worksheet.
 
 > **Tip:** periodically test a restore into a throwaway database — an untested
 > backup is not a backup.
 
 ---
 
-## 6. Building images individually
+## 6. Building local development images individually
+
+> [!WARNING]
+> The mutable tags produced below are non-production developer conveniences.
+> They are not reviewed publication authority and must never be deployed for the
+> current release. Production authority comes only from the separately approved
+> two-phase four-image workflow and its immutable digest-bound receipt and
+> provenance.
 
 Both Dockerfiles expect the **repository root** as the build context:
 
