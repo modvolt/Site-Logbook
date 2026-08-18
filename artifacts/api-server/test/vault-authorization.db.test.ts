@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import request, { type SuperAgentTest } from "supertest";
+import type { Server } from "node:http";
 import bcrypt from "bcryptjs";
 import { eq, inArray } from "drizzle-orm";
 import {
@@ -35,6 +36,43 @@ let cannotView: TestActor;
 let cannotManage: TestActor;
 let cannotAccessCustomer: TestActor;
 let fullAccess: TestActor;
+let testServer: Server | undefined;
+const createdActorIds: number[] = [];
+
+async function startTestServer(): Promise<Server> {
+  return await new Promise<Server>((resolve, reject) => {
+    const server = app.listen(0, "127.0.0.1");
+    const onError = (error: Error) => {
+      server.off("listening", onListening);
+      reject(error);
+    };
+    const onListening = () => {
+      server.off("error", onError);
+      resolve(server);
+    };
+    server.once("error", onError);
+    server.once("listening", onListening);
+  });
+}
+
+async function closeTestServer(): Promise<void> {
+  const server = testServer;
+  if (!server?.listening) return;
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => (error ? reject(error) : resolve()));
+  });
+}
+
+function requireTestServer(): Server {
+  if (!testServer?.listening) {
+    throw new Error("The vault authorization test server is not listening.");
+  }
+  return testServer;
+}
+
+function createTestAgent(): SuperAgentTest {
+  return request.agent(requireTestServer());
+}
 
 async function createActor(
   username: string,
@@ -43,8 +81,15 @@ async function createActor(
   const passwordHash = await bcrypt.hash(PASSWORD, 4);
   const [user] = await db
     .insert(usersTable)
-    .values({ username, passwordHash, name: username, role: "master", isActive: true })
+    .values({
+      username,
+      passwordHash,
+      name: username,
+      role: "master",
+      isActive: true,
+    })
     .returning();
+  createdActorIds.push(user.id);
   if (deniedPermissions.length > 0) {
     await db.insert(userPermissionOverridesTable).values(
       deniedPermissions.map((permission) => ({
@@ -55,7 +100,7 @@ async function createActor(
     );
   }
 
-  const agent = request.agent(app);
+  const agent = createTestAgent();
   const login = await agent
     .post("/api/auth/login")
     .send({ username, password: PASSWORD });
@@ -65,7 +110,7 @@ async function createActor(
 }
 
 async function loginActor(username: string): Promise<SuperAgentTest> {
-  const agent = request.agent(app);
+  const agent = createTestAgent();
   const login = await agent
     .post("/api/auth/login")
     .send({ username, password: PASSWORD });
@@ -108,6 +153,7 @@ beforeAll(async () => {
     .returning();
   credentialId = credential.id;
 
+  testServer = await startTestServer();
   cannotView = await createActor("vault-deny-view", ["credentials.view"]);
   cannotManage = await createActor("vault-deny-manage", ["credentials.manage"]);
   cannotAccessCustomer = await createActor("vault-deny-customer", [
@@ -118,21 +164,40 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  const actorIds = [
-    cannotView.userId,
-    cannotManage.userId,
-    cannotAccessCustomer.userId,
-    fullAccess.userId,
-  ];
-  await db.delete(userSessionsTable);
-  await db.delete(auditLogTable);
-  await db.delete(deviceCredentialsTable);
-  await db.delete(customersTable);
-  await db
-    .delete(userPermissionOverridesTable)
-    .where(inArray(userPermissionOverridesTable.userId, actorIds));
-  await db.delete(usersTable).where(inArray(usersTable.id, actorIds));
-  await pool.end();
+  const teardownErrors: unknown[] = [];
+  try {
+    await closeTestServer();
+  } catch (error) {
+    teardownErrors.push(error);
+  }
+  try {
+    await db.delete(userSessionsTable);
+    await db.delete(auditLogTable);
+    await db.delete(deviceCredentialsTable);
+    await db.delete(customersTable);
+    if (createdActorIds.length > 0) {
+      await db
+        .delete(userPermissionOverridesTable)
+        .where(inArray(userPermissionOverridesTable.userId, createdActorIds));
+      await db
+        .delete(usersTable)
+        .where(inArray(usersTable.id, createdActorIds));
+    }
+  } catch (error) {
+    teardownErrors.push(error);
+  }
+  try {
+    await pool.end();
+  } catch (error) {
+    teardownErrors.push(error);
+  }
+  if (teardownErrors.length === 1) throw teardownErrors[0];
+  if (teardownErrors.length > 1) {
+    throw new AggregateError(
+      teardownErrors,
+      "Vault authorization test teardown failed.",
+    );
+  }
 });
 
 describe("credential vault permission composition", () => {
@@ -146,7 +211,9 @@ describe("credential vault permission composition", () => {
         .patch(`/api/device-credentials/${credentialId}`)
         .send({ note: "blocked-update" }),
       fullAccess.agent.delete(`/api/device-credentials/${credentialId}`),
-      fullAccess.agent.post(`/api/customers/${customerId}/device-credentials/audit-export`),
+      fullAccess.agent.post(
+        `/api/customers/${customerId}/device-credentials/audit-export`,
+      ),
       fullAccess.agent
         .post(`/api/device-credentials/${credentialId}/audit-access`)
         .send({ action: "view", field: "password" }),
@@ -165,7 +232,11 @@ describe("credential vault permission composition", () => {
       .send({ password: "wrong-password" });
     expect(wrongPassword.status).toBe(401);
     expect(
-      (await fullAccess.agent.get(`/api/customers/${customerId}/device-credentials`)).status,
+      (
+        await fullAccess.agent.get(
+          `/api/customers/${customerId}/device-credentials`,
+        )
+      ).status,
     ).toBe(403);
 
     const verified = await fullAccess.agent
@@ -179,13 +250,18 @@ describe("credential vault permission composition", () => {
     );
     expect(listed.status).toBe(200);
     expect(listed.body).toEqual([
-      expect.objectContaining({ id: credentialId, password: "vault-canary-secret" }),
+      expect.objectContaining({
+        id: credentialId,
+        password: "vault-canary-secret",
+      }),
     ]);
 
     const [audit] = await db
       .select()
       .from(auditLogTable)
-      .where(eq(auditLogTable.action, "security.auth.vault.password.succeeded"));
+      .where(
+        eq(auditLogTable.action, "security.auth.vault.password.succeeded"),
+      );
     expect(audit).toMatchObject({
       actorUserId: fullAccess.userId,
       action: "security.auth.vault.password.succeeded",
@@ -203,7 +279,9 @@ describe("credential vault permission composition", () => {
   it("applies credentials.view deny to every plaintext read and distribution path", async () => {
     const responses = await Promise.all([
       cannotView.agent.get(`/api/customers/${customerId}/device-credentials`),
-      cannotView.agent.post(`/api/customers/${customerId}/device-credentials/audit-export`),
+      cannotView.agent.post(
+        `/api/customers/${customerId}/device-credentials/audit-export`,
+      ),
       cannotView.agent
         .post(`/api/device-credentials/${credentialId}/audit-access`)
         .send({ action: "view", field: "password" }),
@@ -266,14 +344,18 @@ describe("credential vault permission composition", () => {
 describe("internal API boundary integration", () => {
   it("returns a private authorization scope that is stable only for the same identity epoch", async () => {
     const sameSession = await fullAccess.agent.get("/api/auth/me");
-    const nextSession = await (await loginActor(fullAccess.username)).get("/api/auth/me");
+    const nextSession = await (
+      await loginActor(fullAccess.username)
+    ).get("/api/auth/me");
     const otherIdentity = await cannotView.agent.get("/api/auth/me");
 
     expect(sameSession.status).toBe(200);
     expect(sameSession.headers["cache-control"]).toBe("private, no-store");
     expect(sameSession.body.offlineScope).toMatch(/^[a-f0-9]{64}$/);
     expect(nextSession.body.offlineScope).toBe(sameSession.body.offlineScope);
-    expect(otherIdentity.body.offlineScope).not.toBe(sameSession.body.offlineScope);
+    expect(otherIdentity.body.offlineScope).not.toBe(
+      sameSession.body.offlineScope,
+    );
 
     const accepted = await fullAccess.agent
       .get("/api/sessions")
@@ -291,15 +373,19 @@ describe("internal API boundary integration", () => {
   });
 
   it("keeps unknown and wrong-method internal routes behind session auth", async () => {
-    const unknown = await request(app).post("/api/internal/future-admin-action");
+    const unknown = await request(requireTestServer()).post(
+      "/api/internal/future-admin-action",
+    );
     expect(unknown.status).toBe(401);
 
-    const wrongMethod = await request(app).get("/api/internal/backup-trigger");
+    const wrongMethod = await request(requireTestServer()).get(
+      "/api/internal/backup-trigger",
+    );
     expect(wrongMethod.status).toBe(401);
   });
 
   it("reaches the exact public backup trigger but rejects a wrong bearer token", async () => {
-    const response = await request(app)
+    const response = await request(requireTestServer())
       .post("/api/internal/backup-trigger")
       .set("Authorization", "Bearer wrong-isolated-secret");
     expect(response.status).toBe(401);
@@ -329,8 +415,11 @@ describe("internal API boundary integration", () => {
   });
 
   it("keeps the documented PPE confirmation endpoint public without widening near-misses", async () => {
-    const getResponse = await request(app).get("/api/ppe/confirm");
-    const postResponse = await request(app).post("/api/ppe/confirm").send({});
+    const getResponse =
+      await request(requireTestServer()).get("/api/ppe/confirm");
+    const postResponse = await request(requireTestServer())
+      .post("/api/ppe/confirm")
+      .send({});
     for (const response of [getResponse, postResponse]) {
       expect(response.status).toBe(401);
       expect(response.headers["www-authenticate"]).toBe("Bearer");
