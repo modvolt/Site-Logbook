@@ -132,6 +132,11 @@ test("runtime uses only synthetic test configuration and test-only provider boun
     "node",
     "/app/dist/migrate.mjs",
   ]);
+  assert.deepEqual(compose.services.api.command, [
+    "node",
+    "--enable-source-maps",
+    "/app/dist/index.mjs",
+  ]);
   assert.equal(
     compose.services.api.depends_on.migrate.condition,
     "service_completed_successfully",

@@ -98,6 +98,7 @@ services:
     image: ${R14_API_IMAGE:?set exact-SHA local R14 API image}
     pull_policy: never
     restart: "no"
+    command: ["node", "--enable-source-maps", "/app/dist/index.mjs"]
     depends_on:
       postgres:
         condition: service_healthy
