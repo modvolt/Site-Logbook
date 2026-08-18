@@ -70,7 +70,9 @@ function containerProjection(container) {
 }
 
 async function listAllContainerIds(runDocker) {
-  const ids = (await runDocker(["container", "ls", "-aq"]))
+  const ids = (
+    await runDocker(["container", "ls", "--all", "--quiet", "--no-trunc"])
+  )
     .split(/\r?\n/)
     .map((entry) => entry.trim())
     .filter(Boolean);

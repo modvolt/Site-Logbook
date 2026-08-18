@@ -160,7 +160,7 @@ function dockerRunner(
   const calls: readonly string[][] = [] as string[][];
   const runDocker = async (args: readonly string[]) => {
     (calls as string[][]).push([...args]);
-    if (args.join(" ") === "container ls -aq") {
+    if (args.join(" ") === "container ls --all --quiet --no-trunc") {
       return `${containers.map((entry) => entry.Id).join("\n")}\n`;
     }
     if (args[0] === "container" && args[1] === "inspect") {
@@ -270,6 +270,14 @@ describe("production host PostgreSQL authoritative observer", () => {
     expect(verified.containerId).toBe(CONTAINER_ID);
     expect(verified.sha256).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(Object.getOwnPropertySymbols(verified)).toHaveLength(0);
+    expect(
+      docker.calls.filter(
+        (args) => args[0] === "container" && args[1] === "ls",
+      ),
+    ).toEqual([
+      ["container", "ls", "--all", "--quiet", "--no-trunc"],
+      ["container", "ls", "--all", "--quiet", "--no-trunc"],
+    ]);
     expect(
       docker.calls.every(
         (args) =>

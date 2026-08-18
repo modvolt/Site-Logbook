@@ -861,7 +861,7 @@ test("Docker observer uses only read-only inventory verbs and includes stopped p
   let clock = NOW;
   const runDocker = async (args) => {
     commands.push(args);
-    if (args.join(" ") === "container ls -aq") {
+    if (args.join(" ") === "container ls --all --quiet --no-trunc") {
       return `${containers.map((container) => container.Id).join("\n")}\n`;
     }
     if (args[0] === "container" && args[1] === "inspect") {
@@ -897,6 +897,13 @@ test("Docker observer uses only read-only inventory verbs and includes stopped p
   });
   assert.equal(result.value.volumePeers.length, 2);
   assert.equal(result.value.networkPeers.length, 4);
+  assert.deepEqual(
+    commands.filter((args) => args[0] === "container" && args[1] === "ls"),
+    [
+      ["container", "ls", "--all", "--quiet", "--no-trunc"],
+      ["container", "ls", "--all", "--quiet", "--no-trunc"],
+    ],
+  );
   assert.ok(
     commands.every(
       (args) =>
@@ -951,7 +958,7 @@ test("rejects a peer image mismatch and Docker inventory race", async () => {
     },
   };
   const runDocker = async (args) => {
-    if (args.join(" ") === "container ls -aq") {
+    if (args.join(" ") === "container ls --all --quiet --no-trunc") {
       listCount += 1;
       return listCount === 1
         ? `${CONTAINER_ID}\n`
