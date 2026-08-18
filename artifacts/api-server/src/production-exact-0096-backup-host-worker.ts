@@ -184,6 +184,22 @@ export function productionExact0096PgRestoreEnvironment(
   });
 }
 
+export function productionExact0096PgRestoreArguments(
+  target: Readonly<{ host: string; database: string; user: string }>,
+): readonly string[] {
+  return Object.freeze([
+    "--exit-on-error",
+    "--no-owner",
+    "--no-acl",
+    "--host",
+    target.host,
+    "--dbname",
+    target.database,
+    "--username",
+    target.user,
+  ]);
+}
+
 export async function measureProductionExact0096AuditSchemaFingerprint(
   client: Pick<pg.Client, "query">,
 ): Promise<string> {
@@ -468,7 +484,7 @@ async function restoreObject(
   );
   const child = spawn(
     "pg_restore",
-    ["--exit-on-error", "--no-owner", "--no-acl"],
+    productionExact0096PgRestoreArguments(target),
     {
       stdio: ["pipe", "ignore", "ignore"],
       windowsHide: true,

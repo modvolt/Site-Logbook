@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   measureProductionExact0096AuditSchemaFingerprint,
+  productionExact0096PgRestoreArguments,
   productionExact0096PgRestoreEnvironment,
   summarizeProductionExact0096WriterWindow,
 } from "../src/production-exact-0096-backup-host-worker";
@@ -31,6 +32,26 @@ describe("production exact-0096 host worker process boundary", () => {
     expect(environment).not.toHaveProperty("DATABASE_URL");
     expect(environment).not.toHaveProperty("S3_SECRET_ACCESS_KEY");
     expect(environment).not.toHaveProperty("BACKUP_ENCRYPTION_KEYRING");
+  });
+
+  it("binds pg_restore to the exact disposable host, database, and role", () => {
+    expect(
+      productionExact0096PgRestoreArguments({
+        host: "restore-postgres",
+        database: "site_logbook_restore",
+        user: "site_logbook_restore",
+      }),
+    ).toEqual([
+      "--exit-on-error",
+      "--no-owner",
+      "--no-acl",
+      "--host",
+      "restore-postgres",
+      "--dbname",
+      "site_logbook_restore",
+      "--username",
+      "site_logbook_restore",
+    ]);
   });
 
   it("measures the fingerprint through only authoritative read-only catalog projections", async () => {
