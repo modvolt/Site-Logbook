@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 export const PRODUCTION_MIGRATION_PLAN_SCHEMA =
-  "site-logbook.production-migration-plan/v1";
+  "site-logbook.production-migration-plan/v2";
 export const PRODUCTION_MIGRATION_INTENT_SCHEMA =
   "site-logbook.production-migration-intent/v1";
 export const PRODUCTION_MIGRATION_STEP_RECEIPT_SCHEMA =

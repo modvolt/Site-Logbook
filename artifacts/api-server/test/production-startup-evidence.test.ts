@@ -90,7 +90,7 @@ function fixture() {
       imageProfile: "production",
       mutatingEntrypointsPresent: false,
     },
-    database: { name: "site_logbook", user: "site_logbook" },
+    database: { name: "site_logbook", user: "site_logbook_runtime" },
     livePostgresTarget: {
       ...postgresProjection,
       projectionSha256: productionEvidenceSha256(
@@ -150,7 +150,7 @@ function fixture() {
     targetEvidenceSha256: target.sha256,
     productionTargetsTouched: true,
     databaseName: "site_logbook",
-    databaseUser: "site_logbook",
+    databaseUser: "site_logbook_runtime",
     schemaFingerprintSha256: SCHEMA_SHA,
     lineage,
     checkedAt: new Date(now - 3 * 60_000).toISOString(),
@@ -185,7 +185,7 @@ function fixture() {
     expectedSourceSha: SOURCE_SHA,
     expectedApiImage: API_IMAGE,
     expectedDatabaseName: "site_logbook",
-    expectedDatabaseUser: "site_logbook",
+    expectedDatabaseUser: "site_logbook_runtime",
     expectedTargetSha256: target.sha256,
     expectedSchemaFingerprintSha256: SCHEMA_SHA,
     expectedPreMigrationBackupEvidenceSha256: BACKUP_SHA,
@@ -209,7 +209,7 @@ function fixture() {
     NODE_ENV: "production",
     EXTERNAL_ACCOUNTS_ENABLED: "false",
     BUILD_SHA: SOURCE_SHA,
-    DATABASE_URL: "postgres://redacted",
+    DATABASE_URL: `postgres://site_logbook_runtime:${"R".repeat(48)}@postgres:5432/site_logbook`,
     MIGRATIONS_DIR: "/app/migrations",
     S3_ENDPOINT: "https://fsn1.your-objectstorage.com",
     S3_REGION: "fsn1",
@@ -254,7 +254,7 @@ function fixture() {
 function liveReadiness(): ProductionAuditDatabaseReadiness {
   return {
     databaseName: "site_logbook",
-    databaseUser: "site_logbook",
+    databaseUser: "site_logbook_runtime",
     schemaFingerprintSha256: SCHEMA_SHA,
     latestKnownAppliedTag: "0107_canonical_audit_evidence",
     knownExpectedMigrations: 107,
@@ -407,6 +407,49 @@ describe("production startup evidence", () => {
         },
       ),
     ).rejects.toThrow(/PRODUCTION_EXPECTED_TARGET_SHA256/);
+    expect(verifyDatabase).not.toHaveBeenCalled();
+  });
+
+  it("rejects an admin, migrator, or credential-less API database URL before DB access", async () => {
+    const { env } = fixture();
+    const verifyDatabase = vi.fn(async () => liveReadiness());
+    for (const changed of [
+      {
+        DATABASE_URL: `postgres://stavba:${"R".repeat(48)}@postgres:5432/site_logbook`,
+      },
+      {
+        DATABASE_URL: `postgres://site_logbook_migrator:${"R".repeat(48)}@postgres:5432/site_logbook`,
+      },
+      {
+        DATABASE_URL:
+          "postgres://site_logbook_runtime@postgres:5432/site_logbook",
+      },
+      {
+        DATABASE_URL: `postgres://site_logbook_runtime:${"R".repeat(48)}@postgres:5432/site_logbook?user=stavba`,
+      },
+      {
+        DATABASE_URL: `postgres://site_logbook_runtime:${"R".repeat(48)}@postgres:5432/site_logbook?password=admin-secret`,
+      },
+      {
+        DATABASE_URL: `postgres://site_logbook_runtime:${"R".repeat(48)}@postgres:5432/site_logbook?host=other-postgres`,
+      },
+      {
+        DATABASE_URL: `postgres://site_logbook_runtime:${"R".repeat(48)}@postgres:5432/site_logbook?port=6543`,
+      },
+      {
+        DATABASE_URL: `postgres://site_logbook_runtime:${"R".repeat(48)}@other-postgres:5432/site_logbook`,
+      },
+      {
+        DATABASE_URL: `postgres://site_logbook_runtime:${"R".repeat(48)}@postgres:5433/site_logbook`,
+      },
+    ]) {
+      await expect(
+        runProductionStartupPreflight({ ...env, ...changed }, SOURCE_SHA, {
+          verifyObservedHostRunner: acceptObservedHostRunner,
+          verifyDatabase,
+        }),
+      ).rejects.toThrow(/PRODUCTION_RUNTIME_DATABASE_/);
+    }
     expect(verifyDatabase).not.toHaveBeenCalled();
   });
 

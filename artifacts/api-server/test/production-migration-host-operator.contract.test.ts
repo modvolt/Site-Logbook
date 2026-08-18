@@ -86,7 +86,7 @@ describe("production migration host operator boundary", () => {
     const planInput = fixturePlanInput();
     const request = {
       schemaVersion:
-        "site-logbook.production-migration-runner-assembly-request/v1",
+        "site-logbook.production-migration-runner-assembly-request/v2",
       kind: "site-logbook-production-migration-runner-assembly-request",
       sourceSha: planInput.sourceSha,
       databaseName: planInput.database.name,
@@ -104,31 +104,35 @@ describe("production migration host operator boundary", () => {
         backupSignatureEnvelope: "evidence/backup-signature.json",
         backupDetachedSignature: "evidence/backup-signature.bin",
         rolePrecondition: "evidence/role-precondition.json",
+        roleBootstrapReceipt: "evidence/role-bootstrap-receipt.json",
       },
       confirmation: PRODUCTION_MIGRATION_RUNNER_ASSEMBLY_CONFIRMATION,
       authorizesProductionMigration: false,
       authorizesApplicationStart: false,
     };
+    const artifacts = {
+      targetEvidence: planInput.targetEvidenceCanonical,
+      baselineLiveIdentity: planInput.baselineLiveIdentityCanonical,
+      backupPlan: planInput.backupPlanCanonical,
+      backupExecutorTrace: planInput.backupExecutorTraceCanonical,
+      backupReceipt: planInput.backupReceiptCanonical,
+      backupSignatureEnvelope: planInput.backupSignatureEnvelopeCanonical,
+      backupDetachedSignature: Buffer.from(
+        planInput.backupDetachedSignatureB64,
+        "base64",
+      ),
+      rolePrecondition: planInput.rolePreconditionCanonical,
+      roleBootstrapReceipt: planInput.roleBootstrapReceiptCanonical,
+    };
+    const backupAuthority = {
+      assertInputSignature() {},
+      assertPlanSignature() {},
+    };
     const assembly = createProductionMigrationRunnerAssembly(
       request,
+      artifacts,
       {
-        targetEvidence: planInput.targetEvidenceCanonical,
-        baselineLiveIdentity: planInput.baselineLiveIdentityCanonical,
-        backupPlan: planInput.backupPlanCanonical,
-        backupExecutorTrace: planInput.backupExecutorTraceCanonical,
-        backupReceipt: planInput.backupReceiptCanonical,
-        backupSignatureEnvelope: planInput.backupSignatureEnvelopeCanonical,
-        backupDetachedSignature: Buffer.from(
-          planInput.backupDetachedSignatureB64,
-          "base64",
-        ),
-        rolePrecondition: planInput.rolePreconditionCanonical,
-      },
-      {
-        backupAuthority: {
-          assertInputSignature() {},
-          assertPlanSignature() {},
-        },
+        backupAuthority,
       },
     );
     const descriptor = JSON.parse(assembly.descriptorCanonical);
@@ -145,6 +149,31 @@ describe("production migration host operator boundary", () => {
     expect(activation.approvalId).toBe(request.approvalId);
     expect(activation.authorizesApplicationStart).toBe(false);
     expect(assembly.authorizesProductionMigration).toBe(false);
+
+    for (const invalidSignature of [
+      Buffer.from(planInput.backupDetachedSignatureB64, "utf8"),
+      Buffer.alloc(63),
+      Buffer.alloc(65),
+    ]) {
+      expect(() =>
+        createProductionMigrationRunnerAssembly(
+          request,
+          { ...artifacts, backupDetachedSignature: invalidSignature },
+          { backupAuthority },
+        ),
+      ).toThrow(/PRODUCTION_MIGRATION_HOST_OPERATOR_INPUT_INVALID/);
+    }
+    expect(() =>
+      createProductionMigrationRunnerAssembly(
+        {
+          ...request,
+          schemaVersion:
+            "site-logbook.production-migration-runner-assembly-request/v1",
+        },
+        artifacts,
+        { backupAuthority },
+      ),
+    ).toThrow(/PRODUCTION_MIGRATION_HOST_OPERATOR_INPUT_INVALID/);
   });
 
   it("keeps runner assembly dark before reading any request path", async () => {

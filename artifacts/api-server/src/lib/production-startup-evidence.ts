@@ -3,6 +3,7 @@ import {
   AUDIT_SCHEMA_KNOWN_ROWS_SHA256,
   AUDIT_SCHEMA_OPAQUE_ROWS_SHA256,
 } from "@workspace/db/audit-schema-preflight";
+import { requireProductionRuntimeDatabaseUser } from "./production-runtime-database";
 
 const SHA = /^[0-9a-f]{40}$/;
 const SHA256 = /^sha256:[0-9a-f]{64}$/;
@@ -590,9 +591,8 @@ export function validateProductionAudit0107ReleaseEvidence(
       rawInput.expectedDatabaseName,
       "expectedDatabaseName",
     ),
-    expectedDatabaseUser: stringAt(
-      rawInput.expectedDatabaseUser,
-      "expectedDatabaseUser",
+    expectedDatabaseUser: requireProductionRuntimeDatabaseUser(
+      stringAt(rawInput.expectedDatabaseUser, "expectedDatabaseUser"),
     ),
     expectedTargetSha256: digestAt(
       rawInput.expectedTargetSha256,

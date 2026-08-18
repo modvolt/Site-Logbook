@@ -69,7 +69,7 @@ async function buildFixturePlanInput(
     sourceSha: fixtureSourceSha,
     database,
     inventory: fixtureInventory(0),
-    capturedAt: "2026-08-12T09:55:00.000Z",
+    capturedAt: "2026-08-12T10:08:00.000Z",
     authorizesProductionMigration: false,
   });
   const backupPlan = createProductionExact0096BackupPlan(backupPlanInput);
@@ -106,7 +106,7 @@ async function buildFixturePlanInput(
     postgresImageRef: backupPlan.value.runtimeBinding.postgresImageRef,
     runtimeBindingSha256: backupPlan.value.runtimeBindingSha256,
     inventory: fixtureInventory(0),
-    observedAt: "2026-08-12T09:55:00.000Z",
+    observedAt: "2026-08-12T10:08:00.000Z",
   });
   const preProjectionCanonical = createProductionMigrationArtifact({
     schemaVersion: "site-logbook.production-db-role-separation/v1",
@@ -148,10 +148,30 @@ async function buildFixturePlanInput(
     preProjectionSha256: createHash("sha256")
       .update(preProjectionCanonical.canonical)
       .digest("hex"),
-    capturedAt: "2026-08-12T09:56:00.000Z",
+    capturedAt: "2026-08-12T10:07:00.000Z",
     migrationRoleCanApplyMigrations: true,
     runtimeRoleCanApplyMigrations: false,
     authorizesApplicationStart: false,
+  });
+  const roleBootstrapReceipt = createProductionMigrationArtifact({
+    schemaVersion:
+      "site-logbook.production-migration-role-bootstrap-receipt/v1",
+    kind: "site-logbook-production-migration-role-bootstrap-receipt",
+    sourceSha: fixtureSourceSha,
+    database,
+    migrationRole: database.currentUser,
+    runtimeRole: "site_logbook_runtime",
+    approvalId: "approved-production-role-ceremony-20260818",
+    rolePlanSha256,
+    preProjectionSha256: rolePrecondition.value.preProjectionSha256,
+    preconditionSha256: rolePrecondition.sha256,
+    statementCount: 1,
+    transactionCommitted: true,
+    capturedAt: rolePrecondition.value.capturedAt,
+    committedAt: "2026-08-12T10:07:30.000Z",
+    postCommitProjectionSha256: rolePrecondition.value.preProjectionSha256,
+    authorizesApplicationStart: false,
+    authorizesDeployment: false,
   });
   return {
     sourceSha: fixtureSourceSha,
@@ -164,6 +184,7 @@ async function buildFixturePlanInput(
     backupSignatureEnvelopeCanonical: backupSignatureEnvelope.canonical,
     backupDetachedSignatureB64,
     rolePreconditionCanonical: rolePrecondition.canonical,
+    roleBootstrapReceiptCanonical: roleBootstrapReceipt.canonical,
     baselineInventory: fixtureInventory(0),
   };
 }

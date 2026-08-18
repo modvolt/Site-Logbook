@@ -308,6 +308,85 @@ test("binds backup v3 live source and executor as distinct exact identities", as
   );
 });
 
+test("accepts backup -> role-bootstrap -> fresh baseline and rejects stale or swapped role evidence", () => {
+  const accepted = fixturePlanInput();
+  const backupCompletedAt = Date.parse(
+    JSON.parse(accepted.backupReceiptCanonical).completedAt,
+  );
+  const roleCapturedAt = Date.parse(
+    JSON.parse(accepted.rolePreconditionCanonical).capturedAt,
+  );
+  const bootstrapCommittedAt = Date.parse(
+    JSON.parse(accepted.roleBootstrapReceiptCanonical).committedAt,
+  );
+  const baselineObservedAt = Date.parse(
+    JSON.parse(accepted.baselineLiveIdentityCanonical).observedAt,
+  );
+  assert.ok(backupCompletedAt <= roleCapturedAt);
+  assert.ok(roleCapturedAt <= bootstrapCommittedAt);
+  assert.ok(bootstrapCommittedAt <= baselineObservedAt);
+  assert.doesNotThrow(() => createProductionMigrationPlan(accepted));
+
+  const stale = fixturePlanInput();
+  const staleRole = JSON.parse(stale.rolePreconditionCanonical);
+  staleRole.capturedAt = "2026-08-12T10:05:59.000Z";
+  stale.rolePreconditionCanonical = canonicalProductionMigrationJson(staleRole);
+  const staleReceipt = JSON.parse(stale.roleBootstrapReceiptCanonical);
+  staleReceipt.capturedAt = staleRole.capturedAt;
+  staleReceipt.committedAt = "2026-08-12T10:05:59.500Z";
+  staleReceipt.preconditionSha256 = `sha256:${sha256(
+    stale.rolePreconditionCanonical,
+  )}`;
+  stale.roleBootstrapReceiptCanonical =
+    canonicalProductionMigrationJson(staleReceipt);
+  assert.throws(
+    () => createProductionMigrationPlan(stale),
+    /PRODUCTION_MIGRATION_TIME_INVALID/,
+  );
+
+  const afterBaseline = fixturePlanInput();
+  const lateRole = JSON.parse(afterBaseline.rolePreconditionCanonical);
+  lateRole.capturedAt = "2026-08-12T10:08:01.000Z";
+  afterBaseline.rolePreconditionCanonical =
+    canonicalProductionMigrationJson(lateRole);
+  const lateReceipt = JSON.parse(afterBaseline.roleBootstrapReceiptCanonical);
+  lateReceipt.capturedAt = lateRole.capturedAt;
+  lateReceipt.committedAt = "2026-08-12T10:08:02.000Z";
+  lateReceipt.preconditionSha256 = `sha256:${sha256(
+    afterBaseline.rolePreconditionCanonical,
+  )}`;
+  afterBaseline.roleBootstrapReceiptCanonical =
+    canonicalProductionMigrationJson(lateReceipt);
+  assert.throws(
+    () => createProductionMigrationPlan(afterBaseline),
+    /PRODUCTION_MIGRATION_TIME_INVALID/,
+  );
+
+  const expired = fixturePlanInput();
+  const expiredTarget = JSON.parse(expired.targetEvidenceCanonical);
+  expiredTarget.capturedAt = "2026-08-12T10:21:00.001Z";
+  expired.targetEvidenceCanonical =
+    canonicalProductionMigrationJson(expiredTarget);
+  const expiredLive = JSON.parse(expired.baselineLiveIdentityCanonical);
+  expiredLive.observedAt = expiredTarget.capturedAt;
+  expired.baselineLiveIdentityCanonical =
+    canonicalProductionMigrationJson(expiredLive);
+  assert.throws(
+    () => createProductionMigrationPlan(expired),
+    /PRODUCTION_MIGRATION_TIME_INVALID/,
+  );
+
+  const swapped = fixturePlanInput();
+  const swappedReceipt = JSON.parse(swapped.roleBootstrapReceiptCanonical);
+  swappedReceipt.preconditionSha256 = `sha256:${"f".repeat(64)}`;
+  swapped.roleBootstrapReceiptCanonical =
+    canonicalProductionMigrationJson(swappedReceipt);
+  assert.throws(
+    () => createProductionMigrationPlan(swapped),
+    /PRODUCTION_MIGRATION_ROLE_BOOTSTRAP_RECEIPT_INVALID/,
+  );
+});
+
 test("pinned steps match the committed LF bundle and prefix digests form one exact chain", () => {
   const journal = JSON.parse(
     readFileSync(new URL("meta/_journal.json", migrationsUrl), "utf8"),

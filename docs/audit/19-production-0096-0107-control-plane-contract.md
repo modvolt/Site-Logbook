@@ -14,12 +14,12 @@ or application-start authorization is committed.
 no all-in-one command.
 Every invocation re-loads the same strict descriptor and validates the exact
 signed v3 backup plan and `PASS` restore receipt, its executor trace, current
-signature envelope and detached Ed25519 signature against the source-pinned
+signature envelope and one raw 64-byte detached Ed25519 signature against the source-pinned
 host/evidence key before it can load a durable run. A missing real pin therefore
 keeps execution disabled.
 
 The descriptor is strict JSON with schema
-`site-logbook.production-migration-runner-descriptor/v1`,
+`site-logbook.production-migration-runner-descriptor/v2`,
 `executionDefault="disabled"` and `authorizesApplicationStart=false`. All paths
 in it are relative to the real descriptor directory and may not escape it or
 resolve through a symlink. It names:
@@ -27,7 +27,8 @@ resolve through a symlink. It names:
 - the reviewed migrations directory and an already-created durable artifact
   directory;
 - the target, baseline live identity, backup plan/trace/receipt/signature
-  envelope/detached signature and role-precondition files;
+  envelope, raw detached signature, role-precondition and exact role-bootstrap
+  receipt files;
 - three distinct pre-provisioned roles: audited session principal, `NOLOGIN`
   migration owner reached only through `SET LOCAL ROLE`, and runtime role;
 - exact source-pinned runtime and role authority id/lowercase-SHA-256 pairs;
@@ -135,10 +136,14 @@ migration commands above:
    inventory to persist exact target and live-identity artifacts after role
    bootstrap.
 3. `assemble-runner` consumes canonical schema
-   `site-logbook.production-migration-runner-assembly-request/v1` and exact
+   `site-logbook.production-migration-runner-assembly-request/v2` and exact
    confirmation `ASSEMBLE_EXACT_0096_PRODUCTION_MIGRATION_ARTIFACTS`. It
-   verifies the detached backup signature and every plan input, binds the fresh
-   live identity to the audited session and migrator, creates the disabled
+   verifies the raw detached backup signature and every plan input, binds the
+   role precondition to the exact committed bootstrap receipt and its approval,
+   and binds the fresh live identity to the audited session and migrator. The
+   accepted chronology is exactly backup `PASS` completion, role-precondition
+   capture, role-bootstrap commit, then baseline observation, with the whole
+   backup-to-baseline interval bounded to 15 minutes. It creates the disabled
    descriptor and exact role-ceremony activation, and creates an empty
    mode-0700 migration artifact directory. Activation still requires the later
    separate `apply-role-ceremony` confirmation and never authorizes app start.
@@ -225,9 +230,11 @@ approval. This is not a deployment, merge or application-start authorization.
 
 ## Evidence and recovery boundary
 
-The planner accepts only the exact baseline. It embeds and re-parses the exact
+The planner emits `site-logbook.production-migration-plan/v2` and accepts only
+the exact baseline. It embeds and re-parses the exact
 canonical production target, live identity, exact-0096 backup plan, executor
-trace, `PASS` receipt, signature envelope and detached Ed25519 signature bytes.
+trace, `PASS` receipt, signature envelope, raw detached Ed25519 signature bytes,
+role precondition and its exact committed bootstrap receipt.
 Those artifacts must agree on source SHA, immutable application/PostgreSQL
 images, runtime binding, database, exact 97+2 baseline and chronology. The
 migration `sourceSha` is exactly the backup v3 `plan.liveSource.sha`; its

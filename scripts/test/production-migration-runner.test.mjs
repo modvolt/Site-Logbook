@@ -7,6 +7,7 @@ import {
   readFile,
   realpath,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -37,6 +38,7 @@ import {
   PRODUCTION_MIGRATION_AUTHORITY_BINDINGS,
   createProductionMigrationAbortableConnect,
   persistProductionMigrationMode0600Exclusive,
+  readProductionMigrationDetachedSignatureRaw,
   resolveProductionMigrationPinnedAuthority,
   runProductionMigrationCli,
 } from "../production-evidence/run-production-migration.mjs";
@@ -91,7 +93,7 @@ async function cliPreflightFixture({ hangingRuntimeImport = false } = {}) {
   await writeFile(path.join(directory, "runtime.mjs"), runtimeModule, "utf8");
   await writeFile(path.join(directory, "role.mjs"), roleModule, "utf8");
   const descriptor = {
-    schemaVersion: "site-logbook.production-migration-runner-descriptor/v1",
+    schemaVersion: "site-logbook.production-migration-runner-descriptor/v2",
     kind: "site-logbook-production-migration-runner-descriptor",
     executionDefault: "disabled",
     migrationsDirectory: "migrations",
@@ -119,8 +121,9 @@ async function cliPreflightFixture({ hangingRuntimeImport = false } = {}) {
       backupExecutorTrace: "backup-trace.json",
       backupReceipt: "backup-receipt.json",
       backupSignatureEnvelope: "backup-signature.json",
-      backupDetachedSignature: "backup-signature.txt",
+      backupDetachedSignature: "backup-signature.bin",
       rolePrecondition: "role-precondition.json",
+      roleBootstrapReceipt: "role-bootstrap-receipt.json",
     },
     roleBinding: {
       databaseName: "site_logbook",
@@ -494,6 +497,55 @@ test("CLI has no connection-secret argv surface and does not echo rejected value
   );
 });
 
+test("runner accepts one stable raw 64-byte signature and rejects text aliases, wrong lengths, symlinks and drift", async (t) => {
+  const directory = await mkdtemp(
+    path.join(tmpdir(), "site-logbook-migration-signature-"),
+  );
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const baseReal = await realpath(directory);
+  const signaturePath = path.join(directory, "backup-signature.bin");
+  const raw = Buffer.from(Array.from({ length: 64 }, (_, index) => index));
+  await writeFile(signaturePath, raw);
+  assert.equal(
+    await readProductionMigrationDetachedSignatureRaw(baseReal, signaturePath),
+    raw.toString("base64"),
+  );
+
+  await writeFile(signaturePath, raw.toString("base64"), "utf8");
+  await assert.rejects(
+    readProductionMigrationDetachedSignatureRaw(baseReal, signaturePath),
+    { code: "PRODUCTION_MIGRATION_RUNNER_INPUT_INVALID" },
+  );
+  for (const length of [63, 65]) {
+    await writeFile(signaturePath, Buffer.alloc(length, 7));
+    await assert.rejects(
+      readProductionMigrationDetachedSignatureRaw(baseReal, signaturePath),
+      { code: "PRODUCTION_MIGRATION_RUNNER_INPUT_INVALID" },
+    );
+  }
+
+  await writeFile(signaturePath, raw);
+  const linkPath = path.join(directory, "backup-signature-link.bin");
+  try {
+    await symlink("backup-signature.bin", linkPath, "file");
+    await assert.rejects(
+      readProductionMigrationDetachedSignatureRaw(baseReal, linkPath),
+      { code: "PRODUCTION_MIGRATION_RUNNER_PATH_INVALID" },
+    );
+  } catch (error) {
+    if (!["EPERM", "EACCES", "ENOSYS"].includes(error?.code)) throw error;
+    t.diagnostic(`symlink assertion unavailable on this host: ${error.code}`);
+  }
+
+  await writeFile(signaturePath, raw);
+  await assert.rejects(
+    readProductionMigrationDetachedSignatureRaw(baseReal, signaturePath, {
+      afterRead: (filename) => writeFile(filename, Buffer.alloc(63, 9)),
+    }),
+    { code: "PRODUCTION_MIGRATION_RUNNER_INPUT_DRIFT" },
+  );
+});
+
 test("CLI rejects missing or wrong confirmation before authority import or connection-secret lookup", async (t) => {
   const fixture = await cliPreflightFixture();
   t.after(fixture.cleanup);
@@ -557,6 +609,33 @@ test("CLI rejects missing or wrong confirmation before authority import or conne
   );
   assert.equal(globalThis.__productionMigrationCliAuthorityImports, undefined);
   assert.equal(secretReads, 0);
+});
+
+test("runner descriptor v2 fails closed on the pre-bootstrap-receipt v1 shape", async (t) => {
+  const fixture = await cliPreflightFixture();
+  t.after(fixture.cleanup);
+  const descriptor = JSON.parse(await readFile(fixture.descriptorPath, "utf8"));
+  descriptor.schemaVersion =
+    "site-logbook.production-migration-runner-descriptor/v1";
+  await writeFile(fixture.descriptorPath, JSON.stringify(descriptor), "utf8");
+  await assert.rejects(
+    runProductionMigrationCli(
+      [
+        "inspect",
+        "--descriptor",
+        fixture.descriptorPath,
+        "--receipt-count",
+        "0",
+        "--confirmation",
+        PRODUCTION_MIGRATION_INSPECT_CONFIRMATION,
+      ],
+      {
+        environment: {},
+        authorityResolver: fixture.authorityResolver,
+      },
+    ),
+    { code: "PRODUCTION_MIGRATION_RUNNER_DESCRIPTOR_INVALID" },
+  );
 });
 
 test("CLI overall deadline aborts a hung authority import before connection-secret lookup", async (t) => {

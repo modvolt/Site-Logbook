@@ -36,6 +36,27 @@ import {
 } from "./production-exact-0096-backup-signature.mjs";
 
 const INTENT_ID = /^[0-9a-f]{64}$/;
+export const PRODUCTION_MIGRATION_BOOTSTRAP_BASELINE_MAX_AGE_MS =
+  15 * 60 * 1000;
+
+function assertRoleBootstrapChronology({
+  backupCompletedAt,
+  roleCapturedAt,
+  bootstrapCommittedAt,
+  baselineObservedAt,
+}) {
+  if (
+    roleCapturedAt < backupCompletedAt ||
+    bootstrapCommittedAt > baselineObservedAt ||
+    baselineObservedAt - backupCompletedAt >
+      PRODUCTION_MIGRATION_BOOTSTRAP_BASELINE_MAX_AGE_MS
+  ) {
+    productionMigrationFail(
+      "PRODUCTION_MIGRATION_TIME_INVALID",
+      "Role bootstrap must follow the exact PASS backup and commit before a baseline observed within the reviewed freshness window.",
+    );
+  }
+}
 
 function databaseIdentity(value, field = "database") {
   return exactProductionMigrationDatabase(value, field);
@@ -159,6 +180,82 @@ function parseRolePrecondition(canonical, expected) {
   return Object.freeze({ artifact, value, projection, rolePlan, capturedAt });
 }
 
+export function parseProductionMigrationRoleBootstrapReceipt(
+  canonical,
+  { sourceSha, database, rolePreconditionCanonical, approvalId } = {},
+) {
+  const role = parseRolePrecondition(rolePreconditionCanonical, {
+    sourceSha,
+    database,
+  });
+  const artifact = parseCanonicalProductionMigrationArtifact(
+    canonical,
+    "roleBootstrapReceipt",
+  );
+  const value = exactObject(
+    artifact.value,
+    [
+      "schemaVersion",
+      "kind",
+      "sourceSha",
+      "database",
+      "migrationRole",
+      "runtimeRole",
+      "approvalId",
+      "rolePlanSha256",
+      "preProjectionSha256",
+      "preconditionSha256",
+      "statementCount",
+      "transactionCommitted",
+      "capturedAt",
+      "committedAt",
+      "postCommitProjectionSha256",
+      "authorizesApplicationStart",
+      "authorizesDeployment",
+    ],
+    "roleBootstrapReceipt",
+  );
+  const capturedAt = exactTimestamp(
+    value.capturedAt,
+    "roleBootstrapReceipt.capturedAt",
+  );
+  const committedAt = exactTimestamp(
+    value.committedAt,
+    "roleBootstrapReceipt.committedAt",
+  );
+  if (
+    value.schemaVersion !==
+      "site-logbook.production-migration-role-bootstrap-receipt/v1" ||
+    value.kind !== "site-logbook-production-migration-role-bootstrap-receipt" ||
+    value.sourceSha !== sourceSha ||
+    canonicalProductionMigrationJson(
+      databaseIdentity(value.database, "roleBootstrapReceipt.database"),
+    ) !== canonicalProductionMigrationJson(databaseIdentity(database)) ||
+    value.migrationRole !== role.value.migrationRole ||
+    value.runtimeRole !== role.value.runtimeRole ||
+    (approvalId !== undefined && value.approvalId !== approvalId) ||
+    typeof value.approvalId !== "string" ||
+    !/^[a-z0-9][a-z0-9._:-]{7,127}$/.test(value.approvalId) ||
+    value.rolePlanSha256 !== role.value.rolePlanSha256 ||
+    value.preProjectionSha256 !== role.value.preProjectionSha256 ||
+    value.preconditionSha256 !== role.artifact.sha256 ||
+    !Number.isSafeInteger(value.statementCount) ||
+    value.statementCount < 1 ||
+    value.transactionCommitted !== true ||
+    capturedAt !== role.capturedAt ||
+    committedAt < capturedAt ||
+    value.postCommitProjectionSha256 !== role.value.preProjectionSha256 ||
+    value.authorizesApplicationStart !== false ||
+    value.authorizesDeployment !== false
+  ) {
+    productionMigrationFail(
+      "PRODUCTION_MIGRATION_ROLE_BOOTSTRAP_RECEIPT_INVALID",
+      "Role-bootstrap receipt is not exact-bound to the reviewed precondition, source, database and committed projection.",
+    );
+  }
+  return Object.freeze({ artifact, value, role, capturedAt, committedAt });
+}
+
 export function parseProductionMigrationBackupBinding(value, expected) {
   const backupPlan = parseProductionExact0096BackupPlan(
     value.backupPlanCanonical,
@@ -279,6 +376,8 @@ export function validateProductionMigrationPlan(value) {
       "backupIntegritySha256",
       "rolePreconditionCanonical",
       "rolePreconditionSha256",
+      "roleBootstrapReceiptCanonical",
+      "roleBootstrapReceiptSha256",
       "steps",
       "stepsSha256",
       "confirmation",
@@ -361,7 +460,7 @@ export function validateProductionMigrationPlan(value) {
       "Plan baseline live identity must equal the exact target observation.",
     );
   }
-  parseProductionMigrationBackupBinding(plan, {
+  const backup = parseProductionMigrationBackupBinding(plan, {
     sourceSha: plan.sourceSha,
     database,
     runtimeBindingSha256: live.value.runtimeBindingSha256,
@@ -373,15 +472,32 @@ export function validateProductionMigrationPlan(value) {
     sourceSha: plan.sourceSha,
     database,
   });
+  const roleBootstrap = parseProductionMigrationRoleBootstrapReceipt(
+    plan.roleBootstrapReceiptCanonical,
+    {
+      sourceSha: plan.sourceSha,
+      database,
+      rolePreconditionCanonical: plan.rolePreconditionCanonical,
+    },
+  );
   if (
     plan.rolePreconditionSha256 !== role.artifact.sha256 ||
-    role.capturedAt < live.observedAt
+    plan.roleBootstrapReceiptSha256 !== roleBootstrap.artifact.sha256
   ) {
     productionMigrationFail(
       "PRODUCTION_MIGRATION_ROLE_PRECONDITION_INVALID",
-      "Role precondition digest or chronology is invalid.",
+      "Role precondition or bootstrap receipt digest is invalid.",
     );
   }
+  assertRoleBootstrapChronology({
+    backupCompletedAt: exactTimestamp(
+      backup.backupReceipt.value.completedAt,
+      "plan.backupReceipt.completedAt",
+    ),
+    roleCapturedAt: role.capturedAt,
+    bootstrapCommittedAt: roleBootstrap.committedAt,
+    baselineObservedAt: live.observedAt,
+  });
   if (
     canonicalProductionMigrationJson(plan.baseline) !==
       canonicalProductionMigrationJson(
@@ -429,6 +545,7 @@ export function createProductionMigrationPlan({
   backupSignatureEnvelopeCanonical,
   backupDetachedSignatureB64,
   rolePreconditionCanonical,
+  roleBootstrapReceiptCanonical,
   baselineInventory,
 }) {
   const baseline = validateProductionMigrationInventory(baselineInventory);
@@ -494,12 +611,28 @@ export function createProductionMigrationPlan({
     sourceSha: normalizedSourceSha,
     database: normalizedDatabase,
   });
-  if (role.capturedAt < live.observedAt) {
-    productionMigrationFail(
-      "PRODUCTION_MIGRATION_TIME_INVALID",
-      "Role precondition predates the live target observation.",
-    );
-  }
+  const backupReceipt = parseProductionExact0096BackupReceipt(
+    backupReceiptCanonical,
+    backupPlanCanonical,
+    backupExecutorTraceCanonical,
+  );
+  const roleBootstrap = parseProductionMigrationRoleBootstrapReceipt(
+    roleBootstrapReceiptCanonical,
+    {
+      sourceSha: normalizedSourceSha,
+      database: normalizedDatabase,
+      rolePreconditionCanonical,
+    },
+  );
+  assertRoleBootstrapChronology({
+    backupCompletedAt: exactTimestamp(
+      backupReceipt.value.completedAt,
+      "backupReceipt.completedAt",
+    ),
+    roleCapturedAt: role.capturedAt,
+    bootstrapCommittedAt: roleBootstrap.committedAt,
+    baselineObservedAt: live.observedAt,
+  });
   const plan = {
     schemaVersion: PRODUCTION_MIGRATION_PLAN_SCHEMA,
     kind: "site-logbook-production-migration-plan",
@@ -550,6 +683,8 @@ export function createProductionMigrationPlan({
     ).sha256,
     rolePreconditionCanonical: role.artifact.canonical,
     rolePreconditionSha256: role.artifact.sha256,
+    roleBootstrapReceiptCanonical: roleBootstrap.artifact.canonical,
+    roleBootstrapReceiptSha256: roleBootstrap.artifact.sha256,
     steps: PRODUCTION_MIGRATION_STEPS,
     stepsSha256: productionMigrationSha256(
       canonicalProductionMigrationJson(PRODUCTION_MIGRATION_STEPS),

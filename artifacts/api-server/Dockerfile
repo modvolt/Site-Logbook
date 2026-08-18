@@ -110,6 +110,11 @@ CMD ["node", "--enable-source-maps", "/app/dist/index.mjs"]
 FROM runtime AS control-plane
 USER root
 LABEL io.modvolt.site-logbook.image-profile="control-plane"
+# The attended credential runbook prepares a dedicated 0700 bind mount for
+# this fixed non-root identity. Fail the image build if the upstream uid/gid
+# ever drifts instead of silently weakening evidence permissions or using root.
+RUN test "$(id -u node)" = "1000" \
+    && test "$(id -g node)" = "1000"
 RUN touch /app/.site-logbook-control-plane-image
 COPY --from=builder /repo/artifacts/api-server/dist ./dist
 COPY --from=builder /repo/scripts/start-api-production.sh ./scripts/start-api-production.sh
@@ -117,7 +122,8 @@ COPY --from=builder /repo/scripts/check-audit-0107-release-evidence.mjs ./script
 RUN test -f /app/.site-logbook-control-plane-image \
     && test -f /app/dist/production-exact-0096-backup-producer.mjs \
     && test -f /app/dist/production-exact-0096-backup-host-worker.mjs \
-    && test -f /app/dist/production-migration-host-operator.mjs
+    && test -f /app/dist/production-migration-host-operator.mjs \
+    && test -f /app/dist/production-runtime-db-credential-cutover.mjs
 RUN chown -R node:node /app/dist /app/scripts
 USER node
 

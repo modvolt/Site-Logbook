@@ -173,13 +173,42 @@ function ceremonyFixture() {
     rolePlanSha256: rolePlan.planSha256,
     preProjectionCanonical,
     preProjectionSha256,
-    capturedAt: "2026-08-17T09:00:00.000Z",
+    capturedAt: "2026-08-12T10:07:00.000Z",
     migrationRoleCanApplyMigrations: true,
     runtimeRoleCanApplyMigrations: false,
     authorizesApplicationStart: false,
   });
+  const preconditionSha256 = `sha256:${
+    roleContract.parseCanonicalProductionRoleArtifact(preconditionCanonical)
+      .sha256
+  }`;
+  const roleBootstrapReceiptCanonical =
+    roleContract.canonicalProductionRoleJson({
+      schemaVersion:
+        "site-logbook.production-migration-role-bootstrap-receipt/v1",
+      kind: "site-logbook-production-migration-role-bootstrap-receipt",
+      sourceSha: planInput.sourceSha,
+      database: planInput.database,
+      migrationRole: rolePlan.migratorRole,
+      runtimeRole: rolePlan.runtimeRole,
+      approvalId: "approved-production-role-ceremony-20260818",
+      rolePlanSha256: rolePlan.planSha256,
+      preProjectionSha256,
+      preconditionSha256,
+      statementCount: 1,
+      transactionCommitted: true,
+      capturedAt: "2026-08-12T10:07:00.000Z",
+      committedAt: "2026-08-12T10:07:30.000Z",
+      postCommitProjectionSha256: preProjectionSha256,
+      authorizesApplicationStart: false,
+      authorizesDeployment: false,
+    });
   const plan = createVerifiedProductionMigrationPlan(
-    { ...planInput, rolePreconditionCanonical: preconditionCanonical },
+    {
+      ...planInput,
+      rolePreconditionCanonical: preconditionCanonical,
+      roleBootstrapReceiptCanonical,
+    },
     { assertInputSignature() {}, assertPlanSignature() {} },
   );
   const activationCanonical = roleContract.canonicalProductionRoleJson({

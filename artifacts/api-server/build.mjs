@@ -43,6 +43,10 @@ async function buildAll() {
         "src/production-exact-0096-backup-host-worker.ts",
       ),
       path.resolve(artifactDir, "src/production-migration-host-operator.ts"),
+      path.resolve(
+        artifactDir,
+        "src/production-runtime-db-credential-cutover.ts",
+      ),
       path.resolve(artifactDir, "src/audit-schema-inventory.ts"),
       path.resolve(artifactDir, "src/audit-schema-gate.ts"),
       path.resolve(artifactDir, "src/audit-schema-steady-state.ts"),

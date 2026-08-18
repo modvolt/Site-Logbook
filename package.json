@@ -48,6 +48,8 @@
     "test:production-migration-runner": "node --test scripts/test/production-migration-runner.test.mjs scripts/test/production-migration-runtime-authority.test.mjs scripts/test/production-migration-role-authority.test.mjs",
     "test:production-migration-runner:pg16": "node --test scripts/test/production-migration-runner.pg16.test.mjs",
     "test:production-migration-role-bootstrap:pg16": "node --import ./lib/db/node_modules/tsx/dist/loader.mjs --test scripts/test/production-migration-role-bootstrap.pg16.test.ts",
+    "test:production-runtime-db-credential-contract": "pnpm --filter @workspace/api-server run test:production-runtime-db-credential-contract",
+    "test:production-runtime-db-credential:pg16": "node --import ./lib/db/node_modules/tsx/dist/loader.mjs --test scripts/test/production-runtime-db-credential-cutover.pg16.test.ts",
     "production:migration": "node --import ./lib/db/node_modules/tsx/dist/loader.mjs scripts/production-evidence/run-production-migration.mjs",
     "production:host-evidence": "node scripts/production-evidence/run-production-host-evidence.mjs",
     "test:staging-workflow-execution": "node --test scripts/test/staging-workflow-execution.test.mjs",

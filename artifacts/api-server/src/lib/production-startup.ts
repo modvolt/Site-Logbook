@@ -6,6 +6,10 @@ import {
 } from "./production-startup-evidence";
 import type { ProductionObservedRunnerBinding } from "./production-evidence-runner";
 import { requireProductionHetznerObjectStorageConfiguration } from "./production-object-storage-config";
+import {
+  PRODUCTION_RUNTIME_DATABASE_USER,
+  validateProductionRuntimeDatabaseUrl,
+} from "./production-runtime-database";
 
 export interface ProductionAuditDatabaseReadiness {
   databaseName: string;
@@ -84,6 +88,21 @@ export async function runProductionStartupPreflight(
     "PRODUCTION_EXPECTED_SOURCE_SHA",
   );
   const release = validateProductionAudit0107ReleaseEvidence(evidenceInput);
+  const databaseUrl = required(env, "DATABASE_URL");
+  const databaseUrlIdentity = validateProductionRuntimeDatabaseUrl(
+    databaseUrl,
+    release.databaseName,
+  );
+  requireEqual(
+    databaseUrlIdentity.databaseUser,
+    PRODUCTION_RUNTIME_DATABASE_USER,
+    "DATABASE_URL databaseUser",
+  );
+  requireEqual(
+    release.databaseUser,
+    PRODUCTION_RUNTIME_DATABASE_USER,
+    "release databaseUser",
+  );
   await dependencies.verifyObservedHostRunner({
     sourceSha: release.sourceSha,
     targetEvidenceSha256: release.targetEvidenceSha256,
@@ -101,7 +120,7 @@ export async function runProductionStartupPreflight(
   });
 
   const readinessInput = {
-    databaseUrl: required(env, "DATABASE_URL"),
+    databaseUrl,
     migrationsDir: required(env, "MIGRATIONS_DIR"),
     expectedDatabaseName: release.databaseName,
     expectedDatabaseUser: release.databaseUser,

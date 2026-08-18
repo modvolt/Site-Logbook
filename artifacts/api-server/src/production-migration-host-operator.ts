@@ -36,7 +36,7 @@ const BASELINE_OBSERVATION_SCHEMA =
 const BASELINE_OBSERVATION_CONFIRMATION =
   "OBSERVE_EXACT_0096_PRODUCTION_MIGRATION_BASELINE_READ_ONLY";
 const ASSEMBLY_SCHEMA =
-  "site-logbook.production-migration-runner-assembly-request/v1";
+  "site-logbook.production-migration-runner-assembly-request/v2";
 const ASSEMBLY_CONFIRMATION =
   "ASSEMBLE_EXACT_0096_PRODUCTION_MIGRATION_ARTIFACTS";
 const ROLE_BOOTSTRAP_KEYS = [
@@ -87,6 +87,7 @@ const ASSEMBLY_INPUT_KEYS = [
   "backupSignatureEnvelope",
   "backupDetachedSignature",
   "rolePrecondition",
+  "roleBootstrapReceipt",
 ] as const;
 const ROLE_NAME = /^[a-z_][a-z0-9_]{0,62}$/;
 const EVIDENCE_ID = /^[a-z0-9][a-z0-9._:/-]{0,127}$/;
@@ -453,6 +454,7 @@ export function createProductionMigrationRunnerAssembly(
       backupDetachedSignatureB64:
         artifacts.backupDetachedSignature.toString("base64"),
       rolePreconditionCanonical: artifacts.rolePrecondition,
+      roleBootstrapReceiptCanonical: artifacts.roleBootstrapReceipt,
       baselineInventory: live.value.inventory,
     },
     backupAuthority,
@@ -460,13 +462,17 @@ export function createProductionMigrationRunnerAssembly(
   const rolePrecondition = JSON.parse(
     plan.value.rolePreconditionCanonical,
   ) as Record<string, unknown>;
+  const roleBootstrapReceipt = JSON.parse(
+    plan.value.roleBootstrapReceiptCanonical,
+  ) as Record<string, unknown>;
   if (
     rolePrecondition.runtimeRole !== request.runtimeRole ||
-    rolePrecondition.migrationRole !== request.migrationRole
+    rolePrecondition.migrationRole !== request.migrationRole ||
+    roleBootstrapReceipt.approvalId !== request.approvalId
   ) {
     fail(
       "PRODUCTION_MIGRATION_HOST_OPERATOR_ROLE_BINDING_INVALID",
-      "Role precondition differs from the exact assembly request.",
+      "Role precondition or bootstrap receipt differs from the exact assembly request.",
     );
   }
   const activationCanonical = canonicalProductionRoleJson({
@@ -481,7 +487,7 @@ export function createProductionMigrationRunnerAssembly(
     authorizesApplicationStart: false,
   });
   const descriptor = createProductionMigrationArtifact({
-    schemaVersion: "site-logbook.production-migration-runner-descriptor/v1",
+    schemaVersion: "site-logbook.production-migration-runner-descriptor/v2",
     kind: "site-logbook-production-migration-runner-descriptor",
     executionDefault: "disabled",
     migrationsDirectory: "runner/lib/db/migrations",

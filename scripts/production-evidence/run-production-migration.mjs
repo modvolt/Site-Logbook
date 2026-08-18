@@ -39,7 +39,7 @@ import {
 } from "./production-exact-0096-backup-contract.mjs";
 
 export const PRODUCTION_MIGRATION_RUNNER_DESCRIPTOR_SCHEMA =
-  "site-logbook.production-migration-runner-descriptor/v1";
+  "site-logbook.production-migration-runner-descriptor/v2";
 
 const MAX_DESCRIPTOR_BYTES = 128 * 1024;
 const MAX_INPUT_BYTES = 512 * 1024;
@@ -155,7 +155,13 @@ async function assertRealPathBelow(baseReal, target, field, kind) {
   return Object.freeze({ path: targetReal, metadata });
 }
 
-async function readStableFile(baseReal, target, field, maximumBytes) {
+async function readStableFile(
+  baseReal,
+  target,
+  field,
+  maximumBytes,
+  { afterRead } = {},
+) {
   const before = await assertRealPathBelow(baseReal, target, field, "file");
   if (before.metadata.size > BigInt(maximumBytes)) {
     fail(
@@ -164,6 +170,7 @@ async function readStableFile(baseReal, target, field, maximumBytes) {
     );
   }
   const bytes = await readFile(before.path);
+  await afterRead?.(before.path);
   const after = await lstat(before.path, { bigint: true });
   if (
     after.dev !== before.metadata.dev ||
@@ -178,6 +185,27 @@ async function readStableFile(baseReal, target, field, maximumBytes) {
     );
   }
   return bytes;
+}
+
+export async function readProductionMigrationDetachedSignatureRaw(
+  baseReal,
+  target,
+  options,
+) {
+  const bytes = await readStableFile(
+    baseReal,
+    target,
+    "runnerDescriptor.inputs.backupDetachedSignature",
+    128,
+    options,
+  );
+  if (bytes.length !== 64) {
+    fail(
+      "PRODUCTION_MIGRATION_RUNNER_INPUT_INVALID",
+      "Detached backup signature file is not one exact raw 64-byte Ed25519 signature.",
+    );
+  }
+  return bytes.toString("base64");
 }
 
 function parseDescriptor(raw) {
@@ -267,6 +295,7 @@ function parseDescriptor(raw) {
       "backupSignatureEnvelope",
       "backupDetachedSignature",
       "rolePrecondition",
+      "roleBootstrapReceipt",
     ],
     "runnerDescriptor.inputs",
   );
@@ -639,25 +668,32 @@ export async function persistProductionMigrationMode0600Exclusive(
 
 async function loadPlanInput(descriptor, descriptorDirectoryReal) {
   const canonicals = {};
+  let signature;
   for (const [field, relative] of Object.entries(descriptor.inputs)) {
     const target = resolveBelow(
       descriptorDirectoryReal,
       relative,
       `runnerDescriptor.inputs.${field}`,
     );
-    const bytes = await readStableFile(
-      descriptorDirectoryReal,
-      target,
-      `runnerDescriptor.inputs.${field}`,
-      MAX_INPUT_BYTES,
-    );
-    canonicals[field] = decodeUtf8(bytes, `runnerDescriptor.inputs.${field}`);
+    if (field === "backupDetachedSignature") {
+      signature = await readProductionMigrationDetachedSignatureRaw(
+        descriptorDirectoryReal,
+        target,
+      );
+    } else {
+      const bytes = await readStableFile(
+        descriptorDirectoryReal,
+        target,
+        `runnerDescriptor.inputs.${field}`,
+        MAX_INPUT_BYTES,
+      );
+      canonicals[field] = decodeUtf8(bytes, `runnerDescriptor.inputs.${field}`);
+    }
   }
-  const signature = canonicals.backupDetachedSignature.replace(/\n$/, "");
-  if (!/^[A-Za-z0-9+/]{86}==$/.test(signature)) {
+  if (typeof signature !== "string") {
     fail(
       "PRODUCTION_MIGRATION_RUNNER_INPUT_INVALID",
-      "Detached backup signature file is not one exact Ed25519 base64 value.",
+      "Detached backup signature file is not one exact raw 64-byte Ed25519 signature.",
     );
   }
   const live = parseProductionMigrationLiveIdentity(
@@ -700,6 +736,7 @@ async function loadPlanInput(descriptor, descriptorDirectoryReal) {
       backupSignatureEnvelopeCanonical: canonicals.backupSignatureEnvelope,
       backupDetachedSignatureB64: signature,
       rolePreconditionCanonical: canonicals.rolePrecondition,
+      roleBootstrapReceiptCanonical: canonicals.roleBootstrapReceipt,
       baselineInventory: live.value.inventory,
     },
     runtimeBindingCanonical: canonicalProductionExact0096BackupJson(

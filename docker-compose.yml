@@ -11,6 +11,8 @@ services:
     pull_policy: always
     restart: unless-stopped
     environment:
+      # PostgreSQL bootstrap/admin identity only. The API never receives these
+      # credentials and never owns or migrates the production schema.
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
@@ -33,7 +35,9 @@ services:
       PORT: 5000
       SITE_LOGBOOK_RUNTIME_ENVIRONMENT: production
       BUILD_SHA: ${BUILD_SHA:?set the exact 40-character release commit SHA}
-      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      # The login role is source-pinned. Its separately generated secret is
+      # transferred to Coolify only after the attended role/credential receipt.
+      DATABASE_URL: postgres://site_logbook_runtime:${PRODUCTION_RUNTIME_DATABASE_PASSWORD:?set the separate runtime database secret}@postgres:5432/${POSTGRES_DB}
       SESSION_SECRET: ${SESSION_SECRET}
       # Object storage. Uploads are proxied through the API, which reaches the
       # bucket over S3_ENDPOINT — the browser never talks to storage, so no
@@ -73,7 +77,7 @@ services:
       PRODUCTION_EXPECTED_SOURCE_SHA: ${BUILD_SHA:?set exact release source SHA}
       PRODUCTION_EXPECTED_API_IMAGE: ${PRODUCTION_API_IMAGE:?set immutable API repository@sha256 digest}
       PRODUCTION_EXPECTED_DATABASE_NAME: ${POSTGRES_DB:?set exact production database name}
-      PRODUCTION_EXPECTED_DATABASE_USER: ${POSTGRES_USER:?set exact production database user}
+      PRODUCTION_EXPECTED_DATABASE_USER: site_logbook_runtime
       PRODUCTION_EXPECTED_TARGET_SHA256: ${PRODUCTION_EXPECTED_TARGET_SHA256:?set approved canonical target evidence digest}
       PRODUCTION_EXPECTED_AUDIT_SCHEMA_FINGERPRINT_SHA256: ${PRODUCTION_EXPECTED_AUDIT_SCHEMA_FINGERPRINT_SHA256:?set approved live audit schema fingerprint}
       PRODUCTION_EXPECTED_PRE_MIGRATION_BACKUP_EVIDENCE_SHA256: ${PRODUCTION_EXPECTED_PRE_MIGRATION_BACKUP_EVIDENCE_SHA256:?set approved pre-migration backup evidence digest}

@@ -41,6 +41,7 @@ export default defineConfig({
       "test/production-exact-0096-backup-producer-entrypoint.test.ts",
       "test/production-exact-0096-object-storage.test.ts",
       "test/production-startup-evidence.test.ts",
+      "test/production-runtime-db-credential-cutover.test.ts",
       "test/production-runtime-fail-stop.test.ts",
       "test/operational-alert-outbox-stop.test.ts",
       "test/live-events-shutdown-race.test.ts",

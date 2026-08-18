@@ -21,6 +21,8 @@ describe("production steady-0107 startup boundary", () => {
     expect(runtime).not.toContain("schema-gate.mjs");
     expect(runtime).not.toContain("check-audit-0107-release-evidence.mjs");
     expect(dockerfile).toContain("FROM runtime AS control-plane");
+    expect(dockerfile).toContain('RUN test "$(id -u node)" = "1000"');
+    expect(dockerfile).toContain('test "$(id -g node)" = "1000"');
     expect(dockerfile).toContain(
       "RUN touch /app/.site-logbook-control-plane-image",
     );
