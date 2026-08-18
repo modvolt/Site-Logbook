@@ -16,13 +16,28 @@ All paths are absolute. Every input is read as one bounded, stable, regular,
 non-symlink, single-link file.
 
 - `--challenge` is the canonical JSON object emitted by the currently running
-  HOLD container. It contains the immutable source/image/config bindings plus
-  that restart's container ID and random nonce.
+  HOLD container. It contains only the immutable source/image binding plus that
+  restart's container identity and random nonce. The identity is exactly the
+  12-hex Docker hostname prefix or a full 64-hex ID; runtime verification binds
+  the short form only to the authoritative full Docker Inspect ID. Configuration
+  digests are excluded because Coolify would hash those environment values into
+  the values they are meant to predict.
 - `--evidence` is canonical JSON containing exactly the
   `activation.evidence` object: exact-0096 backup artifacts, the complete
   0096-to-0107 migration chain with ten receipts, runtime credential request
-  and PASS receipt, final Coolify/Docker/PostgreSQL observations, and the
-  separate activation approval.
+  and PASS receipt, final Coolify/Docker/PostgreSQL observations, the separate
+  activation approval, and `apiImageProvenance` with exactly `canonical` and
+  `signatureB64`. `canonical` is the unchanged canonical LF v2 API-image
+  provenance artifact; `signatureB64` is its canonical padded-base64 64-byte
+  Ed25519 detached signature.
+  The producer takes desired/deployed/resolved configuration digests from that
+  canonical approval, requires desired and deployed equality before signing,
+  verifies API-image provenance through the sealed source-pinned verifier,
+  cross-binds its source SHA and immutable API image to the live challenge, and
+  then runs the runtime's authoritative observer cross-binding before it
+  publishes any bundle. The verified provenance supplies the publication
+  receipt, reviewed image set, runnable manifest and OCI provenance digests;
+  these values are never reconstructed from an unsigned request or approval.
 - `--publisher-public-key` and `--host-public-key` are the distinct canonical
   LF Ed25519 public PEM files already mounted into the HOLD container. Their
   canonical SPKI-DER SHA-256 fingerprints become the signature key identifiers
@@ -85,9 +100,15 @@ and the producer performs a stable byte-for-byte readback. A successful stdout
 receipt still does not authorize deployment; it reports only that the exact
 staging bundle was produced for the already running matching HOLD instance.
 
+The API runtime receives the verified configuration digests only in the
+in-memory release summary returned by the semantic verifier. There is no
+`PRODUCTION_EXPECTED_DESIRED_CONFIG_SHA256`,
+`PRODUCTION_EXPECTED_DEPLOYED_CONFIG_SHA256`, or
+`PRODUCTION_EXPECTED_RESOLVED_COMPOSE_SHA256` environment fallback.
+
 ## Separate Linux publication phase
 
-The canonical bundle bytes and the printed `activationBundleSha256` are public
+The canonical bundle bytes and the printed `bundleSha256` are public
 evidence. Transfer only that bundle to a new staging filename on the production
 host; never transfer the DPAPI vault, recovery material, mnemonic, passphrase,
 private keys, or temporary signing files. The expected digest must arrive from
@@ -114,5 +135,6 @@ pnpm test:production-activation-bundle
 The suite covers exact runtime-transport compatibility, distinct custody
 purposes, signature verification, canonical bytes, one-link atomic publication,
 no-clobber before signing, neutral-field secret rejection without echo, unsafe
-hard-link and noncanonical input rejection, wrong-key failure, and the
+hard-link and noncanonical input rejection, missing/tampered/wrong-key/replayed
+API-image provenance before custody signing, wrong custody-key failure, and the
 production wiring to the custody CLI and runtime semantic verifier.

@@ -39,6 +39,7 @@ describe("production steady-0107 startup boundary", () => {
 
   it("uses only separately approved immutable images in root production Compose", () => {
     const compose = source("docker-compose.yml");
+    const environmentExample = source(".env.example");
     expect(compose).not.toMatch(/^\s+build:/m);
     for (const key of [
       "PRODUCTION_POSTGRES_IMAGE",
@@ -67,11 +68,16 @@ describe("production steady-0107 startup boundary", () => {
     for (const key of [
       "PRODUCTION_ACTIVATION_PUBLISHER_PUBLIC_KEY_SHA256",
       "PRODUCTION_ACTIVATION_HOST_PUBLIC_KEY_SHA256",
+    ]) {
+      expect(compose).toContain(`${key}: \${${key}:?`);
+    }
+    for (const key of [
       "PRODUCTION_EXPECTED_DESIRED_CONFIG_SHA256",
       "PRODUCTION_EXPECTED_DEPLOYED_CONFIG_SHA256",
       "PRODUCTION_EXPECTED_RESOLVED_COMPOSE_SHA256",
     ]) {
-      expect(compose).toContain(`${key}: \${${key}:?`);
+      expect(compose).not.toContain(key);
+      expect(environmentExample).not.toContain(key);
     }
     expect(compose).not.toMatch(/PRODUCTION_[A-Z0-9_]*EVIDENCE_B64/);
     expect(compose).not.toContain("PRODUCTION_HOST_ATTESTATION_B64");
@@ -183,6 +189,19 @@ describe("production steady-0107 startup boundary", () => {
     expect(index).toContain("verifyLiveProductionAuditReadiness");
     expect(index).toContain("STAGING_CONTROL_PLANE_IMAGE_REQUIRED");
     expect(index).toContain("startProductionRuntimeFailStop");
+    const entrypoint = source(
+      "artifacts/api-server/src/production-api-entrypoint.ts",
+    );
+    expect(entrypoint).not.toContain(
+      "PRODUCTION_EXPECTED_DESIRED_CONFIG_SHA256",
+    );
+    expect(entrypoint).not.toContain(
+      "PRODUCTION_EXPECTED_DEPLOYED_CONFIG_SHA256",
+    );
+    expect(entrypoint).not.toContain(
+      "PRODUCTION_EXPECTED_RESOLVED_COMPOSE_SHA256",
+    );
+    expect(entrypoint).toContain("startProductionApplicationRuntime(release)");
     expect(index.indexOf("startProductionRuntimeFailStop({")).toBeLessThan(
       index.indexOf("startWorker(backup.startBackupScheduler)"),
     );

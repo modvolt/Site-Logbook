@@ -18,16 +18,22 @@ import {
   canonicalProductionActivationBundleJson,
   publishProductionActivationBundle,
 } from "../production-evidence/run-production-activation-bundle.mjs";
+import { verifyProductionApiImageProvenanceArtifactWithTestAuthority } from "../production-evidence/host-attestation-contract.mjs";
 import { validateProductionActivationBundleTransport } from "../../artifacts/api-server/src/lib/production-activation-hold.ts";
 
 const NOW = Date.parse("2026-08-18T17:00:00.000Z");
 const SOURCE_SHA = "1".repeat(40);
 const API_IMAGE = `ghcr.io/modvolt/site-logbook-api@sha256:${"2".repeat(64)}`;
 const DESIRED = "3".repeat(64);
-const DEPLOYED = "4".repeat(64);
+const DEPLOYED = DESIRED;
 const RESOLVED = "5".repeat(64);
 const CONTAINER = "a".repeat(64);
 const NONCE = "b".repeat(64);
+const PUBLICATION_RECEIPT_SHA256 = `sha256:${"6".repeat(64)}`;
+const REVIEWED_IMAGE_SET_SHA256 = `sha256:${"7".repeat(64)}`;
+const API_RUNNABLE_MANIFEST_DIGEST = `sha256:${"8".repeat(64)}`;
+const API_OCI_PROVENANCE_SHA256 = `sha256:${"9".repeat(64)}`;
+const PROVENANCE_KEY = generateKeyPairSync("ed25519");
 
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
@@ -40,6 +46,49 @@ function artifact(kind, payload) {
     sha256: sha256(canonicalProductionActivationBundleJson(payload)),
   };
 }
+
+const PROVENANCE_KEY_ID = `sha256:${sha256(
+  PROVENANCE_KEY.publicKey.export({ type: "spki", format: "der" }),
+)}`;
+const TRUSTED_PROVENANCE_KEYS = Object.freeze({
+  [PROVENANCE_KEY_ID]: PROVENANCE_KEY.publicKey.export({
+    type: "spki",
+    format: "pem",
+  }),
+});
+
+function apiImageProvenance(overrides = {}) {
+  const value = {
+    schemaVersion: "site-logbook.production-api-image-provenance/v2",
+    keyId: PROVENANCE_KEY_ID,
+    subjectImage: API_IMAGE,
+    subjectDigest: `sha256:${"2".repeat(64)}`,
+    sourceSha: SOURCE_SHA,
+    publicationReceiptSha256: PUBLICATION_RECEIPT_SHA256,
+    reviewedImageSetSha256: REVIEWED_IMAGE_SET_SHA256,
+    subjectRunnableManifestDigest: API_RUNNABLE_MANIFEST_DIGEST,
+    ociProvenanceSha256: API_OCI_PROVENANCE_SHA256,
+    buildProfile: "production",
+    mutatingEntrypointsPresent: false,
+    ...overrides,
+  };
+  const canonical = canonicalProductionActivationBundleJson(value);
+  return {
+    canonical,
+    signatureB64: sign(
+      null,
+      Buffer.from(canonical),
+      PROVENANCE_KEY.privateKey,
+    ).toString("base64"),
+  };
+}
+
+const PROVENANCE_TEST_DEPENDENCY = Object.freeze({
+  verifyApiImageProvenance: (input) =>
+    verifyProductionApiImageProvenanceArtifactWithTestAuthority(input, {
+      trustedImageProvenanceKeys: TRUSTED_PROVENANCE_KEYS,
+    }),
+});
 
 function approval() {
   return {
@@ -80,6 +129,7 @@ function evidence(overrides = {}) {
     artifact(kind, { revision: 2, ...extra });
   const value = {
     activationApproval: artifact("activation-approval", approval()),
+    apiImageProvenance: apiImageProvenance(),
     exact0096Backup: {
       plan: simple("backup-plan"),
       trace: simple("backup-trace"),
@@ -138,9 +188,6 @@ async function fixture() {
     kind: "site-logbook-production-activation-challenge-v2",
     sourceSha: SOURCE_SHA,
     apiImage: API_IMAGE,
-    desiredConfigSha256: DESIRED,
-    deployedConfigSha256: DEPLOYED,
-    resolvedComposeSha256: RESOLVED,
     containerId: CONTAINER,
     nonce: NONCE,
   };
@@ -213,9 +260,6 @@ async function transportVerifier(input) {
     {
       sourceSha: input.challenge.sourceSha,
       apiImage: input.challenge.apiImage,
-      desiredConfigSha256: input.challenge.desiredConfigSha256,
-      deployedConfigSha256: input.challenge.deployedConfigSha256,
-      resolvedComposeSha256: input.challenge.resolvedComposeSha256,
       containerId: input.challenge.containerId,
       nonce: input.challenge.nonce,
     },
@@ -233,6 +277,7 @@ test("assembles, custody-signs, runtime-validates and atomically publishes exact
   const calls = [];
   try {
     const result = await publishProductionActivationBundle(files.options, {
+      ...PROVENANCE_TEST_DEPENDENCY,
       now: () => NOW,
       signWithCustody: signerFor(files, calls),
       verifyBundle: transportVerifier,
@@ -254,6 +299,21 @@ test("assembles, custody-signs, runtime-validates and atomically publishes exact
     assert.equal(bundle.activation.sourceSha, SOURCE_SHA);
     assert.equal(bundle.activation.containerId, CONTAINER);
     assert.equal(bundle.activation.nonce, NONCE);
+    assert.equal(bundle.activation.desiredConfigSha256, DESIRED);
+    assert.equal(bundle.activation.deployedConfigSha256, DEPLOYED);
+    assert.equal(bundle.activation.resolvedComposeSha256, RESOLVED);
+    assert.equal(
+      bundle.activation.evidence.apiImageProvenance.canonical,
+      apiImageProvenance().canonical,
+    );
+    assert.equal(
+      Buffer.from(
+        bundle.activation.evidence.apiImageProvenance.signatureB64,
+        "base64",
+      ).length,
+      64,
+    );
+    assert.equal("desiredConfigSha256" in files.challenge, false);
     assert.equal(
       bundle.hostAttestation.observedAt,
       new Date(NOW - 2_000).toISOString(),
@@ -278,6 +338,7 @@ test("refuses clobber before either custody key is used", async () => {
     await writeFile(files.output, "operator-owned-sentinel\n", { flag: "wx" });
     await assert.rejects(
       publishProductionActivationBundle(files.options, {
+        ...PROVENANCE_TEST_DEPENDENCY,
         now: () => NOW,
         signWithCustody: async () => {
           signerCalls += 1;
@@ -300,6 +361,106 @@ test("refuses clobber before either custody key is used", async () => {
   }
 });
 
+test("rejects desired/deployed observer drift before custody signing", async () => {
+  const files = await fixture();
+  let signerCalls = 0;
+  try {
+    const drifted = evidence({
+      activationApproval: artifact("activation-approval", {
+        ...approval(),
+        deployedConfigSha256: "4".repeat(64),
+      }),
+    });
+    await writeFile(
+      files.evidenceFile,
+      canonicalProductionActivationBundleJson(drifted),
+      { flag: "w" },
+    );
+    await assert.rejects(
+      publishProductionActivationBundle(files.options, {
+        ...PROVENANCE_TEST_DEPENDENCY,
+        now: () => NOW,
+        signWithCustody: async () => {
+          signerCalls += 1;
+          return Buffer.alloc(64);
+        },
+        verifyBundle: transportVerifier,
+      }),
+      /PRODUCTION_ACTIVATION_BUNDLE_BINDING_INVALID/,
+    );
+    assert.equal(signerCalls, 0);
+  } finally {
+    await rm(files.root, { recursive: true, force: true });
+  }
+});
+
+for (const [label, mutate, expectedError] of [
+  [
+    "missing signed API image provenance",
+    (candidate) => {
+      delete candidate.apiImageProvenance;
+    },
+    /PRODUCTION_ACTIVATION_BUNDLE_SCHEMA_INVALID/,
+  ],
+  [
+    "tampered API image provenance canonical bytes",
+    (candidate) => {
+      const provenance = JSON.parse(candidate.apiImageProvenance.canonical);
+      provenance.reviewedImageSetSha256 = `sha256:${"e".repeat(64)}`;
+      candidate.apiImageProvenance.canonical =
+        canonicalProductionActivationBundleJson(provenance);
+    },
+    /PRODUCTION_ACTIVATION_BUNDLE_PROVENANCE_INVALID/,
+  ],
+  [
+    "API image provenance signed by the wrong key",
+    (candidate) => {
+      candidate.apiImageProvenance.signatureB64 = Buffer.alloc(64, 11).toString(
+        "base64",
+      );
+    },
+    /PRODUCTION_ACTIVATION_BUNDLE_PROVENANCE_INVALID/,
+  ],
+  [
+    "valid API image provenance replayed from another source",
+    (candidate) => {
+      candidate.apiImageProvenance = apiImageProvenance({
+        sourceSha: "e".repeat(40),
+      });
+    },
+    /PRODUCTION_ACTIVATION_BUNDLE_PROVENANCE_INVALID/,
+  ],
+]) {
+  test(`rejects ${label} before custody signing`, async () => {
+    const files = await fixture();
+    let signerCalls = 0;
+    try {
+      const candidate = evidence();
+      mutate(candidate);
+      await writeFile(
+        files.evidenceFile,
+        canonicalProductionActivationBundleJson(candidate),
+        { flag: "w" },
+      );
+      await assert.rejects(
+        publishProductionActivationBundle(files.options, {
+          ...PROVENANCE_TEST_DEPENDENCY,
+          now: () => NOW,
+          signWithCustody: async () => {
+            signerCalls += 1;
+            return Buffer.alloc(64);
+          },
+          verifyBundle: transportVerifier,
+        }),
+        expectedError,
+      );
+      assert.equal(signerCalls, 0);
+    } finally {
+      await rm(files.root, { recursive: true, force: true });
+    }
+  });
+}
+
 for (const secret of [
   "github_pat_neutral_value_must_not_escape_123456",
   "ghp_neutralValueMustNotEscape1234567890",
@@ -319,6 +480,7 @@ for (const secret of [
       );
       await assert.rejects(
         publishProductionActivationBundle(files.options, {
+          ...PROVENANCE_TEST_DEPENDENCY,
           now: () => NOW,
           signWithCustody: async () => {
             signerCalls += 1;
@@ -352,6 +514,7 @@ test("rejects a hard-linked or noncanonical challenge before signing", async () 
       publishProductionActivationBundle(
         { ...hardlinked.options, challenge: alias },
         {
+          ...PROVENANCE_TEST_DEPENDENCY,
           now: () => NOW,
           signWithCustody: async () => {
             signerCalls += 1;
@@ -376,6 +539,7 @@ test("rejects a hard-linked or noncanonical challenge before signing", async () 
     );
     await assert.rejects(
       publishProductionActivationBundle(noncanonical.options, {
+        ...PROVENANCE_TEST_DEPENDENCY,
         now: () => NOW,
         signWithCustody: async () => {
           signerCalls += 1;
@@ -397,6 +561,7 @@ test("rejects a custody signature from the wrong key and leaves no bundle", asyn
     const wrong = generateKeyPairSync("ed25519");
     await assert.rejects(
       publishProductionActivationBundle(files.options, {
+        ...PROVENANCE_TEST_DEPENDENCY,
         now: () => NOW,
         signWithCustody: async ({ input, output }) => {
           const signature = sign(null, await readFile(input), wrong.privateKey);
@@ -419,6 +584,7 @@ test("production semantic verifier blocks a transport-valid synthetic chain", as
   try {
     await assert.rejects(
       publishProductionActivationBundle(files.options, {
+        ...PROVENANCE_TEST_DEPENDENCY,
         now: () => NOW,
         signWithCustody: signerFor(files, calls),
       }),

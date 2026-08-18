@@ -19,7 +19,7 @@ ARG BUILD_SHA
 # OCI index sha256:9190b0613792e658a7783cf14b2d5ace5941bb68ede7276922ea36ee457d76ad.
 # This child digest is the exact linux/amd64 manifest; only its static Docker
 # client binary is copied into the isolated host-operator target below.
-FROM --platform=linux/amd64 docker:28.5.1-cli@sha256:a35dae37a79d2b84ccf0100045aec5ab920e4cc8e84f9141d355da602f8af899 AS docker-cli-amd64
+FROM docker:28.5.1-cli@sha256:a35dae37a79d2b84ccf0100045aec5ab920e4cc8e84f9141d355da602f8af899 AS docker-cli-amd64
 
 # ---------- Builder ----------
 FROM node:24-slim@sha256:235600a8101ab264e117b1768e925532262668dc9b581ef1dd7d96ced463b8e7 AS builder

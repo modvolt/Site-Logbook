@@ -265,6 +265,10 @@ export interface ProductionReleaseSummary {
   sourceSha: string;
   apiImage: string;
   apiImageDigest: string;
+  publicationReceiptSha256: string;
+  reviewedImageSetSha256: string;
+  apiRunnableManifestDigest: string;
+  apiOciProvenanceSha256: string;
   postgresImage: string;
   targetEvidenceSha256: string;
   releaseEvidenceSha256: string;
@@ -356,6 +360,10 @@ function validateTarget(
       "sourceSha",
       "provenanceSourceSha",
       "provenanceEvidenceSha256",
+      "publicationReceiptSha256",
+      "reviewedImageSetSha256",
+      "apiRunnableManifestDigest",
+      "apiOciProvenanceSha256",
       "apiImage",
       "apiImageDigest",
       "imageProfile",
@@ -374,6 +382,14 @@ function validateTarget(
     build.provenanceEvidenceSha256,
     "target.build.provenanceEvidenceSha256",
   );
+  for (const field of [
+    "publicationReceiptSha256",
+    "reviewedImageSetSha256",
+    "apiRunnableManifestDigest",
+    "apiOciProvenanceSha256",
+  ] as const) {
+    digestAt(build[field], `target.build.${field}`);
+  }
   const apiImage = stringAt(build.apiImage, "target.build.apiImage");
   if (!IMMUTABLE_IMAGE.test(apiImage)) {
     fail(
@@ -1006,6 +1022,10 @@ export function validateProductionAudit0107ReleaseEvidence(
     sourceSha: input.expectedSourceSha,
     apiImage: input.expectedApiImage,
     apiImageDigest: String(build.apiImageDigest),
+    publicationReceiptSha256: String(build.publicationReceiptSha256),
+    reviewedImageSetSha256: String(build.reviewedImageSetSha256),
+    apiRunnableManifestDigest: String(build.apiRunnableManifestDigest),
+    apiOciProvenanceSha256: String(build.apiOciProvenanceSha256),
     postgresImage: String(postgres.image),
     targetEvidenceSha256: targetArtifact.sha256,
     releaseEvidenceSha256: releaseArtifact.sha256,
@@ -1121,6 +1141,10 @@ export function createProductionRuntimeBinding(
     sourceSha: summary.sourceSha,
     apiImage: summary.apiImage,
     apiImageDigest: summary.apiImageDigest,
+    publicationReceiptSha256: summary.publicationReceiptSha256,
+    reviewedImageSetSha256: summary.reviewedImageSetSha256,
+    apiRunnableManifestDigest: summary.apiRunnableManifestDigest,
+    apiOciProvenanceSha256: summary.apiOciProvenanceSha256,
     postgresImage: summary.postgresImage,
     targetEvidenceSha256: summary.targetEvidenceSha256,
     releaseEvidenceSha256: summary.releaseEvidenceSha256,

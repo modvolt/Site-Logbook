@@ -22,6 +22,7 @@ import { verifyProductionMigrationTransitionChain } from "../../../../scripts/pr
 // @ts-ignore -- the producer-owned exact host observation parser intentionally lives outside the API rootDir.
 import {
   OBSERVATION_REQUEST_SCHEMA,
+  verifyProductionApiImageProvenanceArtifact,
   verifyProductionObservationExports,
 } from "../../../../scripts/production-evidence/host-attestation-contract.mjs";
 import {
@@ -54,7 +55,9 @@ export const PRODUCTION_ACTIVATION_CONTRACT_TEST_CONFIRMATION =
 const SOURCE_SHA = /^[0-9a-f]{40}$/;
 const RAW_SHA256 = /^[0-9a-f]{64}$/;
 const SHA256 = /^sha256:[0-9a-f]{64}$/;
-const CONTAINER_ID = /^[0-9a-f]{12,64}$/;
+const CONTAINER_ID = /^(?:[0-9a-f]{12}|[0-9a-f]{64})$/;
+const FULL_CONTAINER_ID = /^[0-9a-f]{64}$/;
+const SHORT_CONTAINER_ID = /^[0-9a-f]{12}$/;
 const NONCE = /^[0-9a-f]{64}$/;
 const IDENTIFIER = /^[a-z_][a-z0-9_]{0,62}$/;
 const COMPOSE_NAME = /^[a-z0-9][a-z0-9_-]{0,62}$/;
@@ -117,6 +120,16 @@ export interface ProductionObservationVerificationVerdict {
   coolifySha256: string;
   dockerSha256: string;
   postgresSha256: string;
+}
+
+export interface ProductionApiImageProvenanceVerdict {
+  sha256: string;
+  sourceSha: string;
+  subjectImage: string;
+  publicationReceiptSha256: string;
+  reviewedImageSetSha256: string;
+  subjectRunnableManifestDigest: string;
+  ociProvenanceSha256: string;
 }
 
 export interface ProductionActivationApprovalV2 {
@@ -187,6 +200,12 @@ export interface ProductionActivationContractAdapters {
     roleTransactionReceiptCanonical: string;
     postCommitRoleArtifactCanonical: string;
   }): CanonicalArtifact;
+  verifyApiImageProvenance?(input: {
+    canonical: string;
+    signature: string;
+    sourceSha: string;
+    expectedApiImage: string;
+  }): ProductionApiImageProvenanceVerdict;
   credentialReceiptParser?: ProductionRuntimeDbCredentialReceiptParser;
   verifyFinalObservations?(input: {
     request: Record<string, unknown>;
@@ -215,6 +234,7 @@ const DIRECT_ADAPTERS: ProductionActivationContractAdapters = Object.freeze({
   parseMigrationArtifact: parseCanonicalProductionMigrationArtifact,
   validateMigrationPlan: validateProductionMigrationPlan,
   verifyMigrationTransition: verifyProductionMigrationTransitionChain,
+  verifyApiImageProvenance: verifyProductionApiImageProvenanceArtifact,
   credentialReceiptParser: PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_PARSER,
   verifyFinalObservations: verifyProductionObservationExports,
 });
@@ -264,6 +284,32 @@ function exactString(value: unknown, field: string, pattern: RegExp): string {
     fail("PRODUCTION_ACTIVATION_SEMANTIC_INVALID", `${field} is invalid.`);
   }
   return value;
+}
+
+function exactCanonicalArtifact(value: unknown, field: string): string {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    Buffer.byteLength(value, "utf8") > 16 * 1024
+  ) {
+    fail(
+      "PRODUCTION_ACTIVATION_SEMANTIC_INVALID",
+      `${field} must be one bounded canonical artifact.`,
+    );
+  }
+  return value;
+}
+
+function exactDetachedSignatureBase64(value: unknown, field: string): string {
+  const encoded = exactString(value, field, /^[A-Za-z0-9+/]{86}==$/);
+  const bytes = Buffer.from(encoded, "base64");
+  if (bytes.length !== 64 || bytes.toString("base64") !== encoded) {
+    fail(
+      "PRODUCTION_ACTIVATION_SEMANTIC_INVALID",
+      `${field} must be one canonical padded-base64 Ed25519 signature.`,
+    );
+  }
+  return encoded;
 }
 
 function exactTimestamp(
@@ -444,6 +490,44 @@ function exactEqual(actual: unknown, expected: unknown, field: string): void {
   }
 }
 
+/**
+ * Docker's default in-container hostname is the unique 12-hex short form of
+ * the 64-hex daemon ID returned by `docker container inspect`. A caller that
+ * already has the full ID receives no prefix relaxation.
+ */
+export function productionActivationContainerIdMatches(
+  challengeContainerId: string,
+  observedContainerId: string,
+): boolean {
+  if (!FULL_CONTAINER_ID.test(observedContainerId)) return false;
+  if (FULL_CONTAINER_ID.test(challengeContainerId)) {
+    return challengeContainerId === observedContainerId;
+  }
+  return (
+    SHORT_CONTAINER_ID.test(challengeContainerId) &&
+    observedContainerId.startsWith(challengeContainerId)
+  );
+}
+
+function requireObservedContainerIdBinding(
+  challengeContainerId: unknown,
+  observedContainerId: unknown,
+): void {
+  if (
+    typeof challengeContainerId !== "string" ||
+    typeof observedContainerId !== "string" ||
+    !productionActivationContainerIdMatches(
+      challengeContainerId,
+      observedContainerId,
+    )
+  ) {
+    fail(
+      "PRODUCTION_ACTIVATION_CROSS_BINDING_INVALID",
+      "observations.apiContainerId is not the exact full Docker ID bound by the runtime challenge.",
+    );
+  }
+}
+
 function detachedSignature(backup: Record<string, unknown>): string {
   const payload = record(
     artifactPayload(
@@ -464,8 +548,9 @@ function detachedSignature(backup: Record<string, unknown>): string {
 }
 
 /**
- * Directly re-runs the canonical exact-0096, 0096->0107 and runtime credential
- * producer-owned parsers before HOLD may start any application work.
+ * Directly re-runs the source-pinned API-image provenance, canonical exact-0096,
+ * 0096->0107 and runtime credential producer-owned parsers before HOLD may
+ * start any application work.
  */
 async function verifyProductionActivationContractV2Core(
   bundle: ProductionActivationBundleV2,
@@ -489,7 +574,69 @@ async function verifyProductionActivationContractV2Core(
     evidence.finalObservations,
     "activation.evidence.finalObservations",
   );
+  const apiImageProvenance = exactRecord(
+    evidence.apiImageProvenance,
+    ["canonical", "signatureB64"],
+    "activation.evidence.apiImageProvenance",
+  );
   const hostAttestation = record(bundle.hostAttestation, "hostAttestation");
+  if (!adapters.verifyApiImageProvenance) {
+    fail(
+      "PRODUCTION_ACTIVATION_PROVENANCE_PARSER_MISSING",
+      "the API image provenance producer exports no authoritative source-pinned verifier; remain in HOLD.",
+    );
+  }
+  let imageProvenanceVerdict: ProductionApiImageProvenanceVerdict;
+  try {
+    imageProvenanceVerdict = adapters.verifyApiImageProvenance({
+      canonical: exactCanonicalArtifact(
+        apiImageProvenance.canonical,
+        "activation.evidence.apiImageProvenance.canonical",
+      ),
+      signature: exactDetachedSignatureBase64(
+        apiImageProvenance.signatureB64,
+        "activation.evidence.apiImageProvenance.signatureB64",
+      ),
+      sourceSha: exactString(
+        activation.sourceSha,
+        "activation.sourceSha",
+        SOURCE_SHA,
+      ),
+      expectedApiImage: exactString(
+        activation.apiImage,
+        "activation.apiImage",
+        IMMUTABLE_IMAGE,
+      ),
+    });
+  } catch (error) {
+    if (error instanceof ProductionActivationError) throw error;
+    fail(
+      "PRODUCTION_ACTIVATION_PROVENANCE_INVALID",
+      "the signed API image provenance artifact is invalid or does not match this activation.",
+    );
+  }
+  exactEqual(
+    imageProvenanceVerdict.sourceSha,
+    activation.sourceSha,
+    "apiImageProvenance.sourceSha",
+  );
+  exactEqual(
+    imageProvenanceVerdict.subjectImage,
+    activation.apiImage,
+    "apiImageProvenance.subjectImage",
+  );
+  for (const field of [
+    "publicationReceiptSha256",
+    "reviewedImageSetSha256",
+    "subjectRunnableManifestDigest",
+    "ociProvenanceSha256",
+  ] as const) {
+    exactString(
+      imageProvenanceVerdict[field],
+      `apiImageProvenance.${field}`,
+      SHA256,
+    );
+  }
   const approvalCanonical = canonicalArtifactPayload(
     evidence,
     "activationApproval",
@@ -805,6 +952,10 @@ async function verifyProductionActivationContractV2Core(
     postgresCanonical,
     activationIssuedAt: String(activation.issuedAt),
   });
+  requireObservedContainerIdBinding(
+    activation.containerId,
+    observationVerdict.apiContainerId,
+  );
 
   for (const [field, actual, expected] of [
     ["approval.sourceSha", approval.sourceSha, activation.sourceSha],
@@ -902,11 +1053,6 @@ async function verifyProductionActivationContractV2Core(
       "observations.resolvedComposeSha256",
       observationVerdict.resolvedComposeSha256,
       `sha256:${String(activation.resolvedComposeSha256)}`,
-    ],
-    [
-      "observations.apiContainerId",
-      observationVerdict.apiContainerId,
-      activation.containerId,
     ],
     [
       "observations.apiContainerImage",
@@ -1025,6 +1171,11 @@ async function verifyProductionActivationContractV2Core(
     sourceSha: String(activation.sourceSha),
     apiImage: String(activation.apiImage),
     apiImageDigest: `sha256:${String(activation.apiImage).split("@sha256:")[1]}`,
+    publicationReceiptSha256: imageProvenanceVerdict.publicationReceiptSha256,
+    reviewedImageSetSha256: imageProvenanceVerdict.reviewedImageSetSha256,
+    apiRunnableManifestDigest:
+      imageProvenanceVerdict.subjectRunnableManifestDigest,
+    apiOciProvenanceSha256: imageProvenanceVerdict.ociProvenanceSha256,
     postgresImage: observationVerdict.postgresImage,
     targetEvidenceSha256: prefixedSha256(
       canonicalProductionActivationJson(observations as JsonValue),

@@ -347,7 +347,7 @@ jobs:
           target: production
           platforms: linux/amd64
           push: false
-          outputs: type=oci,dest=production-api.oci.tar
+          outputs: type=oci,dest=production-api.oci.tar,name=ghcr.io/modvolt/site-logbook-production-api:${{ inputs.source_sha }}
           labels: |
             org.opencontainers.image.source=https://github.com/modvolt/Site-Logbook
             org.opencontainers.image.revision=${{ inputs.source_sha }}
@@ -365,7 +365,7 @@ jobs:
           target: control-plane
           platforms: linux/amd64
           push: false
-          outputs: type=oci,dest=control-plane.oci.tar
+          outputs: type=oci,dest=control-plane.oci.tar,name=ghcr.io/modvolt/site-logbook-control-plane:${{ inputs.source_sha }}
           labels: |
             org.opencontainers.image.source=https://github.com/modvolt/Site-Logbook
             org.opencontainers.image.revision=${{ inputs.source_sha }}
@@ -383,7 +383,7 @@ jobs:
           target: host-operator
           platforms: linux/amd64
           push: false
-          outputs: type=oci,dest=host-operator.oci.tar
+          outputs: type=oci,dest=host-operator.oci.tar,name=ghcr.io/modvolt/site-logbook-host-operator:${{ inputs.source_sha }}
           labels: |
             org.opencontainers.image.source=https://github.com/modvolt/Site-Logbook
             org.opencontainers.image.revision=${{ inputs.source_sha }}
@@ -401,7 +401,7 @@ jobs:
           target: runtime
           platforms: linux/amd64
           push: false
-          outputs: type=oci,dest=production-web.oci.tar
+          outputs: type=oci,dest=production-web.oci.tar,name=ghcr.io/modvolt/site-logbook-production-web:${{ inputs.source_sha }}
           labels: |
             org.opencontainers.image.source=https://github.com/modvolt/Site-Logbook
             org.opencontainers.image.revision=${{ inputs.source_sha }}
@@ -513,11 +513,13 @@ jobs:
               '{runnable:$runnable,attestation:$attestation,provenance:$provenance,sbom:$sbom}' \
               >"${key}-oci-descriptors.json"
             dockerfile_dir="${dockerfile%/Dockerfile}"
+            subject_name="pkg:docker/${repository}@${SOURCE_SHA}?platform=linux%2Famd64"
             jq -e \
               --arg buildArg "$build_arg" \
               --arg dockerfileDir "$dockerfile_dir" \
               --arg runnableDigest "$runnable_digest" \
               --arg sha "$SOURCE_SHA" \
+              --arg subjectName "$subject_name" \
               --arg target "$target" \
               '.predicate.buildType == "https://mobyproject.org/buildkit@v1" and
                .predicate.invocation.configSource.entryPoint == "Dockerfile" and
@@ -527,7 +529,7 @@ jobs:
                .predicate.invocation.parameters.root.request.args["vcs:revision"] == $sha and
                .predicate.invocation.parameters.root.request.args["vcs:source"] == "https://github.com/modvolt/Site-Logbook" and
                .predicate.metadata["https://mobyproject.org/buildkit@v1#metadata"].vcs.revision == $sha and
-               any(.subject[]?; .digest.sha256 == ($runnableDigest | sub("^sha256:"; "")))' \
+               .subject == [{name:$subjectName,digest:{sha256:($runnableDigest | sub("^sha256:"; ""))}}]' \
               "$provenance_path" >/dev/null \
               || fail "${key} provenance is not exact-source BuildKit v1."
             sbom_version="$(jq -r '.predicate.spdxVersion' "$sbom_path")"

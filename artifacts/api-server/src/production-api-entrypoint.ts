@@ -104,18 +104,6 @@ async function main(): Promise<void> {
     expected: {
       sourceSha,
       apiImage: required(process.env, "PRODUCTION_API_IMAGE").toLowerCase(),
-      desiredConfigSha256: required(
-        process.env,
-        "PRODUCTION_EXPECTED_DESIRED_CONFIG_SHA256",
-      ).toLowerCase(),
-      deployedConfigSha256: required(
-        process.env,
-        "PRODUCTION_EXPECTED_DEPLOYED_CONFIG_SHA256",
-      ).toLowerCase(),
-      resolvedComposeSha256: required(
-        process.env,
-        "PRODUCTION_EXPECTED_RESOLVED_COMPOSE_SHA256",
-      ).toLowerCase(),
       containerId,
     },
     loadSemanticVerifier: async () => {

@@ -33,6 +33,10 @@ import {
 const SOURCE_SHA = "a".repeat(40);
 const API_DIGEST = `sha256:${"b".repeat(64)}`;
 const API_IMAGE = `ghcr.io/modvolt/site-logbook-production-api@${API_DIGEST}`;
+const PUBLICATION_RECEIPT_SHA = `sha256:${"7".repeat(64)}`;
+const REVIEWED_IMAGE_SET_SHA = `sha256:${"8".repeat(64)}`;
+const API_RUNNABLE_MANIFEST_DIGEST = `sha256:${"9".repeat(64)}`;
+const API_OCI_PROVENANCE_SHA = `sha256:${"f".repeat(64)}`;
 const SCHEMA_SHA = `sha256:${"c".repeat(64)}`;
 const BACKUP_SHA = `sha256:${"d".repeat(64)}`;
 const TRANSITION_CHAIN_SHA = `sha256:${"e".repeat(64)}`;
@@ -88,6 +92,10 @@ function fixture() {
       sourceSha: SOURCE_SHA,
       provenanceSourceSha: SOURCE_SHA,
       provenanceEvidenceSha256: `sha256:${"8".repeat(64)}`,
+      publicationReceiptSha256: PUBLICATION_RECEIPT_SHA,
+      reviewedImageSetSha256: REVIEWED_IMAGE_SET_SHA,
+      apiRunnableManifestDigest: API_RUNNABLE_MANIFEST_DIGEST,
+      apiOciProvenanceSha256: API_OCI_PROVENANCE_SHA,
       apiImage: API_IMAGE,
       apiImageDigest: API_DIGEST,
       imageProfile: "production",
@@ -293,7 +301,44 @@ describe("production startup evidence", () => {
     const summary = validateProductionAudit0107ReleaseEvidence(input);
     expect(summary.sourceSha).toBe(SOURCE_SHA);
     expect(summary.apiImageDigest).toBe(API_DIGEST);
+    expect(summary.publicationReceiptSha256).toBe(PUBLICATION_RECEIPT_SHA);
+    expect(summary.reviewedImageSetSha256).toBe(REVIEWED_IMAGE_SET_SHA);
+    expect(summary.apiRunnableManifestDigest).toBe(
+      API_RUNNABLE_MANIFEST_DIGEST,
+    );
+    expect(summary.apiOciProvenanceSha256).toBe(API_OCI_PROVENANCE_SHA);
     expect(summary.schemaFingerprintSha256).toBe(SCHEMA_SHA);
+  });
+
+  it("requires an exact four-field image provenance binding", () => {
+    const mutations: Array<
+      (target: ReturnType<typeof fixture>["targetValue"]) => void
+    > = [
+      (target) => {
+        delete (target.build as Record<string, unknown>)
+          .publicationReceiptSha256;
+      },
+      (target) => {
+        target.build.reviewedImageSetSha256 = `sha256:${"e".repeat(63)}`;
+      },
+      (target) => {
+        (target.build as Record<string, unknown>).unexpectedProvenanceSha256 =
+          `sha256:${"e".repeat(64)}`;
+      },
+    ];
+    for (const mutate of mutations) {
+      const { input, targetValue } = fixture();
+      mutate(targetValue);
+      const changed = createCanonicalProductionEvidenceArtifact(targetValue);
+      expect(() =>
+        validateProductionAudit0107ReleaseEvidence({
+          ...input,
+          targetEvidenceB64: changed.base64,
+          targetEvidenceSha256: changed.sha256,
+          expectedTargetSha256: changed.sha256,
+        }),
+      ).toThrow(/target\.build|PRODUCTION_EVIDENCE_DIGEST_INVALID/);
+    }
   });
 
   it("rejects Coolify pending changes and staging target substitution", () => {
@@ -548,6 +593,10 @@ describe("production startup evidence", () => {
 
     expect(result.binding).toMatchObject({
       sourceSha: SOURCE_SHA,
+      publicationReceiptSha256: PUBLICATION_RECEIPT_SHA,
+      reviewedImageSetSha256: REVIEWED_IMAGE_SET_SHA,
+      apiRunnableManifestDigest: API_RUNNABLE_MANIFEST_DIGEST,
+      apiOciProvenanceSha256: API_OCI_PROVENANCE_SHA,
       databaseName: "site_logbook",
       databaseUser: "site_logbook_runtime",
       transitionChainSha256: TRANSITION_CHAIN_SHA,
@@ -569,6 +618,24 @@ describe("production startup evidence", () => {
         { verifyDatabase },
       ),
     ).rejects.toThrow(/activation sourceSha/);
+    expect(verifyDatabase).not.toHaveBeenCalled();
+  });
+
+  it("rejects unsigned or drifting activation configuration bindings before DB access", async () => {
+    const { env, input } = fixture();
+    const summary = validateProductionAudit0107ReleaseEvidence(input);
+    const verifyDatabase = vi.fn(async () => liveReadiness());
+
+    for (const release of [
+      { ...summary, deployedConfigSha256: `sha256:${"f".repeat(64)}` },
+      { ...summary, resolvedComposeSha256: "not-an-observer-digest" },
+    ]) {
+      await expect(
+        runProductionActivationRuntimePreflight(env, SOURCE_SHA, release, {
+          verifyDatabase,
+        }),
+      ).rejects.toThrow(/activation .*ConfigSha256|observer digest/);
+    }
     expect(verifyDatabase).not.toHaveBeenCalled();
   });
 

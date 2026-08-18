@@ -70,6 +70,28 @@ function requireEqual(actual: unknown, expected: unknown, field: string): void {
   }
 }
 
+function requireObservedConfigurationBinding(
+  release: ProductionReleaseSummary,
+): void {
+  const digest = /^sha256:[0-9a-f]{64}$/;
+  for (const field of [
+    "desiredConfigSha256",
+    "deployedConfigSha256",
+    "resolvedComposeSha256",
+  ] as const) {
+    if (!digest.test(release[field])) {
+      throw new Error(
+        `PRODUCTION_DATABASE_READINESS_INVALID: activation ${field} is not an exact observer digest.`,
+      );
+    }
+  }
+  requireEqual(
+    release.desiredConfigSha256,
+    release.deployedConfigSha256,
+    "activation desiredConfigSha256",
+  );
+}
+
 async function verifyRuntimeDatabaseAndCreateResult(
   env: NodeJS.ProcessEnv,
   embeddedBuildSha: string,
@@ -167,6 +189,7 @@ export async function runProductionActivationRuntimePreflight(
     "BUILD_SHA",
   );
   requireEqual(release.sourceSha, embeddedBuildSha, "activation sourceSha");
+  requireObservedConfigurationBinding(release);
   requireProductionHetznerObjectStorageConfiguration(env);
   return verifyRuntimeDatabaseAndCreateResult(
     env,

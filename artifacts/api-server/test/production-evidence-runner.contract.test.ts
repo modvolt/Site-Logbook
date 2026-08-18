@@ -12,8 +12,8 @@ import {
   OBSERVATION_REQUEST_SCHEMA,
   POSTGRES_EXPORT_SCHEMA,
   canonicalJson,
-  createProductionHostAttestation,
-  createProductionTargetEvidence,
+  createProductionHostAttestationWithTestAuthority,
+  createProductionTargetEvidenceWithTestAuthority,
 } from "../../../scripts/production-evidence/host-attestation-contract.mjs";
 
 const NOW = Date.parse("2026-08-12T10:01:00.000Z");
@@ -71,6 +71,10 @@ function createFixture(lifetimeMs = 10 * 60_000) {
     subjectImage: images.api,
     subjectDigest: digest("1"),
     sourceSha: SOURCE_SHA,
+    publicationReceiptSha256: digest("6"),
+    reviewedImageSetSha256: digest("7"),
+    subjectRunnableManifestDigest: digest("8"),
+    ociProvenanceSha256: digest("9"),
     buildProfile: "production",
     mutatingEntrypointsPresent: false,
   });
@@ -142,7 +146,7 @@ function createFixture(lifetimeMs = 10 * 60_000) {
       .digest("hex")}`,
     backendProofSha256: digest("a"),
   });
-  const target = createProductionTargetEvidence(observation, {
+  const target = createProductionTargetEvidenceWithTestAuthority(observation, {
     now: NOW,
     trustedImageProvenanceKeys: TRUSTED_PROVENANCE_KEYS,
   });
@@ -195,7 +199,7 @@ function createFixture(lifetimeMs = 10 * 60_000) {
   const releaseEvidenceSha256 = `sha256:${createHash("sha256")
     .update(releaseEvidenceCanonical)
     .digest("hex")}`;
-  const attestation = createProductionHostAttestation(
+  const attestation = createProductionHostAttestationWithTestAuthority(
     {
       targetCanonical: target.canonical,
       intentEvidenceCanonical,

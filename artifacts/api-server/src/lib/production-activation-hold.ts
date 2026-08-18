@@ -18,7 +18,7 @@ export const PRODUCTION_ACTIVATION_HEALTH_PATH =
 const SHA256 = /^[0-9a-f]{64}$/;
 const SHA256_PIN = /^sha256:[0-9a-f]{64}$/;
 const SOURCE_SHA = /^[0-9a-f]{40}$/;
-const CONTAINER_ID = /^[0-9a-f]{12,64}$/;
+const CONTAINER_ID = /^(?:[0-9a-f]{12}|[0-9a-f]{64})$/;
 const NONCE = /^[0-9a-f]{64}$/;
 const ARTIFACT_KIND = /^[a-z0-9][a-z0-9._-]{2,127}$/;
 const IMAGE = /^[a-z0-9][a-z0-9./:_-]*@sha256:[0-9a-f]{64}$/;
@@ -41,9 +41,6 @@ export type JsonValue =
 export interface ProductionActivationExpectedBinding {
   sourceSha: string;
   apiImage: string;
-  desiredConfigSha256: string;
-  deployedConfigSha256: string;
-  resolvedComposeSha256: string;
   containerId: string;
   nonce: string;
 }
@@ -371,11 +368,39 @@ function validateArtifact(
   return artifact;
 }
 
+function validateApiImageProvenance(value: unknown): void {
+  const provenance = exactObject(
+    value,
+    ["canonical", "signatureB64"],
+    "activation.evidence.apiImageProvenance",
+  );
+  requiredString(
+    provenance.canonical,
+    "activation.evidence.apiImageProvenance.canonical",
+  );
+  const signatureB64 = requiredString(
+    provenance.signatureB64,
+    "activation.evidence.apiImageProvenance.signatureB64",
+    /^[A-Za-z0-9+/]{86}==$/,
+  );
+  const signature = Buffer.from(signatureB64, "base64");
+  if (
+    signature.length !== 64 ||
+    signature.toString("base64") !== signatureB64
+  ) {
+    fail(
+      "PRODUCTION_ACTIVATION_SCHEMA_INVALID",
+      "activation.evidence.apiImageProvenance.signatureB64 must be one canonical padded-base64 Ed25519 signature.",
+    );
+  }
+}
+
 function validateEvidence(value: unknown): Record<string, unknown> {
   const evidence = exactObject(
     value,
     [
       "activationApproval",
+      "apiImageProvenance",
       "exact0096Backup",
       "finalObservations",
       "migration0096To0107",
@@ -383,6 +408,7 @@ function validateEvidence(value: unknown): Record<string, unknown> {
     ],
     "activation.evidence",
   );
+  validateApiImageProvenance(evidence.apiImageProvenance);
   const backup = exactObject(
     evidence.exact0096Backup,
     ["detachedSignature", "passReceipt", "plan", "signature", "trace"],
@@ -660,21 +686,6 @@ export async function validateProductionActivationBundleTransport(
     "activation.sourceSha",
   );
   requireEqual(activation.apiImage, expected.apiImage, "activation.apiImage");
-  requireEqual(
-    activation.desiredConfigSha256,
-    expected.desiredConfigSha256,
-    "activation.desiredConfigSha256",
-  );
-  requireEqual(
-    activation.deployedConfigSha256,
-    expected.deployedConfigSha256,
-    "activation.deployedConfigSha256",
-  );
-  requireEqual(
-    activation.resolvedComposeSha256,
-    expected.resolvedComposeSha256,
-    "activation.resolvedComposeSha256",
-  );
   requireEqual(
     activation.containerId,
     expected.containerId,

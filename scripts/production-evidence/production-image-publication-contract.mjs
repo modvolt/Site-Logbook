@@ -40,6 +40,8 @@ const MAX_CANONICAL_BYTES = 1024 * 1024;
 const MAX_PREFLIGHT_AGE_MS = 24 * 60 * 60 * 1000;
 const MAX_OCI_ARCHIVE_BYTES = 20 * 1024 * 1024 * 1024;
 const MAX_SOURCE_RECHECK_BYTES = 1024 * 1024;
+const MAX_STRICT_JSON_BYTES = 64 * 1024 * 1024;
+const MAX_STRICT_JSON_DEPTH = 256;
 
 export const PRODUCTION_IMAGE_SPECS = Object.freeze({
   api: Object.freeze({
@@ -205,7 +207,7 @@ export function assertSecretFree(value, field = "receipt") {
   }
   if (!value || typeof value !== "object") return;
   for (const [key, entry] of Object.entries(value)) {
-    if (FORBIDDEN_KEY.test(key)) {
+    if (FORBIDDEN_KEY.test(key) || FORBIDDEN_VALUE.test(key)) {
       fail(
         "PRODUCTION_IMAGE_SECRET_MATERIAL",
         `${field} contains a forbidden secret field.`,
@@ -213,6 +215,174 @@ export function assertSecretFree(value, field = "receipt") {
     }
     assertSecretFree(entry, `${field}.${key}`);
   }
+}
+
+function strictJsonFailure() {
+  fail(
+    "PRODUCTION_IMAGE_JSON_INVALID",
+    "JSON input must be valid UTF-8 strict JSON with unique object keys.",
+  );
+}
+
+function strictJsonText(raw) {
+  if (typeof raw === "string") {
+    if (
+      Buffer.byteLength(raw, "utf8") > MAX_STRICT_JSON_BYTES ||
+      raw.charCodeAt(0) === 0xfeff
+    ) {
+      strictJsonFailure();
+    }
+    return raw;
+  }
+  if (!Buffer.isBuffer(raw) && !ArrayBuffer.isView(raw)) {
+    strictJsonFailure();
+  }
+  if (raw.byteLength > MAX_STRICT_JSON_BYTES) strictJsonFailure();
+  const bytes = Buffer.from(raw.buffer, raw.byteOffset, raw.byteLength);
+  if (
+    bytes.length >= 3 &&
+    bytes[0] === 0xef &&
+    bytes[1] === 0xbb &&
+    bytes[2] === 0xbf
+  ) {
+    strictJsonFailure();
+  }
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    strictJsonFailure();
+  }
+}
+
+function assertUniqueJsonObjectKeys(raw) {
+  let cursor = 0;
+  const numberPattern =
+    /-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/uy;
+  const whitespace = new Set([0x09, 0x0a, 0x0d, 0x20]);
+
+  const skipWhitespace = () => {
+    while (cursor < raw.length && whitespace.has(raw.charCodeAt(cursor))) {
+      cursor += 1;
+    }
+  };
+
+  const parseString = () => {
+    if (raw[cursor] !== '"') strictJsonFailure();
+    const start = cursor;
+    cursor += 1;
+    while (cursor < raw.length) {
+      const code = raw.charCodeAt(cursor);
+      if (code === 0x22) {
+        cursor += 1;
+        try {
+          return JSON.parse(raw.slice(start, cursor));
+        } catch {
+          strictJsonFailure();
+        }
+      }
+      if (code === 0x5c) {
+        cursor += 1;
+        if (cursor >= raw.length) strictJsonFailure();
+        const escape = raw[cursor];
+        if (escape === "u") {
+          if (!/^[0-9a-fA-F]{4}$/u.test(raw.slice(cursor + 1, cursor + 5))) {
+            strictJsonFailure();
+          }
+          cursor += 5;
+          continue;
+        }
+        if (!'"\\/bfnrt'.includes(escape)) strictJsonFailure();
+        cursor += 1;
+        continue;
+      }
+      if (code <= 0x1f) strictJsonFailure();
+      cursor += 1;
+    }
+    strictJsonFailure();
+  };
+
+  const parseValue = (depth) => {
+    if (depth > MAX_STRICT_JSON_DEPTH) strictJsonFailure();
+    skipWhitespace();
+    const token = raw[cursor];
+    if (token === "{") {
+      cursor += 1;
+      skipWhitespace();
+      const keys = new Set();
+      if (raw[cursor] === "}") {
+        cursor += 1;
+        return;
+      }
+      while (cursor < raw.length) {
+        const key = parseString();
+        if (keys.has(key)) strictJsonFailure();
+        keys.add(key);
+        skipWhitespace();
+        if (raw[cursor] !== ":") strictJsonFailure();
+        cursor += 1;
+        parseValue(depth + 1);
+        skipWhitespace();
+        if (raw[cursor] === "}") {
+          cursor += 1;
+          return;
+        }
+        if (raw[cursor] !== ",") strictJsonFailure();
+        cursor += 1;
+        skipWhitespace();
+      }
+      strictJsonFailure();
+    }
+    if (token === "[") {
+      cursor += 1;
+      skipWhitespace();
+      if (raw[cursor] === "]") {
+        cursor += 1;
+        return;
+      }
+      while (cursor < raw.length) {
+        parseValue(depth + 1);
+        skipWhitespace();
+        if (raw[cursor] === "]") {
+          cursor += 1;
+          return;
+        }
+        if (raw[cursor] !== ",") strictJsonFailure();
+        cursor += 1;
+      }
+      strictJsonFailure();
+    }
+    if (token === '"') {
+      parseString();
+      return;
+    }
+    for (const literal of ["true", "false", "null"]) {
+      if (raw.startsWith(literal, cursor)) {
+        cursor += literal.length;
+        return;
+      }
+    }
+    numberPattern.lastIndex = cursor;
+    const number = numberPattern.exec(raw);
+    if (!number) strictJsonFailure();
+    cursor = numberPattern.lastIndex;
+  };
+
+  parseValue(0);
+  skipWhitespace();
+  if (cursor !== raw.length) strictJsonFailure();
+}
+
+export function parseStrictSecretFreeJson(raw, field = "json") {
+  const text = strictJsonText(raw);
+  assertUniqueJsonObjectKeys(text);
+  let value;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    strictJsonFailure();
+  }
+  assertSecretFree(value, field);
+  return value;
 }
 
 function assertBuildkitProvenanceSecretFree(value, field) {
@@ -1041,8 +1211,14 @@ function jsonFile(path, field, maxBytes = 64 * 1024 * 1024) {
     fail("PRODUCTION_IMAGE_OCI_LAYOUT_INVALID", `${field} has invalid size.`);
   }
   try {
-    return JSON.parse(readFileSync(path, "utf8"));
-  } catch {
+    return parseStrictSecretFreeJson(readFileSync(path), field);
+  } catch (error) {
+    if (
+      error instanceof ProductionImagePublicationError &&
+      error.code === "PRODUCTION_IMAGE_SECRET_MATERIAL"
+    ) {
+      throw error;
+    }
     fail("PRODUCTION_IMAGE_OCI_LAYOUT_INVALID", `${field} must be JSON.`);
   }
 }
@@ -1157,18 +1333,33 @@ function rawProvenance(value, image, spec, field) {
     `${field}.metadata.vcs.revision`,
   );
   requireEqual(vcs?.source, SOURCE_URL, `${field}.metadata.vcs.source`);
-  const runnableHex = image.runnableManifestDigest.slice("sha256:".length);
-  if (
-    !Array.isArray(statement.subject) ||
-    !statement.subject.some(
-      (subject) => subject?.digest?.sha256 === runnableHex,
-    )
-  ) {
+  if (!Array.isArray(statement.subject) || statement.subject.length !== 1) {
     fail(
       "PRODUCTION_IMAGE_PROVENANCE_INVALID",
-      `${field} does not subject-bind the runnable manifest.`,
+      `${field} must contain exactly one reviewed runnable-manifest subject.`,
     );
   }
+  const subject = exactKeys(
+    statement.subject[0],
+    ["name", "digest"],
+    `${field}.subject[0]`,
+  );
+  const subjectDigest = exactKeys(
+    subject.digest,
+    ["sha256"],
+    `${field}.subject[0].digest`,
+  );
+  requireEqual(
+    subject.name,
+    `pkg:docker/${spec.repository}@${image.sourceSha}?platform=linux%2Famd64`,
+    `${field}.subject[0].name`,
+  );
+  const runnableHex = image.runnableManifestDigest.slice("sha256:".length);
+  requireEqual(
+    subjectDigest.sha256,
+    runnableHex,
+    `${field}.subject[0].digest.sha256`,
+  );
 }
 
 function rawSbom(value, image, field) {

@@ -32,6 +32,7 @@ import {
   PRODUCTION_ACTIVATION_APPROVAL_CONFIRMATION,
   PRODUCTION_ACTIVATION_APPROVAL_SCHEMA,
   PRODUCTION_ACTIVATION_CONTRACT_TEST_CONFIRMATION,
+  productionActivationContainerIdMatches,
   verifyProductionActivationContractV2,
   type ProductionActivationContractAdapters,
 } from "../src/lib/production-activation-contract";
@@ -46,6 +47,7 @@ import {
 } from "../src/lib/production-runtime-db-credential-cutover";
 import { productionRuntimeBindingMatches } from "../src/lib/migration-health";
 import { createProductionRuntimeBinding } from "../src/lib/production-startup-evidence";
+import { verifyProductionApiImageProvenanceArtifactWithTestAuthority } from "../../../scripts/production-evidence/host-attestation-contract.mjs";
 
 const NOW = Date.parse("2026-08-18T12:00:00.000Z");
 const SOURCE_SHA = "1".repeat(40);
@@ -65,6 +67,10 @@ const ROLE_POSTCOMMIT_SHA256 = `sha256:${"e".repeat(64)}`;
 const MIGRATION_TRANSITION_SHA256 = `sha256:${"f".repeat(64)}`;
 const FINAL_LIVE_SHA256 = `sha256:${"0".repeat(64)}`;
 const SCHEMA_FINGERPRINT_SHA256 = `sha256:${"a".repeat(64)}`;
+const PUBLICATION_RECEIPT_SHA256 = `sha256:${"3".repeat(64)}`;
+const REVIEWED_IMAGE_SET_SHA256 = `sha256:${"4".repeat(64)}`;
+const API_RUNNABLE_MANIFEST_DIGEST = `sha256:${"5".repeat(64)}`;
+const API_OCI_PROVENANCE_SHA256 = `sha256:${"6".repeat(64)}`;
 
 const temporaryDirectories: string[] = [];
 const controllers: ProductionActivationHoldController[] = [];
@@ -97,6 +103,35 @@ function artifact(kind: string, payload: JsonValue) {
     kind,
     payload,
     sha256: digest(canonicalProductionActivationJson(payload)),
+  };
+}
+
+function imageProvenance(
+  privateKey: KeyObject,
+  keyId: string,
+  sourceSha: string,
+  overrides: Readonly<Record<string, JsonValue>> = {},
+) {
+  const value = {
+    schemaVersion: "site-logbook.production-api-image-provenance/v2",
+    keyId,
+    subjectImage: IMAGE,
+    subjectDigest: `sha256:${"2".repeat(64)}`,
+    sourceSha,
+    publicationReceiptSha256: PUBLICATION_RECEIPT_SHA256,
+    reviewedImageSetSha256: REVIEWED_IMAGE_SET_SHA256,
+    subjectRunnableManifestDigest: API_RUNNABLE_MANIFEST_DIGEST,
+    ociProvenanceSha256: API_OCI_PROVENANCE_SHA256,
+    buildProfile: "production",
+    mutatingEntrypointsPresent: false,
+    ...overrides,
+  };
+  const canonical = canonicalProductionActivationJson(value);
+  return {
+    canonical,
+    signatureB64: sign(null, Buffer.from(canonical), privateKey).toString(
+      "base64",
+    ),
   };
 }
 
@@ -166,7 +201,10 @@ function credentialEvidence() {
   return { request, receipt };
 }
 
-function evidence() {
+function evidence(
+  containerId: string,
+  apiImageProvenance: ReturnType<typeof imageProvenance>,
+) {
   const receipts = Array.from({ length: 10 }, (_, index) =>
     artifact(`migration-receipt-${index + 1}`, {
       ordinal: index + 1,
@@ -187,7 +225,7 @@ function evidence() {
     sourceSha: EXECUTOR_SHA,
     apiImage: IMAGE,
     nonce: NONCE,
-    containerId: CONTAINER,
+    containerId,
     desiredConfigSha256: DESIRED,
     deployedConfigSha256: DEPLOYED,
     resolvedComposeSha256: RESOLVED,
@@ -216,6 +254,7 @@ function evidence() {
   });
   return {
     activationApproval,
+    apiImageProvenance,
     exact0096Backup: {
       detachedSignature: artifact("exact-0096-backup-detached-signature", {
         signatureBase64: "public-fixture",
@@ -286,6 +325,7 @@ async function fixture() {
   return {
     directory,
     publisherPrivateKey: publisher.privateKey,
+    publisherPublicKeyPem,
     publisherPublicKeyFile,
     publisherPublicKeySha256: spkiFingerprint(publisher.publicKey),
     hostPrivateKey: host.privateKey,
@@ -301,9 +341,6 @@ function expected(
   return {
     sourceSha: EXECUTOR_SHA,
     apiImage: IMAGE,
-    desiredConfigSha256: DESIRED,
-    deployedConfigSha256: DEPLOYED,
-    resolvedComposeSha256: RESOLVED,
     containerId: CONTAINER,
     nonce: NONCE,
     ...overrides,
@@ -318,27 +355,34 @@ function signedBundle(
   binding: ProductionActivationExpectedBinding = expected(),
   overrides: Readonly<Record<string, JsonValue>> = {},
 ) {
-  const activationEvidence = evidence();
+  const activationEvidence = evidence(
+    binding.containerId,
+    imageProvenance(
+      publisherPrivateKey,
+      publisherPublicKeySha256,
+      binding.sourceSha,
+    ),
+  );
   const hostAttestation = {
     activationEvidenceSha256: digest(
       canonicalProductionActivationJson(activationEvidence),
     ),
     apiImage: binding.apiImage,
     containerId: binding.containerId,
-    deployedConfigSha256: binding.deployedConfigSha256,
-    desiredConfigSha256: binding.desiredConfigSha256,
+    deployedConfigSha256: DEPLOYED,
+    desiredConfigSha256: DESIRED,
     kind: "site-logbook-production-host-attestation-v2",
     nonce: binding.nonce,
     observedAt: "2026-08-18T11:59:00.000Z",
-    resolvedComposeSha256: binding.resolvedComposeSha256,
+    resolvedComposeSha256: RESOLVED,
     schemaVersion: 2,
     sourceSha: binding.sourceSha,
   };
   const activation = {
     apiImage: binding.apiImage,
     containerId: binding.containerId,
-    deployedConfigSha256: binding.deployedConfigSha256,
-    desiredConfigSha256: binding.desiredConfigSha256,
+    deployedConfigSha256: DEPLOYED,
+    desiredConfigSha256: DESIRED,
     evidence: activationEvidence,
     expiresAt: "2026-08-18T12:05:00.000Z",
     hostAttestationSha256: digest(
@@ -347,7 +391,7 @@ function signedBundle(
     issuedAt: "2026-08-18T12:00:00.000Z",
     kind: "site-logbook-production-activation-bundle-v2",
     nonce: binding.nonce,
-    resolvedComposeSha256: binding.resolvedComposeSha256,
+    resolvedComposeSha256: RESOLVED,
     schemaVersion: 2,
     sourceSha: binding.sourceSha,
     ...overrides,
@@ -397,6 +441,26 @@ function signedFixtureBundle(
 }
 
 describe("production activation HOLD transport", () => {
+  it("binds a Docker short hostname only to its exact full daemon ID", () => {
+    const short = CONTAINER.slice(0, 12);
+    const samePrefixAlias = `${short}${"c".repeat(52)}`;
+
+    expect(productionActivationContainerIdMatches(short, CONTAINER)).toBe(true);
+    expect(
+      productionActivationContainerIdMatches(
+        `${short.slice(0, 11)}b`,
+        CONTAINER,
+      ),
+    ).toBe(false);
+    expect(productionActivationContainerIdMatches(CONTAINER, CONTAINER)).toBe(
+      true,
+    );
+    expect(
+      productionActivationContainerIdMatches(CONTAINER, samePrefixAlias),
+    ).toBe(false);
+    expect(productionActivationContainerIdMatches(short, short)).toBe(false);
+  });
+
   it("accepts only canonical signed bytes bound to this immutable container", async () => {
     const files = await fixture();
     const bundle = signedFixtureBundle(files);
@@ -656,6 +720,16 @@ describe("production activation HOLD lifecycle", () => {
       startRuntime,
     });
     controllers.push(controller);
+    expect(controller.challenge).toEqual({
+      kind: "site-logbook-production-activation-challenge-v2",
+      sourceSha: EXECUTOR_SHA,
+      apiImage: IMAGE,
+      containerId: CONTAINER,
+      nonce: NONCE,
+    });
+    expect(controller.challenge).not.toHaveProperty("desiredConfigSha256");
+    expect(controller.challenge).not.toHaveProperty("deployedConfigSha256");
+    expect(controller.challenge).not.toHaveProperty("resolvedComposeSha256");
     await controller.checkNow();
     expect(controller.state).toBe("HOLD");
     expect(startRuntime).not.toHaveBeenCalled();
@@ -810,7 +884,7 @@ describe("production activation HOLD lifecycle", () => {
     expect(onFatal).not.toHaveBeenCalled();
   });
 
-  it("keeps transport-valid but noncanonical domain payloads in HOLD", async () => {
+  it("keeps transport-valid but untrusted domain evidence in HOLD", async () => {
     const files = await fixture();
     await writeFile(
       files.bundleFile,
@@ -835,7 +909,9 @@ describe("production activation HOLD lifecycle", () => {
     controllers.push(controller);
     await controller.checkNow();
     expect(controller.state).toBe("HOLD");
-    expect(controller.lastRejectionCode).toBe("PRODUCTION_ACTIVATION_REJECTED");
+    expect(controller.lastRejectionCode).toBe(
+      "PRODUCTION_ACTIVATION_PROVENANCE_INVALID",
+    );
     expect(startRuntime).not.toHaveBeenCalled();
   });
 
@@ -858,6 +934,17 @@ describe("production activation HOLD lifecycle", () => {
     );
     const calls: string[] = [];
     const adapters: ProductionActivationContractAdapters = {
+      verifyApiImageProvenance: (input) => {
+        calls.push("api-image-provenance");
+        return verifyProductionApiImageProvenanceArtifactWithTestAuthority(
+          input,
+          {
+            trustedImageProvenanceKeys: {
+              [files.publisherPublicKeySha256]: files.publisherPublicKeyPem,
+            },
+          },
+        );
+      },
       parseBackupPlan: (canonical) => {
         calls.push("backup-plan");
         return {
@@ -991,6 +1078,10 @@ describe("production activation HOLD lifecycle", () => {
     );
     expect(release).toMatchObject({
       sourceSha: EXECUTOR_SHA,
+      publicationReceiptSha256: PUBLICATION_RECEIPT_SHA256,
+      reviewedImageSetSha256: REVIEWED_IMAGE_SET_SHA256,
+      apiRunnableManifestDigest: API_RUNNABLE_MANIFEST_DIGEST,
+      apiOciProvenanceSha256: API_OCI_PROVENANCE_SHA256,
       databaseName: "site_logbook",
       databaseUser: "site_logbook_runtime",
       transitionChainSha256: MIGRATION_TRANSITION_SHA256,
@@ -1016,6 +1107,7 @@ describe("production activation HOLD lifecycle", () => {
       ),
     ).toBe(true);
     expect(calls).toEqual([
+      "api-image-provenance",
       "backup-plan",
       "backup-trace",
       "backup-receipt",
@@ -1024,6 +1116,68 @@ describe("production activation HOLD lifecycle", () => {
       "credential-receipt",
       "final-observations",
     ]);
+
+    const shortContainerBundle = signedFixtureBundle(
+      files,
+      expected({ containerId: CONTAINER.slice(0, 12) }),
+    );
+    await expect(
+      verifyWithAdapters(
+        shortContainerBundle as unknown as ProductionActivationBundleV2,
+        adapters,
+      ),
+    ).resolves.toMatchObject({ sourceSha: EXECUTOR_SHA });
+
+    await expect(
+      verifyWithAdapters(bundle as unknown as ProductionActivationBundleV2, {
+        ...adapters,
+        verifyApiImageProvenance: undefined,
+      }),
+    ).rejects.toThrow(/PROVENANCE_PARSER_MISSING/);
+
+    const provenanceOf = (candidate: typeof bundle) =>
+      (candidate.activation.evidence as unknown as Record<string, unknown>)
+        .apiImageProvenance as Record<string, unknown>;
+    const provenanceMutations: Array<(candidate: typeof bundle) => void> = [
+      (candidate) => {
+        delete (
+          candidate.activation.evidence as unknown as Record<string, unknown>
+        ).apiImageProvenance;
+      },
+      (candidate) => {
+        const provenance = provenanceOf(candidate);
+        const value = JSON.parse(String(provenance.canonical)) as Record<
+          string,
+          unknown
+        >;
+        value.reviewedImageSetSha256 = `sha256:${"e".repeat(64)}`;
+        provenance.canonical = canonicalProductionActivationJson(value);
+      },
+      (candidate) => {
+        provenanceOf(candidate).signatureB64 = Buffer.alloc(64, 13).toString(
+          "base64",
+        );
+      },
+      (candidate) => {
+        (
+          candidate.activation.evidence as unknown as Record<string, unknown>
+        ).apiImageProvenance = imageProvenance(
+          files.publisherPrivateKey,
+          files.publisherPublicKeySha256,
+          "f".repeat(40),
+        );
+      },
+    ];
+    for (const mutate of provenanceMutations) {
+      const candidate = structuredClone(bundle);
+      mutate(candidate);
+      await expect(
+        verifyWithAdapters(
+          candidate as unknown as ProductionActivationBundleV2,
+          adapters,
+        ),
+      ).rejects.toThrow(/PROVENANCE|SEMANTIC_INVALID/);
+    }
 
     await expect(
       verifyWithAdapters(bundle as unknown as ProductionActivationBundleV2, {

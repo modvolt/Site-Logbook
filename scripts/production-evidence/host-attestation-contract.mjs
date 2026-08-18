@@ -7,6 +7,7 @@ import {
 import {
   PINNED_PRODUCTION_PUBLISHER_PROVENANCE_KEYS,
   PINNED_PRODUCTION_PUBLISHER_PROVENANCE_KEY_SHA256,
+  assertProductionPublisherProvenanceTrustRootBinding,
 } from "../../artifacts/api-server/src/lib/production-publisher-provenance-pinned-keys.mjs";
 
 const SHA = /^[0-9a-f]{40}$/;
@@ -39,7 +40,7 @@ export const POSTGRES_EXPORT_SCHEMA =
 export const ACTIVATION_APPROVAL_SCHEMA =
   "site-logbook.production-activation-approval/v1";
 export const IMAGE_PROVENANCE_SCHEMA =
-  "site-logbook.production-api-image-provenance/v1";
+  "site-logbook.production-api-image-provenance/v2";
 export const HOST_ATTESTATION_SCHEMA =
   "site-logbook.production-host-attestation/v1";
 export const HOST_ATTESTATION_KIND =
@@ -302,6 +303,10 @@ function parseImageProvenanceArtifact(
       "subjectImage",
       "subjectDigest",
       "sourceSha",
+      "publicationReceiptSha256",
+      "reviewedImageSetSha256",
+      "subjectRunnableManifestDigest",
+      "ociProvenanceSha256",
       "buildProfile",
       "mutatingEntrypointsPresent",
     ],
@@ -361,6 +366,22 @@ function parseImageProvenanceArtifact(
     request.sourceSha,
     "imageProvenance.sourceSha",
   );
+  const publicationReceiptSha256 = exactDigest(
+    provenance.publicationReceiptSha256,
+    "imageProvenance.publicationReceiptSha256",
+  );
+  const reviewedImageSetSha256 = exactDigest(
+    provenance.reviewedImageSetSha256,
+    "imageProvenance.reviewedImageSetSha256",
+  );
+  const subjectRunnableManifestDigest = exactDigest(
+    provenance.subjectRunnableManifestDigest,
+    "imageProvenance.subjectRunnableManifestDigest",
+  );
+  const ociProvenanceSha256 = exactDigest(
+    provenance.ociProvenanceSha256,
+    "imageProvenance.ociProvenanceSha256",
+  );
   requireEqual(
     provenance.buildProfile,
     "production",
@@ -371,7 +392,91 @@ function parseImageProvenanceArtifact(
     false,
     "imageProvenance.mutatingEntrypointsPresent",
   );
-  return { sha256: sha256(raw) };
+  return {
+    sha256: sha256(raw),
+    publicationReceiptSha256,
+    reviewedImageSetSha256,
+    subjectRunnableManifestDigest,
+    ociProvenanceSha256,
+  };
+}
+
+function verifyProductionApiImageProvenanceArtifactCore(
+  rawInput,
+  trustedImageProvenanceKeys,
+) {
+  const { canonical, signature, sourceSha, expectedApiImage } = exactKeys(
+    rawInput,
+    ["canonical", "signature", "sourceSha", "expectedApiImage"],
+    "imageProvenanceBinding",
+  );
+  const request = {
+    sourceSha: exactSha(sourceSha, "imageProvenanceBinding.sourceSha"),
+    expectedApiImage: exactImage(
+      expectedApiImage,
+      "imageProvenanceBinding.expectedApiImage",
+    ),
+  };
+  const verified = parseImageProvenanceArtifact(
+    canonical,
+    signature,
+    request,
+    trustedImageProvenanceKeys,
+  );
+  return Object.freeze({
+    sha256: verified.sha256,
+    sourceSha: request.sourceSha,
+    subjectImage: request.expectedApiImage,
+    publicationReceiptSha256: verified.publicationReceiptSha256,
+    reviewedImageSetSha256: verified.reviewedImageSetSha256,
+    subjectRunnableManifestDigest: verified.subjectRunnableManifestDigest,
+    ociProvenanceSha256: verified.ociProvenanceSha256,
+  });
+}
+
+export function verifyProductionApiImageProvenanceArtifact(input) {
+  if (arguments.length !== 1) {
+    fail(
+      "PRODUCTION_HOST_PROVENANCE_AUTHORITY_INVALID",
+      "Production image-provenance trust authority cannot be injected.",
+    );
+  }
+  if (assertProductionPublisherProvenanceTrustRootBinding() !== true) {
+    fail(
+      "PRODUCTION_HOST_PROVENANCE_KEY_INVALID",
+      "The image-provenance trust-root source binding is invalid.",
+    );
+  }
+  return verifyProductionApiImageProvenanceArtifactCore(
+    input,
+    PINNED_IMAGE_PROVENANCE_KEYS,
+  );
+}
+
+export function verifyProductionApiImageProvenanceArtifactWithTestAuthority(
+  input,
+  testAuthority,
+) {
+  if (
+    arguments.length !== 2 ||
+    !testAuthority ||
+    typeof testAuthority !== "object" ||
+    Array.isArray(testAuthority) ||
+    Object.keys(testAuthority).length !== 1 ||
+    !Object.hasOwn(testAuthority, "trustedImageProvenanceKeys") ||
+    !testAuthority.trustedImageProvenanceKeys ||
+    typeof testAuthority.trustedImageProvenanceKeys !== "object" ||
+    Array.isArray(testAuthority.trustedImageProvenanceKeys)
+  ) {
+    fail(
+      "PRODUCTION_HOST_PROVENANCE_AUTHORITY_INVALID",
+      "The image-provenance test authority is invalid.",
+    );
+  }
+  return verifyProductionApiImageProvenanceArtifactCore(
+    input,
+    testAuthority.trustedImageProvenanceKeys,
+  );
 }
 
 const IMAGE_KEYS = ["api", "postgres", "web"];
@@ -882,20 +987,29 @@ export function verifyProductionObservationExports(input) {
   });
 }
 
-export function createProductionTargetEvidence(
-  {
+function createProductionTargetEvidenceCore(
+  rawInput,
+  { now, trustedImageProvenanceKeys },
+) {
+  const {
     request: rawRequest,
     imageProvenanceCanonical,
     imageProvenanceSignature,
     coolify: rawCoolify,
     docker: rawDocker,
     postgres: rawPostgres,
-  },
-  {
-    now = Date.now(),
-    trustedImageProvenanceKeys = PINNED_IMAGE_PROVENANCE_KEYS,
-  } = {},
-) {
+  } = exactKeys(
+    rawInput,
+    [
+      "request",
+      "imageProvenanceCanonical",
+      "imageProvenanceSignature",
+      "coolify",
+      "docker",
+      "postgres",
+    ],
+    "targetEvidenceInput",
+  );
   const request = parseRequest(rawRequest);
   const imageProvenance = parseImageProvenanceArtifact(
     imageProvenanceCanonical,
@@ -938,6 +1052,10 @@ export function createProductionTargetEvidence(
       sourceSha: request.sourceSha,
       provenanceSourceSha: request.sourceSha,
       provenanceEvidenceSha256: imageProvenance.sha256,
+      publicationReceiptSha256: imageProvenance.publicationReceiptSha256,
+      reviewedImageSetSha256: imageProvenance.reviewedImageSetSha256,
+      apiRunnableManifestDigest: imageProvenance.subjectRunnableManifestDigest,
+      apiOciProvenanceSha256: imageProvenance.ociProvenanceSha256,
       apiImage: coolify.deployed.images.api,
       apiImageDigest: `sha256:${coolify.deployed.images.api.split("@sha256:")[1]}`,
       imageProfile: "production",
@@ -964,6 +1082,54 @@ export function createProductionTargetEvidence(
     canonical,
     sha256: sha256(canonical),
   });
+}
+
+export function createProductionTargetEvidence(input) {
+  if (arguments.length !== 1) {
+    fail(
+      "PRODUCTION_HOST_PROVENANCE_AUTHORITY_INVALID",
+      "Production target-evidence trust authority cannot be injected.",
+    );
+  }
+  if (assertProductionPublisherProvenanceTrustRootBinding() !== true) {
+    fail(
+      "PRODUCTION_HOST_PROVENANCE_KEY_INVALID",
+      "The image-provenance trust-root source binding is invalid.",
+    );
+  }
+  return createProductionTargetEvidenceCore(input, {
+    now: Date.now(),
+    trustedImageProvenanceKeys: PINNED_IMAGE_PROVENANCE_KEYS,
+  });
+}
+
+export function createProductionTargetEvidenceWithTestAuthority(
+  input,
+  testAuthority,
+) {
+  if (arguments.length !== 2) {
+    fail(
+      "PRODUCTION_HOST_PROVENANCE_AUTHORITY_INVALID",
+      "The target-evidence test authority is invalid.",
+    );
+  }
+  const authority = exactKeys(
+    testAuthority,
+    ["now", "trustedImageProvenanceKeys"],
+    "targetEvidenceTestAuthority",
+  );
+  if (
+    !Number.isSafeInteger(authority.now) ||
+    !authority.trustedImageProvenanceKeys ||
+    typeof authority.trustedImageProvenanceKeys !== "object" ||
+    Array.isArray(authority.trustedImageProvenanceKeys)
+  ) {
+    fail(
+      "PRODUCTION_HOST_PROVENANCE_AUTHORITY_INVALID",
+      "The target-evidence test authority is invalid.",
+    );
+  }
+  return createProductionTargetEvidenceCore(input, authority);
 }
 
 function parseCanonicalArtifact(raw, field) {
@@ -1071,6 +1237,10 @@ function parseProductionTargetV2(value, field) {
       "sourceSha",
       "provenanceSourceSha",
       "provenanceEvidenceSha256",
+      "publicationReceiptSha256",
+      "reviewedImageSetSha256",
+      "apiRunnableManifestDigest",
+      "apiOciProvenanceSha256",
       "apiImage",
       "apiImageDigest",
       "imageProfile",
@@ -1088,6 +1258,14 @@ function parseProductionTargetV2(value, field) {
     build.provenanceEvidenceSha256,
     `${field}.build.provenanceEvidenceSha256`,
   );
+  for (const digestField of [
+    "publicationReceiptSha256",
+    "reviewedImageSetSha256",
+    "apiRunnableManifestDigest",
+    "apiOciProvenanceSha256",
+  ]) {
+    exactDigest(build[digestField], `${field}.build.${digestField}`);
+  }
   const apiImage = exactImage(build.apiImage, `${field}.build.apiImage`);
   requireEqual(
     exactDigest(build.apiImageDigest, `${field}.build.apiImageDigest`),
@@ -1363,8 +1541,25 @@ export function deriveProductionReleaseBinding(
   );
 }
 
-export function createProductionHostAttestation(
-  {
+function createProductionHostAttestationCore(
+  rawInput,
+  { now, lifetimeMs, trustedImageProvenanceKeys },
+) {
+  const input = objectAt(rawInput, "hostAttestationInput");
+  const reviewedInputKeys = [
+    "targetCanonical",
+    "intentEvidenceCanonical",
+    "executionEvidenceCanonical",
+    "steadyEvidenceCanonical",
+    "releaseEvidenceCanonical",
+    "activationApprovalCanonical",
+    "keyId",
+    "currentObservation",
+  ];
+  if (Object.prototype.hasOwnProperty.call(input, "nonce")) {
+    reviewedInputKeys.push("nonce");
+  }
+  const {
     targetCanonical,
     intentEvidenceCanonical,
     executionEvidenceCanonical,
@@ -1373,14 +1568,9 @@ export function createProductionHostAttestation(
     activationApprovalCanonical,
     keyId: rawKeyId,
     currentObservation,
-    nonce = randomBytes(16).toString("hex"),
-  },
-  {
-    now = Date.now(),
-    lifetimeMs = 10 * 60_000,
-    trustedImageProvenanceKeys = PINNED_IMAGE_PROVENANCE_KEYS,
-  } = {},
-) {
+    nonce: rawNonce,
+  } = exactKeys(input, reviewedInputKeys, "hostAttestationInput");
+  const nonce = rawNonce ?? randomBytes(16).toString("hex");
   const target = parseProductionTargetV2(
     parseCanonicalArtifact(targetCanonical, "targetEvidence"),
     "targetEvidence",
@@ -1421,7 +1611,7 @@ export function createProductionHostAttestation(
     target.build?.sourceSha,
     "releaseBinding.sourceSha",
   );
-  const current = createProductionTargetEvidence(currentObservation, {
+  const current = createProductionTargetEvidenceCore(currentObservation, {
     now,
     trustedImageProvenanceKeys,
   });
@@ -1472,6 +1662,56 @@ export function createProductionHostAttestation(
     canonical,
     sha256: sha256(canonical),
   });
+}
+
+export function createProductionHostAttestation(input) {
+  if (arguments.length !== 1) {
+    fail(
+      "PRODUCTION_HOST_PROVENANCE_AUTHORITY_INVALID",
+      "Production host-attestation trust authority cannot be injected.",
+    );
+  }
+  if (assertProductionPublisherProvenanceTrustRootBinding() !== true) {
+    fail(
+      "PRODUCTION_HOST_PROVENANCE_KEY_INVALID",
+      "The image-provenance trust-root source binding is invalid.",
+    );
+  }
+  return createProductionHostAttestationCore(input, {
+    now: Date.now(),
+    lifetimeMs: 10 * 60_000,
+    trustedImageProvenanceKeys: PINNED_IMAGE_PROVENANCE_KEYS,
+  });
+}
+
+export function createProductionHostAttestationWithTestAuthority(
+  input,
+  testAuthority,
+) {
+  if (arguments.length !== 2) {
+    fail(
+      "PRODUCTION_HOST_PROVENANCE_AUTHORITY_INVALID",
+      "The host-attestation test authority is invalid.",
+    );
+  }
+  const authority = exactKeys(
+    testAuthority,
+    ["now", "lifetimeMs", "trustedImageProvenanceKeys"],
+    "hostAttestationTestAuthority",
+  );
+  if (
+    !Number.isSafeInteger(authority.now) ||
+    !Number.isSafeInteger(authority.lifetimeMs) ||
+    !authority.trustedImageProvenanceKeys ||
+    typeof authority.trustedImageProvenanceKeys !== "object" ||
+    Array.isArray(authority.trustedImageProvenanceKeys)
+  ) {
+    fail(
+      "PRODUCTION_HOST_PROVENANCE_AUTHORITY_INVALID",
+      "The host-attestation test authority is invalid.",
+    );
+  }
+  return createProductionHostAttestationCore(input, authority);
 }
 
 export function verifyDetachedHostAttestation(

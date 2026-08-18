@@ -235,14 +235,14 @@ outside the repository. Its fixed purpose/role matrix is:
 There is no generic decrypt, private-key export, private environment variable or
 private CLI argument.
 
-The current host-attestation and publisher-provenance `v1` contracts sign their
-exact canonical artifact bytes; changing them to add a new domain prefix would
-invalidate existing signatures and requires an explicit schema/version
-transition. The exact-backup receipt already uses its own reviewed `v1` domain
-prefix plus NUL. This custody hardening therefore does not silently change the
-two frozen signature formats. A future `v2` may add explicit, distinct domain
-prefixes only with dual-version verification, migration evidence and a separate
-activation review.
+The publisher-provenance artifact schema is now
+`site-logbook.production-api-image-provenance/v2`; that schema bump adds signed
+publication/OCI bindings but still signs the exact canonical artifact bytes.
+The host-attestation and publisher-provenance custody operations therefore keep
+their existing frozen raw-byte signature format. Adding a new domain prefix
+would invalidate existing signatures and requires a separate explicit signature
+format transition. The exact-backup receipt already uses its own reviewed `v1`
+domain prefix plus NUL. No custody change here silently alters those formats.
 
 ## Rotation and loss
 

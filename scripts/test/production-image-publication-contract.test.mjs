@@ -20,6 +20,7 @@ import {
   ProductionImagePublicationError,
   canonicalJson,
   classifyExactLookupStatus,
+  parseStrictSecretFreeJson,
   parseProductionImagePublicationReceipt,
   publishReviewedOciLayout,
   publishReviewedOciSet,
@@ -280,7 +281,9 @@ function ociLayoutFixture(options = {}) {
     _type: "https://in-toto.io/Statement/v0.1",
     subject: [
       {
-        name: "reviewed",
+        name:
+          options.rawSubjectName ??
+          `pkg:docker/${spec.repository}@${SOURCE_SHA}?platform=linux%2Famd64`,
         digest: { sha256: provisionalRunnableDigest.slice(7) },
       },
     ],
@@ -315,9 +318,21 @@ function ociLayoutFixture(options = {}) {
       },
     },
   };
+  if (options.omitProvenanceSubjectName) {
+    delete provenanceValue.subject[0].name;
+  }
+  if (options.extraProvenanceSubject) {
+    provenanceValue.subject.push(structuredClone(provenanceValue.subject[0]));
+  }
+  if (options.omitProvenanceSubject) {
+    delete provenanceValue.subject;
+  }
   if (options.provenanceNeutralValue) {
     provenanceValue.predicate.metadata["review-note"] =
       options.provenanceNeutralValue;
+  }
+  if (options.provenanceSecretKey) {
+    provenanceValue.predicate.metadata[options.provenanceSecretKey] = "safe";
   }
   const sbomValue = {
     _type: "https://in-toto.io/Statement/v0.1",
@@ -363,9 +378,21 @@ function ociLayoutFixture(options = {}) {
     ],
   };
   const runnable = writeBlob(runnableValue);
-  provenanceValue.subject[0].digest.sha256 = runnable.digest.slice(7);
+  for (const subject of provenanceValue.subject ?? []) {
+    subject.digest.sha256 =
+      options.rawSubjectDigest ?? runnable.digest.slice(7);
+  }
   rmSync(join(blobRoot, provenance.digest.slice(7)));
-  provenance = writeBlob(provenanceValue);
+  provenance = writeBlob(
+    options.provenanceRawTransform
+      ? Buffer.from(
+          options.provenanceRawTransform(
+            `${JSON.stringify(provenanceValue)}\n`,
+          ),
+          "utf8",
+        )
+      : provenanceValue,
+  );
   const attestationValue = {
     schemaVersion: 2,
     mediaType: "application/vnd.oci.image.manifest.v1+json",
@@ -968,6 +995,83 @@ test("verifies exact offline OCI graph and raw target/build-arg provenance", asy
   }
 });
 
+test("requires one exact BuildKit PURL subject for the runnable manifest", async () => {
+  for (const scenario of [
+    {
+      options: {
+        rawSubjectName: `pkg:docker/ghcr.io/modvolt/unreviewed@${SOURCE_SHA}?platform=linux%2Famd64`,
+      },
+      expectedCode: "PRODUCTION_IMAGE_BINDING_INVALID",
+    },
+    {
+      options: { rawSubjectDigest: digest("unreviewed-subject").slice(7) },
+      expectedCode: "PRODUCTION_IMAGE_BINDING_INVALID",
+    },
+    {
+      options: { omitProvenanceSubjectName: true },
+      expectedCode: "PRODUCTION_IMAGE_SCHEMA_INVALID",
+    },
+    {
+      options: { omitProvenanceSubject: true },
+      expectedCode: "PRODUCTION_IMAGE_PROVENANCE_INVALID",
+    },
+    {
+      options: { extraProvenanceSubject: true },
+      expectedCode: "PRODUCTION_IMAGE_PROVENANCE_INVALID",
+    },
+  ]) {
+    const layout = ociLayoutFixture(scenario.options);
+    try {
+      await assert.rejects(
+        () =>
+          verifyReviewedOciLayout({
+            layoutDirectory: layout.root,
+            archivePath: layout.archivePath,
+            image: layout.image,
+            imageKey: "api",
+          }),
+        (error) =>
+          error instanceof ProductionImagePublicationError &&
+          error.code === scenario.expectedCode,
+      );
+    } finally {
+      rmSync(layout.fixtureRoot, { recursive: true, force: true });
+    }
+  }
+});
+
+test("strict secret-free JSON rejects decoded duplicate keys and secret-shaped property names", () => {
+  const hiddenSecret = "github_pat_redacted_duplicate_fixture";
+  const duplicate = `{"outer":{"reviewNote":"${hiddenSecret}","review\\u004eote":"safe"}}`;
+  assert.throws(
+    () => parseStrictSecretFreeJson(duplicate, "rawProvenance"),
+    (error) => {
+      assert.equal(error.code, "PRODUCTION_IMAGE_JSON_INVALID");
+      assert.doesNotMatch(error.message, new RegExp(hiddenSecret, "u"));
+      return true;
+    },
+  );
+
+  const secretKey = "ghp_0123456789abcdefghijklmnop";
+  assert.throws(
+    () =>
+      parseStrictSecretFreeJson(
+        JSON.stringify({ metadata: { [secretKey]: "safe" } }),
+        "rawProvenance",
+      ),
+    (error) => {
+      assert.equal(error.code, "PRODUCTION_IMAGE_SECRET_MATERIAL");
+      assert.doesNotMatch(error.message, new RegExp(secretKey, "u"));
+      return true;
+    },
+  );
+
+  assert.deepEqual(
+    parseStrictSecretFreeJson('{"metadata":{"reviewNote":"safe"}}'),
+    { metadata: { reviewNote: "safe" } },
+  );
+});
+
 test("rejects unreferenced OCI blobs instead of publishing hidden bytes", async () => {
   const layout = ociLayoutFixture();
   try {
@@ -1017,6 +1121,22 @@ test("requires one provenance and one SPDX layer and rejects secret-shaped reach
     {
       options: {
         provenanceNeutralValue: "POSTGRES_PASSWORD=fixture-password",
+      },
+      expectedCode: "PRODUCTION_IMAGE_SECRET_MATERIAL",
+    },
+    {
+      options: {
+        provenanceRawTransform: (raw) =>
+          raw.replace(
+            '"buildType":',
+            '"reviewNote":"github_pat_redacted_duplicate_fixture","review\\u004eote":"safe","buildType":',
+          ),
+      },
+      expectedCode: "PRODUCTION_IMAGE_OCI_LAYOUT_INVALID",
+    },
+    {
+      options: {
+        provenanceSecretKey: "ghp_0123456789abcdefghijklmnop",
       },
       expectedCode: "PRODUCTION_IMAGE_SECRET_MATERIAL",
     },
@@ -1437,6 +1557,24 @@ test("workflow is reusable, two-stage, digest-only and never rebuilds reviewed b
   assert.equal((raw.match(/push: false/gu) ?? []).length, 4);
   assert.equal((raw.match(/push: true/gu) ?? []).length, 0);
   assert.equal((raw.match(/docker\/build-push-action@/gu) ?? []).length, 4);
+  for (const [archive, repository] of [
+    ["production-api.oci.tar", "site-logbook-production-api"],
+    ["control-plane.oci.tar", "site-logbook-control-plane"],
+    ["host-operator.oci.tar", "site-logbook-host-operator"],
+    ["production-web.oci.tar", "site-logbook-production-web"],
+  ]) {
+    assert.match(
+      raw,
+      new RegExp(
+        `outputs: type=oci,dest=${archive.replaceAll(".", "\\.")},name=ghcr\\.io/modvolt/${repository}:\\$\\{\\{ inputs\\.source_sha \\}\\}`,
+        "u",
+      ),
+    );
+  }
+  assert.match(
+    raw,
+    /\.subject == \[\{name:\$subjectName,digest:\{sha256:\(\$runnableDigest \| sub\("\^sha256:"; ""\)\)\}\}\]/u,
+  );
   const completeJob = JSON.stringify(
     workflow.jobs["publish-reviewed-complete"],
   );
@@ -1480,11 +1618,8 @@ test("workflow is reusable, two-stage, digest-only and never rebuilds reviewed b
   assert.match(raw, /--max-age-minutes 1440/u);
   assert.match(raw, /production-image-publication-contract\.mjs verify-oci/u);
   assert.equal(
-    (
-      raw.match(
-        /production-image-publication-contract\.mjs verify-oci/gu,
-      ) ?? []
-    ).length,
+    (raw.match(/production-image-publication-contract\.mjs verify-oci/gu) ?? [])
+      .length,
     8,
   );
   assert.equal(

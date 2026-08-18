@@ -70,8 +70,14 @@ function publishArgs(input, directory, expectedSha256) {
 
 test("host-operator Docker target is exact-digest isolated from the final runtime", async () => {
   const [dockerfile, build, entrypoint, runner, packaging] = await Promise.all([
-    readFile(new URL("../../artifacts/api-server/Dockerfile", import.meta.url), "utf8"),
-    readFile(new URL("../../artifacts/api-server/build.mjs", import.meta.url), "utf8"),
+    readFile(
+      new URL("../../artifacts/api-server/Dockerfile", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../../artifacts/api-server/build.mjs", import.meta.url),
+      "utf8",
+    ),
     readFile(
       new URL(
         "../../artifacts/api-server/src/production-host-evidence-operator.ts",
@@ -100,9 +106,7 @@ test("host-operator Docker target is exact-digest isolated from the final runtim
     "sha256:9190b0613792e658a7783cf14b2d5ace5941bb68ede7276922ea36ee457d76ad";
   assert.match(
     dockerfile,
-    new RegExp(
-      `FROM --platform=linux/amd64 docker:28\\.5\\.1-cli@${cliDigest} AS docker-cli-amd64`,
-    ),
+    new RegExp(`FROM docker:28\\.5\\.1-cli@${cliDigest} AS docker-cli-amd64`),
   );
   assert.ok(dockerfile.includes(indexDigest));
   assert.match(dockerfile, /AS host-operator/);
@@ -110,8 +114,13 @@ test("host-operator Docker target is exact-digest isolated from the final runtim
     dockerfile,
     /COPY --from=docker-cli-amd64 \/usr\/local\/bin\/docker \/usr\/local\/bin\/docker/,
   );
-  const finalTarget = dockerfile.slice(dockerfile.lastIndexOf("FROM runtime AS production"));
-  assert.doesNotMatch(finalTarget, /docker-cli|docker\.sock|host-evidence-operator/);
+  const finalTarget = dockerfile.slice(
+    dockerfile.lastIndexOf("FROM runtime AS production"),
+  );
+  assert.doesNotMatch(
+    finalTarget,
+    /docker-cli|docker\.sock|host-evidence-operator/,
+  );
   assert.match(build, /production-host-evidence-operator\.ts/);
   assert.match(
     build,
@@ -208,9 +217,8 @@ test("transfer rejects digest drift, noncanonical bytes, secrets and multi-link 
     for (const name of ["digest", "canonical", "secret", "linked"]) {
       await mkdir(join(directory, name));
     }
-    const canonical = canonicalProductionActivationTransferJson(
-      activationBundle(),
-    );
+    const canonical =
+      canonicalProductionActivationTransferJson(activationBundle());
 
     const digestInput = join(directory, "digest-input.json");
     await writeFile(digestInput, canonical);

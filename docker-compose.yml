@@ -72,14 +72,13 @@ services:
       API_TRUSTED_PROXY_CIDRS: ${API_TRUSTED_PROXY_CIDRS:-}
       EXTERNAL_ACCOUNTS_ENABLED: "false"
       # HOLD does not read DATABASE_URL, S3, or any application secret. These
-      # fixed bindings and the pinned public-key digest authenticate a later
-      # secret-free v2 activation bundle without changing desired/deployed
-      # Compose bytes. Evidence is never transported through environment B64.
+      # fixed source/image identity and pinned public-key digests authenticate
+      # a later secret-free v2 activation bundle. The signed bundle's
+      # authoritative observer evidence supplies configuration digests only
+      # after deployment, avoiding self-referential Coolify environment hashes.
+      # Evidence is never transported through environment B64.
       PRODUCTION_ACTIVATION_PUBLISHER_PUBLIC_KEY_SHA256: ${PRODUCTION_ACTIVATION_PUBLISHER_PUBLIC_KEY_SHA256:?set pinned publisher Ed25519 DER-SPKI sha256 fingerprint}
       PRODUCTION_ACTIVATION_HOST_PUBLIC_KEY_SHA256: ${PRODUCTION_ACTIVATION_HOST_PUBLIC_KEY_SHA256:?set distinct host Ed25519 DER-SPKI sha256 fingerprint}
-      PRODUCTION_EXPECTED_DESIRED_CONFIG_SHA256: ${PRODUCTION_EXPECTED_DESIRED_CONFIG_SHA256:?set observed desired config sha256}
-      PRODUCTION_EXPECTED_DEPLOYED_CONFIG_SHA256: ${PRODUCTION_EXPECTED_DEPLOYED_CONFIG_SHA256:?set observed deployed config sha256}
-      PRODUCTION_EXPECTED_RESOLVED_COMPOSE_SHA256: ${PRODUCTION_EXPECTED_RESOLVED_COMPOSE_SHA256:?set observed resolved Compose sha256}
       PRODUCTION_EXPECTED_DATABASE_USER: site_logbook_runtime
     volumes:
       - type: bind

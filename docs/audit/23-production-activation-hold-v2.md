@@ -38,8 +38,14 @@ pass:
 - at most 512 KiB, valid UTF-8, sorted-key canonical JSON and exactly one final
   LF;
 - bounded UTC issue/expiry window;
-- exact runtime nonce, `/etc/hostname` container ID, embedded source SHA,
-  immutable API image digest, and desired/deployed/resolved config digests;
+- exact runtime nonce, embedded source SHA and immutable API image digest from
+  the live HOLD challenge; `/etc/hostname` must be exactly 12 or 64 lowercase
+  hex, with a 12-hex value required to prefix the authoritative 64-hex Docker
+  Inspect ID and a 64-hex value required to match it exactly;
+- desired/deployed configuration equality and the resolved Compose digest from
+  the signed approval plus the authoritative final Coolify/Docker/PostgreSQL
+  observations; these values are not accepted from startup environment
+  variables or unsigned discovery;
 - separately pinned publisher and host Ed25519 DER-SPKI fingerprints plus valid
   independent signatures over the activation object and host attestation;
 - no private-key, credential, password, bearer-token, database-URL, mnemonic,
@@ -52,9 +58,19 @@ pass:
   Coolify/Docker/PostgreSQL observations, and separate activation approval.
 
 A bundle from an earlier process start cannot pass because the random challenge
-nonce changes; container recreation also changes the container ID, while a
+nonce changes; container recreation also changes the full Docker ID (bound by
+the exact 12-hex runtime prefix or exact 64-hex value), while a
 restart of the same container may retain that ID. Invalid, stale, replayed,
 mismatched, or semantically blocked evidence leaves the listener in HOLD.
+
+The challenge deliberately omits desired/deployed/resolved configuration
+digests. Coolify includes application environment values in its deployment
+configuration hash and interpolates them into resolved Compose bytes, so an
+expected-digest environment variable would require an infeasible cryptographic
+fixed point. The runtime accepts those three bindings only after both bundle
+signatures and the complete semantic observer chain pass; the resulting
+in-memory release summary supplies them directly to the database/startup
+preflight.
 
 For a new ceremony, first stop the old application process and preserve its
 bundle under a separate audit filename outside the fixed live path. Start the
@@ -97,6 +113,18 @@ plan/transaction/post-commit/final-live digests, committed SCRAM transition,
 exact readback, fresh runtime login, timestamp ordering, bounded freshness and
 non-authorizing flags. Even a coordinated request/receipt/request-digest change
 to another database therefore fails closed.
+
+`apiImageProvenance` is likewise not trusted as a transport assertion. It
+contains the unchanged canonical v2 provenance bytes and their canonical
+padded-base64 64-byte Ed25519 detached signature. The activation producer
+verifies them before either custody signature, and the runtime semantic
+contract independently invokes the sealed one-argument, source-pinned verifier
+again. Its verdict must match the signed activation source SHA and immutable API
+image. Only that verdict supplies `publicationReceiptSha256`,
+`reviewedImageSetSha256`, `apiRunnableManifestDigest` and
+`apiOciProvenanceSha256` to the in-memory runtime binding; approval/request
+fields cannot self-assert them. Missing bytes, canonical-byte tampering, a wrong
+signature or a correctly signed replay from another source remain in HOLD.
 
 `activationApproval` and the three final-observation envelopes are not trusted
 as transport assertions. The activation producer parses one exact approval-v2
@@ -143,6 +171,7 @@ The suite covers canonical signed transport, expiry and binding failures,
 restart replay, hard-link/symlink policy, external-versus-Docker health,
 no-start before evidence, exactly-once activation, unchanged config bytes, the
 direct authoritative credential and observation adapters, non-injectable
-production verification, and negative receipt/approval/observation cases for
-swap/tamper/alias/denial/missing key/uppercase/private material/reversed time/
-stale replay.
+production verification, signed API-image provenance re-verification, and
+negative provenance/receipt/approval/observation cases for missing/tampered/
+wrong-signature/replay/swap/alias/denial/missing key/uppercase/private material/
+reversed time/stale replay.

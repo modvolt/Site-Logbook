@@ -1,9 +1,9 @@
 # Production host observation and detached attestation
 
 Status: producer, runtime verifier and pre-import production startup wiring are
-implemented. Activation remains fail-closed until separate offline custody
-ceremonies pin reviewed public SPKI keys in both production key maps and fresh
-signed release-chain artifacts are available.
+implemented. The reviewed public SPKI keys are source-pinned; activation remains
+fail-closed until fresh signed release-chain artifacts pass the complete v2
+contract.
 
 The executable Windows custody procedure and exact four-role boundary are in
 `21-production-signing-key-custody-runbook.md`.
@@ -21,18 +21,17 @@ image; with the intentionally empty key maps, startup remains default-deny.
   environment.
 - The key id and public SPKI PEM are source-pinned. Changing or rotating them is
   a reviewed source change and produces a new image/source SHA.
-- Host-attestation environment variables transport only the canonical public
-  attestation and its detached signature. Replacing both cannot bypass the
-  source-pinned public key; separate runtime variables carry the independently
-  checksummed release-chain artifacts.
+- The final v2 startup transport is one canonical public bundle in the fixed
+  read-only host mount. No host-attestation, release-chain, or configuration
+  digest is accepted from environment/Base64 transport.
 - The signature binds the exact source SHA, target evidence digest, release
   evidence digest, activation approval digest, Coolify resource ids, immutable
   image refs, Docker/PostgreSQL projection, nonce, and short validity window.
-- The startup caller passes the already validated API/Postgres images,
+- The semantic verifier derives the already validated API/Postgres images,
   desired/deployed/Compose digests, live Postgres projection, database identity,
-  and schema fingerprint into the verifier. The signed observed-state fields
-  must equal those values; matching only the four release digests is not
-  sufficient.
+  and schema fingerprint from the signed, producer-parsed chain. Its in-memory
+  release summary is passed directly into runtime startup; matching only the
+  outer transport fields is not sufficient.
 - A valid attestation expires after at most 15 minutes. A different source,
   target, release, or approval digest requires a new observation and signature.
 
@@ -87,15 +86,77 @@ backend-proof digests, current database and user, PostgreSQL 16 server version,
 audit schema fingerprint, and `readOnlyObservation: true`.
 
 The image-provenance input is a canonical
-`site-logbook.production-api-image-provenance/v1` artifact produced and
+`site-logbook.production-api-image-provenance/v2` artifact produced and
 reviewed with the immutable image publication. Its subject image/digest,
 source SHA, production profile, and absence of mutating entrypoints must match
 the request and live Coolify/Docker state. The producer hashes the artifact
 bytes and verifies its detached Ed25519 signature with a separate source-pinned
 publisher public key; it does not accept a self-asserted provenance label.
-Like the host trust root, the production publisher key map is initially empty
-and activation stays fail-closed until an independently reviewed custody
-ceremony pins the public key.
+Like the host trust root, the production publisher public key is source-pinned.
+Changing either trust root requires a reviewed source change and a new immutable
+image; a fresh valid signed chain is still required for every activation.
+
+### Exact API image-provenance producer
+
+Create the host input only after the four-image publication workflow has
+finished its separately approved `complete` run. Independently retain and
+review:
+
+- the canonical `production-image-publication-receipt.json`, its SHA-256, run
+  id and run attempt from the immutable complete artifact;
+- the raw `api-provenance.intoto.json` bytes from the exact predecessor
+  preflight artifact and their SHA-256 from the complete receipt;
+- the exact merged source SHA and immutable production API image.
+
+Both input files, the DPAPI vault and the new output directory must use
+separate absolute paths outside the repository. Inputs must be bounded,
+single-link regular files with no symlink/junction ancestor. The output parent
+must already exist and the output directory must not. On the attended Windows
+custody workstation run, replacing only the independently reviewed values:
+
+```powershell
+node scripts/production-evidence/production-api-image-provenance.mjs produce `
+  --publication-receipt 'D:\reviewed\production-image-publication-receipt.json' `
+  --publication-receipt-sha256 'sha256:REVIEWED_COMPLETE_RECEIPT_64_HEX' `
+  --api-oci-provenance 'D:\reviewed\api-provenance.intoto.json' `
+  --source-sha 'REVIEWED_MERGED_SOURCE_40_HEX' `
+  --complete-run-id 'REVIEWED_COMPLETE_RUN_ID' `
+  --complete-run-attempt '1' `
+  --api-image 'ghcr.io/modvolt/site-logbook-production-api@sha256:REVIEWED_IMAGE_64_HEX' `
+  --api-oci-provenance-sha256 'sha256:REVIEWED_OCI_PROVENANCE_64_HEX' `
+  --publisher-key-id 'ed25519:production-publisher-2026-08' `
+  --vault 'D:\site-logbook-production-signing-vault' `
+  --output-directory 'D:\reviewed\new-api-provenance-output' `
+  --confirm 'PRODUCE_AND_SIGN_EXACT_SITE_LOGBOOK_PRODUCTION_API_IMAGE_PROVENANCE'
+```
+
+The producer verifies the canonical complete receipt and its exact four-image
+reviewed set, hashes and semantically validates the raw BuildKit SLSA statement,
+and rejects secret-shaped material before invoking only custody
+`sign --purpose publisher-provenance`. The custody child receives a strict
+Windows runtime environment allow-list; ambient `NODE_*`, credential and token
+variables do not cross the private-key boundary. Timeout or bounded-output
+failure terminates and awaits the complete custody process tree before any
+cleanup.
+
+The signed `site-logbook.production-api-image-provenance/v2` bytes include the
+complete receipt SHA-256, reviewed four-image-set SHA-256, API runnable-manifest
+digest and raw OCI provenance SHA-256 as well as source/image/build bindings.
+This prevents pairing a valid signature with rewritten publication claims. The
+new output directory contains exactly:
+
+- `production-api-image-provenance.json`;
+- `production-api-image-provenance.sig`;
+- `production-api-image-provenance-production-receipt.json`.
+
+Publication is no-clobber and file-synced. Directory metadata is also synced
+where the platform permits opening a directory handle; on Windows, the producer
+instead revalidates its owned directory identities before and after the final
+readback. The third file is an audit receipt, not independent authority; the
+detached signature over the canonical v2 artifact is the host-verified
+publisher authority. This command performs no registry, GitHub, Docker,
+Coolify, deployment, migration or production-database I/O and authorizes none
+of those actions.
 
 All JSON inputs and observer outputs are bounded and recursively scanned for
 secret field names and secret-shaped values, including GitHub tokens and
@@ -164,7 +225,7 @@ DPAPI custody stays on the attended Windows workstation. Its canonical signed
 files, mnemonic, passphrase, private keys and temporary signing files are not
 transfer artifacts. Transport is a separate two-phase operation:
 
-1. Record the producer's `activationBundleSha256=sha256:...` result and transfer
+1. Record the producer's `bundleSha256=sha256:...` result and transfer
    the single canonical bundle file to a new staging filename on the Linux host.
    Transfer the expected digest through the reviewed ceremony record or a
    separate operator channel; do not derive authority from the destination copy.
@@ -232,6 +293,12 @@ inspect`; it never requests `Config.Env` or a complete Config/label map. The
    `activation-bundle-v2.json` without overwriting an existing file. Follow the
    exact command and path rules in the bundle-producer runbook; private key
    material is never passed in argv, environment, stdin or stdout.
+   The HOLD challenge binds source, immutable API image, nonce and the container
+   identity visible inside the process only. Docker's default 12-hex hostname
+   must prefix the authoritative 64-hex Inspect ID; a 64-hex challenge must
+   match it exactly. Desired/deployed/resolved configuration digests come from
+   the fresh signed approval and sealed observer outputs, never from
+   self-referential Coolify environment variables.
 5. Transfer only those public bundle bytes and independently recorded digest,
    then use the source-pinned `publish-activation-bundle` operation above to
    commit the fixed Linux evidence filename. Do not transfer the DPAPI vault or

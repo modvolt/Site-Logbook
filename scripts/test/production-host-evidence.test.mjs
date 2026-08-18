@@ -14,7 +14,9 @@ import {
   assertSecretFree,
   canonicalJson,
   createProductionHostAttestation,
+  createProductionHostAttestationWithTestAuthority,
   createProductionTargetEvidence,
+  createProductionTargetEvidenceWithTestAuthority,
   deriveProductionReleaseBinding,
   verifyProductionObservationExports,
   verifyDetachedHostAttestation,
@@ -39,7 +41,7 @@ const TRUSTED_PROVENANCE_KEYS = {
 };
 
 function targetEvidence(observation, now = NOW) {
-  return createProductionTargetEvidence(observation, {
+  return createProductionTargetEvidenceWithTestAuthority(observation, {
     now,
     trustedImageProvenanceKeys: TRUSTED_PROVENANCE_KEYS,
   });
@@ -140,6 +142,10 @@ function fixtures() {
     subjectImage: images.api,
     subjectDigest: digest("1"),
     sourceSha: SOURCE_SHA,
+    publicationReceiptSha256: digest("6"),
+    reviewedImageSetSha256: digest("7"),
+    subjectRunnableManifestDigest: digest("8"),
+    ociProvenanceSha256: digest("9"),
     buildProfile: "production",
     mutatingEntrypointsPresent: false,
   });
@@ -219,7 +225,7 @@ function signedAttestation(options = {}) {
   const observation = fixtures();
   const target = targetEvidence(observation);
   const release = releaseArtifacts(target.sha256);
-  const attestation = createProductionHostAttestation(
+  const attestation = createProductionHostAttestationWithTestAuthority(
     {
       targetCanonical: target.canonical,
       ...release,
@@ -269,6 +275,21 @@ test("produces the exact canonical production target from bounded read-only obse
   assert.equal(artifact.canonical, canonicalJson(artifact.target));
   assert.equal(artifact.target.coolify.pendingChanges, false);
   assert.equal(artifact.target.build.sourceSha, SOURCE_SHA);
+  assert.deepEqual(
+    {
+      publicationReceiptSha256: artifact.target.build.publicationReceiptSha256,
+      reviewedImageSetSha256: artifact.target.build.reviewedImageSetSha256,
+      apiRunnableManifestDigest:
+        artifact.target.build.apiRunnableManifestDigest,
+      apiOciProvenanceSha256: artifact.target.build.apiOciProvenanceSha256,
+    },
+    {
+      publicationReceiptSha256: digest("6"),
+      reviewedImageSetSha256: digest("7"),
+      apiRunnableManifestDigest: digest("8"),
+      apiOciProvenanceSha256: digest("9"),
+    },
+  );
   assert.equal(artifact.target.livePostgresTarget.containerId, CONTAINER_ID);
   assert.equal(
     artifact.target.livePostgresTarget.dockerExportSha256,
@@ -614,7 +635,7 @@ test("rejects expired bounded evidence and release/source/target mismatches", ()
   ]) {
     assert.throws(
       () =>
-        createProductionHostAttestation(
+        createProductionHostAttestationWithTestAuthority(
           {
             targetCanonical: target.canonical,
             intentEvidenceCanonical: release.intentEvidenceCanonical,
@@ -626,7 +647,11 @@ test("rejects expired bounded evidence and release/source/target mismatches", ()
             currentObservation: observation,
             nonce: "e".repeat(32),
           },
-          { now: NOW, trustedImageProvenanceKeys: TRUSTED_PROVENANCE_KEYS },
+          {
+            now: NOW,
+            lifetimeMs: 10 * 60_000,
+            trustedImageProvenanceKeys: TRUSTED_PROVENANCE_KEYS,
+          },
         ),
       /BINDING_INVALID/,
     );
@@ -651,7 +676,7 @@ test("rejects self-authored or tampered image provenance", () => {
   const untrusted = fixtures();
   assert.throws(
     () =>
-      createProductionTargetEvidence(untrusted, {
+      createProductionTargetEvidenceWithTestAuthority(untrusted, {
         now: NOW,
         trustedImageProvenanceKeys: {},
       }),
@@ -663,6 +688,80 @@ test("rejects self-authored or tampered image provenance", () => {
     "2".repeat(40),
   );
   assert.throws(() => targetEvidence(tampered), /PROVENANCE_SIGNATURE_INVALID/);
+
+  const legacy = fixtures();
+  const legacyValue = JSON.parse(legacy.imageProvenanceCanonical);
+  legacyValue.schemaVersion = "site-logbook.production-api-image-provenance/v1";
+  delete legacyValue.publicationReceiptSha256;
+  delete legacyValue.reviewedImageSetSha256;
+  delete legacyValue.subjectRunnableManifestDigest;
+  delete legacyValue.ociProvenanceSha256;
+  legacy.imageProvenanceCanonical = canonicalJson(legacyValue);
+  legacy.imageProvenanceSignature = sign(
+    null,
+    Buffer.from(legacy.imageProvenanceCanonical),
+    PROVENANCE_KEYS.privateKey,
+  );
+  assert.throws(() => targetEvidence(legacy), /SCHEMA_INVALID/);
+
+  for (const field of [
+    "publicationReceiptSha256",
+    "reviewedImageSetSha256",
+    "subjectRunnableManifestDigest",
+    "ociProvenanceSha256",
+  ]) {
+    const invalid = fixtures();
+    const value = JSON.parse(invalid.imageProvenanceCanonical);
+    value[field] = "sha256:not-a-digest";
+    invalid.imageProvenanceCanonical = canonicalJson(value);
+    invalid.imageProvenanceSignature = sign(
+      null,
+      Buffer.from(invalid.imageProvenanceCanonical),
+      PROVENANCE_KEYS.privateKey,
+    );
+    assert.throws(() => targetEvidence(invalid), /DIGEST_INVALID/);
+  }
+});
+
+test("production target and host producers seal the pinned provenance authority", () => {
+  assert.equal(createProductionTargetEvidence.length, 1);
+  assert.equal(createProductionHostAttestation.length, 1);
+
+  const observation = fixtures();
+  assert.throws(
+    () =>
+      createProductionTargetEvidence(observation, {
+        now: NOW,
+        trustedImageProvenanceKeys: TRUSTED_PROVENANCE_KEYS,
+      }),
+    /PRODUCTION_HOST_PROVENANCE_AUTHORITY_INVALID/,
+  );
+  assert.throws(
+    () => createProductionTargetEvidence(observation),
+    /PRODUCTION_HOST_PROVENANCE_KEY_UNTRUSTED/,
+  );
+
+  const fixture = signedAttestation();
+  const input = {
+    targetCanonical: fixture.target.canonical,
+    ...fixture.release,
+    keyId: KEY_ID,
+    currentObservation: fixture.observation,
+    nonce: "e".repeat(32),
+  };
+  assert.throws(
+    () =>
+      createProductionHostAttestation(input, {
+        now: NOW,
+        lifetimeMs: 10 * 60_000,
+        trustedImageProvenanceKeys: TRUSTED_PROVENANCE_KEYS,
+      }),
+    /PRODUCTION_HOST_PROVENANCE_AUTHORITY_INVALID/,
+  );
+  assert.throws(
+    () => createProductionHostAttestation(input),
+    /PRODUCTION_HOST_PROVENANCE_KEY_UNTRUSTED/,
+  );
 });
 
 test("rejects foreign volume and network peers", () => {

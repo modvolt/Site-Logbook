@@ -14,6 +14,7 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { verifyProductionApiImageProvenanceArtifact } from "./host-attestation-contract.mjs";
 
 export const PRODUCTION_ACTIVATION_BUNDLE_CONFIRMATION =
   "PUBLISH_EXACT_SITE_LOGBOOK_PRODUCTION_ACTIVATION_BUNDLE_V2";
@@ -32,7 +33,8 @@ const CUSTODY_SCRIPT = path.join(
 const OUTPUT_BASENAME = "activation-bundle-v2.json";
 const SOURCE_SHA = /^[0-9a-f]{40}$/;
 const SHA256 = /^[0-9a-f]{64}$/;
-const CONTAINER_ID = /^[0-9a-f]{12,64}$/;
+const SHA256_PIN = /^sha256:[0-9a-f]{64}$/;
+const CONTAINER_ID = /^(?:[0-9a-f]{12}|[0-9a-f]{64})$/;
 const NONCE = /^[0-9a-f]{64}$/;
 const ARTIFACT_KIND = /^[a-z0-9][a-z0-9._-]{2,127}$/;
 const IMAGE = /^[a-z0-9][a-z0-9./:_-]*@sha256:[0-9a-f]{64}$/;
@@ -196,6 +198,32 @@ function exactString(value, field, pattern) {
     (pattern && !pattern.test(value))
   ) {
     fail("PRODUCTION_ACTIVATION_BUNDLE_SCHEMA_INVALID", `${field} is invalid.`);
+  }
+  return value;
+}
+
+function exactDetachedSignatureBase64(value, field) {
+  const encoded = exactString(value, field, /^[A-Za-z0-9+/]{86}==$/);
+  const bytes = Buffer.from(encoded, "base64");
+  if (bytes.length !== 64 || bytes.toString("base64") !== encoded) {
+    fail(
+      "PRODUCTION_ACTIVATION_BUNDLE_SCHEMA_INVALID",
+      `${field} must be one canonical padded-base64 Ed25519 signature.`,
+    );
+  }
+  return encoded;
+}
+
+function exactCanonicalArtifact(value, field) {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    Buffer.byteLength(value, "utf8") > 16 * 1024
+  ) {
+    fail(
+      "PRODUCTION_ACTIVATION_BUNDLE_SCHEMA_INVALID",
+      `${field} must be one bounded canonical artifact.`,
+    );
   }
   return value;
 }
@@ -426,16 +454,7 @@ function parseTimestamp(value, field) {
 function parseChallenge(value) {
   const challenge = exactObject(
     value,
-    [
-      "apiImage",
-      "containerId",
-      "deployedConfigSha256",
-      "desiredConfigSha256",
-      "kind",
-      "nonce",
-      "resolvedComposeSha256",
-      "sourceSha",
-    ],
+    ["apiImage", "containerId", "kind", "nonce", "sourceSha"],
     "challenge",
   );
   exactEqual(
@@ -447,22 +466,16 @@ function parseChallenge(value) {
   exactString(challenge.apiImage, "challenge.apiImage", IMAGE);
   exactString(challenge.containerId, "challenge.containerId", CONTAINER_ID);
   exactString(challenge.nonce, "challenge.nonce", NONCE);
-  for (const key of [
-    "desiredConfigSha256",
-    "deployedConfigSha256",
-    "resolvedComposeSha256",
-  ]) {
-    exactString(challenge[key], `challenge.${key}`, SHA256);
-  }
   return challenge;
 }
 
-function parseEvidence(value, challenge, now) {
+function parseEvidence(value, challenge, now, verifyApiImageProvenance) {
   scanSecretFree(value, "evidence");
   const evidence = exactObject(
     value,
     [
       "activationApproval",
+      "apiImageProvenance",
       "exact0096Backup",
       "finalObservations",
       "migration0096To0107",
@@ -470,6 +483,56 @@ function parseEvidence(value, challenge, now) {
     ],
     "evidence",
   );
+  const apiImageProvenance = exactObject(
+    evidence.apiImageProvenance,
+    ["canonical", "signatureB64"],
+    "evidence.apiImageProvenance",
+  );
+  const provenanceCanonical = exactCanonicalArtifact(
+    apiImageProvenance.canonical,
+    "evidence.apiImageProvenance.canonical",
+  );
+  const provenanceSignatureB64 = exactDetachedSignatureBase64(
+    apiImageProvenance.signatureB64,
+    "evidence.apiImageProvenance.signatureB64",
+  );
+  let provenanceVerdict;
+  try {
+    provenanceVerdict = verifyApiImageProvenance({
+      canonical: provenanceCanonical,
+      signature: provenanceSignatureB64,
+      sourceSha: challenge.sourceSha,
+      expectedApiImage: challenge.apiImage,
+    });
+  } catch (error) {
+    fail(
+      "PRODUCTION_ACTIVATION_BUNDLE_PROVENANCE_INVALID",
+      "API image provenance is not the exact source-pinned signed v2 artifact.",
+      error,
+    );
+  }
+  exactEqual(
+    provenanceVerdict.sourceSha,
+    challenge.sourceSha,
+    "apiImageProvenance.sourceSha",
+  );
+  exactEqual(
+    provenanceVerdict.subjectImage,
+    challenge.apiImage,
+    "apiImageProvenance.subjectImage",
+  );
+  for (const field of [
+    "publicationReceiptSha256",
+    "reviewedImageSetSha256",
+    "subjectRunnableManifestDigest",
+    "ociProvenanceSha256",
+  ]) {
+    exactString(
+      provenanceVerdict[field],
+      `apiImageProvenance.${field}`,
+      SHA256_PIN,
+    );
+  }
   const backup = exactObject(
     evidence.exact0096Backup,
     ["detachedSignature", "passReceipt", "plan", "signature", "trace"],
@@ -594,17 +657,21 @@ function parseEvidence(value, challenge, now) {
     false,
     "approval.authorizesDeployment",
   );
+  for (const key of ["sourceSha", "apiImage", "nonce", "containerId"]) {
+    exactEqual(approval[key], challenge[key], `approval.${key}`);
+  }
   for (const key of [
-    "sourceSha",
-    "apiImage",
-    "nonce",
-    "containerId",
     "desiredConfigSha256",
     "deployedConfigSha256",
     "resolvedComposeSha256",
   ]) {
-    exactEqual(approval[key], challenge[key], `approval.${key}`);
+    exactString(approval[key], `approval.${key}`, SHA256);
   }
+  exactEqual(
+    approval.desiredConfigSha256,
+    approval.deployedConfigSha256,
+    "approval.desiredConfigSha256",
+  );
   exactString(approval.databaseName, "approval.databaseName", IDENTIFIER);
   exactEqual(
     approval.databaseUser,
@@ -657,7 +724,15 @@ function parseEvidence(value, challenge, now) {
       "observations and approval are stale, future-dated, or misordered.",
     );
   }
-  return { evidence, observedAt };
+  return {
+    evidence,
+    observedAt,
+    observedConfiguration: {
+      desiredConfigSha256: approval.desiredConfigSha256,
+      deployedConfigSha256: approval.deployedConfigSha256,
+      resolvedComposeSha256: approval.resolvedComposeSha256,
+    },
+  };
 }
 
 async function parsePublicKey(file, field) {
@@ -920,9 +995,6 @@ async function verifyWithRuntimeContracts({
     {
       sourceSha: challenge.sourceSha,
       apiImage: challenge.apiImage,
-      desiredConfigSha256: challenge.desiredConfigSha256,
-      deployedConfigSha256: challenge.deployedConfigSha256,
-      resolvedComposeSha256: challenge.resolvedComposeSha256,
       containerId: challenge.containerId,
       nonce: challenge.nonce,
     },
@@ -974,7 +1046,10 @@ export async function publishProductionActivationBundle(
       "challenge",
     ),
   );
-  const { evidence, observedAt } = parseEvidence(
+  const verifyApiImageProvenance =
+    dependencies.verifyApiImageProvenance ??
+    ((input) => verifyProductionApiImageProvenanceArtifact(input));
+  const { evidence, observedAt, observedConfiguration } = parseEvidence(
     parseCanonicalJson(
       await readStableActivationInput(
         evidenceFile,
@@ -984,6 +1059,7 @@ export async function publishProductionActivationBundle(
     ),
     challenge,
     now,
+    verifyApiImageProvenance,
   );
   const [publisherKey, hostKey] = await Promise.all([
     parsePublicKey(publisherPublicKeyFile, "publisher-public-key"),
@@ -1004,9 +1080,9 @@ export async function publishProductionActivationBundle(
     kind: "site-logbook-production-host-attestation-v2",
     sourceSha: challenge.sourceSha,
     apiImage: challenge.apiImage,
-    desiredConfigSha256: challenge.desiredConfigSha256,
-    deployedConfigSha256: challenge.deployedConfigSha256,
-    resolvedComposeSha256: challenge.resolvedComposeSha256,
+    desiredConfigSha256: observedConfiguration.desiredConfigSha256,
+    deployedConfigSha256: observedConfiguration.deployedConfigSha256,
+    resolvedComposeSha256: observedConfiguration.resolvedComposeSha256,
     containerId: challenge.containerId,
     nonce: challenge.nonce,
     activationEvidenceSha256: sha256Hex(
@@ -1019,9 +1095,9 @@ export async function publishProductionActivationBundle(
     kind: "site-logbook-production-activation-bundle-v2",
     sourceSha: challenge.sourceSha,
     apiImage: challenge.apiImage,
-    desiredConfigSha256: challenge.desiredConfigSha256,
-    deployedConfigSha256: challenge.deployedConfigSha256,
-    resolvedComposeSha256: challenge.resolvedComposeSha256,
+    desiredConfigSha256: observedConfiguration.desiredConfigSha256,
+    deployedConfigSha256: observedConfiguration.deployedConfigSha256,
+    resolvedComposeSha256: observedConfiguration.resolvedComposeSha256,
     containerId: challenge.containerId,
     nonce: challenge.nonce,
     evidence,
