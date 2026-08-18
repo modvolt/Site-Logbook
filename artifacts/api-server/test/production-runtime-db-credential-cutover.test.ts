@@ -1,12 +1,24 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
-import { lstat, mkdtemp, readFile, rm } from "node:fs/promises";
+import {
+  appendFile,
+  lstat,
+  mkdtemp,
+  open,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
 const SOURCE_SHA = "a".repeat(40);
 const EXECUTOR_SHA = "b".repeat(40);
 const EXECUTOR_IMAGE = `ghcr.io/modvolt/site-logbook-control-plane@sha256:${"c".repeat(64)}`;
+const LIVE_SOURCE_IMAGE = `ghcr.io/modvolt/site-logbook-api@sha256:${"d".repeat(64)}`;
+const ROLE_PRECONDITION_SHA256 = `sha256:${"e".repeat(64)}`;
+const MIGRATION_TRANSITION_SHA256 = `sha256:${"f".repeat(64)}`;
+const FINAL_LIVE_IDENTITY_SHA256 = `sha256:${"0".repeat(64)}`;
 const roleContract = vi.hoisted(() => ({
   projectionSql: "SELECT fixture_full_role_projection",
 }));
@@ -18,86 +30,76 @@ const authority = vi.hoisted(() => ({
   reject: false,
 }));
 
-vi.mock(
-  "../../../scripts/production-evidence/production-migration-role-authority.js",
-  () => ({
-    assertProductionMigrationRolePrecondition() {
-      if (authority.reject) throw new Error("fixture role authority rejected");
-      return {
-        value: {
-          sourceSha: authority.sourceSha,
-          rolePlanCanonical: `${JSON.stringify({
-            databaseName: authority.databaseName,
-            migratorRole: authority.migratorRole,
-            runtimeRole: authority.runtimeRole,
-          })}\n`,
-        },
-      };
-    },
-    assertProductionMigrationRolePostCommit() {
-      if (authority.reject) throw new Error("fixture role authority rejected");
-      return {
-        value: {
-          projection: {
-            databaseName: authority.databaseName,
-            runtimeRole: { name: authority.runtimeRole, login: true },
-            migratorRole: { name: authority.migratorRole, login: false },
-            runtimeMemberOf: [],
-            databaseOtherGrants: [],
-            defaultPrivileges: [
-              {
-                schema: "public",
-                kind: "table",
-                owner: authority.migratorRole,
-                publicPrivileges: [],
-                runtimePrivileges: [],
-                otherGrants: [],
-              },
-            ],
-            objects: [
-              {
-                kind: "table",
-                schema: "public",
-                name: "jobs",
-                identityArguments: "",
-                owner: authority.migratorRole,
-                securityDefiner: false,
-                functionSettings: [],
-                publicPrivileges: [],
-                runtimePrivileges: ["SELECT"],
-                otherGrants: [],
-                columnGrants: [],
-              },
-            ],
-          },
-        },
-      };
-    },
-  }),
-);
-
-vi.mock(
-  "../../../scripts/production-evidence/production-migration-role-bootstrap.js",
-  () => ({
-    normalizeProductionMigrationRoleBootstrapProjection(raw: unknown) {
-      return raw;
-    },
-  }),
-);
-
-vi.mock("../../../lib/db/src/production-role-separation-contract.js", () => ({
+vi.mock("@workspace/db/production-migration-role-authority", () => ({
   PRODUCTION_ROLE_PROJECTION_SQL: roleContract.projectionSql,
+  normalizeProductionMigrationRoleProjection(raw: unknown) {
+    return raw;
+  },
   validateProductionRoleProjection() {
     return { ok: true, errors: [] };
+  },
+  assertProductionMigrationRolePrecondition() {
+    if (authority.reject) throw new Error("fixture role authority rejected");
+    return {
+      value: {
+        sourceSha: authority.sourceSha,
+        rolePlanCanonical: `${JSON.stringify({
+          databaseName: authority.databaseName,
+          migratorRole: authority.migratorRole,
+          runtimeRole: authority.runtimeRole,
+        })}\n`,
+      },
+    };
+  },
+  assertProductionMigrationRolePostCommit() {
+    if (authority.reject) throw new Error("fixture role authority rejected");
+    return {
+      value: {
+        projection: {
+          databaseName: authority.databaseName,
+          runtimeRole: { name: authority.runtimeRole, login: true },
+          migratorRole: { name: authority.migratorRole, login: false },
+          runtimeMemberOf: [],
+          databaseOtherGrants: [],
+          defaultPrivileges: [
+            {
+              schema: "public",
+              kind: "table",
+              owner: authority.migratorRole,
+              publicPrivileges: [],
+              runtimePrivileges: [],
+              otherGrants: [],
+            },
+          ],
+          objects: [
+            {
+              kind: "table",
+              schema: "public",
+              name: "jobs",
+              identityArguments: "",
+              owner: authority.migratorRole,
+              securityDefiner: false,
+              functionSettings: [],
+              publicPrivileges: [],
+              runtimePrivileges: ["SELECT"],
+              otherGrants: [],
+              columnGrants: [],
+            },
+          ],
+        },
+      },
+    };
   },
 }));
 
 import {
   applyProductionRuntimeDbCredentialCutover,
   canonicalProductionRuntimeDbCredentialJson,
+  parseAndVerifyProductionRuntimeDbCredentialReceipt,
   productionRuntimeDbCredentialSha256,
   PRODUCTION_MIGRATION_ADVISORY_LOCK_KEY,
   PRODUCTION_RUNTIME_DB_CREDENTIAL_CONFIRMATION,
+  PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_MAX_AGE_MS,
   PRODUCTION_RUNTIME_DB_CREDENTIAL_REQUEST_SCHEMA,
   type ProductionRuntimeCredentialClient,
 } from "../src/lib/production-runtime-db-credential-cutover";
@@ -109,6 +111,7 @@ import {
   parseProductionRuntimeDbCredentialCliArguments,
   parseProductionRuntimeCredentialAdminDatabaseUrl,
   persistProductionRuntimeDbCredentialReceipt,
+  readStableProductionRuntimeDbCredentialInputFile,
   reserveProductionRuntimeDbCredentialReceipt,
 } from "../src/production-runtime-db-credential-cutover";
 
@@ -291,6 +294,59 @@ function fixture(
       return runtimeConnectInput;
     },
   };
+}
+
+function receiptParserInput(
+  state: ReturnType<typeof fixture>,
+  receiptCanonical: string,
+) {
+  return {
+    requestCanonical: state.input.requestCanonical,
+    receiptCanonical,
+    expected: {
+      sourceSha: SOURCE_SHA,
+      executorSourceSha: EXECUTOR_SHA,
+      liveSourceImage: LIVE_SOURCE_IMAGE,
+      databaseName: "site_logbook",
+      migrationPlanSha256: productionRuntimeDbCredentialSha256(
+        state.input.migrationPlanCanonical,
+      ),
+      roleTransactionReceiptSha256: productionRuntimeDbCredentialSha256(
+        state.input.roleTransactionReceiptCanonical,
+      ),
+      rolePostCommitArtifactSha256: productionRuntimeDbCredentialSha256(
+        state.input.rolePostCommitArtifactCanonical,
+      ),
+      migrationTransitionSha256: MIGRATION_TRANSITION_SHA256,
+      migrationTransition: {
+        decision: "PASS" as const,
+        sourceSha: SOURCE_SHA,
+        planSha256: productionRuntimeDbCredentialSha256(
+          state.input.migrationPlanCanonical,
+        ),
+        rolePreconditionSha256: ROLE_PRECONDITION_SHA256,
+        roleTransactionReceiptSha256: productionRuntimeDbCredentialSha256(
+          state.input.roleTransactionReceiptCanonical,
+        ),
+        postCommitRoleArtifactSha256: productionRuntimeDbCredentialSha256(
+          state.input.rolePostCommitArtifactCanonical,
+        ),
+        finalLiveIdentitySha256: FINAL_LIVE_IDENTITY_SHA256,
+        completedAt: "2026-08-18T09:59:59.000Z",
+        authorizesApplicationStart: false as const,
+      },
+      activationIssuedAt: "2026-08-18T10:00:03.000Z",
+    },
+  };
+}
+
+function mutateCanonical(
+  canonical: string,
+  mutate: (value: Record<string, unknown>) => void,
+): string {
+  const value = JSON.parse(canonical) as Record<string, unknown>;
+  mutate(value);
+  return canonicalProductionRuntimeDbCredentialJson(value);
 }
 
 beforeEach(() => {
@@ -514,6 +570,257 @@ describe("production runtime database credential cutover", () => {
   });
 });
 
+describe("production runtime database credential PASS receipt parser", () => {
+  it("reconstructs the exact secret-free request, migration chain, commit, readback and fresh-login proof", async () => {
+    const state = fixture();
+    const produced = await applyProductionRuntimeDbCredentialCutover(
+      state.input,
+    );
+    const verdict = parseAndVerifyProductionRuntimeDbCredentialReceipt(
+      receiptParserInput(state, produced.receiptCanonical),
+    );
+
+    expect(verdict).toMatchObject({
+      decision: "PASS",
+      receiptSha256: produced.receiptSha256,
+      migrationTransitionSha256: MIGRATION_TRANSITION_SHA256,
+      finalLiveIdentitySha256: FINAL_LIVE_IDENTITY_SHA256,
+      startedAt: "2026-08-18T10:00:01.000Z",
+      completedAt: "2026-08-18T10:00:02.000Z",
+      authorizesApplicationStart: false,
+      authorizesDeployment: false,
+      request: {
+        liveSourceSha: SOURCE_SHA,
+        executorSourceSha: EXECUTOR_SHA,
+        executorImage: EXECUTOR_IMAGE,
+      },
+    });
+  });
+
+  it.each([
+    [
+      "commit",
+      (value: Record<string, unknown>) => {
+        (value.transaction as Record<string, unknown>).committed = false;
+      },
+    ],
+    [
+      "SCRAM readback",
+      (value: Record<string, unknown>) => {
+        (
+          value.verification as Record<string, unknown>
+        ).exactScramVerifierStoredInTransaction = false;
+      },
+    ],
+    [
+      "fresh login",
+      (value: Record<string, unknown>) => {
+        (
+          value.verification as Record<string, unknown>
+        ).freshRuntimeLoginVerified = false;
+      },
+    ],
+    [
+      "runtime identity",
+      (value: Record<string, unknown>) => {
+        (
+          value.verification as Record<string, unknown>
+        ).exactRuntimeIdentityVerified = false;
+      },
+    ],
+    [
+      "application authorization",
+      (value: Record<string, unknown>) => {
+        value.authorizesApplicationStart = true;
+      },
+    ],
+    [
+      "deployment authorization",
+      (value: Record<string, unknown>) => {
+        value.authorizesDeployment = true;
+      },
+    ],
+  ] as const)("rejects a self-asserted %s receipt", async (_label, mutate) => {
+    const state = fixture();
+    const produced = await applyProductionRuntimeDbCredentialCutover(
+      state.input,
+    );
+    const receiptCanonical = mutateCanonical(produced.receiptCanonical, mutate);
+    expect(() =>
+      parseAndVerifyProductionRuntimeDbCredentialReceipt(
+        receiptParserInput(state, receiptCanonical),
+      ),
+    ).toThrow(/PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_INVALID/);
+  });
+
+  it("rejects coordinated request/receipt digest tampering against the authoritative role chain", async () => {
+    const state = fixture();
+    const produced = await applyProductionRuntimeDbCredentialCutover(
+      state.input,
+    );
+    const changedRoleDigest = `sha256:${"9".repeat(64)}`;
+    const requestCanonical = mutateCanonical(
+      state.input.requestCanonical,
+      (request) => {
+        request.expectedRoleTransactionReceiptSha256 = changedRoleDigest;
+      },
+    );
+    const receiptCanonical = mutateCanonical(
+      produced.receiptCanonical,
+      (receipt) => {
+        receipt.requestSha256 =
+          productionRuntimeDbCredentialSha256(requestCanonical);
+        (
+          receipt.roleEvidence as Record<string, unknown>
+        ).transactionReceiptSha256 = changedRoleDigest;
+      },
+    );
+    const input = receiptParserInput(state, receiptCanonical);
+
+    expect(() =>
+      parseAndVerifyProductionRuntimeDbCredentialReceipt({
+        ...input,
+        requestCanonical,
+      }),
+    ).toThrow(/PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_BINDING_INVALID/);
+  });
+
+  it("rejects coordinated request, receipt and request-digest database tampering", async () => {
+    const state = fixture();
+    const produced = await applyProductionRuntimeDbCredentialCutover(
+      state.input,
+    );
+    const requestCanonical = mutateCanonical(
+      state.input.requestCanonical,
+      (request) => {
+        request.databaseName = "attacker_database";
+      },
+    );
+    const receiptCanonical = mutateCanonical(
+      produced.receiptCanonical,
+      (receipt) => {
+        receipt.requestSha256 =
+          productionRuntimeDbCredentialSha256(requestCanonical);
+        (receipt.database as Record<string, unknown>).name =
+          "attacker_database";
+      },
+    );
+    const input = receiptParserInput(state, receiptCanonical);
+    expect(() =>
+      parseAndVerifyProductionRuntimeDbCredentialReceipt({
+        ...input,
+        requestCanonical,
+      }),
+    ).toThrow(/PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_BINDING_INVALID/);
+  });
+
+  it("rejects swapped transition authority and aliased live/executor identities", async () => {
+    const state = fixture();
+    const produced = await applyProductionRuntimeDbCredentialCutover(
+      state.input,
+    );
+    const swapped = structuredClone(
+      receiptParserInput(state, produced.receiptCanonical),
+    );
+    swapped.expected.migrationTransition.sourceSha = EXECUTOR_SHA;
+    expect(() =>
+      parseAndVerifyProductionRuntimeDbCredentialReceipt(swapped),
+    ).toThrow(/RECEIPT_AUTHORITY_INVALID/);
+
+    const aliasedImage = structuredClone(
+      receiptParserInput(state, produced.receiptCanonical),
+    );
+    aliasedImage.expected.liveSourceImage = EXECUTOR_IMAGE;
+    expect(() =>
+      parseAndVerifyProductionRuntimeDbCredentialReceipt(aliasedImage),
+    ).toThrow(/RECEIPT_BINDING_INVALID/);
+
+    const requestCanonical = mutateCanonical(
+      state.input.requestCanonical,
+      (request) => {
+        request.executorSourceSha = request.liveSourceSha;
+      },
+    );
+    expect(() =>
+      parseAndVerifyProductionRuntimeDbCredentialReceipt({
+        ...receiptParserInput(state, produced.receiptCanonical),
+        requestCanonical,
+      }),
+    ).toThrow(/PRODUCTION_RUNTIME_DB_CREDENTIAL_REQUEST_INVALID/);
+  });
+
+  it("rejects missing keys, uppercase digests and forbidden private material", async () => {
+    const state = fixture();
+    const produced = await applyProductionRuntimeDbCredentialCutover(
+      state.input,
+    );
+    for (const receiptCanonical of [
+      mutateCanonical(produced.receiptCanonical, (receipt) => {
+        delete receipt.verification;
+      }),
+      mutateCanonical(produced.receiptCanonical, (receipt) => {
+        receipt.requestSha256 = `sha256:${"A".repeat(64)}`;
+      }),
+      mutateCanonical(produced.receiptCanonical, (receipt) => {
+        receipt.unexpected = "Bearer forbidden-private-material";
+      }),
+    ]) {
+      expect(() =>
+        parseAndVerifyProductionRuntimeDbCredentialReceipt(
+          receiptParserInput(state, receiptCanonical),
+        ),
+      ).toThrow(/PRODUCTION_RUNTIME_DB_CREDENTIAL_/);
+    }
+  });
+
+  it("rejects pre-migration, reversed and stale replay timestamps", async () => {
+    const state = fixture();
+    const produced = await applyProductionRuntimeDbCredentialCutover(
+      state.input,
+    );
+    for (const receiptCanonical of [
+      mutateCanonical(produced.receiptCanonical, (receipt) => {
+        receipt.startedAt = "2026-08-18T09:59:58.000Z";
+      }),
+      mutateCanonical(produced.receiptCanonical, (receipt) => {
+        receipt.startedAt = "2026-08-18T10:00:02.000Z";
+        receipt.completedAt = "2026-08-18T10:00:01.000Z";
+      }),
+    ]) {
+      expect(() =>
+        parseAndVerifyProductionRuntimeDbCredentialReceipt(
+          receiptParserInput(state, receiptCanonical),
+        ),
+      ).toThrow(/RECEIPT_TIME_INVALID/);
+    }
+
+    const stale = receiptParserInput(state, produced.receiptCanonical);
+    stale.expected.activationIssuedAt = new Date(
+      Date.parse("2026-08-18T10:00:02.000Z") +
+        PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_MAX_AGE_MS +
+        1,
+    ).toISOString();
+    expect(() =>
+      parseAndVerifyProductionRuntimeDbCredentialReceipt(stale),
+    ).toThrow(/RECEIPT_STALE/);
+  });
+
+  it("rejects noncanonical receipt bytes before trusting any PASS field", async () => {
+    const state = fixture();
+    const produced = await applyProductionRuntimeDbCredentialCutover(
+      state.input,
+    );
+    expect(() =>
+      parseAndVerifyProductionRuntimeDbCredentialReceipt(
+        receiptParserInput(
+          state,
+          JSON.stringify(JSON.parse(produced.receiptCanonical), null, 2),
+        ),
+      ),
+    ).toThrow(/PRODUCTION_RUNTIME_DB_CREDENTIAL_ARTIFACT_INVALID/);
+  });
+});
+
 describe("production runtime database URL contract", () => {
   it("returns only the exact runtime identity, never the credential", () => {
     const identity = validateProductionRuntimeDatabaseUrl(
@@ -622,6 +929,70 @@ describe("production runtime credential CLI boundary", () => {
     );
     expect(reserveAt).toBeGreaterThan(-1);
     expect(applyAt).toBeGreaterThan(reserveAt);
+  });
+
+  it("bounds reads at MAX+1 and rejects both oversized and concurrently grown inputs", async () => {
+    const directory = await mkdtemp(
+      path.join(os.tmpdir(), "site-logbook-runtime-credential-input-"),
+    );
+    const maximumBytes = 1024;
+    try {
+      const oversized = path.join(directory, "oversized.json");
+      await writeFile(oversized, Buffer.alloc(maximumBytes + 1, 0x61));
+      await expect(
+        readStableProductionRuntimeDbCredentialInputFile(
+          oversized,
+          maximumBytes,
+        ),
+      ).rejects.toMatchObject({
+        code: "PRODUCTION_RUNTIME_DB_CREDENTIAL_CLI_INPUT_INVALID",
+      });
+
+      const growing = path.join(directory, "growing.json");
+      await writeFile(growing, Buffer.alloc(maximumBytes, 0x62));
+      const probe = await open(growing, "r");
+      const prototype = Object.getPrototypeOf(probe) as {
+        read: typeof probe.read;
+      };
+      const originalRead = prototype.read;
+      await probe.close();
+      let grew = false;
+      prototype.read = async function (
+        this: typeof probe,
+        ...args: Parameters<typeof probe.read>
+      ) {
+        if (!grew) {
+          grew = true;
+          await appendFile(growing, "x");
+        }
+        return Reflect.apply(originalRead, this, args);
+      } as typeof probe.read;
+      try {
+        await expect(
+          readStableProductionRuntimeDbCredentialInputFile(
+            growing,
+            maximumBytes,
+          ),
+        ).rejects.toMatchObject({
+          code: "PRODUCTION_RUNTIME_DB_CREDENTIAL_CLI_INPUT_INVALID",
+        });
+        expect(grew).toBe(true);
+      } finally {
+        prototype.read = originalRead;
+      }
+
+      const source = readFileSync(
+        new URL(
+          "../src/production-runtime-db-credential-cutover.ts",
+          import.meta.url,
+        ),
+        "utf8",
+      );
+      expect(source).toContain("Buffer.alloc(maximumBytes + 1)");
+      expect(source).not.toContain("handle.readFile()");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it("reserves and finalizes the exact same no-clobber inode with digest readback", async () => {

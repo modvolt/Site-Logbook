@@ -7,8 +7,7 @@ import { Pool } from "pg";
 
 // @ts-ignore -- source-bound host authority is intentionally bundled from outside the API rootDir.
 import * as runtimeAuthority from "../../../scripts/production-evidence/production-migration-docker-runtime-authority.mjs";
-// @ts-ignore -- source-bound host authority is intentionally bundled from outside the API rootDir.
-import * as roleAuthority from "../../../scripts/production-evidence/production-migration-role-authority.js";
+import * as roleAuthority from "@workspace/db/production-migration-role-authority";
 // prettier-ignore
 // @ts-ignore -- host-only runner is intentionally bundled from outside the API rootDir.
 import { PRODUCTION_MIGRATION_AUTHORITY_BINDINGS, persistProductionMigrationMode0600Exclusive, runProductionMigrationCli } from "../../../scripts/production-evidence/run-production-migration.mjs";
@@ -25,7 +24,7 @@ import { createProductionMigrationArtifact, parseProductionMigrationLiveIdentity
 import { parseProductionExact0096BackupPlan } from "../../../scripts/production-evidence/production-exact-0096-backup-planner.mjs";
 // @ts-ignore -- host-only backup canonicalizer is intentionally bundled from outside the API rootDir.
 import { canonicalProductionExact0096BackupJson } from "../../../scripts/production-evidence/production-exact-0096-backup-contract.mjs";
-import { canonicalProductionRoleJson } from "../../../lib/db/src/production-role-separation-contract.js";
+import { canonicalProductionRoleJson } from "@workspace/db/production-migration-role-authority";
 
 const MAX_REQUEST_BYTES = 64 * 1024;
 const ROLE_BOOTSTRAP_TIMEOUT_MS = 15 * 60 * 1000;

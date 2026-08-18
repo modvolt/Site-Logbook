@@ -306,7 +306,7 @@ function validateTarget(
     ],
     "target",
   );
-  requireValue(target.schemaVersion, 1, "target.schemaVersion");
+  requireValue(target.schemaVersion, 2, "target.schemaVersion");
   requireValue(target.kind, TARGET_KIND, "target.kind");
   requireValue(
     target.logicalEnvironmentId,
@@ -414,6 +414,8 @@ function validateTarget(
     target.livePostgresTarget,
     [
       "containerId",
+      "dockerExportSha256",
+      "backendProofSha256",
       "image",
       "imageId",
       "volumeName",
@@ -434,6 +436,14 @@ function validateTarget(
     }
   }
   digestAt(postgres.imageId, "target.livePostgresTarget.imageId");
+  digestAt(
+    postgres.dockerExportSha256,
+    "target.livePostgresTarget.dockerExportSha256",
+  );
+  digestAt(
+    postgres.backendProofSha256,
+    "target.livePostgresTarget.backendProofSha256",
+  );
   if (
     !IMMUTABLE_IMAGE.test(
       stringAt(postgres.image, "target.livePostgresTarget.image"),
@@ -448,6 +458,8 @@ function validateTarget(
   stringAt(postgres.networkName, "target.livePostgresTarget.networkName");
   const projection = {
     containerId: postgres.containerId,
+    dockerExportSha256: postgres.dockerExportSha256,
+    backendProofSha256: postgres.backendProofSha256,
     image: postgres.image,
     imageId: postgres.imageId,
     networkId: postgres.networkId,

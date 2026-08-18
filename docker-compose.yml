@@ -71,33 +71,23 @@ services:
       # private aliases. Record the real Coolify network topology first.
       API_TRUSTED_PROXY_CIDRS: ${API_TRUSTED_PROXY_CIDRS:-}
       EXTERNAL_ACCOUNTS_ENABLED: "false"
-      # Production startup is schema-read-only. Supply the four canonical,
-      # secret-free artifacts and independently recorded SHA-256 values only
-      # after the one-shot 0107 control plane and offline v5 approval pass.
-      PRODUCTION_EXPECTED_SOURCE_SHA: ${BUILD_SHA:?set exact release source SHA}
-      PRODUCTION_EXPECTED_API_IMAGE: ${PRODUCTION_API_IMAGE:?set immutable API repository@sha256 digest}
-      PRODUCTION_EXPECTED_DATABASE_NAME: ${POSTGRES_DB:?set exact production database name}
+      # HOLD does not read DATABASE_URL, S3, or any application secret. These
+      # fixed bindings and the pinned public-key digest authenticate a later
+      # secret-free v2 activation bundle without changing desired/deployed
+      # Compose bytes. Evidence is never transported through environment B64.
+      PRODUCTION_ACTIVATION_PUBLISHER_PUBLIC_KEY_SHA256: ${PRODUCTION_ACTIVATION_PUBLISHER_PUBLIC_KEY_SHA256:?set pinned publisher Ed25519 DER-SPKI sha256 fingerprint}
+      PRODUCTION_ACTIVATION_HOST_PUBLIC_KEY_SHA256: ${PRODUCTION_ACTIVATION_HOST_PUBLIC_KEY_SHA256:?set distinct host Ed25519 DER-SPKI sha256 fingerprint}
+      PRODUCTION_EXPECTED_DESIRED_CONFIG_SHA256: ${PRODUCTION_EXPECTED_DESIRED_CONFIG_SHA256:?set observed desired config sha256}
+      PRODUCTION_EXPECTED_DEPLOYED_CONFIG_SHA256: ${PRODUCTION_EXPECTED_DEPLOYED_CONFIG_SHA256:?set observed deployed config sha256}
+      PRODUCTION_EXPECTED_RESOLVED_COMPOSE_SHA256: ${PRODUCTION_EXPECTED_RESOLVED_COMPOSE_SHA256:?set observed resolved Compose sha256}
       PRODUCTION_EXPECTED_DATABASE_USER: site_logbook_runtime
-      PRODUCTION_EXPECTED_TARGET_SHA256: ${PRODUCTION_EXPECTED_TARGET_SHA256:?set approved canonical target evidence digest}
-      PRODUCTION_EXPECTED_AUDIT_SCHEMA_FINGERPRINT_SHA256: ${PRODUCTION_EXPECTED_AUDIT_SCHEMA_FINGERPRINT_SHA256:?set approved live audit schema fingerprint}
-      PRODUCTION_EXPECTED_PRE_MIGRATION_BACKUP_EVIDENCE_SHA256: ${PRODUCTION_EXPECTED_PRE_MIGRATION_BACKUP_EVIDENCE_SHA256:?set approved pre-migration backup evidence digest}
-      PRODUCTION_EXPECTED_BACKUP_INTEGRITY_SHA256: ${PRODUCTION_EXPECTED_BACKUP_INTEGRITY_SHA256:?set approved backup table-count and row-binding integrity digest}
-      PRODUCTION_EXPECTED_0096_0107_TRANSITION_CHAIN_SHA256: ${PRODUCTION_EXPECTED_0096_0107_TRANSITION_CHAIN_SHA256:?set approved complete 0096 through 0107 transition-chain digest}
-      PRODUCTION_EXPECTED_ACTIVATION_APPROVAL_SHA256: ${PRODUCTION_EXPECTED_ACTIVATION_APPROVAL_SHA256:?set separate production activation approval digest}
-      PRODUCTION_ACTIVATION_APPROVAL_EVIDENCE_B64: ${PRODUCTION_ACTIVATION_APPROVAL_EVIDENCE_B64:?set canonical activation approval artifact as base64}
-      PRODUCTION_ACTIVATION_APPROVAL_EVIDENCE_SHA256: ${PRODUCTION_ACTIVATION_APPROVAL_EVIDENCE_SHA256:?set activation approval artifact sha256}
-      PRODUCTION_AUDIT_0107_TARGET_EVIDENCE_B64: ${PRODUCTION_AUDIT_0107_TARGET_EVIDENCE_B64:?set canonical production target evidence as base64}
-      PRODUCTION_AUDIT_0107_TARGET_EVIDENCE_SHA256: ${PRODUCTION_AUDIT_0107_TARGET_EVIDENCE_SHA256:?set target evidence sha256}
-      PRODUCTION_AUDIT_0107_INTENT_EVIDENCE_B64: ${PRODUCTION_AUDIT_0107_INTENT_EVIDENCE_B64:?set canonical production intent evidence as base64}
-      PRODUCTION_AUDIT_0107_INTENT_EVIDENCE_SHA256: ${PRODUCTION_AUDIT_0107_INTENT_EVIDENCE_SHA256:?set intent evidence sha256}
-      PRODUCTION_AUDIT_0107_EXECUTION_EVIDENCE_B64: ${PRODUCTION_AUDIT_0107_EXECUTION_EVIDENCE_B64:?set canonical production execution evidence as base64}
-      PRODUCTION_AUDIT_0107_EXECUTION_EVIDENCE_SHA256: ${PRODUCTION_AUDIT_0107_EXECUTION_EVIDENCE_SHA256:?set execution evidence sha256}
-      PRODUCTION_AUDIT_0107_STEADY_EVIDENCE_B64: ${PRODUCTION_AUDIT_0107_STEADY_EVIDENCE_B64:?set canonical production steady evidence as base64}
-      PRODUCTION_AUDIT_0107_STEADY_EVIDENCE_SHA256: ${PRODUCTION_AUDIT_0107_STEADY_EVIDENCE_SHA256:?set steady evidence sha256}
-      PRODUCTION_AUDIT_0107_RELEASE_EVIDENCE_B64: ${PRODUCTION_AUDIT_0107_RELEASE_EVIDENCE_B64:?set canonical production release evidence as base64}
-      PRODUCTION_AUDIT_0107_RELEASE_EVIDENCE_SHA256: ${PRODUCTION_AUDIT_0107_RELEASE_EVIDENCE_SHA256:?set release evidence sha256}
-      PRODUCTION_HOST_ATTESTATION_B64: ${PRODUCTION_HOST_ATTESTATION_B64:?set reviewed detached host attestation as base64}
-      PRODUCTION_HOST_ATTESTATION_SIGNATURE_B64: ${PRODUCTION_HOST_ATTESTATION_SIGNATURE_B64:?set detached host attestation signature as base64}
+    volumes:
+      - type: bind
+        source: ${PRODUCTION_HOST_EVIDENCE_DIR:?set the precreated host evidence directory}
+        target: /run/site-logbook-production-evidence
+        read_only: true
+        bind:
+          create_host_path: false
 
   web:
     image: ${PRODUCTION_WEB_IMAGE:?set immutable web repository@sha256 digest}

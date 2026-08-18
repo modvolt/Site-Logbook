@@ -1,20 +1,22 @@
 import { createHash } from "node:crypto";
 
 import {
-  PRODUCTION_ROLE_CONTRACT_SCHEMA,
   PRODUCTION_ROLE_PROJECTION_SQL,
   REQUIRED_FUNCTION_GRANTS,
   REQUIRED_SEQUENCE_GRANTS,
   REQUIRED_TABLE_GRANTS,
-  ROLE_CONTRACT_MIGRATION,
-  ROLE_CONTRACT_MIGRATION_SHA256,
   buildProductionRolePlan,
   canonicalProductionRoleJson,
   validateProductionRoleProjection,
   type ProductionRolePlan,
   type ProductionRoleProjection,
 } from "../../lib/db/src/production-role-separation-contract.js";
-import { parseProductionMigrationRolePrecondition } from "../../lib/db/src/production-migration-role-authority.js";
+import {
+  normalizeProductionMigrationRoleProjection,
+  parseProductionMigrationRolePrecondition,
+} from "@workspace/db/production-migration-role-authority";
+
+export { normalizeProductionMigrationRoleProjection } from "@workspace/db/production-migration-role-authority";
 
 export const PRODUCTION_MIGRATION_ROLE_BOOTSTRAP_CONFIRMATION =
   "BOOTSTRAP_EXACT_0096_PRODUCTION_DB_ROLES_BEFORE_MIGRATION";
@@ -151,107 +153,19 @@ function exactRecordArray(
   return value.map((entry) => ({ ...entry }));
 }
 
-function exactStringArray(value: unknown, field: string): string[] {
-  if (
-    !Array.isArray(value) ||
-    !value.every((entry) => typeof entry === "string")
-  ) {
-    fail(
-      "PRODUCTION_MIGRATION_ROLE_BOOTSTRAP_PROJECTION_INVALID",
-      `${field} is not an exact string array.`,
-    );
-  }
-  return [...value];
-}
-
-function roleByName(
-  raw: Record<string, unknown>,
-  name: string,
-): Record<string, unknown> {
-  const matches = exactRecordArray(raw.roles, "projection.roles").filter(
-    (role) => role.name === name,
-  );
-  if (matches.length !== 1) {
-    fail(
-      "PRODUCTION_MIGRATION_ROLE_BOOTSTRAP_PROJECTION_INVALID",
-      "Projection must contain each reviewed role exactly once.",
-    );
-  }
-  return matches[0];
-}
-
 export function normalizeProductionMigrationRoleBootstrapProjection(
   raw: unknown,
   plan: ProductionRolePlan,
 ): ProductionRoleProjection {
-  if (!isRecord(raw) || !isRecord(raw.database)) {
-    fail(
-      "PRODUCTION_MIGRATION_ROLE_BOOTSTRAP_PROJECTION_INVALID",
-      "Projection query did not return its exact object boundary.",
-    );
-  }
-  const database = raw.database;
-  const relations = exactRecordArray(raw.relations, "projection.relations");
-  const functions =
-    raw.functions === null
-      ? []
-      : exactRecordArray(raw.functions, "projection.functions");
-  const objects = [...relations, ...functions].sort((left, right) => {
-    const a = `${left.kind}:${left.schema}:${left.name}:${left.identityArguments}`;
-    const b = `${right.kind}:${right.schema}:${right.name}:${right.identityArguments}`;
-    return a < b ? -1 : a > b ? 1 : 0;
+  return normalizeProductionMigrationRoleProjection(raw, plan, {
+    allowNullFunctions: true,
+    invalid(message): never {
+      return fail(
+        "PRODUCTION_MIGRATION_ROLE_BOOTSTRAP_PROJECTION_INVALID",
+        message,
+      );
+    },
   });
-  return Object.freeze({
-    schemaVersion: PRODUCTION_ROLE_CONTRACT_SCHEMA,
-    migration: ROLE_CONTRACT_MIGRATION,
-    migrationSha256: ROLE_CONTRACT_MIGRATION_SHA256,
-    databaseName: database.name,
-    databaseOwner: database.owner,
-    databasePublicPrivileges: exactStringArray(
-      database.publicPrivileges,
-      "projection.database.publicPrivileges",
-    ),
-    databaseRuntimePrivileges: exactStringArray(
-      database.runtimePrivileges,
-      "projection.database.runtimePrivileges",
-    ),
-    databaseOtherGrants: exactRecordArray(
-      database.otherGrants,
-      "projection.database.otherGrants",
-    ),
-    runtimeRole: roleByName(raw, plan.runtimeRole),
-    migratorRole: roleByName(raw, plan.migratorRole),
-    runtimeMemberOf: exactStringArray(
-      raw.runtimeMemberOf,
-      "projection.runtimeMemberOf",
-    ),
-    migratorMemberOf: exactStringArray(
-      raw.migratorMemberOf,
-      "projection.migratorMemberOf",
-    ),
-    runtimeRoleMembers: exactStringArray(
-      raw.runtimeRoleMembers,
-      "projection.runtimeRoleMembers",
-    ),
-    migratorRoleMembers: exactStringArray(
-      raw.migratorRoleMembers,
-      "projection.migratorRoleMembers",
-    ),
-    runtimeGlobalSettings: exactStringArray(
-      raw.runtimeGlobalSettings,
-      "projection.runtimeGlobalSettings",
-    ),
-    runtimeDatabaseSettings: exactStringArray(
-      raw.runtimeDatabaseSettings,
-      "projection.runtimeDatabaseSettings",
-    ),
-    schemas: exactRecordArray(raw.schemas, "projection.schemas"),
-    defaultPrivileges: exactRecordArray(
-      raw.defaultPrivileges,
-      "projection.defaultPrivileges",
-    ),
-    objects,
-  } as unknown as ProductionRoleProjection);
 }
 
 function assertPre0107Projection(projection: ProductionRoleProjection): void {

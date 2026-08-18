@@ -702,7 +702,7 @@ test("AbortSignal destroys a PostgreSQL client whose query never settles", async
   assert.deepEqual(releases, [true]);
 });
 
-test("default source-pin resolver verifies actual authority bytes and rejects a substituted digest", async () => {
+test("default source-pin resolver verifies actual authority source closures and rejects a substituted digest", async () => {
   const signal = new AbortController().signal;
   const runtime = await resolveProductionMigrationPinnedAuthority(
     "runtime",
@@ -710,6 +710,34 @@ test("default source-pin resolver verifies actual authority bytes and rejects a 
     signal,
   );
   assert.equal(typeof runtime.observeProductionMigrationRuntime, "function");
+  const role = await resolveProductionMigrationPinnedAuthority(
+    "role",
+    PRODUCTION_MIGRATION_AUTHORITY_BINDINGS.role,
+    signal,
+  );
+  assert.equal(
+    typeof role.assertProductionMigrationRolePrecondition,
+    "function",
+  );
+  assert.equal(typeof role.assertProductionMigrationRolePostCommit, "function");
+  assert.equal(typeof role.applyProductionMigrationRoleCeremony, "function");
+  assert.equal(
+    typeof role.normalizeProductionMigrationRoleProjection,
+    "function",
+  );
+  assert.equal(
+    path.basename(PRODUCTION_MIGRATION_AUTHORITY_BINDINGS.role.path),
+    "production-migration-role-ceremony.ts",
+  );
+  assert.deepEqual(
+    PRODUCTION_MIGRATION_AUTHORITY_BINDINGS.role.transitiveSources.map(
+      ({ path: sourcePath }) => path.basename(sourcePath),
+    ),
+    [
+      "production-migration-role-authority.ts",
+      "production-role-separation-contract.ts",
+    ],
+  );
   await assert.rejects(
     resolveProductionMigrationPinnedAuthority(
       "runtime",

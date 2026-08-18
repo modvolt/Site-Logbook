@@ -10,6 +10,7 @@
     "./external-schema-preflight": "./src/external-schema-preflight.ts",
     "./accounting-schema-preflight": "./src/accounting-schema-preflight.ts",
     "./audit-schema-preflight": "./src/audit-schema-preflight.ts",
+    "./production-migration-role-authority": "./src/production-migration-role-ceremony.ts",
     "./staging-baseline-0104": "./src/staging-baseline-0104.ts",
     "./staging-exact-0104-recovery": "./src/staging-exact-0104-recovery.ts"
   },

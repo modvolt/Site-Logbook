@@ -30,6 +30,11 @@ type ExactDatabaseIdentity = Readonly<{
   currentUser: string;
 }>;
 
+export type ProductionMigrationRoleProjectionNormalizationOptions = Readonly<{
+  allowNullFunctions?: boolean;
+  invalid?: (message: string) => never;
+}>;
+
 export type ProductionMigrationRolePrecondition = Readonly<{
   schemaVersion: typeof PRODUCTION_MIGRATION_ROLE_PRECONDITION_SCHEMA;
   kind: "site-logbook-production-migration-role-precondition";
@@ -67,6 +72,163 @@ const DATABASE_KEYS = ["name", "sessionUser", "currentUser"] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function defaultProjectionInvalid(message: string): never {
+  throw new Error(`PRODUCTION_MIGRATION_ROLE_PROJECTION_INVALID: ${message}`);
+}
+
+function projectionInvalid(
+  options: ProductionMigrationRoleProjectionNormalizationOptions,
+  message: string,
+): never {
+  return (options.invalid ?? defaultProjectionInvalid)(message);
+}
+
+function exactProjectionStringArray(
+  value: unknown,
+  field: string,
+  options: ProductionMigrationRoleProjectionNormalizationOptions,
+): string[] {
+  if (
+    !Array.isArray(value) ||
+    !value.every((entry) => typeof entry === "string")
+  ) {
+    projectionInvalid(options, `${field} is not an exact string array.`);
+  }
+  return [...value];
+}
+
+function exactProjectionRecordArray(
+  value: unknown,
+  field: string,
+  options: ProductionMigrationRoleProjectionNormalizationOptions,
+): Record<string, unknown>[] {
+  if (!Array.isArray(value) || !value.every(isRecord)) {
+    projectionInvalid(options, `${field} is not an exact object array.`);
+  }
+  return value.map((entry) => ({ ...entry }));
+}
+
+function projectionRoleByName(
+  raw: Record<string, unknown>,
+  name: string,
+  options: ProductionMigrationRoleProjectionNormalizationOptions,
+): Record<string, unknown> {
+  const matches = exactProjectionRecordArray(
+    raw.roles,
+    "projection.roles",
+    options,
+  ).filter((role) => role.name === name);
+  if (matches.length !== 1) {
+    projectionInvalid(
+      options,
+      "Projection must contain each reviewed role exactly once.",
+    );
+  }
+  return matches[0];
+}
+
+/**
+ * Converts the single JSON projection returned by PRODUCTION_ROLE_PROJECTION_SQL
+ * into the canonical role-contract shape. It is deliberately side-effect free;
+ * callers retain responsibility for applying the strict or pre-0107 validator.
+ */
+export function normalizeProductionMigrationRoleProjection(
+  raw: unknown,
+  plan: ProductionRolePlan,
+  options: ProductionMigrationRoleProjectionNormalizationOptions = {},
+): ProductionRoleProjection {
+  if (!isRecord(raw) || !isRecord(raw.database)) {
+    projectionInvalid(
+      options,
+      "Projection query did not return its exact object boundary.",
+    );
+  }
+  const database = raw.database;
+  const relations = exactProjectionRecordArray(
+    raw.relations,
+    "projection.relations",
+    options,
+  );
+  const functions =
+    raw.functions === null && options.allowNullFunctions === true
+      ? []
+      : exactProjectionRecordArray(
+          raw.functions,
+          "projection.functions",
+          options,
+        );
+  const objects = [...relations, ...functions].sort((left, right) => {
+    const a = `${left.kind}:${left.schema}:${left.name}:${left.identityArguments}`;
+    const b = `${right.kind}:${right.schema}:${right.name}:${right.identityArguments}`;
+    return a < b ? -1 : a > b ? 1 : 0;
+  });
+  return Object.freeze({
+    schemaVersion: PRODUCTION_ROLE_CONTRACT_SCHEMA,
+    migration: ROLE_CONTRACT_MIGRATION,
+    migrationSha256: ROLE_CONTRACT_MIGRATION_SHA256,
+    databaseName: database.name,
+    databaseOwner: database.owner,
+    databasePublicPrivileges: exactProjectionStringArray(
+      database.publicPrivileges,
+      "projection.database.publicPrivileges",
+      options,
+    ),
+    databaseRuntimePrivileges: exactProjectionStringArray(
+      database.runtimePrivileges,
+      "projection.database.runtimePrivileges",
+      options,
+    ),
+    databaseOtherGrants: exactProjectionRecordArray(
+      database.otherGrants,
+      "projection.database.otherGrants",
+      options,
+    ),
+    runtimeRole: projectionRoleByName(raw, plan.runtimeRole, options),
+    migratorRole: projectionRoleByName(raw, plan.migratorRole, options),
+    runtimeMemberOf: exactProjectionStringArray(
+      raw.runtimeMemberOf,
+      "projection.runtimeMemberOf",
+      options,
+    ),
+    migratorMemberOf: exactProjectionStringArray(
+      raw.migratorMemberOf,
+      "projection.migratorMemberOf",
+      options,
+    ),
+    runtimeRoleMembers: exactProjectionStringArray(
+      raw.runtimeRoleMembers,
+      "projection.runtimeRoleMembers",
+      options,
+    ),
+    migratorRoleMembers: exactProjectionStringArray(
+      raw.migratorRoleMembers,
+      "projection.migratorRoleMembers",
+      options,
+    ),
+    runtimeGlobalSettings: exactProjectionStringArray(
+      raw.runtimeGlobalSettings,
+      "projection.runtimeGlobalSettings",
+      options,
+    ),
+    runtimeDatabaseSettings: exactProjectionStringArray(
+      raw.runtimeDatabaseSettings,
+      "projection.runtimeDatabaseSettings",
+      options,
+    ),
+    schemas: exactProjectionRecordArray(
+      raw.schemas,
+      "projection.schemas",
+      options,
+    ),
+    defaultPrivileges: exactProjectionRecordArray(
+      raw.defaultPrivileges,
+      "projection.defaultPrivileges",
+      options,
+    ),
+    objects,
+  } as unknown as ProductionRoleProjection);
 }
 
 function hasExactKeys(

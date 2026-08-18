@@ -175,13 +175,16 @@ rejects every other id/digest pair before reading connection custody.
   `createProductionMigrationRuntimeObservation()`. The existing
   `docker-readonly-observer.mjs` returns a broader host-export schema and does
   not by itself prove every field of the exact immutable migration binding.
-- `lib/db/src/production-migration-role-authority.ts` exports the real
-  precondition and post-commit validators. Its post-commit validator requires
-  the exact role transaction receipt and projection bytes.
-  `scripts/production-evidence/production-migration-role-authority.ts` binds
+- `@workspace/db/production-migration-role-authority` is the explicit referenced
+  project boundary for the real precondition/post-commit validators, the shared
+  projection normalizer and the role ceremony. Its post-commit validator requires
+  the exact role transaction receipt and projection bytes. The ceremony binds
   those validators to `createOneShotProductionRoleExecutor()`, read-only
   `PRODUCTION_ROLE_PROJECTION_SQL`, the advisory-lock transaction and exclusive
-  receipt custody used by the host operator.
+  receipt custody used by the host operator. The legacy
+  `scripts/production-evidence/production-migration-role-authority.ts` path is a
+  compatibility re-export only. The CLI pins the ceremony entrypoint plus its
+  validator/normalizer and role-contract transitive sources before import.
 
 The implemented reviewed slice is:
 

@@ -15,7 +15,10 @@ describe("production steady-0107 startup boundary", () => {
     );
     expect(runtime).toContain("dist/index.mjs ./dist/index.mjs");
     expect(runtime).toContain(
-      'CMD ["node", "--enable-source-maps", "/app/dist/index.mjs"]',
+      "dist/production-api-entrypoint.mjs ./dist/production-api-entrypoint.mjs",
+    );
+    expect(runtime).toContain(
+      'CMD ["node", "--enable-source-maps", "/app/dist/production-api-entrypoint.mjs"]',
     );
     expect(runtime).not.toContain("migrate.mjs");
     expect(runtime).not.toContain("schema-gate.mjs");
@@ -62,16 +65,19 @@ describe("production steady-0107 startup boundary", () => {
     expect(compose).toContain("SITE_LOGBOOK_RUNTIME_ENVIRONMENT: production");
     expect(compose).toContain('EXTERNAL_ACCOUNTS_ENABLED: "false"');
     for (const key of [
-      "PRODUCTION_EXPECTED_BACKUP_INTEGRITY_SHA256",
-      "PRODUCTION_EXPECTED_0096_0107_TRANSITION_CHAIN_SHA256",
-      "PRODUCTION_EXPECTED_ACTIVATION_APPROVAL_SHA256",
-      "PRODUCTION_ACTIVATION_APPROVAL_EVIDENCE_B64",
-      "PRODUCTION_ACTIVATION_APPROVAL_EVIDENCE_SHA256",
-      "PRODUCTION_HOST_ATTESTATION_B64",
-      "PRODUCTION_HOST_ATTESTATION_SIGNATURE_B64",
+      "PRODUCTION_ACTIVATION_PUBLISHER_PUBLIC_KEY_SHA256",
+      "PRODUCTION_ACTIVATION_HOST_PUBLIC_KEY_SHA256",
+      "PRODUCTION_EXPECTED_DESIRED_CONFIG_SHA256",
+      "PRODUCTION_EXPECTED_DEPLOYED_CONFIG_SHA256",
+      "PRODUCTION_EXPECTED_RESOLVED_COMPOSE_SHA256",
     ]) {
       expect(compose).toContain(`${key}: \${${key}:?`);
     }
+    expect(compose).not.toMatch(/PRODUCTION_[A-Z0-9_]*EVIDENCE_B64/);
+    expect(compose).not.toContain("PRODUCTION_HOST_ATTESTATION_B64");
+    expect(compose).toContain("/run/site-logbook-production-evidence");
+    expect(compose).toContain("read_only: true");
+    expect(compose).toContain("create_host_path: false");
   });
 
   it("proves the runtime credential against a self-owned disposable PostgreSQL 16 fixture", () => {
@@ -157,7 +163,7 @@ describe("production steady-0107 startup boundary", () => {
 
   it("fails production direct-index startup before importing app or workers", () => {
     const index = source("artifacts/api-server/src/index.ts");
-    const preflight = index.indexOf("runProductionStartupPreflight");
+    const preflight = index.indexOf("runProductionActivationRuntimePreflight");
     const appImport = index.indexOf('import("./app")');
     const listen = index.indexOf("app.listen");
     const worker = index.indexOf('import("./lib/extraction-worker")');
@@ -169,7 +175,11 @@ describe("production steady-0107 startup boundary", () => {
     expect(index).toContain("requireEmbeddedProductionBuildSha");
     expect(index).toContain("requiresReleaseStartupGuard");
     expect(index).not.toContain('if (process.env.NODE_ENV === "production")');
-    expect(index).toContain("requireObservedProductionHostRunner");
+    expect(index).toContain("startProductionApplicationRuntime");
+    expect(index).toContain("PRODUCTION_RUNTIME_ACTIVATION_AUTHORITY_REQUIRED");
+    expect(index).not.toContain("requireObservedProductionHostRunner");
+    expect(index).not.toContain("runProductionStartupPreflight");
+    expect(index).toContain("pathToFileURL(path.resolve(process.argv[1]))");
     expect(index).toContain("verifyLiveProductionAuditReadiness");
     expect(index).toContain("STAGING_CONTROL_PLANE_IMAGE_REQUIRED");
     expect(index).toContain("startProductionRuntimeFailStop");

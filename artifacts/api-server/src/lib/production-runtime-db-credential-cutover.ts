@@ -2,20 +2,15 @@ import { createHash, createHmac, pbkdf2Sync, randomBytes } from "node:crypto";
 
 // @ts-ignore -- the exact migration/role lock is source-pinned outside the API rootDir.
 import { PRODUCTION_MIGRATION_ADVISORY_LOCK_KEY } from "../../../../scripts/production-evidence/production-migration-contract.mjs";
-// @ts-ignore -- the credential control plane intentionally binds the existing source role authority outside the API rootDir.
 import {
   assertProductionMigrationRolePostCommit,
   assertProductionMigrationRolePrecondition,
-} from "../../../../scripts/production-evidence/production-migration-role-authority.js";
-// @ts-ignore -- this source-reviewed normalizer lives outside the API rootDir by design.
-import { normalizeProductionMigrationRoleBootstrapProjection } from "../../../../scripts/production-evidence/production-migration-role-bootstrap.js";
-// @ts-ignore -- the credential control plane reuses the exact source role projection contract outside the API rootDir.
-import {
+  normalizeProductionMigrationRoleProjection,
   PRODUCTION_ROLE_PROJECTION_SQL,
   validateProductionRoleProjection,
   type ProductionRolePlan,
   type ProductionRoleProjection,
-} from "../../../../lib/db/src/production-role-separation-contract.js";
+} from "@workspace/db/production-migration-role-authority";
 import {
   PRODUCTION_MIGRATOR_DATABASE_USER,
   PRODUCTION_RUNTIME_DATABASE_USER,
@@ -28,12 +23,20 @@ export const PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_SCHEMA =
   "site-logbook.production-runtime-db-credential-cutover-receipt/v1" as const;
 export const PRODUCTION_RUNTIME_DB_CREDENTIAL_CONFIRMATION =
   "SET_EXACT_PRODUCTION_RUNTIME_DB_CREDENTIAL_AFTER_ROLE_SEPARATION" as const;
+export const PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_MAX_AGE_MS =
+  24 * 60 * 60 * 1000;
+export const PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_MAX_DURATION_MS =
+  10 * 60 * 1000;
+export const PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_MAX_CLOCK_SKEW_MS =
+  30 * 1000;
 export { PRODUCTION_MIGRATION_ADVISORY_LOCK_KEY };
 
 const SOURCE_SHA = /^[0-9a-f]{40}$/;
 const SHA256 = /^sha256:[0-9a-f]{64}$/;
 const IMMUTABLE_IMAGE =
   /^[a-z0-9.-]+(?::[0-9]+)?\/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$/;
+const CONTROL_PLANE_IMAGE =
+  /^ghcr\.io\/modvolt\/site-logbook-control-plane@sha256:[0-9a-f]{64}$/;
 const SCRAM_VERIFIER =
   /^SCRAM-SHA-256\$4096:[A-Za-z0-9+/]{22}==\$[A-Za-z0-9+/]{43}=:[A-Za-z0-9+/]{43}=$/;
 const IDENTIFIER = /^[a-z_][a-z0-9_]{0,62}$/;
@@ -55,6 +58,84 @@ const REQUEST_KEYS = [
   "confirmation",
   "authorizesDeployment",
 ] as const;
+const RECEIPT_KEYS = [
+  "schemaVersion",
+  "kind",
+  "decision",
+  "sourceBinding",
+  "requestSha256",
+  "database",
+  "roleEvidence",
+  "transaction",
+  "verification",
+  "approvalId",
+  "startedAt",
+  "completedAt",
+  "requiresExplicitCoolifySecretTransfer",
+  "authorizesApplicationStart",
+  "authorizesDeployment",
+] as const;
+const RECEIPT_SOURCE_BINDING_KEYS = [
+  "liveSourceSha",
+  "executorSourceSha",
+  "executorImage",
+] as const;
+const RECEIPT_DATABASE_KEYS = [
+  "name",
+  "adminSessionUser",
+  "runtimeUser",
+  "migratorUser",
+] as const;
+const RECEIPT_ROLE_EVIDENCE_KEYS = [
+  "migrationPlanSha256",
+  "transactionReceiptSha256",
+  "postCommitArtifactSha256",
+] as const;
+const RECEIPT_TRANSACTION_KEYS = [
+  "isolationLevel",
+  "advisoryLockKey",
+  "credentialMutationMechanism",
+  "cleartextCredentialSentInSql",
+  "cleartextCredentialSentAsQueryParameter",
+  "committed",
+] as const;
+const RECEIPT_VERIFICATION_KEYS = [
+  "credentialWasAbsentBefore",
+  "credentialPresentInTransaction",
+  "exactScramVerifierStoredInTransaction",
+  "freshRuntimeLoginVerified",
+  "exactRuntimeIdentityVerified",
+] as const;
+const RECEIPT_PARSER_INPUT_KEYS = [
+  "requestCanonical",
+  "receiptCanonical",
+  "expected",
+] as const;
+const RECEIPT_EXPECTED_KEYS = [
+  "sourceSha",
+  "executorSourceSha",
+  "liveSourceImage",
+  "databaseName",
+  "migrationPlanSha256",
+  "roleTransactionReceiptSha256",
+  "rolePostCommitArtifactSha256",
+  "migrationTransitionSha256",
+  "migrationTransition",
+  "activationIssuedAt",
+] as const;
+const RECEIPT_TRANSITION_KEYS = [
+  "decision",
+  "sourceSha",
+  "planSha256",
+  "rolePreconditionSha256",
+  "roleTransactionReceiptSha256",
+  "postCommitRoleArtifactSha256",
+  "finalLiveIdentitySha256",
+  "completedAt",
+  "authorizesApplicationStart",
+] as const;
+const FORBIDDEN_EVIDENCE_VALUE =
+  /(?:-----BEGIN [^-]*PRIVATE KEY-----|\bSCRAM-SHA-256\$|\b(?:postgres(?:ql)?|mysql|mongodb):\/\/[^\s/@:]+:[^\s/@]+@|\bAKIA[0-9A-Z]{16}\b|\bBearer\s+[A-Za-z0-9._~+/-]+=*)/i;
 
 const ADMIN_PRECONDITION_SQL = `SELECT
   current_database()::text AS "databaseName",
@@ -103,6 +184,53 @@ export type ProductionRuntimeDbCredentialRequest = Readonly<{
   confirmation: typeof PRODUCTION_RUNTIME_DB_CREDENTIAL_CONFIRMATION;
   authorizesDeployment: false;
 }>;
+
+export type ProductionRuntimeDbCredentialMigrationTransitionBinding = Readonly<{
+  decision: "PASS";
+  sourceSha: string;
+  planSha256: string;
+  rolePreconditionSha256: string;
+  roleTransactionReceiptSha256: string;
+  postCommitRoleArtifactSha256: string;
+  finalLiveIdentitySha256: string;
+  completedAt: string;
+  authorizesApplicationStart: false;
+}>;
+
+export type ProductionRuntimeDbCredentialReceiptParserInput = Readonly<{
+  requestCanonical: string;
+  receiptCanonical: string;
+  expected: Readonly<{
+    sourceSha: string;
+    executorSourceSha: string;
+    liveSourceImage: string;
+    databaseName: string;
+    migrationPlanSha256: string;
+    roleTransactionReceiptSha256: string;
+    rolePostCommitArtifactSha256: string;
+    migrationTransitionSha256: string;
+    migrationTransition: ProductionRuntimeDbCredentialMigrationTransitionBinding;
+    activationIssuedAt: string;
+  }>;
+}>;
+
+export type ProductionRuntimeDbCredentialReceiptVerdict = Readonly<{
+  request: ProductionRuntimeDbCredentialRequest;
+  decision: "PASS";
+  receiptSha256: string;
+  migrationTransitionSha256: string;
+  finalLiveIdentitySha256: string;
+  startedAt: string;
+  completedAt: string;
+  authorizesApplicationStart: false;
+  authorizesDeployment: false;
+}>;
+
+export interface ProductionRuntimeDbCredentialReceiptParser {
+  parseAndVerify(
+    input: ProductionRuntimeDbCredentialReceiptParserInput,
+  ): ProductionRuntimeDbCredentialReceiptVerdict;
+}
 
 export type ProductionRuntimeDbCredentialCutoverInput = Readonly<{
   requestCanonical: string;
@@ -289,8 +417,9 @@ export function parseProductionRuntimeDbCredentialRequest(
     !SOURCE_SHA.test(value.liveSourceSha) ||
     typeof value.executorSourceSha !== "string" ||
     !SOURCE_SHA.test(value.executorSourceSha) ||
+    value.executorSourceSha === value.liveSourceSha ||
     typeof value.executorImage !== "string" ||
-    !IMMUTABLE_IMAGE.test(value.executorImage) ||
+    !CONTROL_PLANE_IMAGE.test(value.executorImage) ||
     typeof value.databaseName !== "string" ||
     !IDENTIFIER.test(value.databaseName) ||
     value.runtimeRole !== PRODUCTION_RUNTIME_DATABASE_USER ||
@@ -328,6 +457,318 @@ export function createProductionRuntimeDbCredentialRequest(
     sha256: productionRuntimeDbCredentialSha256(canonical),
   });
 }
+
+function exactReceiptObject(
+  value: unknown,
+  keys: readonly string[],
+  field: string,
+): Record<string, unknown> {
+  if (!isRecord(value) || !exactKeys(value, keys)) {
+    fail(
+      "PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_INVALID",
+      `${field} has an unexpected canonical key set.`,
+    );
+  }
+  return value;
+}
+
+function assertSecretFreeCredentialEvidence(
+  value: unknown,
+  field: string,
+): void {
+  if (typeof value === "string") {
+    if (value.length > 2_048 || FORBIDDEN_EVIDENCE_VALUE.test(value)) {
+      fail(
+        "PRODUCTION_RUNTIME_DB_CREDENTIAL_EVIDENCE_SECRET_LEAK",
+        `${field} contains forbidden private material.`,
+      );
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) =>
+      assertSecretFreeCredentialEvidence(entry, `${field}[${index}]`),
+    );
+    return;
+  }
+  if (isRecord(value)) {
+    for (const [key, entry] of Object.entries(value)) {
+      assertSecretFreeCredentialEvidence(entry, `${field}.${key}`);
+    }
+  }
+}
+
+function parseCredentialTimestamp(value: unknown, field: string): number {
+  if (typeof value !== "string" || value.length !== 24) {
+    fail(
+      "PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_TIME_INVALID",
+      `${field} is not a canonical UTC timestamp.`,
+    );
+  }
+  const timestamp = Date.parse(value);
+  if (
+    !Number.isFinite(timestamp) ||
+    new Date(timestamp).toISOString() !== value
+  ) {
+    fail(
+      "PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_TIME_INVALID",
+      `${field} is not a canonical UTC timestamp.`,
+    );
+  }
+  return timestamp;
+}
+
+function immutableImageDigest(image: string): string {
+  return image.slice(image.lastIndexOf("@sha256:") + 1);
+}
+
+/**
+ * Producer-owned verifier for the canonical PASS receipt. It deliberately
+ * reconstructs every deterministic field from the request and the already
+ * authoritative migration transition verdict. No receipt boolean is accepted
+ * without its exact request, source, role, transaction and time binding.
+ */
+export function parseAndVerifyProductionRuntimeDbCredentialReceipt(
+  input: ProductionRuntimeDbCredentialReceiptParserInput,
+): ProductionRuntimeDbCredentialReceiptVerdict {
+  if (!isRecord(input) || !exactKeys(input, RECEIPT_PARSER_INPUT_KEYS)) {
+    fail(
+      "PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_INPUT_INVALID",
+      "Credential receipt parser input has an unexpected key set.",
+    );
+  }
+  const expected = exactReceiptObject(
+    input.expected,
+    RECEIPT_EXPECTED_KEYS,
+    "credentialReceiptExpected",
+  );
+  const transition = exactReceiptObject(
+    expected.migrationTransition,
+    RECEIPT_TRANSITION_KEYS,
+    "credentialReceiptExpected.migrationTransition",
+  );
+  if (
+    typeof expected.sourceSha !== "string" ||
+    !SOURCE_SHA.test(expected.sourceSha) ||
+    typeof expected.executorSourceSha !== "string" ||
+    !SOURCE_SHA.test(expected.executorSourceSha) ||
+    expected.executorSourceSha === expected.sourceSha ||
+    typeof expected.liveSourceImage !== "string" ||
+    !IMMUTABLE_IMAGE.test(expected.liveSourceImage) ||
+    typeof expected.databaseName !== "string" ||
+    !IDENTIFIER.test(expected.databaseName) ||
+    typeof expected.migrationPlanSha256 !== "string" ||
+    !SHA256.test(expected.migrationPlanSha256) ||
+    typeof expected.roleTransactionReceiptSha256 !== "string" ||
+    !SHA256.test(expected.roleTransactionReceiptSha256) ||
+    typeof expected.rolePostCommitArtifactSha256 !== "string" ||
+    !SHA256.test(expected.rolePostCommitArtifactSha256) ||
+    typeof expected.migrationTransitionSha256 !== "string" ||
+    !SHA256.test(expected.migrationTransitionSha256) ||
+    transition.decision !== "PASS" ||
+    typeof transition.sourceSha !== "string" ||
+    !SOURCE_SHA.test(transition.sourceSha) ||
+    typeof transition.planSha256 !== "string" ||
+    !SHA256.test(transition.planSha256) ||
+    typeof transition.rolePreconditionSha256 !== "string" ||
+    !SHA256.test(transition.rolePreconditionSha256) ||
+    typeof transition.roleTransactionReceiptSha256 !== "string" ||
+    !SHA256.test(transition.roleTransactionReceiptSha256) ||
+    typeof transition.postCommitRoleArtifactSha256 !== "string" ||
+    !SHA256.test(transition.postCommitRoleArtifactSha256) ||
+    typeof transition.finalLiveIdentitySha256 !== "string" ||
+    !SHA256.test(transition.finalLiveIdentitySha256) ||
+    transition.authorizesApplicationStart !== false
+  ) {
+    fail(
+      "PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_AUTHORITY_INVALID",
+      "Authoritative migration transition context is malformed or authorizing.",
+    );
+  }
+  const migrationCompletedAt = parseCredentialTimestamp(
+    transition.completedAt,
+    "credentialReceiptExpected.migrationTransition.completedAt",
+  );
+  const activationIssuedAt = parseCredentialTimestamp(
+    expected.activationIssuedAt,
+    "credentialReceiptExpected.activationIssuedAt",
+  );
+  if (
+    transition.sourceSha !== expected.sourceSha ||
+    transition.planSha256 !== expected.migrationPlanSha256 ||
+    transition.roleTransactionReceiptSha256 !==
+      expected.roleTransactionReceiptSha256 ||
+    transition.postCommitRoleArtifactSha256 !==
+      expected.rolePostCommitArtifactSha256 ||
+    migrationCompletedAt >
+      activationIssuedAt +
+        PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_MAX_CLOCK_SKEW_MS ||
+    new Set([
+      expected.migrationPlanSha256,
+      transition.rolePreconditionSha256,
+      expected.roleTransactionReceiptSha256,
+      expected.rolePostCommitArtifactSha256,
+      expected.migrationTransitionSha256,
+      transition.finalLiveIdentitySha256,
+    ]).size !== 6
+  ) {
+    fail(
+      "PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_AUTHORITY_INVALID",
+      "Migration plan, role evidence and final transition chain are not exact-bound.",
+    );
+  }
+
+  const request = parseProductionRuntimeDbCredentialRequest(
+    input.requestCanonical,
+  );
+  const receipt = parseCanonicalObject(
+    input.receiptCanonical,
+    "credentialReceipt",
+    64 * 1024,
+  );
+  assertSecretFreeCredentialEvidence(request, "credentialRequest");
+  assertSecretFreeCredentialEvidence(receipt, "credentialReceipt");
+  exactReceiptObject(receipt, RECEIPT_KEYS, "credentialReceipt");
+  const sourceBinding = exactReceiptObject(
+    receipt.sourceBinding,
+    RECEIPT_SOURCE_BINDING_KEYS,
+    "credentialReceipt.sourceBinding",
+  );
+  const database = exactReceiptObject(
+    receipt.database,
+    RECEIPT_DATABASE_KEYS,
+    "credentialReceipt.database",
+  );
+  const roleEvidence = exactReceiptObject(
+    receipt.roleEvidence,
+    RECEIPT_ROLE_EVIDENCE_KEYS,
+    "credentialReceipt.roleEvidence",
+  );
+  const transaction = exactReceiptObject(
+    receipt.transaction,
+    RECEIPT_TRANSACTION_KEYS,
+    "credentialReceipt.transaction",
+  );
+  const verification = exactReceiptObject(
+    receipt.verification,
+    RECEIPT_VERIFICATION_KEYS,
+    "credentialReceipt.verification",
+  );
+
+  if (
+    request.liveSourceSha !== expected.sourceSha ||
+    request.executorSourceSha !== expected.executorSourceSha ||
+    request.databaseName !== expected.databaseName ||
+    request.expectedMigrationPlanSha256 !== expected.migrationPlanSha256 ||
+    request.expectedRoleTransactionReceiptSha256 !==
+      expected.roleTransactionReceiptSha256 ||
+    request.expectedRolePostCommitArtifactSha256 !==
+      expected.rolePostCommitArtifactSha256 ||
+    request.liveSourceSha === request.executorSourceSha ||
+    request.executorImage === expected.liveSourceImage ||
+    immutableImageDigest(request.executorImage) ===
+      immutableImageDigest(expected.liveSourceImage)
+  ) {
+    fail(
+      "PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_BINDING_INVALID",
+      "Credential request is not bound to the immutable live source and authoritative migration chain.",
+    );
+  }
+
+  if (
+    receipt.schemaVersion !== PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_SCHEMA ||
+    receipt.kind !==
+      "site-logbook-production-runtime-db-credential-cutover-receipt" ||
+    receipt.decision !== "PASS" ||
+    receipt.requestSha256 !==
+      productionRuntimeDbCredentialSha256(input.requestCanonical) ||
+    sourceBinding.liveSourceSha !== request.liveSourceSha ||
+    sourceBinding.executorSourceSha !== request.executorSourceSha ||
+    sourceBinding.executorImage !== request.executorImage ||
+    database.name !== request.databaseName ||
+    typeof database.adminSessionUser !== "string" ||
+    !IDENTIFIER.test(database.adminSessionUser) ||
+    database.adminSessionUser === request.runtimeRole ||
+    database.adminSessionUser === request.migratorRole ||
+    database.runtimeUser !== request.runtimeRole ||
+    database.migratorUser !== request.migratorRole ||
+    roleEvidence.migrationPlanSha256 !== request.expectedMigrationPlanSha256 ||
+    roleEvidence.transactionReceiptSha256 !==
+      request.expectedRoleTransactionReceiptSha256 ||
+    roleEvidence.postCommitArtifactSha256 !==
+      request.expectedRolePostCommitArtifactSha256 ||
+    transaction.isolationLevel !== "serializable" ||
+    transaction.advisoryLockKey !== request.advisoryLockKey ||
+    transaction.credentialMutationMechanism !==
+      "postgresql-16-client-side-scram-sha-256-verifier" ||
+    transaction.cleartextCredentialSentInSql !== false ||
+    transaction.cleartextCredentialSentAsQueryParameter !== false ||
+    transaction.committed !== true ||
+    verification.credentialWasAbsentBefore !== true ||
+    verification.credentialPresentInTransaction !== true ||
+    verification.exactScramVerifierStoredInTransaction !== true ||
+    verification.freshRuntimeLoginVerified !== true ||
+    verification.exactRuntimeIdentityVerified !== true ||
+    receipt.approvalId !== request.approvalId ||
+    receipt.requiresExplicitCoolifySecretTransfer !== true ||
+    receipt.authorizesApplicationStart !== false ||
+    receipt.authorizesDeployment !== false
+  ) {
+    fail(
+      "PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_INVALID",
+      "Credential receipt is not the exact committed, read-back and fresh-login PASS evidence for its request.",
+    );
+  }
+
+  const startedAt = parseCredentialTimestamp(
+    receipt.startedAt,
+    "credentialReceipt.startedAt",
+  );
+  const completedAt = parseCredentialTimestamp(
+    receipt.completedAt,
+    "credentialReceipt.completedAt",
+  );
+  if (
+    startedAt < migrationCompletedAt ||
+    completedAt < startedAt ||
+    completedAt - startedAt >
+      PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_MAX_DURATION_MS ||
+    completedAt >
+      activationIssuedAt +
+        PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_MAX_CLOCK_SKEW_MS
+  ) {
+    fail(
+      "PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_TIME_INVALID",
+      "Credential receipt timestamps do not follow the completed migration in a bounded ceremony.",
+    );
+  }
+  if (
+    activationIssuedAt - completedAt >
+    PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_MAX_AGE_MS
+  ) {
+    fail(
+      "PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_STALE",
+      "Credential PASS receipt is stale and cannot be replayed into a new activation.",
+    );
+  }
+
+  return Object.freeze({
+    request,
+    decision: "PASS" as const,
+    receiptSha256: productionRuntimeDbCredentialSha256(input.receiptCanonical),
+    migrationTransitionSha256: expected.migrationTransitionSha256,
+    finalLiveIdentitySha256: transition.finalLiveIdentitySha256,
+    startedAt: String(receipt.startedAt),
+    completedAt: String(receipt.completedAt),
+    authorizesApplicationStart: false as const,
+    authorizesDeployment: false as const,
+  });
+}
+
+export const PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_PARSER: ProductionRuntimeDbCredentialReceiptParser =
+  Object.freeze({
+    parseAndVerify: parseAndVerifyProductionRuntimeDbCredentialReceipt,
+  });
 
 function oneRow(
   result: QueryResult,
@@ -504,9 +945,10 @@ export async function applyProductionRuntimeDbCredentialCutover(
         ["projection"],
         "liveRoleProjection",
       );
-      liveRoleProjection = normalizeProductionMigrationRoleBootstrapProjection(
+      liveRoleProjection = normalizeProductionMigrationRoleProjection(
         liveProjectionRow.projection,
         roleAuthority.rolePlan,
+        { allowNullFunctions: true },
       );
       const validation = validateProductionRoleProjection(liveRoleProjection);
       if (!validation.ok) {

@@ -59,6 +59,7 @@ const COMMANDS = new Set([
   "finalize",
 ]);
 const AUTHORITY_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
+const REPOSITORY_DIRECTORY = path.resolve(AUTHORITY_DIRECTORY, "..", "..");
 export const PRODUCTION_MIGRATION_AUTHORITY_BINDINGS = Object.freeze({
   runtime: Object.freeze({
     id: "site-logbook.production-migration.runtime.docker/v1",
@@ -71,10 +72,37 @@ export const PRODUCTION_MIGRATION_AUTHORITY_BINDINGS = Object.freeze({
   role: Object.freeze({
     id: "site-logbook.production-migration.role/v1",
     path: path.join(
-      AUTHORITY_DIRECTORY,
-      "production-migration-role-authority.ts",
+      REPOSITORY_DIRECTORY,
+      "lib",
+      "db",
+      "src",
+      "production-migration-role-ceremony.ts",
     ),
-    sha256: "ce5a973824481fc2897f5c172e7349f0f6c8bc6be5302e6e7f64619425100c71",
+    sha256: "cee559d40a5711b5e68cd161888a00eefad2627a14084f1a56ac185de3e07b0f",
+    transitiveSources: Object.freeze([
+      Object.freeze({
+        path: path.join(
+          REPOSITORY_DIRECTORY,
+          "lib",
+          "db",
+          "src",
+          "production-migration-role-authority.ts",
+        ),
+        sha256:
+          "4753748fc66e1be2ea6e326519254cb4e477b37c4d2635274fc8f43e72668bb1",
+      }),
+      Object.freeze({
+        path: path.join(
+          REPOSITORY_DIRECTORY,
+          "lib",
+          "db",
+          "src",
+          "production-role-separation-contract.ts",
+        ),
+        sha256:
+          "cf74e7c62e4a1b0a4a9bcb305514ab5947638e08b14d98431ebd4cdab74cc066",
+      }),
+    ]),
   }),
 });
 
@@ -506,6 +534,31 @@ async function endPoolBounded(pool, signal) {
   }
 }
 
+async function assertPinnedAuthoritySource(kind, source, label) {
+  const before = await lstat(source.path, { bigint: true });
+  if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1n) {
+    fail(
+      "PRODUCTION_MIGRATION_RUNNER_AUTHORITY_NOT_PINNED",
+      `The source-pinned ${kind} authority ${label} is not one regular file.`,
+    );
+  }
+  const bytes = await readFile(source.path);
+  const after = await lstat(source.path, { bigint: true });
+  const digest = createHash("sha256").update(bytes).digest("hex");
+  if (
+    before.dev !== after.dev ||
+    before.ino !== after.ino ||
+    before.size !== after.size ||
+    before.mtimeNs !== after.mtimeNs ||
+    digest !== source.sha256
+  ) {
+    fail(
+      "PRODUCTION_MIGRATION_RUNNER_AUTHORITY_DIGEST_MISMATCH",
+      `The source-pinned ${kind} authority ${label} bytes differ from the reviewed digest.`,
+    );
+  }
+}
+
 export async function resolveProductionMigrationPinnedAuthority(
   kind,
   selected,
@@ -522,26 +575,20 @@ export async function resolveProductionMigrationPinnedAuthority(
       `The selected ${kind} authority is not the source-pinned id/digest pair.`,
     );
   }
-  const before = await lstat(pinned.path, { bigint: true });
-  if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1n) {
-    fail(
-      "PRODUCTION_MIGRATION_RUNNER_AUTHORITY_NOT_PINNED",
-      `The source-pinned ${kind} authority path is not one regular file.`,
+  await assertPinnedAuthoritySource(kind, pinned, "entrypoint");
+  for (const [index, source] of (pinned.transitiveSources ?? []).entries()) {
+    await assertPinnedAuthoritySource(
+      kind,
+      source,
+      `transitive source ${index + 1}`,
     );
   }
-  const bytes = await readFile(pinned.path);
-  const after = await lstat(pinned.path, { bigint: true });
-  const digest = createHash("sha256").update(bytes).digest("hex");
-  if (
-    before.dev !== after.dev ||
-    before.ino !== after.ino ||
-    before.size !== after.size ||
-    before.mtimeNs !== after.mtimeNs ||
-    digest !== pinned.sha256
-  ) {
-    fail(
-      "PRODUCTION_MIGRATION_RUNNER_AUTHORITY_DIGEST_MISMATCH",
-      `The source-pinned ${kind} authority bytes differ from the reviewed digest.`,
+  if (path.extname(pinned.path) === ".ts") {
+    const requireFromRunner = createRequire(import.meta.url);
+    const { tsImport } = requireFromRunner("tsx/esm/api");
+    return awaitWithAbort(
+      tsImport(pathToFileURL(pinned.path).href, import.meta.url),
+      signal,
     );
   }
   return awaitWithAbort(import(pathToFileURL(pinned.path).href), signal);

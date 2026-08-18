@@ -136,6 +136,12 @@ function createFixture(lifetimeMs = 10 * 60_000) {
       readOnlyObservation: true,
     },
   };
+  Object.assign(observation.postgres, {
+    dockerExportSha256: `sha256:${createHash("sha256")
+      .update(canonicalJson(observation.docker))
+      .digest("hex")}`,
+    backendProofSha256: digest("a"),
+  });
   const target = createProductionTargetEvidence(observation, {
     now: NOW,
     trustedImageProvenanceKeys: TRUSTED_PROVENANCE_KEYS,

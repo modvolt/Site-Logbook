@@ -1,4 +1,10 @@
-import { lstat, open, realpath } from "node:fs/promises";
+import {
+  constants as fsConstants,
+  lstat,
+  open,
+  realpath,
+} from "node:fs/promises";
+import type { BigIntStats } from "node:fs";
 import type { FileHandle } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -77,11 +83,30 @@ function parseArguments(argv: readonly string[]): Record<string, string> {
 
 export const parseProductionRuntimeDbCredentialCliArguments = parseArguments;
 
-async function readStableRegularFile(
+function sameStableInputIdentity(
+  left: BigIntStats,
+  right: BigIntStats,
+): boolean {
+  return (
+    left.dev === right.dev &&
+    left.ino === right.ino &&
+    left.size === right.size &&
+    left.mtimeNs === right.mtimeNs &&
+    left.ctimeNs === right.ctimeNs &&
+    left.nlink === right.nlink
+  );
+}
+
+export async function readStableProductionRuntimeDbCredentialInputFile(
   filename: string,
   maximumBytes = MAX_ARTIFACT_BYTES,
 ): Promise<string> {
-  if (!path.isAbsolute(filename)) {
+  if (
+    !path.isAbsolute(filename) ||
+    !Number.isSafeInteger(maximumBytes) ||
+    maximumBytes <= 0 ||
+    maximumBytes > MAX_ARTIFACT_BYTES
+  ) {
     fail("PRODUCTION_RUNTIME_DB_CREDENTIAL_CLI_PATH_INVALID");
   }
   const absolute = path.resolve(filename);
@@ -107,7 +132,9 @@ async function readStableRegularFile(
   ) {
     fail("PRODUCTION_RUNTIME_DB_CREDENTIAL_CLI_INPUT_INVALID");
   }
-  const handle = await open(resolved, "r");
+  const noFollow =
+    typeof fsConstants.O_NOFOLLOW === "number" ? fsConstants.O_NOFOLLOW : 0;
+  const handle = await open(resolved, fsConstants.O_RDONLY | noFollow);
   let bytes: Buffer;
   let openedBefore;
   let openedAfter;
@@ -116,28 +143,40 @@ async function readStableRegularFile(
     if (
       !openedBefore.isFile() ||
       openedBefore.nlink !== 1n ||
-      openedBefore.dev !== before.dev ||
-      openedBefore.ino !== before.ino ||
-      openedBefore.size !== before.size ||
-      openedBefore.mtimeNs !== before.mtimeNs
+      !sameStableInputIdentity(openedBefore, before)
     ) {
       fail("PRODUCTION_RUNTIME_DB_CREDENTIAL_CLI_INPUT_DRIFT");
     }
-    bytes = await handle.readFile();
+    const bounded = Buffer.alloc(maximumBytes + 1);
+    let offset = 0;
+    while (offset <= maximumBytes) {
+      const { bytesRead } = await handle.read(
+        bounded,
+        offset,
+        maximumBytes + 1 - offset,
+        offset,
+      );
+      if (bytesRead === 0) break;
+      offset += bytesRead;
+    }
+    if (offset > maximumBytes) {
+      fail("PRODUCTION_RUNTIME_DB_CREDENTIAL_CLI_INPUT_INVALID");
+    }
+    bytes = bounded.subarray(0, offset);
     openedAfter = await handle.stat({ bigint: true });
   } finally {
     await handle.close();
   }
   const after = await lstat(resolved, { bigint: true });
   if (
-    openedBefore.dev !== openedAfter.dev ||
-    openedBefore.ino !== openedAfter.ino ||
-    openedBefore.size !== openedAfter.size ||
-    openedBefore.mtimeNs !== openedAfter.mtimeNs ||
-    before.dev !== after.dev ||
-    before.ino !== after.ino ||
-    before.size !== after.size ||
-    before.mtimeNs !== after.mtimeNs ||
+    !openedAfter.isFile() ||
+    openedAfter.nlink !== 1n ||
+    !after.isFile() ||
+    after.isSymbolicLink() ||
+    after.nlink !== 1n ||
+    !sameStableInputIdentity(openedBefore, openedAfter) ||
+    !sameStableInputIdentity(before, after) ||
+    !sameStableInputIdentity(openedAfter, after) ||
     bytes.length !== Number(before.size)
   ) {
     fail("PRODUCTION_RUNTIME_DB_CREDENTIAL_CLI_INPUT_DRIFT");
@@ -148,6 +187,8 @@ async function readStableRegularFile(
   }
   return value;
 }
+
+const readStableRegularFile = readStableProductionRuntimeDbCredentialInputFile;
 
 export function parseProductionRuntimeCredentialAdminDatabaseUrl(
   raw: string,

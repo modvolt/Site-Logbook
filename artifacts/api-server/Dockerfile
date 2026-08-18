@@ -9,10 +9,17 @@
 #
 # The container never applies database migrations on startup. A separately
 # approved one-shot schema control plane must first produce canonical intent,
-# execution and exact steady release evidence; startup verifies that chain and
-# then serves the REST API on $PORT (default 5000).
+# execution and exact steady release evidence. The immutable production image
+# first serves a fail-closed HOLD listener without importing the application,
+# database, workers, or object-storage clients.
 
 ARG BUILD_SHA
+
+# Docker Official Image `docker:28.5.1-cli` was resolved through the registry
+# OCI index sha256:9190b0613792e658a7783cf14b2d5ace5941bb68ede7276922ea36ee457d76ad.
+# This child digest is the exact linux/amd64 manifest; only its static Docker
+# client binary is copied into the isolated host-operator target below.
+FROM --platform=linux/amd64 docker:28.5.1-cli@sha256:a35dae37a79d2b84ccf0100045aec5ab920e4cc8e84f9141d355da602f8af899 AS docker-cli-amd64
 
 # ---------- Builder ----------
 FROM node:24-slim@sha256:235600a8101ab264e117b1768e925532262668dc9b581ef1dd7d96ced463b8e7 AS builder
@@ -83,6 +90,8 @@ COPY --from=builder /app/node_modules ./node_modules
 # Runtime allowlist: production cannot invoke migration or mutating gate bundles.
 COPY --from=builder /repo/artifacts/api-server/dist/index.mjs ./dist/index.mjs
 COPY --from=builder /repo/artifacts/api-server/dist/index.mjs.map ./dist/index.mjs.map
+COPY --from=builder /repo/artifacts/api-server/dist/production-api-entrypoint.mjs ./dist/production-api-entrypoint.mjs
+COPY --from=builder /repo/artifacts/api-server/dist/production-api-entrypoint.mjs.map ./dist/production-api-entrypoint.mjs.map
 COPY --from=builder /repo/artifacts/api-server/dist/thread-stream-worker.mjs ./dist/thread-stream-worker.mjs
 COPY --from=builder /repo/artifacts/api-server/dist/pino-worker.mjs ./dist/pino-worker.mjs
 COPY --from=builder /repo/artifacts/api-server/dist/pino-file.mjs ./dist/pino-file.mjs
@@ -95,13 +104,15 @@ USER node
 
 EXPOSE 5000
 
-# Built-in HTTP health check using the global fetch in Node 24 (no curl needed).
+# A process-healthy HOLD is distinct from externally ready: /api/healthz stays
+# 503, while the loopback-only container endpoint is 200. After activation the
+# application /api/healthz becomes the successful branch.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=5 \
-  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||5000)+'/api/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+  CMD node -e "const b='http://127.0.0.1:'+(process.env.PORT||5000);fetch(b+'/api/healthz').then(async r=>r.ok||((await fetch(b+'/.well-known/site-logbook-container-health')).ok)).then(ok=>process.exit(ok?0:1)).catch(()=>process.exit(1))"
 
-# The bundled entrypoint verifies production evidence and live read-only DB
-# readiness before it dynamically imports the application or any worker.
-CMD ["node", "--enable-source-maps", "/app/dist/index.mjs"]
+# The HOLD entrypoint reads only the preconfigured read-only evidence mount. A
+# later evidence-file appearance changes no Compose or container config bytes.
+CMD ["node", "--enable-source-maps", "/app/dist/production-api-entrypoint.mjs"]
 
 # ---------- One-shot schema control plane / staging ----------
 # This target deliberately contains the complete tool bundle. It must never be
@@ -126,6 +137,33 @@ RUN test -f /app/.site-logbook-control-plane-image \
     && test -f /app/dist/production-runtime-db-credential-cutover.mjs
 RUN chown -R node:node /app/dist /app/scripts
 USER node
+
+# ---------- One-shot sealed production host observer ----------
+# This target is not an application runtime and has no default operation. The
+# Docker socket and input/output directories are supplied only to an attended
+# `docker run`; no socket, CLI, source checkout, tsx loader, or write-capable
+# host tool is copied into the production runtime/final target.
+FROM node:24-slim@sha256:235600a8101ab264e117b1768e925532262668dc9b581ef1dd7d96ced463b8e7 AS host-operator
+ARG BUILD_SHA
+WORKDIR /operator
+ENV NODE_ENV=production \
+    HOME=/tmp
+LABEL io.modvolt.site-logbook.image-profile="host-operator" \
+      io.modvolt.site-logbook.docker-cli="docker:28.5.1-cli@sha256:a35dae37a79d2b84ccf0100045aec5ab920e4cc8e84f9141d355da602f8af899" \
+      org.opencontainers.image.source="https://github.com/modvolt/Site-Logbook" \
+      org.opencontainers.image.revision="$BUILD_SHA"
+COPY --from=docker-cli-amd64 /usr/local/bin/docker /usr/local/bin/docker
+COPY --from=builder /repo/artifacts/api-server/dist/production-host-evidence-operator.mjs ./production-host-evidence-operator.mjs
+COPY --from=builder /repo/artifacts/api-server/dist/production-host-evidence-operator.mjs.map ./production-host-evidence-operator.mjs.map
+RUN printf '%s' "$BUILD_SHA" | grep -Eq '^[0-9a-f]{40}$' \
+    && test "$(id -u node)" = "1000" \
+    && test "$(id -g node)" = "1000" \
+    && docker --version | grep -Eq '^Docker version 28\.5\.1,' \
+    && ! grep -q 'tsx/dist' ./production-host-evidence-operator.mjs \
+    && chown node:node ./production-host-evidence-operator.mjs ./production-host-evidence-operator.mjs.map
+USER node
+ENTRYPOINT ["node", "--enable-source-maps", "/operator/production-host-evidence-operator.mjs"]
+CMD []
 
 # Keep the default/final Docker target non-mutating. Production publication may
 # also select this target explicitly; it contains only the runtime allowlist.

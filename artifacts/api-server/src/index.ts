@@ -1,9 +1,10 @@
 import { existsSync } from "node:fs";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import {
   requireEmbeddedProductionBuildSha,
   requiresReleaseStartupGuard,
 } from "./lib/build-provenance";
-import { requireObservedProductionHostRunner } from "./lib/production-evidence-runner";
 import { verifyLiveProductionAuditReadiness } from "./lib/production-audit-readiness";
 import { installProductionRuntimeBinding } from "./lib/production-runtime-state";
 import {
@@ -11,7 +12,8 @@ import {
   startProductionRuntimeFailStop,
   type ProductionRuntimeFailStopController,
 } from "./lib/production-runtime-fail-stop";
-import { runProductionStartupPreflight } from "./lib/production-startup";
+import { runProductionActivationRuntimePreflight } from "./lib/production-startup";
+import type { ProductionReleaseSummary } from "./lib/production-startup-evidence";
 
 const CONTROL_PLANE_IMAGE_MARKER = "/app/.site-logbook-control-plane-image";
 
@@ -27,7 +29,9 @@ function requiredRuntimeEnvironment(
   return value;
 }
 
-async function main(): Promise<void> {
+export async function startProductionApplicationRuntime(
+  activationAuthority?: ProductionReleaseSummary,
+): Promise<void> {
   let productionRuntimeGuarded = false;
   // Release identity is embedded by esbuild. Runtime NODE_ENV is mutable and
   // therefore cannot disable the evidence/attestation/database startup guard.
@@ -35,24 +39,38 @@ async function main(): Promise<void> {
     const embeddedBuildSha = requireEmbeddedProductionBuildSha();
     const runtimeEnvironment = requiredRuntimeEnvironment(process.env);
     if (runtimeEnvironment === "production") {
-      const result = await runProductionStartupPreflight(
+      if (!activationAuthority) {
+        throw new Error(
+          "PRODUCTION_RUNTIME_ACTIVATION_AUTHORITY_REQUIRED: production index startup is allowed only through the verified HOLD v2 entrypoint.",
+        );
+      }
+      const result = await runProductionActivationRuntimePreflight(
         process.env,
         embeddedBuildSha,
-        {
-          verifyObservedHostRunner: requireObservedProductionHostRunner,
-          verifyDatabase: verifyLiveProductionAuditReadiness,
-        },
+        activationAuthority,
+        { verifyDatabase: verifyLiveProductionAuditReadiness },
       );
       installProductionRuntimeBinding(
         result.binding,
         result.refreshLiveReadiness,
       );
       productionRuntimeGuarded = true;
-    } else if (!existsSync(CONTROL_PLANE_IMAGE_MARKER)) {
-      throw new Error(
-        "STAGING_CONTROL_PLANE_IMAGE_REQUIRED: staging runtime is allowed only in the explicit control-plane image target.",
-      );
+    } else {
+      if (activationAuthority) {
+        throw new Error(
+          "PRODUCTION_RUNTIME_ACTIVATION_ENVIRONMENT_INVALID: signed activation authority is production-only.",
+        );
+      }
+      if (!existsSync(CONTROL_PLANE_IMAGE_MARKER)) {
+        throw new Error(
+          "STAGING_CONTROL_PLANE_IMAGE_REQUIRED: staging runtime is allowed only in the explicit control-plane image target.",
+        );
+      }
     }
+  } else if (activationAuthority) {
+    throw new Error(
+      "PRODUCTION_RUNTIME_ACTIVATION_BUILD_INVALID: signed activation authority requires an immutable release build.",
+    );
   }
 
   // Application, listen and every background worker remain unreachable until
@@ -209,8 +227,13 @@ async function main(): Promise<void> {
   process.on("SIGINT", () => requestShutdown(0, "SIGINT"));
 }
 
-main().catch((error: unknown) => {
-  const message = error instanceof Error ? error.message : String(error);
-  process.stderr.write(`[api-startup] FAIL ${message}\n`);
-  process.exitCode = 1;
-});
+const executedPath = process.argv[1]
+  ? pathToFileURL(path.resolve(process.argv[1])).href
+  : null;
+if (executedPath === import.meta.url) {
+  void startProductionApplicationRuntime().catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`[api-startup] FAIL ${message}\n`);
+    process.exitCode = 1;
+  });
+}

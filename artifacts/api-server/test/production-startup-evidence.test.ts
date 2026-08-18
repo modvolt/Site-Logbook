@@ -12,6 +12,7 @@ import {
   validateProductionAudit0107ReleaseEvidence,
 } from "../src/lib/production-startup-evidence";
 import {
+  runProductionActivationRuntimePreflight,
   runProductionStartupPreflight,
   type ProductionAuditDatabaseReadiness,
 } from "../src/lib/production-startup";
@@ -61,6 +62,8 @@ function fixture() {
   );
   const postgresProjection = {
     containerId: "1".repeat(64),
+    dockerExportSha256: `sha256:${"9".repeat(64)}`,
+    backendProofSha256: `sha256:${"a".repeat(64)}`,
     image: `docker.io/library/postgres@sha256:${"2".repeat(64)}`,
     imageId: `sha256:${"3".repeat(64)}`,
     networkId: "4".repeat(64),
@@ -68,7 +71,7 @@ function fixture() {
     volumeName: "site-logbook-production-pgdata",
   };
   const targetValue = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     kind: "site-logbook-production-audit-0107-target",
     logicalEnvironmentId: PRODUCTION_TARGET.logicalEnvironmentId,
     coolify: {
@@ -341,6 +344,33 @@ describe("production startup evidence", () => {
     }
   });
 
+  it("requires the v2 target and its Docker/backend proof projection", () => {
+    for (const mutate of [
+      (target: ReturnType<typeof fixture>["targetValue"]) => {
+        target.schemaVersion = 1;
+      },
+      (target: ReturnType<typeof fixture>["targetValue"]) => {
+        target.livePostgresTarget.backendProofSha256 = `sha256:${"f".repeat(64)}`;
+      },
+      (target: ReturnType<typeof fixture>["targetValue"]) => {
+        delete (target.livePostgresTarget as Record<string, unknown>)
+          .dockerExportSha256;
+      },
+    ]) {
+      const { input, targetValue } = fixture();
+      mutate(targetValue);
+      const changed = createCanonicalProductionEvidenceArtifact(targetValue);
+      expect(() =>
+        validateProductionAudit0107ReleaseEvidence({
+          ...input,
+          targetEvidenceB64: changed.base64,
+          targetEvidenceSha256: changed.sha256,
+          expectedTargetSha256: changed.sha256,
+        }),
+      ).toThrow();
+    }
+  });
+
   it("rejects backup-integrity tampering even when the changed execution is rehashed", () => {
     const { input } = fixture();
     const execution = JSON.parse(
@@ -494,6 +524,52 @@ describe("production startup evidence", () => {
       });
       await expect(result.refreshLiveReadiness()).resolves.toBe(false);
     }
+  });
+
+  it("installs the signed activation authority without reconstructing legacy B64 evidence", async () => {
+    const { env, input } = fixture();
+    const summary = validateProductionAudit0107ReleaseEvidence(input);
+    const activationEnv = Object.fromEntries(
+      Object.entries(env).filter(
+        ([key]) =>
+          !key.endsWith("_EVIDENCE_B64") &&
+          !key.endsWith("_EVIDENCE_SHA256") &&
+          !key.startsWith("PRODUCTION_EXPECTED_"),
+      ),
+    );
+    const verifyDatabase = vi.fn(async () => liveReadiness());
+
+    const result = await runProductionActivationRuntimePreflight(
+      activationEnv,
+      SOURCE_SHA,
+      summary,
+      { verifyDatabase },
+    );
+
+    expect(result.binding).toMatchObject({
+      sourceSha: SOURCE_SHA,
+      databaseName: "site_logbook",
+      databaseUser: "site_logbook_runtime",
+      transitionChainSha256: TRANSITION_CHAIN_SHA,
+    });
+    expect(verifyDatabase).toHaveBeenCalledTimes(1);
+    await expect(result.refreshLiveReadiness()).resolves.toBe(true);
+  });
+
+  it("rejects a substituted activation runtime authority before DB access", async () => {
+    const { env, input } = fixture();
+    const summary = validateProductionAudit0107ReleaseEvidence(input);
+    const verifyDatabase = vi.fn(async () => liveReadiness());
+
+    await expect(
+      runProductionActivationRuntimePreflight(
+        env,
+        SOURCE_SHA,
+        { ...summary, sourceSha: "f".repeat(40) },
+        { verifyDatabase },
+      ),
+    ).rejects.toThrow(/activation sourceSha/);
+    expect(verifyDatabase).not.toHaveBeenCalled();
   });
 
   it("emits a schema-valid health projection without the internal lineage", async () => {

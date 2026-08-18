@@ -6,6 +6,9 @@ import test from "node:test";
 import { Client, Pool } from "pg";
 
 import {
+  PRODUCTION_MIGRATION_ADVISORY_LOCK_KEY,
+} from "../production-evidence/production-migration-contract.mjs";
+import {
   PRODUCTION_MIGRATION_ROLE_BOOTSTRAP_CONFIRMATION,
   normalizeProductionMigrationRoleBootstrapProjection,
   runProductionMigrationRoleBootstrap,
@@ -28,16 +31,79 @@ import {
 } from "../production-evidence/production-migration-role-authority.js";
 
 const connectionUrl = process.env.PRODUCTION_ROLE_BOOTSTRAP_PG16_URL;
+const disposableConfirmation =
+  process.env.PRODUCTION_ROLE_BOOTSTRAP_PG16_DISPOSABLE_CONFIRM;
+const DISPOSABLE_CONFIRMATION =
+  "I_CONFIRM_THIS_IS_A_DISPOSABLE_LOCAL_PG16_ROLE_BOOTSTRAP_FIXTURE";
 const migrationsDirectory = path.resolve("lib/db/migrations");
+
+export function assertProductionRoleBootstrapPg16DisposableTarget(
+  rawUrl: unknown,
+  confirmation: unknown,
+): string {
+  if (
+    typeof rawUrl !== "string" ||
+    confirmation !== DISPOSABLE_CONFIRMATION
+  ) {
+    throw new Error("ROLE_BOOTSTRAP_PG16_DISPOSABLE_CONFIRMATION_REQUIRED");
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new Error("ROLE_BOOTSTRAP_PG16_DISPOSABLE_TARGET_INVALID");
+  }
+  const port = Number(parsed.port);
+  if (
+    parsed.protocol !== "postgresql:" ||
+    parsed.hostname !== "127.0.0.1" ||
+    !Number.isInteger(port) ||
+    port < 49_152 ||
+    port > 65_535 ||
+    parsed.username !== "admin" ||
+    parsed.pathname !== "/admin" ||
+    parsed.search !== "" ||
+    parsed.hash !== ""
+  ) {
+    throw new Error("ROLE_BOOTSTRAP_PG16_DISPOSABLE_TARGET_INVALID");
+  }
+  return rawUrl;
+}
+
+test("role bootstrap PG16 gate rejects non-disposable targets", () => {
+  assert.throws(
+    () =>
+      assertProductionRoleBootstrapPg16DisposableTarget(
+        "postgresql://admin:test@production-db:5432/admin",
+        DISPOSABLE_CONFIRMATION,
+      ),
+    /ROLE_BOOTSTRAP_PG16_DISPOSABLE_TARGET_INVALID/,
+  );
+  assert.throws(
+    () =>
+      assertProductionRoleBootstrapPg16DisposableTarget(
+        "postgresql://admin:test@127.0.0.1:61496/admin",
+        "wrong",
+      ),
+    /ROLE_BOOTSTRAP_PG16_DISPOSABLE_CONFIRMATION_REQUIRED/,
+  );
+});
 
 test(
   "PostgreSQL 16 bootstraps exact 0096 roles and completes the post-0107 role ceremony",
   { skip: !connectionUrl, timeout: 180_000 },
   async () => {
+    const exactConnectionUrl =
+      assertProductionRoleBootstrapPg16DisposableTarget(
+        connectionUrl,
+        disposableConfirmation,
+      );
     const catalog = await loadProductionMigrationCatalog({
       migrationsDirectory,
     });
-    const bootstrapClient = new Client({ connectionString: connectionUrl });
+    const bootstrapClient = new Client({
+      connectionString: exactConnectionUrl,
+    });
     await bootstrapClient.connect();
     try {
       const identity = await bootstrapClient.query(
@@ -75,7 +141,7 @@ test(
       await bootstrapClient.end();
     }
 
-    const pool = new Pool({ connectionString: connectionUrl, max: 1 });
+    const pool = new Pool({ connectionString: exactConnectionUrl, max: 1 });
     const controller = new AbortController();
     try {
       const result = await runProductionMigrationRoleBootstrap({
@@ -86,7 +152,7 @@ test(
         runtimeRole: "site_logbook_runtime",
         approvalId: "role-bootstrap-pg16-test",
         confirmation: PRODUCTION_MIGRATION_ROLE_BOOTSTRAP_CONFIRMATION,
-        advisoryLockKey: 1_070_107,
+        advisoryLockKey: PRODUCTION_MIGRATION_ADVISORY_LOCK_KEY,
         connect: () => pool.connect(),
         signal: controller.signal,
         now: () => new Date(),

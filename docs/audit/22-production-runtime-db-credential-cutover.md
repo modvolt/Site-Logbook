@@ -1,7 +1,7 @@
 # Production API runtime database credential cutover
 
-Status: **source contract and control-plane CLI only; not executed, not a
-deployment approval**. The production API login is fixed to
+Status: **source contract, control-plane CLI and authoritative receipt parser;
+not executed and not a deployment approval**. The production API login is fixed to
 `site_logbook_runtime`. PostgreSQL bootstrap/admin credentials remain confined
 to the `postgres` service, and `site_logbook_migrator` remains a separate
 `NOLOGIN` owner. The API does not receive either privileged identity.
@@ -75,6 +75,38 @@ key fixed to the shared migration/role value `911072468`,
 All JSON inputs must be key-sorted canonical UTF-8 with one trailing LF. Input
 files must be bounded regular files, not symlinks, with one hard link and
 stable identity across the read.
+
+## Authoritative PASS-receipt parser
+
+The credential producer owns both sides of the evidence boundary. In addition
+to creating the receipt, it exports
+`parseAndVerifyProductionRuntimeDbCredentialReceipt`. The production activation
+contract calls this parser directly; it does not replace it with a generic
+`decision === "PASS"` check.
+
+The parser re-parses bounded canonical request and receipt bytes, requires the
+exact root and nested key sets, and reconstructs all deterministic receipt
+fields from the request. It binds the request to the already-authoritatively
+verified migration transition: frozen live-source SHA and image, migration
+plan, role precondition, role transaction receipt, post-commit role artifact,
+final-live identity and transition digest. The credential executor source must
+equal the new immutable activation image source while remaining distinct from
+the migrated live source; the executor image must be the lowercase immutable
+`ghcr.io/modvolt/site-logbook-control-plane@sha256:<digest>` reference and must
+not alias the old live API image. The request database name must independently
+equal `migrationPlan.database.name` returned by the authoritative migration-plan
+validator. Updating the request, receipt database and request digest together
+cannot redirect the ceremony to another database.
+
+Acceptance requires a confirmed serializable transaction under the fixed
+advisory lock, exact in-transaction SCRAM-verifier readback, a fresh
+post-commit login as `site_logbook_runtime`, exact runtime identity, and no
+cleartext credential in SQL or query parameters. The receipt must remain
+secret-free and non-authorizing. Canonical timestamps must follow the final
+migration transition, the credential ceremony is bounded to ten minutes, and
+the receipt may be packaged for activation for at most 24 hours with no more
+than 30 seconds of clock skew. Swapped, tampered, missing, stale, replayed,
+uppercase or aliased evidence fails closed in HOLD.
 
 ## Attended invocation
 

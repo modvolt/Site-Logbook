@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
+import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 import {
   COOLIFY_EXPORT_SCHEMA,
@@ -13,9 +16,11 @@ import {
   createProductionHostAttestation,
   createProductionTargetEvidence,
   deriveProductionReleaseBinding,
+  verifyProductionObservationExports,
   verifyDetachedHostAttestation,
 } from "../production-evidence/host-attestation-contract.mjs";
 import { collectDockerReadOnlyExport } from "../production-evidence/docker-readonly-observer.mjs";
+import { main as runProductionHostEvidence } from "../production-evidence/run-production-host-evidence.mjs";
 
 const NOW = Date.parse("2026-08-12T10:01:00.000Z");
 const SOURCE_SHA = "1".repeat(40);
@@ -119,6 +124,10 @@ function fixtures() {
     schemaVersion: POSTGRES_EXPORT_SCHEMA,
     observedAt,
     containerId: CONTAINER_ID,
+    dockerExportSha256: `sha256:${createHash("sha256")
+      .update(canonicalJson(docker))
+      .digest("hex")}`,
+    backendProofSha256: digest("a"),
     databaseName: "site_logbook",
     databaseUser: "site_logbook_app",
     schemaFingerprintSha256: digest("6"),
@@ -261,7 +270,206 @@ test("produces the exact canonical production target from bounded read-only obse
   assert.equal(artifact.target.coolify.pendingChanges, false);
   assert.equal(artifact.target.build.sourceSha, SOURCE_SHA);
   assert.equal(artifact.target.livePostgresTarget.containerId, CONTAINER_ID);
+  assert.equal(
+    artifact.target.livePostgresTarget.dockerExportSha256,
+    fixtures().postgres.dockerExportSha256,
+  );
+  assert.equal(
+    artifact.target.livePostgresTarget.backendProofSha256,
+    digest("a"),
+  );
   assert.match(artifact.sha256, /^sha256:[0-9a-f]{64}$/);
+});
+
+test("authoritatively verifies canonical Coolify, Docker and PostgreSQL observation exports", () => {
+  const observation = fixtures();
+  const verdict = verifyProductionObservationExports({
+    request: observation.request,
+    coolifyCanonical: canonicalJson(observation.coolify),
+    dockerCanonical: canonicalJson(observation.docker),
+    postgresCanonical: canonicalJson(observation.postgres),
+    activationIssuedAt: "2026-08-12T10:01:00.000Z",
+  });
+  assert.deepEqual(
+    {
+      sourceSha: verdict.sourceSha,
+      apiImage: verdict.apiImage,
+      databaseName: verdict.databaseName,
+      databaseUser: verdict.databaseUser,
+      capturedAt: verdict.capturedAt,
+      apiContainerId: verdict.apiContainerId,
+    },
+    {
+      sourceSha: SOURCE_SHA,
+      apiImage: observation.request.expectedApiImage,
+      databaseName: observation.request.databaseName,
+      databaseUser: observation.request.databaseUser,
+      capturedAt: observation.coolify.observedAt,
+      apiContainerId: "c".repeat(64),
+    },
+  );
+  assert.equal(
+    verdict.dockerExportSha256,
+    observation.postgres.dockerExportSha256,
+  );
+  assert.throws(
+    () =>
+      verifyProductionObservationExports({
+        request: observation.request,
+        coolifyCanonical: canonicalJson(observation.coolify),
+        dockerCanonical: canonicalJson(observation.docker),
+        postgresCanonical: canonicalJson({
+          ...observation.postgres,
+          dockerExportSha256: digest("f"),
+        }),
+        activationIssuedAt: "2026-08-12T10:01:00.000Z",
+      }),
+    /PRODUCTION_HOST_BINDING_INVALID/,
+  );
+});
+
+test("rejects a v2 PostgreSQL export not bound to the exact Docker export", () => {
+  const observation = fixtures();
+  observation.postgres.dockerExportSha256 = digest("f");
+  assert.throws(
+    () => targetEvidence(observation),
+    /postgresExport\.dockerExportSha256/,
+  );
+});
+
+test("production runner is wired to sealed live observers and rejects caller-built host exports", async () => {
+  const directory = await mkdtemp(
+    join(tmpdir(), "site-logbook-host-observer-"),
+  );
+  try {
+    const requestPath = join(directory, "request.json");
+    const coolifyRequestPath = join(directory, "coolify-request.json");
+    const journalPath = join(directory, "journal.json");
+    const requestFixture = fixtures().request;
+    await Promise.all([
+      writeFile(requestPath, JSON.stringify(requestFixture)),
+      writeFile(
+        coolifyRequestPath,
+        JSON.stringify({
+          transport: {},
+          expected: {
+            deploymentId: "deployment-production-0107",
+            revision: SOURCE_SHA,
+            deployedNotBefore: "2026-08-12T09:59:00.000Z",
+            configurationSha256: digest("7"),
+            resolvedComposeSha256: digest("8"),
+            images: {
+              api: image("site-logbook-api", "1"),
+              postgres: image("postgres", "4"),
+              web: image("site-logbook-web", "5"),
+            },
+          },
+        }),
+      ),
+      writeFile(journalPath, "[]"),
+    ]);
+    const output = (name) => join(directory, name);
+    const runnerSource = await readFile(
+      new URL(
+        "../production-evidence/run-production-host-evidence.mjs",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    assert.match(runnerSource, /await collectCoolifyReadOnlyExport\(\{/);
+    await assert.rejects(
+      runProductionHostEvidence([
+        "observe",
+        "--request",
+        requestPath,
+        "--coolify-request",
+        coolifyRequestPath,
+        "--journal",
+        journalPath,
+        "--image-provenance",
+        output("not-read-before-live-preflight.json"),
+        "--image-provenance-signature",
+        output("not-read-before-live-preflight.sig"),
+        "--coolify-export-out",
+        output("coolify.json"),
+        "--docker-export-out",
+        output("docker.json"),
+        "--postgres-export-out",
+        output("postgres.json"),
+        "--target-out",
+        output("target.json"),
+      ]),
+      /PRODUCTION_HOST_INPUT_INVALID/,
+    );
+    await assert.rejects(
+      runProductionHostEvidence([
+        "observe",
+        "--request",
+        requestPath,
+        "--coolify-export",
+        output("caller-built.json"),
+      ]),
+      /PRODUCTION_HOST_USAGE_INVALID/,
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("production runner rejects oversized and symlinked evidence inputs", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "site-logbook-host-input-"));
+  const verifyArgs = (targetPath) => [
+    "verify",
+    "--attestation",
+    join(directory, "unused-attestation"),
+    "--signature",
+    join(directory, "unused-signature"),
+    "--public-key",
+    join(directory, "unused-public-key"),
+    "--public-key-sha256",
+    digest("1"),
+    "--key-id",
+    KEY_ID,
+    "--target",
+    targetPath,
+    "--intent-evidence",
+    join(directory, "unused-intent"),
+    "--execution-evidence",
+    join(directory, "unused-execution"),
+    "--steady-evidence",
+    join(directory, "unused-steady"),
+    "--release-evidence",
+    join(directory, "unused-release"),
+    "--activation-approval",
+    join(directory, "unused-approval"),
+  ];
+  try {
+    const oversized = join(directory, "oversized-target.json");
+    await writeFile(oversized, Buffer.alloc(256 * 1024 + 1, 0x61));
+    await assert.rejects(
+      runProductionHostEvidence(verifyArgs(oversized)),
+      /PRODUCTION_HOST_INPUT_INVALID: targetEvidence/,
+    );
+
+    const target = join(directory, "target.json");
+    const linkedTarget = join(directory, "linked-target.json");
+    await writeFile(target, targetEvidence(fixtures()).canonical);
+    try {
+      await symlink(target, linkedTarget, "file");
+    } catch (error) {
+      if (error?.code === "EPERM" || error?.code === "EACCES") {
+        t.diagnostic("Symlink creation is unavailable on this Windows host.");
+        return;
+      }
+      throw error;
+    }
+    await assert.rejects(
+      runProductionHostEvidence(verifyArgs(linkedTarget)),
+      /PRODUCTION_HOST_INPUT_INVALID: targetEvidence/,
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("rejects the retired MinIO services from the production runtime set", () => {
@@ -284,6 +492,55 @@ test("verifies a detached Ed25519 signature from the selected public key", () =>
     now: NOW + 60_000,
   });
   assert.equal(verified.sha256, fixture.attestation.sha256);
+});
+
+test("standalone derive and signed verifier reject a canonical v1 target", () => {
+  const fixture = signedAttestation();
+  const v1Target = structuredClone(fixture.target.target);
+  v1Target.schemaVersion = 1;
+  const v1Canonical = canonicalJson(v1Target);
+  const v1Sha256 = `sha256:${createHash("sha256")
+    .update(v1Canonical)
+    .digest("hex")}`;
+  const v1Release = releaseArtifacts(v1Sha256);
+  assert.throws(
+    () =>
+      deriveProductionReleaseBinding(
+        v1Canonical,
+        v1Release.intentEvidenceCanonical,
+        v1Release.executionEvidenceCanonical,
+        v1Release.steadyEvidenceCanonical,
+        v1Release.releaseEvidenceCanonical,
+        v1Release.activationApprovalCanonical,
+      ),
+    /targetEvidence\.schemaVersion/,
+  );
+
+  const signedV1 = structuredClone(fixture.attestation.attestation);
+  signedV1.targetEvidenceSha256 = v1Sha256;
+  const signedV1Canonical = canonicalJson(signedV1);
+  const input = verifierInput(fixture);
+  assert.throws(
+    () =>
+      verifyDetachedHostAttestation(
+        {
+          ...input,
+          attestationCanonical: signedV1Canonical,
+          signature: sign(
+            null,
+            Buffer.from(signedV1Canonical),
+            fixture.keys.privateKey,
+          ),
+          expectedBinding: {
+            ...input.expectedBinding,
+            targetEvidenceSha256: v1Sha256,
+          },
+          expectedTargetCanonical: v1Canonical,
+        },
+        { now: NOW + 60_000 },
+      ),
+    /expectedTargetEvidence\.schemaVersion/,
+  );
 });
 
 test("rejects attestation tampering and a signature from the wrong key", () => {
@@ -436,6 +693,8 @@ test("rejects foreign volume and network peers", () => {
 
 test("rejects secret-shaped fields and values without echoing them", () => {
   const secret = "github_pat_this_must_never_be_echoed_123456";
+  const scramVerifier =
+    "SCRAM-SHA-256$4096:c2FsdHNhbHQ=$c3RvcmVka2V5:c2VydmVya2V5";
   assert.throws(
     () => assertSecretFree({ apiToken: secret }),
     (error) => {
@@ -447,6 +706,14 @@ test("rejects secret-shaped fields and values without echoing them", () => {
   assert.throws(
     () => assertSecretFree({ harmless: secret }),
     /SECRET_MATERIAL/,
+  );
+  assert.throws(
+    () => assertSecretFree({ harmless: scramVerifier }),
+    (error) => {
+      assert.match(error.message, /SECRET_MATERIAL/);
+      assert.doesNotMatch(error.message, new RegExp(scramVerifier));
+      return true;
+    },
   );
 });
 

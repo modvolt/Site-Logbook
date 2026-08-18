@@ -2,6 +2,7 @@ import {
   createProductionRuntimeBinding,
   readProductionEvidenceInput,
   validateProductionAudit0107ReleaseEvidence,
+  type ProductionReleaseSummary,
   type ProductionRuntimeBinding,
 } from "./production-startup-evidence";
 import type { ProductionObservedRunnerBinding } from "./production-evidence-runner";
@@ -48,6 +49,11 @@ export interface ProductionStartupResult {
   refreshLiveReadiness: () => Promise<boolean>;
 }
 
+export type ProductionActivationRuntimeDependencies = Pick<
+  ProductionStartupDependencies,
+  "verifyDatabase"
+>;
+
 function required(env: NodeJS.ProcessEnv, key: string): string {
   const value = env[key];
   if (typeof value !== "string" || value.length === 0) {
@@ -64,30 +70,12 @@ function requireEqual(actual: unknown, expected: unknown, field: string): void {
   }
 }
 
-export async function runProductionStartupPreflight(
+async function verifyRuntimeDatabaseAndCreateResult(
   env: NodeJS.ProcessEnv,
   embeddedBuildSha: string,
-  dependencies: ProductionStartupDependencies,
+  release: ProductionReleaseSummary,
+  verifyDatabase: ProductionStartupDependencies["verifyDatabase"],
 ): Promise<ProductionStartupResult> {
-  requireEqual(
-    env.EXTERNAL_ACCOUNTS_ENABLED,
-    "false",
-    "EXTERNAL_ACCOUNTS_ENABLED",
-  );
-  requireEqual(
-    required(env, "BUILD_SHA").toLowerCase(),
-    embeddedBuildSha,
-    "BUILD_SHA",
-  );
-  requireProductionHetznerObjectStorageConfiguration(env);
-
-  const evidenceInput = readProductionEvidenceInput(env);
-  requireEqual(
-    evidenceInput.expectedSourceSha.toLowerCase(),
-    embeddedBuildSha,
-    "PRODUCTION_EXPECTED_SOURCE_SHA",
-  );
-  const release = validateProductionAudit0107ReleaseEvidence(evidenceInput);
   const databaseUrl = required(env, "DATABASE_URL");
   const databaseUrlIdentity = validateProductionRuntimeDatabaseUrl(
     databaseUrl,
@@ -103,22 +91,6 @@ export async function runProductionStartupPreflight(
     PRODUCTION_RUNTIME_DATABASE_USER,
     "release databaseUser",
   );
-  await dependencies.verifyObservedHostRunner({
-    sourceSha: release.sourceSha,
-    targetEvidenceSha256: release.targetEvidenceSha256,
-    releaseEvidenceSha256: release.releaseEvidenceSha256,
-    activationApprovalSha256: release.activationApprovalSha256,
-    apiImage: release.apiImage,
-    postgresImage: release.postgresImage,
-    deployedConfigSha256: release.deployedConfigSha256,
-    desiredConfigSha256: release.desiredConfigSha256,
-    resolvedComposeSha256: release.resolvedComposeSha256,
-    livePostgresTargetSha256: release.livePostgresTargetSha256,
-    databaseName: release.databaseName,
-    databaseUser: release.databaseUser,
-    schemaFingerprintSha256: release.schemaFingerprintSha256,
-  });
-
   const readinessInput = {
     databaseUrl,
     migrationsDir: required(env, "MIGRATIONS_DIR"),
@@ -129,7 +101,7 @@ export async function runProductionStartupPreflight(
   };
   const lineage = release.lineage;
   const verifyLiveReadiness = async (): Promise<boolean> => {
-    const database = await dependencies.verifyDatabase(readinessInput);
+    const database = await verifyDatabase(readinessInput);
     requireEqual(database.databaseName, release.databaseName, "databaseName");
     requireEqual(database.databaseUser, release.databaseUser, "databaseUser");
     requireEqual(
@@ -171,4 +143,83 @@ export async function runProductionStartupPreflight(
       }
     },
   });
+}
+
+/**
+ * Completes the fresh database gate after the signed v2 activation chain has
+ * already been parsed and cross-bound. It deliberately accepts the verifier's
+ * in-memory authority, never reconstructed legacy env/B64 artifacts.
+ */
+export async function runProductionActivationRuntimePreflight(
+  env: NodeJS.ProcessEnv,
+  embeddedBuildSha: string,
+  release: ProductionReleaseSummary,
+  dependencies: ProductionActivationRuntimeDependencies,
+): Promise<ProductionStartupResult> {
+  requireEqual(
+    env.EXTERNAL_ACCOUNTS_ENABLED,
+    "false",
+    "EXTERNAL_ACCOUNTS_ENABLED",
+  );
+  requireEqual(
+    required(env, "BUILD_SHA").toLowerCase(),
+    embeddedBuildSha,
+    "BUILD_SHA",
+  );
+  requireEqual(release.sourceSha, embeddedBuildSha, "activation sourceSha");
+  requireProductionHetznerObjectStorageConfiguration(env);
+  return verifyRuntimeDatabaseAndCreateResult(
+    env,
+    embeddedBuildSha,
+    release,
+    dependencies.verifyDatabase,
+  );
+}
+
+export async function runProductionStartupPreflight(
+  env: NodeJS.ProcessEnv,
+  embeddedBuildSha: string,
+  dependencies: ProductionStartupDependencies,
+): Promise<ProductionStartupResult> {
+  requireEqual(
+    env.EXTERNAL_ACCOUNTS_ENABLED,
+    "false",
+    "EXTERNAL_ACCOUNTS_ENABLED",
+  );
+  requireEqual(
+    required(env, "BUILD_SHA").toLowerCase(),
+    embeddedBuildSha,
+    "BUILD_SHA",
+  );
+  requireProductionHetznerObjectStorageConfiguration(env);
+
+  const evidenceInput = readProductionEvidenceInput(env);
+  requireEqual(
+    evidenceInput.expectedSourceSha.toLowerCase(),
+    embeddedBuildSha,
+    "PRODUCTION_EXPECTED_SOURCE_SHA",
+  );
+  const release = validateProductionAudit0107ReleaseEvidence(evidenceInput);
+  await dependencies.verifyObservedHostRunner({
+    sourceSha: release.sourceSha,
+    targetEvidenceSha256: release.targetEvidenceSha256,
+    releaseEvidenceSha256: release.releaseEvidenceSha256,
+    activationApprovalSha256: release.activationApprovalSha256,
+    apiImage: release.apiImage,
+    postgresImage: release.postgresImage,
+    deployedConfigSha256: release.deployedConfigSha256,
+    desiredConfigSha256: release.desiredConfigSha256,
+    resolvedComposeSha256: release.resolvedComposeSha256,
+    livePostgresTargetSha256: release.livePostgresTargetSha256,
+    databaseName: release.databaseName,
+    databaseUser: release.databaseUser,
+    schemaFingerprintSha256: release.schemaFingerprintSha256,
+  });
+
+  return verifyRuntimeDatabaseAndCreateResult(
+    env,
+    embeddedBuildSha,
+    release,
+    dependencies.verifyDatabase,
+  );
 }

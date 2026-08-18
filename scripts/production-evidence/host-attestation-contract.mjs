@@ -35,7 +35,7 @@ export const COOLIFY_EXPORT_SCHEMA =
 export const DOCKER_EXPORT_SCHEMA =
   "site-logbook.production-host-docker-export/v1";
 export const POSTGRES_EXPORT_SCHEMA =
-  "site-logbook.production-host-postgres-export/v1";
+  "site-logbook.production-host-postgres-export/v2";
 export const ACTIVATION_APPROVAL_SCHEMA =
   "site-logbook.production-activation-approval/v1";
 export const IMAGE_PROVENANCE_SCHEMA =
@@ -177,7 +177,7 @@ function requireHex64(value, field) {
 const FORBIDDEN_KEY =
   /(password|passwd|secret|token|credential|private.?key|database.?url|access.?key|session|cookie)/i;
 const FORBIDDEN_VALUE =
-  /(-----BEGIN [A-Z ]*PRIVATE KEY-----|github_pat_|gh[pousr]_[A-Za-z0-9]{16,}|AKIA[0-9A-Z]{16}|\bBearer\s+[A-Za-z0-9._~+/-]+=*|[a-z][a-z0-9+.-]*:\/\/[^\s/@:]+:[^\s/@]+@)/i;
+  /(-----BEGIN [A-Z ]*PRIVATE KEY-----|SCRAM-SHA-256\$[0-9]{3,10}:[A-Za-z0-9+/]+={0,2}\$[A-Za-z0-9+/]+={0,2}:[A-Za-z0-9+/]+={0,2}|github_pat_|gh[pousr]_[A-Za-z0-9]{16,}|AKIA[0-9A-Z]{16}|\bBearer\s+[A-Za-z0-9._~+/-]+=*|[a-z][a-z0-9+.-]*:\/\/[^\s/@:]+:[^\s/@]+@)/i;
 
 export function assertSecretFree(value, field = "input") {
   if (typeof value === "string") {
@@ -677,9 +677,22 @@ function parseDocker(value, request, coolify) {
       );
     }
   }
+  const apiPeer = networkPeers.find((peer) => peer.service === "api");
+  if (!apiPeer) {
+    fail(
+      "PRODUCTION_HOST_TARGET_INVALID",
+      "The production network has no exact API peer.",
+    );
+  }
 
   return {
     observedAt: exactTime(docker.observedAt, "dockerExport.observedAt"),
+    exportSha256: sha256(canonicalJson(value)),
+    apiPeer: {
+      containerId: apiPeer.containerId,
+      image: apiPeer.image,
+      imageId: apiPeer.imageId,
+    },
     target: {
       containerId: targetId,
       image: targetImage,
@@ -699,6 +712,8 @@ function parsePostgres(value, request, docker) {
       "schemaVersion",
       "observedAt",
       "containerId",
+      "dockerExportSha256",
+      "backendProofSha256",
       "databaseName",
       "databaseUser",
       "schemaFingerprintSha256",
@@ -716,6 +731,19 @@ function parsePostgres(value, request, docker) {
     requireHex64(postgres.containerId, "postgresExport.containerId"),
     docker.target.containerId,
     "postgresExport.containerId",
+  );
+  const dockerExportSha256 = exactDigest(
+    postgres.dockerExportSha256,
+    "postgresExport.dockerExportSha256",
+  );
+  requireEqual(
+    dockerExportSha256,
+    docker.exportSha256,
+    "postgresExport.dockerExportSha256",
+  );
+  const backendProofSha256 = exactDigest(
+    postgres.backendProofSha256,
+    "postgresExport.backendProofSha256",
   );
   requireEqual(
     postgres.databaseName,
@@ -740,9 +768,20 @@ function parsePostgres(value, request, docker) {
     true,
     "postgresExport.readOnlyObservation",
   );
-  exactString(postgres.serverVersion, "postgresExport.serverVersion");
+  const serverVersion = exactString(
+    postgres.serverVersion,
+    "postgresExport.serverVersion",
+  );
+  if (!/^16(?:\.[0-9]+)+(?:[-+~.A-Za-z0-9]*)?$/.test(serverVersion)) {
+    fail(
+      "PRODUCTION_HOST_TARGET_INVALID",
+      "postgresExport.serverVersion must be the reviewed PostgreSQL 16 line.",
+    );
+  }
   return {
     observedAt: exactTime(postgres.observedAt, "postgresExport.observedAt"),
+    dockerExportSha256,
+    backendProofSha256,
   };
 }
 
@@ -766,6 +805,81 @@ function validateObservationTimes(times, now) {
     fail("PRODUCTION_HOST_TIME_INVALID", "The host observations are stale.");
   }
   return new Date(latest).toISOString();
+}
+
+/**
+ * Producer-owned parser for the three independently collected, secret-free
+ * production observation exports. This is deliberately separate from the
+ * image-provenance target builder: activation already binds its running image
+ * through the signed immutable-container envelope, while this verifier
+ * reconstructs the exact Coolify -> Docker -> PostgreSQL observation chain.
+ */
+export function verifyProductionObservationExports(input) {
+  if (arguments.length !== 1) {
+    fail(
+      "PRODUCTION_HOST_SCHEMA_INVALID",
+      "Production observation verification accepts one exact input only.",
+    );
+  }
+  const exactInput = exactKeys(
+    input,
+    [
+      "request",
+      "coolifyCanonical",
+      "dockerCanonical",
+      "postgresCanonical",
+      "activationIssuedAt",
+    ],
+    "observationVerification",
+  );
+  const request = parseRequest(exactInput.request);
+  const activationIssuedAt = exactTime(
+    exactInput.activationIssuedAt,
+    "observationVerification.activationIssuedAt",
+  );
+  const coolifyValue = parseCanonicalArtifact(
+    exactInput.coolifyCanonical,
+    "coolifyExport",
+  );
+  const dockerValue = parseCanonicalArtifact(
+    exactInput.dockerCanonical,
+    "dockerExport",
+  );
+  const postgresValue = parseCanonicalArtifact(
+    exactInput.postgresCanonical,
+    "postgresExport",
+  );
+  const coolify = parseCoolify(coolifyValue, request);
+  const docker = parseDocker(dockerValue, request, coolify);
+  const postgres = parsePostgres(postgresValue, request, docker);
+  const capturedAt = validateObservationTimes(
+    [coolify.observedAt, docker.observedAt, postgres.observedAt],
+    activationIssuedAt.millis,
+  );
+  return Object.freeze({
+    sourceSha: request.sourceSha,
+    apiImage: request.expectedApiImage,
+    databaseName: request.databaseName,
+    databaseUser: request.databaseUser,
+    schemaFingerprintSha256: request.schemaFingerprintSha256,
+    capturedAt,
+    coolifyObservedAt: coolify.observedAt.text,
+    dockerObservedAt: docker.observedAt.text,
+    postgresObservedAt: postgres.observedAt.text,
+    desiredConfigSha256: coolify.desired.configurationSha256,
+    deployedConfigSha256: coolify.deployed.configurationSha256,
+    resolvedComposeSha256: coolify.deployed.resolvedComposeSha256,
+    apiContainerId: docker.apiPeer.containerId,
+    apiContainerImage: docker.apiPeer.image,
+    apiContainerImageId: docker.apiPeer.imageId,
+    postgresContainerId: docker.target.containerId,
+    postgresImage: docker.target.image,
+    dockerExportSha256: postgres.dockerExportSha256,
+    backendProofSha256: postgres.backendProofSha256,
+    coolifySha256: sha256(exactInput.coolifyCanonical),
+    dockerSha256: sha256(exactInput.dockerCanonical),
+    postgresSha256: sha256(exactInput.postgresCanonical),
+  });
 }
 
 export function createProductionTargetEvidence(
@@ -798,6 +912,8 @@ export function createProductionTargetEvidence(
   );
   const projection = {
     containerId: docker.target.containerId,
+    dockerExportSha256: postgres.dockerExportSha256,
+    backendProofSha256: postgres.backendProofSha256,
     image: docker.target.image,
     imageId: docker.target.imageId,
     networkId: docker.target.networkId,
@@ -805,7 +921,7 @@ export function createProductionTargetEvidence(
     volumeName: docker.target.volumeName,
   };
   const target = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     kind: "site-logbook-production-audit-0107-target",
     logicalEnvironmentId: PRODUCTION_TARGET.logicalEnvironmentId,
     coolify: {
@@ -873,6 +989,188 @@ function parseCanonicalArtifact(raw, field) {
   return objectAt(value, field);
 }
 
+function parseProductionTargetV2(value, field) {
+  const target = exactKeys(
+    value,
+    [
+      "schemaVersion",
+      "kind",
+      "logicalEnvironmentId",
+      "coolify",
+      "build",
+      "database",
+      "livePostgresTarget",
+      "schemaFingerprintSha256",
+      "capturedAt",
+    ],
+    field,
+  );
+  requireEqual(target.schemaVersion, 2, `${field}.schemaVersion`);
+  requireEqual(
+    target.kind,
+    "site-logbook-production-audit-0107-target",
+    `${field}.kind`,
+  );
+  requireEqual(
+    target.logicalEnvironmentId,
+    PRODUCTION_TARGET.logicalEnvironmentId,
+    `${field}.logicalEnvironmentId`,
+  );
+
+  const coolify = exactKeys(
+    target.coolify,
+    [
+      "projectId",
+      "environmentId",
+      "environmentLabel",
+      "applicationId",
+      "pendingChanges",
+      "deployedConfigSha256",
+      "desiredConfigSha256",
+      "resolvedComposeSha256",
+    ],
+    `${field}.coolify`,
+  );
+  for (const key of [
+    "projectId",
+    "environmentId",
+    "environmentLabel",
+    "applicationId",
+  ]) {
+    requireEqual(
+      coolify[key],
+      PRODUCTION_TARGET[key],
+      `${field}.coolify.${key}`,
+    );
+  }
+  requireEqual(
+    coolify.pendingChanges,
+    false,
+    `${field}.coolify.pendingChanges`,
+  );
+  const deployedConfigSha256 = exactDigest(
+    coolify.deployedConfigSha256,
+    `${field}.coolify.deployedConfigSha256`,
+  );
+  requireEqual(
+    exactDigest(
+      coolify.desiredConfigSha256,
+      `${field}.coolify.desiredConfigSha256`,
+    ),
+    deployedConfigSha256,
+    `${field}.coolify.desiredConfigSha256`,
+  );
+  exactDigest(
+    coolify.resolvedComposeSha256,
+    `${field}.coolify.resolvedComposeSha256`,
+  );
+
+  const build = exactKeys(
+    target.build,
+    [
+      "sourceSha",
+      "provenanceSourceSha",
+      "provenanceEvidenceSha256",
+      "apiImage",
+      "apiImageDigest",
+      "imageProfile",
+      "mutatingEntrypointsPresent",
+    ],
+    `${field}.build`,
+  );
+  const sourceSha = exactSha(build.sourceSha, `${field}.build.sourceSha`);
+  requireEqual(
+    exactSha(build.provenanceSourceSha, `${field}.build.provenanceSourceSha`),
+    sourceSha,
+    `${field}.build.provenanceSourceSha`,
+  );
+  exactDigest(
+    build.provenanceEvidenceSha256,
+    `${field}.build.provenanceEvidenceSha256`,
+  );
+  const apiImage = exactImage(build.apiImage, `${field}.build.apiImage`);
+  requireEqual(
+    exactDigest(build.apiImageDigest, `${field}.build.apiImageDigest`),
+    `sha256:${apiImage.split("@sha256:")[1]}`,
+    `${field}.build.apiImageDigest`,
+  );
+  requireEqual(build.imageProfile, "production", `${field}.build.imageProfile`);
+  requireEqual(
+    build.mutatingEntrypointsPresent,
+    false,
+    `${field}.build.mutatingEntrypointsPresent`,
+  );
+
+  const database = exactKeys(
+    target.database,
+    ["name", "user"],
+    `${field}.database`,
+  );
+  exactString(database.name, `${field}.database.name`);
+  exactString(database.user, `${field}.database.user`);
+
+  const postgres = exactKeys(
+    target.livePostgresTarget,
+    [
+      "containerId",
+      "dockerExportSha256",
+      "backendProofSha256",
+      "image",
+      "imageId",
+      "networkId",
+      "networkName",
+      "volumeName",
+      "projectionSha256",
+    ],
+    `${field}.livePostgresTarget`,
+  );
+  const projection = {
+    containerId: requireHex64(
+      postgres.containerId,
+      `${field}.livePostgresTarget.containerId`,
+    ),
+    dockerExportSha256: exactDigest(
+      postgres.dockerExportSha256,
+      `${field}.livePostgresTarget.dockerExportSha256`,
+    ),
+    backendProofSha256: exactDigest(
+      postgres.backendProofSha256,
+      `${field}.livePostgresTarget.backendProofSha256`,
+    ),
+    image: exactImage(postgres.image, `${field}.livePostgresTarget.image`),
+    imageId: exactDigest(
+      postgres.imageId,
+      `${field}.livePostgresTarget.imageId`,
+    ),
+    networkId: requireHex64(
+      postgres.networkId,
+      `${field}.livePostgresTarget.networkId`,
+    ),
+    networkName: exactString(
+      postgres.networkName,
+      `${field}.livePostgresTarget.networkName`,
+    ),
+    volumeName: exactString(
+      postgres.volumeName,
+      `${field}.livePostgresTarget.volumeName`,
+    ),
+  };
+  requireEqual(
+    exactDigest(
+      postgres.projectionSha256,
+      `${field}.livePostgresTarget.projectionSha256`,
+    ),
+    sha256(canonicalJson(projection)),
+    `${field}.livePostgresTarget.projectionSha256`,
+  );
+  exactDigest(
+    target.schemaFingerprintSha256,
+    `${field}.schemaFingerprintSha256`,
+  );
+  exactTime(target.capturedAt, `${field}.capturedAt`);
+  return target;
+}
+
 function stableTarget(target) {
   const copy = structuredClone(target);
   delete copy.capturedAt;
@@ -887,8 +1185,8 @@ function parseReleaseArtifacts(
   releaseCanonical,
   activationApprovalCanonical,
 ) {
-  const target = parseCanonicalArtifact(
-    targetEvidenceCanonical,
+  const target = parseProductionTargetV2(
+    parseCanonicalArtifact(targetEvidenceCanonical, "targetEvidence"),
     "targetEvidence",
   );
   const intent = parseCanonicalArtifact(
@@ -1083,7 +1381,10 @@ export function createProductionHostAttestation(
     trustedImageProvenanceKeys = PINNED_IMAGE_PROVENANCE_KEYS,
   } = {},
 ) {
-  const target = parseCanonicalArtifact(targetCanonical, "targetEvidence");
+  const target = parseProductionTargetV2(
+    parseCanonicalArtifact(targetCanonical, "targetEvidence"),
+    "targetEvidence",
+  );
   const targetEvidenceSha256 = sha256(targetCanonical);
   const releaseBinding = parseReleaseArtifacts(
     targetCanonical,
@@ -1292,8 +1593,8 @@ export function verifyDetachedHostAttestation(
       `hostAttestation.coolify.${key}`,
     );
   }
-  const target = parseCanonicalArtifact(
-    expectedTargetCanonical,
+  const target = parseProductionTargetV2(
+    parseCanonicalArtifact(expectedTargetCanonical, "expectedTargetEvidence"),
     "expectedTargetEvidence",
   );
   requireEqual(

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { createVerifiedProductionMigrationPlan } from "../production-evidence/production-migration-adapter.mjs";
@@ -14,6 +15,56 @@ const roleAuthority = await tsImport(
   "../production-evidence/production-migration-role-authority.ts",
   import.meta.url,
 );
+const packagedRoleAuthority = await tsImport(
+  "@workspace/db/production-migration-role-authority",
+  import.meta.url,
+);
+const roleBootstrap = await tsImport(
+  "../production-evidence/production-migration-role-bootstrap.ts",
+  import.meta.url,
+);
+
+test("role wrapper and bootstrap expose the referenced @workspace/db boundary implementation", async () => {
+  for (const implementation of [roleAuthority, packagedRoleAuthority]) {
+    assert.equal(
+      typeof implementation.applyProductionMigrationRoleCeremony,
+      "function",
+    );
+    assert.equal(
+      typeof implementation.productionMigrationRoleAuthority,
+      "object",
+    );
+    assert.equal(
+      typeof implementation.normalizeProductionMigrationRoleProjection,
+      "function",
+    );
+  }
+  assert.equal(
+    typeof roleBootstrap.normalizeProductionMigrationRoleProjection,
+    "function",
+  );
+  assert.equal(
+    await readFile(
+      new URL(
+        "../production-evidence/production-migration-role-authority.ts",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+    'export * from "@workspace/db/production-migration-role-authority";\n',
+  );
+  const bootstrapSource = await readFile(
+    new URL(
+      "../production-evidence/production-migration-role-bootstrap.ts",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  assert.match(
+    bootstrapSource,
+    /normalizeProductionMigrationRoleProjection,[\s\S]*from "@workspace\/db\/production-migration-role-authority";/,
+  );
+});
 
 function exactProjection(plan) {
   const runtimeRole = {
