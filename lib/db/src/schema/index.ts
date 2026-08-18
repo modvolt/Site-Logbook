@@ -27,6 +27,7 @@ export * from "./customer-sites";
 export * from "./customer-site-attachments";
 export * from "./device-credentials";
 export * from "./audit-log";
+export * from "./audit-evidence";
 export * from "./api-idempotency";
 export * from "./public-access-tokens";
 export * from "./ppe-public-evidence";

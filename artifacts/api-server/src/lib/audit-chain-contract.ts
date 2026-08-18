@@ -128,8 +128,10 @@ export interface AuditChainTransactionV1 {
   lockHeadForUpdate(
     streamId: typeof AUDIT_CHAIN_STREAM_ID,
   ): Promise<AuditChainHeadV1 | null>;
-  insertEventEnvelope(event: AuditEventEnvelopeV1): Promise<void>;
-  insertLedgerRecord(record: AuditChainRecordV1): Promise<void>;
+  insertEventAndLedger(
+    event: AuditEventEnvelopeV1,
+    record: AuditChainRecordV1,
+  ): Promise<void>;
   insertExportIntent(intent: AuditExportIntentV1): Promise<void>;
   compareAndAdvanceHead(
     transition: AuditChainHeadTransitionV1,
@@ -292,13 +294,12 @@ export async function appendAuditEventInTransaction(
   const observedHead = await transaction.lockHeadForUpdate(
     AUDIT_CHAIN_STREAM_ID,
   );
-  const expectedHead = observedHead
-    ? verifyAuditChainHead(observedHead)
-    : ({
-        streamId: AUDIT_CHAIN_STREAM_ID,
-        sequence: "0",
-        ledgerSha256: null,
-      } satisfies AuditChainHeadV1);
+  if (observedHead === null) {
+    throw new Error(
+      "Seeded audit chain head is missing; audit schema state is corrupt.",
+    );
+  }
+  const expectedHead = verifyAuditChainHead(observedHead);
   const ledgerRecord = createAuditChainRecord(event, expectedHead);
   const exportIntent = createAuditExportIntent(ledgerRecord);
   const nextHead = verifyAuditChainHead({
@@ -308,8 +309,7 @@ export async function appendAuditEventInTransaction(
   });
   const headTransition = { expected: expectedHead, next: nextHead };
 
-  await transaction.insertEventEnvelope(event);
-  await transaction.insertLedgerRecord(ledgerRecord);
+  await transaction.insertEventAndLedger(event, ledgerRecord);
   await transaction.insertExportIntent(exportIntent);
   if (!(await transaction.compareAndAdvanceHead(headTransition))) {
     throw new Error(

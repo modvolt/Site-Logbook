@@ -24,6 +24,11 @@ import {
 
 const SHA_A = "a".repeat(64);
 const SHA_B = "b".repeat(64);
+const GENESIS_HEAD: AuditChainHeadV1 = {
+  streamId: AUDIT_CHAIN_STREAM_ID,
+  sequence: "0",
+  ledgerSha256: null,
+};
 
 function eventInput(
   eventId = "018f6f8e-7c20-7a4b-8c4d-1234567890ab",
@@ -90,9 +95,9 @@ class RecordingTransaction implements AuditChainTransactionV1 {
   transition: AuditChainHeadTransitionV1 | null = null;
 
   constructor(
-    private readonly head: AuditChainHeadV1 | null = null,
+    private readonly head: AuditChainHeadV1 | null = GENESIS_HEAD,
     private readonly advanceResult = true,
-    private readonly failAt: "event" | "record" | "intent" | null = null,
+    private readonly failAt: "event-and-ledger" | "intent" | null = null,
   ) {}
 
   async lockHeadForUpdate() {
@@ -100,16 +105,16 @@ class RecordingTransaction implements AuditChainTransactionV1 {
     return this.head;
   }
 
-  async insertEventEnvelope(value: AuditEventEnvelopeV1) {
-    this.calls.push("insert-event");
-    if (this.failAt === "event") throw new Error("event insert failed");
-    this.event = value;
-  }
-
-  async insertLedgerRecord(value: AuditChainRecordV1) {
-    this.calls.push("insert-ledger");
-    if (this.failAt === "record") throw new Error("ledger insert failed");
-    this.record = value;
+  async insertEventAndLedger(
+    eventValue: AuditEventEnvelopeV1,
+    recordValue: AuditChainRecordV1,
+  ) {
+    this.calls.push("insert-event-and-ledger");
+    if (this.failAt === "event-and-ledger") {
+      throw new Error("event and ledger insert failed");
+    }
+    this.event = eventValue;
+    this.record = recordValue;
   }
 
   async insertExportIntent(value: AuditExportIntentV1) {
@@ -213,8 +218,7 @@ describe("audit chain transaction contract v1", () => {
 
     expect(transaction.calls).toEqual([
       "lock-head",
-      "insert-event",
-      "insert-ledger",
+      "insert-event-and-ledger",
       "insert-export-intent",
       "advance-head",
     ]);
@@ -233,32 +237,47 @@ describe("audit chain transaction contract v1", () => {
   });
 
   it("fails closed on a head race or any intermediate write failure", async () => {
-    const headRace = new RecordingTransaction(null, false);
+    const missingHead = new RecordingTransaction(null);
+    await expect(
+      appendAuditEventInTransaction(missingHead, event()),
+    ).rejects.toThrow(/seeded audit chain head is missing.*corrupt/i);
+    expect(missingHead.calls).toEqual(["lock-head"]);
+
+    const headRace = new RecordingTransaction(GENESIS_HEAD, false);
     await expect(
       appendAuditEventInTransaction(headRace, event()),
     ).rejects.toThrow(/transaction must roll back/i);
     expect(headRace.calls).toEqual([
       "lock-head",
-      "insert-event",
-      "insert-ledger",
+      "insert-event-and-ledger",
       "insert-export-intent",
       "advance-head",
     ]);
 
-    const eventFailure = new RecordingTransaction(null, true, "event");
+    const eventFailure = new RecordingTransaction(
+      GENESIS_HEAD,
+      true,
+      "event-and-ledger",
+    );
     await expect(
       appendAuditEventInTransaction(eventFailure, event()),
-    ).rejects.toThrow("event insert failed");
-    expect(eventFailure.calls).toEqual(["lock-head", "insert-event"]);
+    ).rejects.toThrow("event and ledger insert failed");
+    expect(eventFailure.calls).toEqual([
+      "lock-head",
+      "insert-event-and-ledger",
+    ]);
 
-    const intentFailure = new RecordingTransaction(null, true, "intent");
+    const intentFailure = new RecordingTransaction(
+      GENESIS_HEAD,
+      true,
+      "intent",
+    );
     await expect(
       appendAuditEventInTransaction(intentFailure, event()),
     ).rejects.toThrow("intent insert failed");
     expect(intentFailure.calls).toEqual([
       "lock-head",
-      "insert-event",
-      "insert-ledger",
+      "insert-event-and-ledger",
       "insert-export-intent",
     ]);
   });

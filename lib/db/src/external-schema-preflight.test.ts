@@ -337,7 +337,10 @@ function realBundleInput(): MigrationBundleInput {
   const sqlByTag = new Map(
     migrationSqlFileNames.map((file) => [
       file.slice(0, -4),
-      readFileSync(path.join(migrationsDir, file), "utf8"),
+      readFileSync(path.join(migrationsDir, file), "utf8").replace(
+        /\r\n?/g,
+        "\n",
+      ),
     ]),
   );
   return {
@@ -471,12 +474,18 @@ describe("external schema preflight environment", () => {
 });
 
 describe("external schema migration bundle", () => {
-  it("pins the real 105-entry bundle, 0104 predecessor, 0105 target and hashes", () => {
-    const bundle = loadAndValidateExternalSchemaMigrationBundle(migrationsDir);
+  it("pins the historical 105-entry bundle, 0104 predecessor, 0105 target and hashes", () => {
+    const bundle = validateExternalSchemaMigrationBundle(realBundleInput());
     assert.equal(bundle.pre.length, 104);
     assert.equal(bundle.post.length, 105);
     assert.deepEqual(bundle.pre.at(-1), EXTERNAL_SCHEMA_MIGRATIONS.predecessor);
     assert.deepEqual(bundle.post.at(-1), EXTERNAL_SCHEMA_MIGRATIONS.target);
+  });
+
+  it("refuses to reinterpret a 0107-bearing image as the legacy 0105 runtime", () => {
+    expectCode("JOURNAL_COUNT_MISMATCH", () =>
+      loadAndValidateExternalSchemaMigrationBundle(migrationsDir),
+    );
   });
 
   it("rejects excluded 0100, duplicate journal identity and SQL hash drift", () => {
@@ -898,7 +907,7 @@ describe("fixed staging predecessor baseline contract", () => {
 
 describe("exact live migration set", () => {
   it("accepts only the exact 104-row pre set or 105-row post set", () => {
-    const bundle = loadAndValidateExternalSchemaMigrationBundle(migrationsDir);
+    const bundle = validateExternalSchemaMigrationBundle(realBundleInput());
     const preRows = bundle.pre.map((migration) => ({
       created_at: migration.when,
       hash: migration.hash,
@@ -934,7 +943,7 @@ describe("exact live migration set", () => {
   });
 
   it("allows only the pinned 0106 continuation in external steady state", () => {
-    const bundle = loadAndValidateExternalSchemaMigrationBundle(migrationsDir);
+    const bundle = validateExternalSchemaMigrationBundle(realBundleInput());
     const postRows = bundle.post.map((migration) => ({
       created_at: migration.when,
       hash: migration.hash,
@@ -989,7 +998,7 @@ describe("exact live migration set", () => {
   });
 
   it("classifies only an exact prefix as baseline, 0104-ready or 0105-ready", () => {
-    const bundle = loadAndValidateExternalSchemaMigrationBundle(migrationsDir);
+    const bundle = validateExternalSchemaMigrationBundle(realBundleInput());
     const rows = bundle.post.map((migration) => ({
       created_at: migration.when,
       hash: migration.hash,
