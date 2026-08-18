@@ -618,7 +618,6 @@ async function collectCoolifyReadOnlyExportCore(
   const challenge = createChallenge(startedAt, timeoutMs, random);
   const timeout = new AbortController();
   const timer = setTimeout(() => timeout.abort(), timeoutMs);
-  timer.unref?.();
   const signal = AbortSignal.any([request.signal, timeout.signal]);
   try {
     const first = await observationCycle(

@@ -379,7 +379,7 @@ test("host bridge discards stderr and never echoes subprocess material", async (
   );
 });
 
-test("honors external abort and the hard timeout without invoking production Docker", async () => {
+test("honors an external abort without invoking production Docker", async () => {
   const externallyAborted = new AbortController();
   externallyAborted.abort();
   await assert.rejects(
@@ -389,12 +389,25 @@ test("honors external abort and the hard timeout without invoking production Doc
     }),
     /PRODUCTION_COOLIFY_OBSERVER_ABORTED/,
   );
+});
+
+test("keeps the hard timeout referenced until a pending authority read is aborted", async () => {
+  let authorityCalls = 0;
+  let authoritySignal;
+
   await assert.rejects(
     testCore.collect(request({ timeoutMs: 100 }), {
-      readAttestation: () => new Promise(() => undefined),
+      readAttestation: ({ signal }) => {
+        authorityCalls += 1;
+        authoritySignal = signal;
+        return new Promise(() => undefined);
+      },
       now: () => NOW,
       random: () => Buffer.alloc(32, 4),
     }),
     /PRODUCTION_COOLIFY_OBSERVER_ABORTED/,
   );
+
+  assert.equal(authorityCalls, 1);
+  assert.equal(authoritySignal.aborted, true);
 });
