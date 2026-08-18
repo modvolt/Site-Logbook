@@ -74,7 +74,7 @@ export const PRODUCTION_MIGRATION_AUTHORITY_BINDINGS = Object.freeze({
       AUTHORITY_DIRECTORY,
       "production-migration-role-authority.ts",
     ),
-    sha256: "3aa36563d041ed5642ad27f3f6dc22429c2d16efda3df7d4b5c3d3d122ff3e0e",
+    sha256: "ce5a973824481fc2897f5c172e7349f0f6c8bc6be5302e6e7f64619425100c71",
   }),
 });
 

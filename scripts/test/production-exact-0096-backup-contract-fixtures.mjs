@@ -179,15 +179,17 @@ function step(sequence, kind, occurredAt, artifact) {
 export function fixtureExecutorTrace(plan) {
   const sourceBefore = {
     observedAt: "2026-08-12T10:00:10.000Z",
-    database: fixtureProductionDatabase(),
+    database: structuredClone(plan.value.sourceDatabase),
     inventory: fixtureExact0096Inventory(),
-    runtimeBinding: fixtureProductionRuntimeBinding(),
+    runtimeBinding: structuredClone(plan.value.runtimeBinding),
     schemaFingerprintSha256: fixtureDigest("a"),
   };
   const stoppedWritersProofBefore = fixtureStoppedWritersProof({
     proofId: "f".repeat(64),
     quiescentSince: "2026-08-12T10:00:15.000Z",
     observedAt: "2026-08-12T10:01:15.000Z",
+    database: plan.value.sourceDatabase,
+    runtimeBinding: plan.value.runtimeBinding,
   });
   const sourceSnapshot = fixtureTableSnapshot();
   const dump = {
@@ -281,11 +283,13 @@ export function fixtureExecutorTrace(plan) {
     proofId: "e".repeat(64),
     quiescentSince: "2026-08-12T10:05:00.000Z",
     observedAt: "2026-08-12T10:06:00.000Z",
+    database: plan.value.sourceDatabase,
+    runtimeBinding: plan.value.runtimeBinding,
   });
   const sourceAfter = {
     observedAt: afterProof.observedAt,
     inventory: fixtureExact0096Inventory(),
-    runtimeBinding: fixtureProductionRuntimeBinding(),
+    runtimeBinding: structuredClone(plan.value.runtimeBinding),
     stoppedWritersProof: afterProof,
     stoppedWritersProofSha256: artifactDigest(afterProof),
     schemaFingerprintSha256: fixtureDigest("a"),

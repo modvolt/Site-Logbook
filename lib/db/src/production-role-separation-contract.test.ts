@@ -195,6 +195,13 @@ test("manifest exactly covers committed public tables, serial sequences and func
       ...body.matchAll(/^\s*"?([a-z_][a-z0-9_]*)"?\s+(?:big)?serial\b/gim),
     ].map((column) => `${table}_${column[1]!}_seq`);
   });
+  const identitySequences = tableMatches
+    .flatMap((match) => [
+      ...match[2]!.matchAll(
+        /GENERATED\s+(?:ALWAYS|BY\s+DEFAULT)\s+AS\s+IDENTITY\s*\(\s*sequence\s+name\s+"?([a-z_][a-z0-9_]*)"?/gi,
+      ),
+    ])
+    .map((sequence) => sequence[1]!);
   const explicitSequences = [
     ...sql.matchAll(
       /CREATE\s+SEQUENCE\s+(?:"?public"?\.)?"?([a-z_][a-z0-9_]*)"?/gi,
@@ -225,7 +232,13 @@ test("manifest exactly covers committed public tables, serial sequences and func
     REQUIRED_SEQUENCE_GRANTS.filter((grant) => grant.schema === "public")
       .map((grant) => grant.name)
       .sort(),
-    [...new Set([...serialSequences, ...explicitSequences])].sort(),
+    [
+      ...new Set([
+        ...serialSequences,
+        ...identitySequences,
+        ...explicitSequences,
+      ]),
+    ].sort(),
   );
   assert.deepEqual(
     REQUIRED_FUNCTION_GRANTS.map(
@@ -244,7 +257,7 @@ test("manifest exactly covers committed public tables, serial sequences and func
       },
     ],
   );
-  assert.equal(REQUIRED_SEQUENCE_GRANTS.length, 95);
+  assert.equal(REQUIRED_SEQUENCE_GRANTS.length, 96);
   assert.equal(REQUIRED_FUNCTION_GRANTS.length, 29);
   assert.deepEqual(
     REQUIRED_SEQUENCE_GRANTS.find(
@@ -455,7 +468,7 @@ test("plan is deterministic, exact-schema, credential-free and disabled by defau
   ]);
   assert.equal(
     plan.planSha256,
-    "4009615498d38b37cc33404b204476b99e9e2164d2dd03292ddc889da876afb8",
+    "1a5a298bf6d9700b2d458ebadc7957c53ca186351872a277e89436601652439c",
   );
   assert.equal(plan.executionDefault, "disabled");
   assert.doesNotMatch(
@@ -467,6 +480,14 @@ test("plan is deterministic, exact-schema, credential-free and disabled by defau
     /NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS/,
   );
   assert.match(plan.statements.join("\n"), /REVOKE CREATE ON SCHEMA/);
+  assert.match(
+    plan.statements.join("\n"),
+    /ALTER SEQUENCE "public"\."job_number_seq" OWNER TO "site_logbook_migrator"/,
+  );
+  assert.doesNotMatch(
+    plan.statements.join("\n"),
+    /ALTER SEQUENCE "public"\."jobs_id_seq" OWNER/,
+  );
   assert.doesNotMatch(plan.statements.join("\n"), /^GRANT\s+ON/gm);
   assert.match(
     plan.statements.join("\n"),

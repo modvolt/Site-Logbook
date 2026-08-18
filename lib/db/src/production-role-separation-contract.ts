@@ -280,6 +280,7 @@ export const REQUIRED_TABLE_GRANTS: readonly RequiredTableGrant[] = [
 });
 
 const requiredSequenceNames = [
+  "accounting_aggregate_heads_id_seq",
   "activities_id_seq",
   "activity_attachments_id_seq",
   "activity_extra_works_id_seq",
@@ -1333,6 +1334,9 @@ BEGIN
     EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE ${migrator} IN SCHEMA drizzle REVOKE ALL PRIVILEGES ON TABLES FROM %I', target_role);
     EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE ${migrator} IN SCHEMA drizzle REVOKE ALL PRIVILEGES ON SEQUENCES FROM %I', target_role);
     EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE ${migrator} IN SCHEMA drizzle REVOKE ALL PRIVILEGES ON FUNCTIONS FROM %I', target_role);
+    EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE ${migrator} REVOKE ALL PRIVILEGES ON TABLES FROM %I', target_role);
+    EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE ${migrator} REVOKE ALL PRIVILEGES ON SEQUENCES FROM %I', target_role);
+    EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE ${migrator} REVOKE ALL PRIVILEGES ON FUNCTIONS FROM %I', target_role);
   END LOOP;
   FOR column_acl IN
     SELECT namespace.nspname, relation.relname, attribute.attname, role.rolname
@@ -1369,6 +1373,9 @@ $role_acl$`;
     `GRANT USAGE ON SCHEMA "public" TO PUBLIC`,
     `REVOKE ALL ON SCHEMA "public", "drizzle" FROM ${runtime}`,
     `GRANT USAGE ON SCHEMA "public", "drizzle" TO ${runtime}`,
+    `ALTER DEFAULT PRIVILEGES FOR ROLE ${migrator} REVOKE ALL PRIVILEGES ON TABLES FROM PUBLIC, ${runtime}`,
+    `ALTER DEFAULT PRIVILEGES FOR ROLE ${migrator} REVOKE ALL PRIVILEGES ON SEQUENCES FROM PUBLIC, ${runtime}`,
+    `ALTER DEFAULT PRIVILEGES FOR ROLE ${migrator} REVOKE ALL PRIVILEGES ON FUNCTIONS FROM PUBLIC, ${runtime}`,
     `ALTER DEFAULT PRIVILEGES FOR ROLE ${migrator} IN SCHEMA "public" REVOKE ALL PRIVILEGES ON TABLES FROM PUBLIC, ${runtime}`,
     `ALTER DEFAULT PRIVILEGES FOR ROLE ${migrator} IN SCHEMA "public" REVOKE ALL PRIVILEGES ON SEQUENCES FROM PUBLIC, ${runtime}`,
     `ALTER DEFAULT PRIVILEGES FOR ROLE ${migrator} IN SCHEMA "public" REVOKE ALL PRIVILEGES ON FUNCTIONS FROM PUBLIC, ${runtime}`,
@@ -1383,7 +1390,14 @@ $role_acl$`;
       (item) =>
         `ALTER TABLE ${qualified(item.schema, item.name)} OWNER TO ${migrator}`,
     ),
-    ...REQUIRED_SEQUENCE_GRANTS.map(
+    // The pre-0107 bootstrap already transfers every existing table-owned
+    // sequence, and later serial/identity sequences are created by the
+    // migration role. PostgreSQL rejects direct ownership changes for linked
+    // identity sequences, so the final ceremony only transfers the one
+    // reviewed standalone sequence.
+    ...REQUIRED_SEQUENCE_GRANTS.filter(
+      (item) => item.name === "job_number_seq",
+    ).map(
       (item) =>
         `ALTER SEQUENCE ${qualified(item.schema, item.name)} OWNER TO ${migrator}`,
     ),
@@ -1855,13 +1869,15 @@ SELECT jsonb_build_object(
     WHERE namespace.nspname !~ '^pg_' AND namespace.nspname <> 'information_schema'),
   'defaultPrivileges', (SELECT jsonb_agg(jsonb_build_object(
       'schema', namespace.nspname, 'kind', requested_kind.kind, 'owner', owner.rolname,
-      'publicPrivileges', ARRAY(SELECT acl.privilege_type
-        FROM aclexplode(COALESCE(default_acl.defaclacl,
-          acldefault(requested_kind.acl_kind, owner.oid))) acl
+      'publicPrivileges', ARRAY(SELECT DISTINCT acl.privilege_type
+        FROM aclexplode(COALESCE(global_default_acl.defaclacl,
+          acldefault(requested_kind.acl_kind, owner.oid)) ||
+          COALESCE(schema_default_acl.defaclacl, ARRAY[]::aclitem[])) acl
         WHERE acl.grantee = 0 ORDER BY acl.privilege_type),
-      'runtimePrivileges', ARRAY(SELECT acl.privilege_type
-        FROM aclexplode(COALESCE(default_acl.defaclacl,
-          acldefault(requested_kind.acl_kind, owner.oid))) acl
+      'runtimePrivileges', ARRAY(SELECT DISTINCT acl.privilege_type
+        FROM aclexplode(COALESCE(global_default_acl.defaclacl,
+          acldefault(requested_kind.acl_kind, owner.oid)) ||
+          COALESCE(schema_default_acl.defaclacl, ARRAY[]::aclitem[])) acl
         JOIN pg_roles grantee ON grantee.oid = acl.grantee
         WHERE grantee.rolname = r.runtime_role ORDER BY acl.privilege_type),
       'otherGrants', (SELECT COALESCE(jsonb_agg(jsonb_build_object(
@@ -1869,8 +1885,9 @@ SELECT jsonb_build_object(
           ORDER BY direct.grantee), '[]'::jsonb)
         FROM (SELECT grantee.rolname AS grantee,
             array_agg(acl.privilege_type ORDER BY acl.privilege_type) AS privileges
-          FROM aclexplode(COALESCE(default_acl.defaclacl,
-            acldefault(requested_kind.acl_kind, owner.oid))) acl
+          FROM aclexplode(COALESCE(global_default_acl.defaclacl,
+            acldefault(requested_kind.acl_kind, owner.oid)) ||
+            COALESCE(schema_default_acl.defaclacl, ARRAY[]::aclitem[])) acl
           JOIN pg_roles grantee ON grantee.oid = acl.grantee
           WHERE grantee.rolname NOT IN (r.runtime_role, owner.rolname)
           GROUP BY grantee.rolname) direct)))
@@ -1879,9 +1896,12 @@ SELECT jsonb_build_object(
     CROSS JOIN (VALUES ('table', 'r'::"char", 'r'::"char"), ('sequence', 'S'::"char", 's'::"char"),
       ('function', 'f'::"char", 'f'::"char")) requested_kind(kind, catalog_kind, acl_kind)
     JOIN pg_namespace namespace ON namespace.nspname IN ('public', 'drizzle')
-    LEFT JOIN pg_default_acl default_acl ON default_acl.defaclrole = owner.oid
-      AND default_acl.defaclnamespace = namespace.oid
-      AND default_acl.defaclobjtype = requested_kind.catalog_kind),
+    LEFT JOIN pg_default_acl global_default_acl ON global_default_acl.defaclrole = owner.oid
+      AND global_default_acl.defaclnamespace = 0
+      AND global_default_acl.defaclobjtype = requested_kind.catalog_kind
+    LEFT JOIN pg_default_acl schema_default_acl ON schema_default_acl.defaclrole = owner.oid
+      AND schema_default_acl.defaclnamespace = namespace.oid
+      AND schema_default_acl.defaclobjtype = requested_kind.catalog_kind),
   'relations', (SELECT jsonb_agg(jsonb_build_object(
       'kind', CASE relation.relkind WHEN 'S' THEN 'sequence' ELSE 'table' END,
       'schema', namespace.nspname, 'name', relation.relname, 'identityArguments', '',

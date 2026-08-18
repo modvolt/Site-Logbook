@@ -213,9 +213,10 @@ function normalizeProjection(
   } as unknown as ProductionRoleProjection;
   const validation = validateProductionRoleProjection(projection);
   if (!validation.ok) {
+    const first = validation.errors[0];
     fail(
       "PRODUCTION_MIGRATION_ROLE_PROJECTION_INVALID",
-      "Projection failed the source role contract.",
+      `Projection failed the source role contract at ${first.code}:${first.path}.`,
     );
   }
   return Object.freeze(projection);

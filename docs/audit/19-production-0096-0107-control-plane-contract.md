@@ -1,15 +1,17 @@
 # Production 0096 → 0107 control-plane contract
 
 Status: contract, planner, verifier, dependency-injected production adapter,
-source-pinned runtime/role authorities and an attended executable are
-implemented. The executable remains default-dark: there is no image/Compose
-wiring, production descriptor or role activation, deployment or
-application-start authorization.
+source-pinned runtime/role authorities, exact-0096 role bootstrap and an
+attended host operator are implemented. The operator bundle is emitted only in
+the explicit control-plane build and remains default-dark: no production
+descriptor, role activation, connection material, Compose command, deployment
+or application-start authorization is committed.
 
 ## Attended executable
 
 `pnpm production:migration -- <command> ...` exposes only `prepare`, `inspect`,
-`resume`, `apply` and `finalize`. There is deliberately no all-in-one command.
+`resume`, `apply`, `apply-role-ceremony` and `finalize`. There is deliberately
+no all-in-one command.
 Every invocation re-loads the same strict descriptor and validates the exact
 signed v3 backup plan and `PASS` restore receipt, its executor trace, current
 signature envelope and detached Ed25519 signature against the source-pinned
@@ -108,6 +110,54 @@ restore-required classification.
 `pnpm test:production-migration-runner:pg16` disposable PostgreSQL 16 wiring
 test; it is not read by the production CLI and the test is skipped when absent.
 
+## Production host operator and role bootstrap
+
+`artifacts/api-server/src/production-migration-host-operator.ts` is a
+control-plane-only entry point. The ordinary runtime and final production image
+do not contain it. It statically bundles the exact source-pinned authorities and
+provides three preparation commands before delegating the six receipt-backed
+migration commands above:
+
+1. `role-bootstrap` consumes canonical schema
+   `site-logbook.production-migration-role-bootstrap-request/v1` and exact
+   confirmation `BOOTSTRAP_EXACT_0096_PRODUCTION_DB_ROLES_BEFORE_MIGRATION`. In one
+   serializable advisory-locked transaction it creates a distinct `NOLOGIN`
+   migrator and passwordless runtime role, transfers only the exact reviewed
+   0096 database/schema/object ownership, applies exact ACL/default-ACL/search
+   path boundaries, proves `SET LOCAL ROLE`, and persists the precondition and
+   non-authorizing receipt with exclusive mode-0600 custody. It never creates a
+   runtime password or changes an application deployment.
+2. `observe-baseline` consumes canonical schema
+   `site-logbook.production-migration-baseline-observation-request/v1` and exact
+   confirmation
+   `OBSERVE_EXACT_0096_PRODUCTION_MIGRATION_BASELINE_READ_ONLY`. It reuses the
+   signed backup plan, source-pinned Docker observer and read-only PostgreSQL
+   inventory to persist exact target and live-identity artifacts after role
+   bootstrap.
+3. `assemble-runner` consumes canonical schema
+   `site-logbook.production-migration-runner-assembly-request/v1` and exact
+   confirmation `ASSEMBLE_EXACT_0096_PRODUCTION_MIGRATION_ARTIFACTS`. It
+   verifies the detached backup signature and every plan input, binds the fresh
+   live identity to the audited session and migrator, creates the disabled
+   descriptor and exact role-ceremony activation, and creates an empty
+   mode-0700 migration artifact directory. Activation still requires the later
+   separate `apply-role-ceremony` confirmation and never authorizes app start.
+
+The connection string is available only through
+`PRODUCTION_MIGRATION_DATABASE_URL`; it is never accepted in argv, request JSON,
+stdout or durable evidence. The control-plane bundle may be extracted with its
+matching glibc Node binary to a protected host tools directory so the fixed-argv
+runtime authority can use the host Docker CLI without exposing
+`/var/run/docker.sock` to a container. This extraction is an operational build
+step, not a deployment of the application.
+
+`pnpm test:production-migration-role-bootstrap:pg16` is the opt-in real
+PostgreSQL 16 regression. With `PRODUCTION_ROLE_BOOTSTRAP_PG16_URL` pointing to
+an isolated empty database it creates exact 0096 plus the two opaque rows,
+performs the real bootstrap, applies the exact ten migrations through the
+migrator and executes the real post-0107 role ceremony. It is never part of a
+production command and skips when the variable is absent.
+
 ## Exact authority and role-custody activation boundary
 
 Arbitrary operator-supplied module paths are no longer accepted. The CLI
@@ -121,12 +171,12 @@ rejects every other id/digest pair before reading connection custody.
   `docker-readonly-observer.mjs` returns a broader host-export schema and does
   not by itself prove every field of the exact immutable migration binding.
 - `lib/db/src/production-migration-role-authority.ts` exports the real
-  precondition and post-commit validators. Its post-commit validator still
-  requires the exact role transaction receipt and projection bytes.
-  `lib/db/src/production-role-separation-contract.ts` provides
-  `createOneShotProductionRoleExecutor()` and read-only
-  `PRODUCTION_ROLE_PROJECTION_SQL`, but neither receipt custody nor a PostgreSQL
-  executor adapter is wired into this CLI.
+  precondition and post-commit validators. Its post-commit validator requires
+  the exact role transaction receipt and projection bytes.
+  `scripts/production-evidence/production-migration-role-authority.ts` binds
+  those validators to `createOneShotProductionRoleExecutor()`, read-only
+  `PRODUCTION_ROLE_PROJECTION_SQL`, the advisory-lock transaction and exclusive
+  receipt custody used by the host operator.
 
 The implemented reviewed slice is:
 
@@ -154,10 +204,11 @@ The implemented reviewed slice is:
    secret or invents role evidence.
 
 Hermetic tests cover fixed Docker argv, drift, abort, default-dark ceremony
-confirmation and full ten-receipt ordering. Real execution remains blocked on
-an exact reviewed production descriptor and activation plus the already
-separate operational approvals. This is not a deployment, merge or
-application-start authorization.
+confirmation, descriptor assembly and full ten-receipt ordering. The opt-in
+PostgreSQL 16 regression covers the actual bootstrap, all ten SQL migrations and
+the actual post-commit role projection. Real execution still requires an exact
+attended production request, fresh observation and separate operational
+approval. This is not a deployment, merge or application-start authorization.
 
 ## Frozen lineage
 

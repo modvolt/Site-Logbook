@@ -116,7 +116,8 @@ COPY --from=builder /repo/scripts/start-api-production.sh ./scripts/start-api-pr
 COPY --from=builder /repo/scripts/check-audit-0107-release-evidence.mjs ./scripts/check-audit-0107-release-evidence.mjs
 RUN test -f /app/.site-logbook-control-plane-image \
     && test -f /app/dist/production-exact-0096-backup-producer.mjs \
-    && test -f /app/dist/production-exact-0096-backup-host-worker.mjs
+    && test -f /app/dist/production-exact-0096-backup-host-worker.mjs \
+    && test -f /app/dist/production-migration-host-operator.mjs
 RUN chown -R node:node /app/dist /app/scripts
 USER node
 

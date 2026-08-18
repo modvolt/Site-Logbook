@@ -8,7 +8,10 @@ import {
   createProductionMigrationLiveIdentity,
 } from "../production-evidence/production-migration-contract.mjs";
 import { createProductionExact0096BackupPlan } from "../production-evidence/production-exact-0096-backup-planner.mjs";
-import { canonicalProductionExact0096BackupJson } from "../production-evidence/production-exact-0096-backup-contract.mjs";
+import {
+  canonicalProductionExact0096BackupJson,
+  productionExact0096BackupSha256,
+} from "../production-evidence/production-exact-0096-backup-contract.mjs";
 import { runProductionExact0096BackupEvidenceExecutor } from "../production-evidence/production-exact-0096-backup-receipt.mjs";
 import {
   createProductionExact0096BackupSignatureEnvelope,
@@ -45,6 +48,20 @@ async function buildFixturePlanInput(
     name: "site_logbook",
     sessionUser: "site_logbook_executor",
     currentUser: "site_logbook_backup",
+  };
+  const sourceDatabase = {
+    ...backupPlanInput.sourceDatabase,
+    user: database.sessionUser,
+  };
+  backupPlanInput = {
+    ...backupPlanInput,
+    sourceDatabase,
+    stoppedWritersProof: {
+      ...backupPlanInput.stoppedWritersProof,
+      databaseIdentitySha256: productionExact0096BackupSha256(
+        canonicalProductionExact0096BackupJson(sourceDatabase),
+      ),
+    },
   };
   const targetEvidence = createProductionMigrationArtifact({
     schemaVersion: "site-logbook.production-migration-target-evidence/v1",

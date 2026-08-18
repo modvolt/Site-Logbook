@@ -225,7 +225,7 @@ export function parseProductionMigrationBackupBinding(value, expected) {
     signatureEnvelope.executorBuildSha !== executor.buildSha ||
     signatureEnvelope.executorImageRef !== executor.imageRef ||
     backupPlan.value.sourceDatabase.name !== expected.database.name ||
-    backupPlan.value.sourceDatabase.user !== expected.database.currentUser ||
+    backupPlan.value.sourceDatabase.user !== expected.database.sessionUser ||
     backupPlan.value.baseline.knownAppliedRowsSha256 !==
       PRODUCTION_MIGRATION_PREFIX_STATES[0].knownAppliedRowsSha256 ||
     backupPlan.value.runtimeBindingSha256 !== expected.runtimeBindingSha256 ||

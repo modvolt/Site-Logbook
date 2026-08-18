@@ -212,8 +212,11 @@ test("binds backup v3 live source and executor as distinct exact identities", as
   const signatureEnvelope = JSON.parse(
     plan.value.backupSignatureEnvelopeCanonical,
   );
+  const database = plan.value.database;
 
   assert.equal(plan.value.sourceSha, backupPlan.liveSource.sha);
+  assert.equal(backupPlan.sourceDatabase.user, database.sessionUser);
+  assert.notEqual(backupPlan.sourceDatabase.user, database.currentUser);
   assert.equal(
     JSON.parse(plan.value.baselineLiveIdentityCanonical).applicationImageRef,
     backupPlan.liveSource.imageRef,
