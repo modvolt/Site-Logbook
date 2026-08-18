@@ -1434,7 +1434,11 @@ export async function runProductionExact0096HostExecution(
           restoreId,
           environmentId: "site-logbook-production-backup-restore-drill",
           startedAt: restoreLifecycle.startedAt,
-          completedAt: observed.observedAt,
+          // The database identity is observed before the full 91-relation
+          // measurement.  The restore is complete only when that frozen
+          // measurement has finished; using the earlier identity timestamp
+          // makes the canonical receipt reject its own later snapshot.
+          completedAt: observed.tableSnapshot.observedAt,
           database: restoreLifecycle.database,
           runtimeBinding: restoreLifecycle.runtimeBinding,
           newDisposableDatabase: true,

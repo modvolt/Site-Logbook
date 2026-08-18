@@ -226,7 +226,10 @@ async function createHarness(
     }
     if (request.operation === "observe-restore") {
       return {
-        observedAt: "2026-08-12T10:04:50.000Z",
+        // The identity query completes before the relation measurement.  Keep
+        // these timestamps distinct so the production runner cannot regress
+        // to recording the pre-snapshot time as restore completion.
+        observedAt: "2026-08-12T10:04:40.000Z",
         database: {
           name: request.restore.database,
           user: request.restore.user,
@@ -626,6 +629,14 @@ test("host handlers reach a real PASS receipt with fixed container lifecycle and
     assert.equal(
       result.trace.value.restore.schemaFingerprintSha256,
       plan.value.schemaFingerprintSha256,
+    );
+    assert.equal(
+      result.trace.value.restore.completedAt,
+      result.trace.value.restore.tableSnapshot.observedAt,
+    );
+    assert.equal(
+      result.trace.value.restore.completedAt,
+      "2026-08-12T10:04:50.000Z",
     );
     assert.equal(lifecycleClosed, 1);
     const create = harness.calls.find(
