@@ -29,9 +29,15 @@ const USER = "postgres_observer_fixture_admin";
 const JOURNAL = Object.freeze([
   Object.freeze({ createdAt: 1_700_000_000_000, hash: "e".repeat(64) }),
 ]);
-const emptyCatalog = canonicalAuditSchemaCatalogProjection({
+const fixtureCatalog = canonicalAuditSchemaCatalogProjection({
   schemaVersion: "site-logbook.audit-schema-catalog/v1",
-  namespaces: [],
+  namespaces: [
+    {
+      schema_name: "public",
+      owner: "pg_database_owner",
+      acl: ["pg_database_owner=UC/pg_database_owner", "=U/pg_database_owner"],
+    },
+  ],
   tables: [],
   columns: [],
   functions: [],
@@ -39,7 +45,7 @@ const emptyCatalog = canonicalAuditSchemaCatalogProjection({
   indexes: [],
   triggers: [],
 } as AuditSchemaCatalogProjection);
-const FINGERPRINT = auditSchemaFingerprintSha256(emptyCatalog);
+const FINGERPRINT = auditSchemaFingerprintSha256(fixtureCatalog);
 
 export function assertProductionHostPostgresObserverPg16OptIn(
   confirmation: unknown,
