@@ -37,7 +37,9 @@ export function formatQuoteInput(value: number, decimals = 2): string {
   return String(Object.is(rounded, -0) ? 0 : rounded);
 }
 
-export function createQuoteFormRow(rowType: QuoteRowType = "item"): QuoteFormRow {
+export function createQuoteFormRow(
+  rowType: QuoteRowType = "item",
+): QuoteFormRow {
   nextClientRowId += 1;
   return {
     clientId: `quote-row-${nextClientRowId}`,
@@ -57,7 +59,10 @@ export function marginPercentFromPrices(
   unitPrice: number,
 ): number | null {
   if (purchaseUnitPrice === 0) return unitPrice === 0 ? 0 : null;
-  return Math.round(((unitPrice - purchaseUnitPrice) / purchaseUnitPrice) * 10_000) / 100;
+  return (
+    Math.round(((unitPrice - purchaseUnitPrice) / purchaseUnitPrice) * 10_000) /
+    100
+  );
 }
 
 export function unitPriceFromMargin(
@@ -65,7 +70,7 @@ export function unitPriceFromMargin(
   marginPercent: number,
 ): number | null {
   if (marginPercent < -100) return null;
-  return Math.round((purchaseUnitPrice * (1 + marginPercent / 100)) * 100) / 100;
+  return Math.round(purchaseUnitPrice * (1 + marginPercent / 100) * 100) / 100;
 }
 
 export function hasInvalidQuoteMargin(row: QuoteFormRow): boolean {
@@ -156,7 +161,10 @@ export function validateQuoteFormRows(rows: QuoteFormRow[]): string | null {
     if (unitPrice == null || unitPrice < 0) {
       return `Doplňte platnou prodejní cenu položky „${row.description.trim()}“.`;
     }
-    if (row.purchaseUnitPrice.trim() !== "" && (purchaseUnitPrice == null || purchaseUnitPrice < 0)) {
+    if (
+      row.purchaseUnitPrice.trim() !== "" &&
+      (purchaseUnitPrice == null || purchaseUnitPrice < 0)
+    ) {
       return `Doplňte platnou nákupní cenu položky „${row.description.trim()}“.`;
     }
   }

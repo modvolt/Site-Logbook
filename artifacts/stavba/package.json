@@ -56,13 +56,14 @@
     "@vitejs/plugin-react": "catalog:",
     "@workspace/api-client-react": "workspace:*",
     "@workspace/live-events": "workspace:*",
-    "@zxing/browser": "^0.2.0",
+    "@zxing/browser": "^0.2.1",
     "@zxing/library": "^0.23.0",
     "class-variance-authority": "catalog:",
     "clsx": "catalog:",
     "cmdk": "^1.1.1",
     "date-fns": "^3.6.0",
     "embla-carousel-react": "^8.6.0",
+    "fake-indexeddb": "^6.2.5",
     "fflate": "^0.8.3",
     "framer-motion": "catalog:",
     "html2canvas-pro": "^2.0.4",
@@ -102,6 +103,6 @@
     "heic2any": "^0.0.4",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.8",
-    "xlsx": "^0.18.5"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   }
 }

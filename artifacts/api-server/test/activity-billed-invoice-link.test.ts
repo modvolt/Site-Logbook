@@ -183,7 +183,7 @@ describe("activity billed-invoice link (serializeActivity)", () => {
       .select()
       .from(activitiesTable)
       .where(inArray(activitiesTable.id, [billedId, unbilledId]));
-    const serialized = await Promise.all(rows.map(serializeActivity));
+    const serialized = await Promise.all(rows.map((row) => serializeActivity(row)));
     const byId = new Map(serialized.map((s) => [s.id, s]));
 
     expect(byId.get(billedId)?.billedInvoiceId).toBe(invoice.id);

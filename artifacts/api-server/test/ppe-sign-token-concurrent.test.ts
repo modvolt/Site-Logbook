@@ -1,15 +1,16 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
-import { eq, inArray } from "drizzle-orm";
-import { randomUUID } from "crypto";
+import { eq } from "drizzle-orm";
 import request from "supertest";
 import {
   db,
   ppeItemsTable,
   ppeAssignmentsTable,
   peopleTable,
+  usersTable,
 } from "@workspace/db";
 import app from "../src/app";
 import { ObjectStorageService } from "../src/lib/objectStorage";
+import { issuePpePublicEvidenceToken } from "../src/lib/ppe-public-evidence";
 
 /**
  * Concurrent PPE employee self-sign race guard.
@@ -39,6 +40,7 @@ const MINIMAL_PNG =
 
 let personId: number;
 let itemId: number;
+let issuerId: number;
 
 const personIds: number[] = [];
 const itemIds: number[] = [];
@@ -51,6 +53,15 @@ beforeAll(async () => {
   vi.spyOn(ObjectStorageService.prototype, "deletePrivateObject").mockResolvedValue(
     undefined as unknown as void,
   );
+
+  const [issuer] = await db.insert(usersTable).values({
+    username: `${TAG}-issuer`,
+    passwordHash: "not-used",
+    name: `Issuer ${TAG}`,
+    role: "admin",
+    isActive: true,
+  }).returning();
+  issuerId = issuer!.id;
 
   const [person] = await db
     .insert(peopleTable)
@@ -69,17 +80,9 @@ beforeAll(async () => {
 
 afterAll(async () => {
   vi.restoreAllMocks();
-
-  if (assignmentIds.length > 0)
-    await db.delete(ppeAssignmentsTable).where(inArray(ppeAssignmentsTable.id, assignmentIds));
-  if (itemIds.length > 0)
-    await db.delete(ppeItemsTable).where(inArray(ppeItemsTable.id, itemIds));
-  if (personIds.length > 0)
-    await db.delete(peopleTable).where(inArray(peopleTable.id, personIds));
 });
 
 async function makeIssuedAssignment(): Promise<{ id: number; token: string }> {
-  const token = randomUUID();
   const todayStr = new Date().toISOString().slice(0, 10);
   const [assignment] = await db
     .insert(ppeAssignmentsTable)
@@ -91,10 +94,15 @@ async function makeIssuedAssignment(): Promise<{ id: number; token: string }> {
       quantity: 1,
       issuedAt: todayStr,
       status: "issued",
-      signatureToken: token,
     })
     .returning();
   assignmentIds.push(assignment.id);
+  const { token } = await issuePpePublicEvidenceToken({
+    assignmentId: assignment.id,
+    purpose: "ppe_signature",
+    expiresAt: new Date(Date.now() + 10 * 60_000),
+    createdByUserId: issuerId,
+  });
   return { id: assignment.id, token };
 }
 
@@ -137,7 +145,7 @@ describe("concurrent PPE employee self-sign — double-sign race guard", () => {
     expect(loser.status).toBe(409);
     expect(typeof loser.body.error).toBe("string");
     expect(loser.body.error.length).toBeGreaterThan(0);
-    expect(loser.body.error).toMatch(/podepsán/i);
+    expect(loser.body.error).toMatch(/použit|podepsán/i);
   });
 
   it("employeeConfirmedAt is set exactly once (not null, not overwritten)", async () => {
@@ -190,7 +198,8 @@ describe("concurrent PPE employee self-sign — double-sign race guard", () => {
 
     expect(row.signatureObjectPath).not.toBeNull();
     // The stored path must follow the expected pattern for this assignment
-    expect(row.signatureObjectPath).toMatch(new RegExp(`/objects/ppe-signatures/${id}-${token}\\.png`));
+    expect(row.signatureObjectPath).toMatch(new RegExp(`/objects/ppe-signatures/${id}-[0-9a-f-]{36}\\.png`));
+    expect(row.signatureObjectPath).not.toContain(token);
   });
 
   it("three simultaneous requests: still exactly one success and two 409s", async () => {
@@ -266,7 +275,7 @@ describe("sequential sign guard — second sign after first commits → 409", ()
       .send({ signatureDataUrl: MINIMAL_PNG })
       .set("Content-Type", "application/json");
     expect(second.status).toBe(409);
-    expect(second.body.error).toMatch(/podepsán/i);
+    expect(second.body.error).toMatch(/použit|podepsán/i);
   });
 
   it("second 409 does not overwrite employeeConfirmedAt", async () => {

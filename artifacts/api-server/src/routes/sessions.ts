@@ -3,6 +3,11 @@ import { eq, and, gt, ne, isNull, or, lt, sql } from "drizzle-orm";
 import { db, userSessionsTable, usersTable, auditLogTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
 import { requirePermission } from "../middlewares/permissions";
+import { saveSession } from "../lib/auth-session";
+import {
+  lockAndAuthorizeUserManager,
+  UserOffboardingError,
+} from "../lib/user-offboarding-service";
 
 const router: IRouter = Router();
 
@@ -188,14 +193,61 @@ router.delete("/users/:id/sessions", requirePermission("users.manage"), async (r
     return;
   }
 
-  await db
-    .delete(userSessionsTable)
-    .where(
-      and(
-        eq(userSessionsTable.userId, userId),
-        ne(userSessionsTable.sid, req.sessionID as string),
-      ),
-    );
+  const keepCurrentSession = req.auth!.userId === userId;
+  let outcome;
+  try {
+    outcome = await db.transaction(async (tx) => {
+      await lockAndAuthorizeUserManager(tx, req.auth!.userId);
+      await tx.execute(sql`select id from users where id = ${userId} for update`);
+      const [lockedUser] = await tx.select({ isActive: usersTable.isActive }).from(usersTable).where(eq(usersTable.id, userId));
+      if (!lockedUser) return { status: "not_found" } as const;
+      if (!lockedUser.isActive) return { status: "inactive" } as const;
+
+      const [target] = await tx
+        .update(usersTable)
+        .set({ sessionGeneration: sql`${usersTable.sessionGeneration} + 1` })
+        .where(eq(usersTable.id, userId))
+        .returning({ sessionGeneration: usersTable.sessionGeneration });
+
+      if (!target) return { status: "not_found" } as const;
+
+      await tx
+        .delete(userSessionsTable)
+        .where(
+          and(
+            or(
+              eq(userSessionsTable.userId, userId),
+              sql`${userSessionsTable.sess}->>'userId' = ${String(userId)}`,
+            ),
+            ne(userSessionsTable.sid, req.sessionID as string),
+          ),
+        );
+
+      return {
+        status: "revoked",
+        sessionGeneration: target.sessionGeneration,
+      } as const;
+    });
+  } catch (error) {
+    if (error instanceof UserOffboardingError) {
+      res.status(error.status).json({ error: error.message, code: error.code });
+      return;
+    }
+    throw error;
+  }
+
+  if (outcome.status === "not_found") {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+  if (outcome.status === "inactive") {
+    res.status(409).json({ error: "Uživatel již není aktivní.", code: "user_inactive" });
+    return;
+  }
+  if (keepCurrentSession) {
+    req.session.sessionGeneration = outcome.sessionGeneration;
+    await saveSession(req);
+  }
 
   await writeAudit(
     req.auth!.userId,

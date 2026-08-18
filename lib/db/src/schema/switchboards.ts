@@ -1,10 +1,23 @@
 import {
   pgTable, serial, integer, text, timestamp, date, numeric, boolean, jsonb,
   index, uniqueIndex,
+  check,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { jobsTable } from "./jobs";
 import { peopleTable } from "./people";
 import { usersTable } from "./users";
+
+export const SWITCHBOARD_QR_OWNER_KINDS = ["resource", "user"] as const;
+export type SwitchboardQrOwnerKind =
+  (typeof SWITCHBOARD_QR_OWNER_KINDS)[number];
+
+export const SWITCHBOARD_QR_OWNER_ASSIGNMENT_SOURCES = [
+  "switchboard_resource",
+  "legacy_resource_assignment",
+  "manual_user_assignment",
+  "offboarding_transfer",
+] as const;
 
 export const switchboardsTable = pgTable("switchboards", {
   id: serial("id").primaryKey(),
@@ -34,9 +47,19 @@ export const switchboardsTable = pgTable("switchboards", {
   measurementStatus: text("measurement_status").notNull().default("not_started"),
   qrTokenHash: text("qr_token_hash"),
   qrTokenCiphertext: text("qr_token_ciphertext"),
+  qrTokenKeyId: text("qr_token_key_id"),
+  qrTokenEncryptedAt: timestamp("qr_token_encrypted_at"),
   qrTokenPrefix: text("qr_token_prefix"),
   qrEnabled: boolean("qr_enabled").notNull().default(false),
   qrExpiresAt: timestamp("qr_expires_at"),
+  // Nullable expand step: legacy printed labels keep working until an explicit
+  // inventory/backfill. Every new QR issuance writes the complete owner tuple.
+  // Resource ownership is implicit from this switchboard row; issuer identity
+  // remains provenance in switchboard_events rather than becoming ownership.
+  qrOwnerKind: text("qr_owner_kind"),
+  qrOwnerUserId: integer("qr_owner_user_id").references(() => usersTable.id, { onDelete: "restrict" }),
+  qrOwnerAssignedAt: timestamp("qr_owner_assigned_at"),
+  qrOwnerAssignmentSource: text("qr_owner_assignment_source"),
   archivedAt: timestamp("archived_at"),
   createdByUserId: integer("created_by_user_id").references(() => usersTable.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -46,6 +69,32 @@ export const switchboardsTable = pgTable("switchboards", {
   index("switchboards_status_idx").on(t.status),
   uniqueIndex("switchboards_serial_number_unique_idx").on(t.serialNumber),
   uniqueIndex("switchboards_qr_token_hash_unique_idx").on(t.qrTokenHash),
+  index("switchboards_qr_enabled_owner_idx")
+    .on(t.qrOwnerKind, t.qrOwnerUserId, t.qrExpiresAt)
+    .where(sql`${t.qrEnabled} = true`),
+  check(
+    "switchboards_qr_envelope_chk",
+    sql`(${t.qrTokenCiphertext} is null and ${t.qrTokenKeyId} is null and ${t.qrTokenEncryptedAt} is null) or (left(${t.qrTokenCiphertext}, 3) = 'v1.' and ${t.qrTokenKeyId} is null and ${t.qrTokenEncryptedAt} is null) or (left(${t.qrTokenCiphertext}, 5) = 'mve1.' and ${t.qrTokenKeyId} is not null and ${t.qrTokenEncryptedAt} is not null)`,
+  ),
+  check(
+    "switchboards_qr_owner_assignment_chk",
+    sql`(
+      ${t.qrOwnerKind} is null and
+      ${t.qrOwnerUserId} is null and
+      ${t.qrOwnerAssignedAt} is null and
+      ${t.qrOwnerAssignmentSource} is null
+    ) or (
+      ${t.qrOwnerKind} = 'resource' and
+      ${t.qrOwnerUserId} is null and
+      ${t.qrOwnerAssignedAt} is not null and
+      ${t.qrOwnerAssignmentSource} in ('switchboard_resource', 'legacy_resource_assignment')
+    ) or (
+      ${t.qrOwnerKind} = 'user' and
+      ${t.qrOwnerUserId} is not null and
+      ${t.qrOwnerAssignedAt} is not null and
+      ${t.qrOwnerAssignmentSource} in ('manual_user_assignment', 'offboarding_transfer')
+    )`,
+  ),
 ]);
 
 export const switchboardQrAccessLogsTable = pgTable("switchboard_qr_access_logs", {

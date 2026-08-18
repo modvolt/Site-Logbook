@@ -25,7 +25,16 @@ async function newUnauthContext(browser: Browser) {
   return browser.newContext({ storageState: { cookies: [], origins: [] } });
 }
 
-type SignTokenResponse = { token: string; signUrl: string };
+type SignTokenResponse = { signUrl: string };
+
+function tokenFromSignUrl(signUrl: string): string {
+  const url = new URL(signUrl);
+  expect(url.pathname).toBe("/oopp/sign");
+  expect(url.search).toBe("");
+  const token = new URLSearchParams(url.hash.slice(1)).get("token") ?? "";
+  expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  return token;
+}
 
 /**
  * Seed a PPE item, person, and assignment, then generate a sign token.
@@ -65,9 +74,8 @@ async function seedSignToken(request: import("@playwright/test").APIRequestConte
 
   const tokenRes = await request.post(`/api/ppe/assignments/${assignment.id}/sign-token`);
   expect(tokenRes.status(), "generate sign token").toBe(200);
-  const { token } = (await tokenRes.json()) as SignTokenResponse;
-  expect(typeof token).toBe("string");
-  expect(token.length).toBeGreaterThan(0);
+  const { signUrl } = (await tokenRes.json()) as SignTokenResponse;
+  const token = tokenFromSignUrl(signUrl);
 
   return {
     token,
@@ -120,7 +128,7 @@ test("valid token shows assignment details without a login session", async ({
   const page = await ctx.newPage();
 
   try {
-    await page.goto(`/oopp/sign/${token}`);
+    await page.goto(`/oopp/sign#token=${token}`);
 
     await expect(page.locator("canvas")).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText("Helma E2E_PPE_SIGN", { exact: false })).toBeVisible();
@@ -146,7 +154,7 @@ test("drawing and submitting a signature shows success state", async ({
   const page = await ctx.newPage();
 
   try {
-    await page.goto(`/oopp/sign/${token}`);
+    await page.goto(`/oopp/sign#token=${token}`);
     await expect(page.locator("canvas")).toBeVisible({ timeout: 10_000 });
 
     // Submit button is disabled until the user draws something.
@@ -192,7 +200,7 @@ test("already-signed token shows success state on page load without a login sess
   const page = await ctx.newPage();
 
   try {
-    await page.goto(`/oopp/sign/${token}`);
+    await page.goto(`/oopp/sign#token=${token}`);
     await expect(page.getByText("Podpis byl přijat")).toBeVisible({ timeout: 10_000 });
     await expect(page.locator("canvas")).not.toBeVisible();
     await expect(page.getByRole("button", { name: /Potvrdit/ })).not.toBeVisible();
@@ -215,7 +223,7 @@ test("network error mid-submit shows error; user retries on the same page and su
   const page = await ctx.newPage();
 
   try {
-    await page.goto(`/oopp/sign/${token}`);
+    await page.goto(`/oopp/sign#token=${token}`);
     await expect(page.locator("canvas")).toBeVisible({ timeout: 10_000 });
 
     // Draw a signature.
@@ -224,7 +232,7 @@ test("network error mid-submit shows error; user retries on the same page and su
     await expect(submitBtn).toBeEnabled({ timeout: 5_000 });
 
     // Intercept the POST once and abort it to simulate a network failure.
-    await page.route(`**/api/ppe/sign/${token}`, (route) => {
+    await page.route("**/api/ppe/sign", (route) => {
       if (route.request().method() === "POST") {
         route.abort();
       } else {

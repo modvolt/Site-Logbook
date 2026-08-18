@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import { db, auditLogTable } from "@workspace/db";
+import { redactPublicBearerPath } from "../lib/request-log-redaction";
 
 const MUTATING_METHODS = new Set(["POST", "PATCH", "PUT", "DELETE"]);
 
@@ -23,18 +24,40 @@ const SKIP_PREFIXES = [
 ];
 
 // Path suffixes to skip — these routes write their own richer audit entries.
-const SKIP_SUFFIXES = [
-  "/audit-access",
+const SKIP_SUFFIXES = ["/audit-access"];
+
+// Exact route shapes whose domain mutation and audit row share one transaction.
+const SKIP_PATTERNS = [
+  /^\/admin\/health\/operational-alert-outbox\/\d+\/requeue$/,
+  /^\/users\/\d+\/offboard$/,
+  /^\/billing\/documents\/\d+\/(?:disposition|status)$/,
 ];
 
 const REDACT_KEYS = new Set([
-  "password", "passwordHash", "currentPassword", "newPassword",
-  "pin", "pinHash",
-  "apiKey", "api_key", "openaiApiKey", "accessToken", "refreshToken",
-  "token", "secret", "secretKey", "privateKey",
-  "cardNumber", "cvv", "cvc",
+  "password",
+  "passwordHash",
+  "currentPassword",
+  "newPassword",
+  "pin",
+  "pinHash",
+  "apiKey",
+  "api_key",
+  "openaiApiKey",
+  "accessToken",
+  "refreshToken",
+  "token",
+  "secret",
+  "secretKey",
+  "privateKey",
+  "signatureDataUrl",
+  "cardNumber",
+  "cvv",
+  "cvc",
   "answers",
-  "costRate", "saleRate", "cost_rate", "sale_rate",
+  "costRate",
+  "saleRate",
+  "cost_rate",
+  "sale_rate",
 ]);
 
 function redactSensitive(value: unknown): unknown {
@@ -74,7 +97,10 @@ function isNumericSegment(s: string): boolean {
 //   /jobs/123              -> { entityType: "jobs",  entityId: 123 }
 //   /jobs/123/tasks/456    -> { entityType: "tasks", entityId: 456 }
 //   /jobs/123/tasks (POST) -> { entityType: "tasks", entityId: null }
-function parsePath(path: string): { entityType: string; entityId: number | null } {
+function parsePath(path: string): {
+  entityType: string;
+  entityId: number | null;
+} {
   const segments = path.split("/").filter((s) => s.length > 0);
   let entityType = "unknown";
   let entityId: number | null = null;
@@ -105,13 +131,18 @@ function buildSummary(method: string, path: string, body: unknown): string {
   return full.length > 1000 ? `${full.slice(0, 997)}...` : full;
 }
 
-export function auditMutations(req: Request, res: Response, next: NextFunction): void {
+export function auditMutations(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): void {
   if (!MUTATING_METHODS.has(req.method)) {
     next();
     return;
   }
 
-  const relPath = req.path;
+  const requestPath = req.path;
+  const relPath = redactPublicBearerPath(requestPath) ?? requestPath;
   if (SKIP_PREFIXES.some((p) => relPath.startsWith(p))) {
     next();
     return;
@@ -120,7 +151,10 @@ export function auditMutations(req: Request, res: Response, next: NextFunction):
     next();
     return;
   }
-
+  if (SKIP_PATTERNS.some((pattern) => pattern.test(relPath))) {
+    next();
+    return;
+  }
   // Capture the JSON response body so we can recover the id of created entities.
   let responsePayload: unknown;
   const originalJson = res.json.bind(res);
@@ -134,7 +168,11 @@ export function auditMutations(req: Request, res: Response, next: NextFunction):
 
     const { entityType, entityId: pathId } = parsePath(relPath);
     let entityId = pathId;
-    if (entityId == null && responsePayload && typeof responsePayload === "object") {
+    if (
+      entityId == null &&
+      responsePayload &&
+      typeof responsePayload === "object"
+    ) {
       const maybeId = (responsePayload as { id?: unknown }).id;
       if (typeof maybeId === "number" && Number.isInteger(maybeId)) {
         entityId = maybeId;

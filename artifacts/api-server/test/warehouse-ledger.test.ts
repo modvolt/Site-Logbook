@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import {
   db,
   usersTable,
@@ -349,6 +349,143 @@ describe("job material issue lifecycle", () => {
     // The source's net contribution is fully on B now.
     expect(await netSignedForSources(db, "material", [materialId])).toBeCloseTo(-30, 2);
   });
+  it("serializes opposite A→B and B→A rematches without a lock-order deadlock", async () => {
+    const itemA = await makeItem({ name: `Souběh A ${TAG}` });
+    const itemB = await makeItem({ name: `Souběh B ${TAG}` });
+    await createManualMovement(db, itemA, { direction: "in", quantity: 100 }, actor);
+    await createManualMovement(db, itemB, { direction: "in", quantity: 100 }, actor);
+    const jobId = await makeJob();
+    const sourceA = await insertMaterial(jobId, `Souběh A ${TAG}`, "30");
+    const sourceB = await insertMaterial(jobId, `Souběh B ${TAG}`, "30");
+
+    for (const sourceId of [sourceA, sourceB]) {
+      await db.transaction(async (tx) => {
+        const [material] = await tx.select().from(materialsTable).where(eq(materialsTable.id, sourceId));
+        await reconcileMaterialStockMovement(tx, material, actor);
+      });
+    }
+
+    let arrived = 0;
+    let barrierSettled = false;
+    let releaseBarrier!: () => void;
+    let rejectBarrier!: (error: Error) => void;
+    const barrier = new Promise<void>((resolve, reject) => {
+      releaseBarrier = () => {
+        if (barrierSettled) return;
+        barrierSettled = true;
+        resolve();
+      };
+      rejectBarrier = (error) => {
+        if (barrierSettled) return;
+        barrierSettled = true;
+        reject(error);
+      };
+    });
+    const barrierTimeout = setTimeout(
+      () => rejectBarrier(new Error("Warehouse rematch test barrier timed out.")),
+      3_000,
+    );
+    const synchronize = async () => {
+      arrived += 1;
+      if (arrived === 2) releaseBarrier();
+      await barrier;
+    };
+    const releaseBarrierOnFailure = async (worker: () => Promise<void>) => {
+      try {
+        await worker();
+      } catch (error) {
+        releaseBarrier();
+        throw error;
+      }
+    };
+
+    let primaryError: unknown = null;
+    let cleanupError: unknown = null;
+    try {
+      await db.execute(
+        sql.raw(`
+        create or replace function test_warehouse_storno_delay()
+        returns trigger language plpgsql as $$
+        begin
+          if new.note = 'Storno pohybu' then
+            perform pg_sleep(0.20);
+          end if;
+          return new;
+        end;
+        $$;
+      `),
+      );
+      await db.execute(sql.raw("drop trigger if exists test_warehouse_storno_delay_trg on warehouse_movements"));
+      await db.execute(
+        sql.raw(`
+        create trigger test_warehouse_storno_delay_trg
+        before insert on warehouse_movements
+        for each row execute function test_warehouse_storno_delay()
+      `),
+      );
+
+      const results = await Promise.allSettled([
+        releaseBarrierOnFailure(() =>
+          db.transaction(async (tx) => {
+            await tx.execute(sql.raw("set local statement_timeout = '5s'"));
+            const [material] = await tx
+              .update(materialsTable)
+              .set({ name: `Souběh B ${TAG}`, warehouseItemId: itemB })
+              .where(eq(materialsTable.id, sourceA))
+              .returning();
+            await synchronize();
+            await reconcileMaterialStockMovement(tx, material, actor);
+          }),
+        ),
+        releaseBarrierOnFailure(() =>
+          db.transaction(async (tx) => {
+            await tx.execute(sql.raw("set local statement_timeout = '5s'"));
+            const [material] = await tx
+              .update(materialsTable)
+              .set({ name: `Souběh A ${TAG}`, warehouseItemId: itemA })
+              .where(eq(materialsTable.id, sourceB))
+              .returning();
+            await synchronize();
+            await reconcileMaterialStockMovement(tx, material, actor);
+          }),
+        ),
+      ]);
+      expect(results).toEqual([
+        { status: "fulfilled", value: undefined },
+        { status: "fulfilled", value: undefined },
+      ]);
+    } catch (error) {
+      primaryError = error;
+    } finally {
+      clearTimeout(barrierTimeout);
+      releaseBarrier();
+      try {
+        await db.execute(sql.raw("drop trigger if exists test_warehouse_storno_delay_trg on warehouse_movements"));
+        await db.execute(sql.raw("drop function if exists test_warehouse_storno_delay()"));
+      } catch (error) {
+        cleanupError = error;
+      }
+    }
+    if (primaryError && cleanupError) {
+      throw new AggregateError([primaryError, cleanupError]);
+    }
+    if (primaryError) throw primaryError;
+    if (cleanupError) throw cleanupError;
+
+    expect(await expectConsistent(itemA)).toBeCloseTo(70, 2);
+    expect(await expectConsistent(itemB)).toBeCloseTo(70, 2);
+    expect(await netSignedForSources(db, "material", [sourceA])).toBeCloseTo(-30, 2);
+    expect(await netSignedForSources(db, "material", [sourceB])).toBeCloseTo(-30, 2);
+
+    const movementsA = await listItemMovements(db, itemA);
+    const movementsB = await listItemMovements(db, itemB);
+    const signedFor = (sourceId: number, movements: typeof movementsA) =>
+      movements
+        .filter((movement) => movement.sourceType === "material" && movement.sourceId === sourceId)
+        .reduce((sum, movement) => sum + movement.signedQuantity, 0);
+    expect(signedFor(sourceA, movementsB)).toBeCloseTo(-30, 2);
+    expect(signedFor(sourceB, movementsA)).toBeCloseTo(-30, 2);
+  });
 });
 
 describe("activity material issue lifecycle", () => {
@@ -484,7 +621,7 @@ describe("cost-document line split", () => {
     return rows.map((r) => r.id);
   }
 
-  it("splitting an approved stock line keeps the item quantity and ledger intact", async () => {
+  it("rejects splitting an approved stock line without changing its ledger", async () => {
     const itemId = await makeItem({ name: `Trubka ${TAG}`, code: `SKU-SPLIT-${TAG}` });
     const { docId, lineId } = await makeStockDoc({
       description: `Trubka ${TAG}`,
@@ -499,44 +636,26 @@ describe("cost-document line split", () => {
       await netSignedForSources(db, "billing_document_line", [lineId]),
     ).toBeCloseTo(40, 2);
 
-    // Split 40 → 25 + 15. The original line id is destroyed and replaced by
-    // two sibling part lines. Stock must not change: the old line's receipt is
-    // reversed and the two new parts naskladní the same total.
-    await splitLine(docId, lineId, [{ quantity: 25 }, { quantity: 15 }], actor);
+    await expect(
+      splitLine(docId, lineId, [{ quantity: 25 }, { quantity: 15 }], actor),
+    ).rejects.toMatchObject({ statusCode: 409 });
 
-    // The matched item's cached quantity is unchanged AND equals the signed
-    // ledger sum — no double-receipt, no drift.
     expect(await expectConsistent(itemId)).toBeCloseTo(40, 2);
-
-    // The original line's contribution is fully reversed (it no longer exists),
-    // so it must net to zero — nothing orphaned against the dead id.
     expect(
       await netSignedForSources(db, "billing_document_line", [lineId]),
-    ).toBeCloseTo(0, 2);
-
-    // The replacement part lines now carry the full +40 between them.
-    const partIds = await docLineIds(docId);
-    expect(partIds).toHaveLength(2);
-    expect(partIds).not.toContain(lineId);
-    expect(
-      await netSignedForSources(db, "billing_document_line", partIds),
     ).toBeCloseTo(40, 2);
-
-    // The whole ledger for the item still nets to exactly +40 across every
-    // source (old receipt + its storno + the two new part receipts).
+    const partIds = await docLineIds(docId);
+    expect(partIds).toEqual([lineId]);
     expect(await ledgerSum(itemId)).toBeCloseTo(40, 2);
   });
 
-  it("splitting into three parts with uneven quantities stays consistent", async () => {
+  it("allows splitting an unapproved line into three parts", async () => {
     const itemId = await makeItem({ name: `Kabel3 ${TAG}`, code: `SKU-3-${TAG}` });
     const { docId, lineId } = await makeStockDoc({
       description: `Kabel3 ${TAG}`,
       quantity: "12.5",
       supplierSku: `SKU-3-${TAG}`,
     });
-
-    await approveDocument(docId, actor);
-    expect(await expectConsistent(itemId)).toBeCloseTo(12.5, 2);
 
     await splitLine(
       docId,
@@ -545,7 +664,7 @@ describe("cost-document line split", () => {
       actor,
     );
 
-    expect(await expectConsistent(itemId)).toBeCloseTo(12.5, 2);
+    expect(await expectConsistent(itemId)).toBeCloseTo(0, 2);
     expect(
       await netSignedForSources(db, "billing_document_line", [lineId]),
     ).toBeCloseTo(0, 2);
@@ -554,6 +673,6 @@ describe("cost-document line split", () => {
     expect(partIds).toHaveLength(3);
     expect(
       await netSignedForSources(db, "billing_document_line", partIds),
-    ).toBeCloseTo(12.5, 2);
+    ).toBeCloseTo(0, 2);
   });
 });

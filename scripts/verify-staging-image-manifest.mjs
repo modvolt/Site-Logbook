@@ -1,0 +1,631 @@
+import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { parseDocument } from "yaml";
+
+const SHA40 = /^[0-9a-f]{40}$/;
+const SHA256 = /^[0-9a-f]{64}$/;
+const POSITIVE_DECIMAL = /^[1-9][0-9]*$/;
+const MAX_MANIFEST_BYTES = 128 * 1024;
+const IMAGE_SPECS = Object.freeze({
+  preflight: {
+    packageName: "site-logbook-staging-preflight",
+    repository: "ghcr.io/modvolt/site-logbook-staging-preflight",
+    buildShaEnv: "BUILD_SHA",
+    dockerfile: "deploy/staging/preflight/Dockerfile",
+    buildArg: "BUILD_SHA",
+    baseImageDigests: [
+      "sha256:4bcff63911fcb4448bd4fdacec207030997caf25e9bea4045fa6c8c44de311d1",
+    ],
+  },
+  mailpit: {
+    packageName: "site-logbook-staging-mailpit",
+    repository: "ghcr.io/modvolt/site-logbook-staging-mailpit",
+    buildShaEnv: "BUILD_SHA",
+    dockerfile: "deploy/staging/mailpit/Dockerfile",
+    buildArg: "BUILD_SHA",
+    baseImageDigests: [
+      "sha256:0059ef81e492a7192af3816281eed6859eb078bd7bdc58b76757c13e10e53a7d",
+      "sha256:4bcff63911fcb4448bd4fdacec207030997caf25e9bea4045fa6c8c44de311d1",
+    ],
+  },
+  api: {
+    packageName: "site-logbook-staging-api",
+    repository: "ghcr.io/modvolt/site-logbook-staging-api",
+    buildShaEnv: "BUILD_SHA",
+    dockerfile: "artifacts/api-server/Dockerfile",
+    buildArg: "BUILD_SHA",
+    baseImageDigests: [
+      "sha256:235600a8101ab264e117b1768e925532262668dc9b581ef1dd7d96ced463b8e7",
+    ],
+  },
+  web: {
+    packageName: "site-logbook-staging-web",
+    repository: "ghcr.io/modvolt/site-logbook-staging-web",
+    buildShaEnv: "VITE_BUILD_SHA",
+    dockerfile: "artifacts/stavba/Dockerfile",
+    buildArg: "VITE_BUILD_SHA",
+    baseImageDigests: [
+      "sha256:235600a8101ab264e117b1768e925532262668dc9b581ef1dd7d96ced463b8e7",
+      "sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10",
+    ],
+  },
+  alertReceiver: {
+    packageName: "site-logbook-staging-alert-receiver",
+    repository: "ghcr.io/modvolt/site-logbook-staging-alert-receiver",
+    buildShaEnv: "RECEIVER_BUILD_SHA",
+    dockerfile: "deploy/operational-alert-receiver/Dockerfile",
+    buildArg: "BUILD_SHA",
+    baseImageDigests: [
+      "sha256:235600a8101ab264e117b1768e925532262668dc9b581ef1dd7d96ced463b8e7",
+    ],
+  },
+});
+const PUBLIC_SOURCE = "https://github.com/modvolt/Site-Logbook";
+const VCS_SOURCE =
+  /^(?:https:\/\/github\.com\/modvolt\/site-logbook(?:\.git)?|git\+https:\/\/github\.com\/modvolt\/site-logbook(?:\.git)?|git@github\.com:modvolt\/site-logbook\.git)$/i;
+const TOOLCHAIN = Object.freeze({
+  buildx: "v0.34.1",
+  buildkitImage:
+    "moby/buildkit:v0.30.0@sha256:0168606be2315b7c807a03b3d8aa79beefdb31c98740cebdffdfeebf31190c9f",
+});
+
+export class StagingImageManifestError extends Error {
+  constructor(code, message) {
+    super(`${code}: ${message}`);
+    this.name = "StagingImageManifestError";
+    this.code = code;
+  }
+}
+
+function fail(code, message) {
+  throw new StagingImageManifestError(code, message);
+}
+
+function assertKeys(value, expected, field) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    fail("IMAGE_MANIFEST_SCHEMA_INVALID", `${field} must be an object.`);
+  }
+  const actual = Object.keys(value).sort();
+  const wanted = [...expected].sort();
+  if (JSON.stringify(actual) !== JSON.stringify(wanted)) {
+    fail(
+      "IMAGE_MANIFEST_SCHEMA_INVALID",
+      `${field} has missing or unknown fields.`,
+    );
+  }
+}
+
+function requireString(value, pattern, field) {
+  if (typeof value !== "string" || !pattern.test(value)) {
+    fail("IMAGE_MANIFEST_SCHEMA_INVALID", `${field} has an invalid value.`);
+  }
+  return value;
+}
+
+function canonicalCompactJson(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => canonicalCompactJson(entry)).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value)
+      .sort()
+      .map(
+        (key) => `${JSON.stringify(key)}:${canonicalCompactJson(value[key])}`,
+      )
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function parseStrictJson(bytes) {
+  if (!Buffer.isBuffer(bytes)) {
+    fail("IMAGE_MANIFEST_INPUT_INVALID", "Manifest input must be raw bytes.");
+  }
+  if (bytes.length === 0 || bytes.length > MAX_MANIFEST_BYTES) {
+    fail(
+      "IMAGE_MANIFEST_SIZE_INVALID",
+      "Manifest size must be 1 through 131072 bytes.",
+    );
+  }
+  if (bytes.subarray(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf]))) {
+    fail("IMAGE_MANIFEST_ENCODING_INVALID", "UTF-8 BOM is forbidden.");
+  }
+  let text;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    fail("IMAGE_MANIFEST_ENCODING_INVALID", "Manifest must be valid UTF-8.");
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    fail("IMAGE_MANIFEST_JSON_INVALID", "Manifest must be strict JSON.");
+  }
+  const duplicateCheck = parseDocument(text, {
+    prettyErrors: false,
+    uniqueKeys: true,
+  });
+  if (duplicateCheck.errors.length > 0) {
+    fail("IMAGE_MANIFEST_DUPLICATE_KEY", "Manifest contains a duplicate key.");
+  }
+  return parsed;
+}
+
+function validateChecksum(bytes, checksumText, expectedManifestSha256) {
+  if (typeof checksumText !== "string") {
+    fail("IMAGE_MANIFEST_CHECKSUM_INVALID", "Checksum sidecar is required.");
+  }
+  const match = /^([0-9a-f]{64})[ ]{2}staging-images\.json\n$/.exec(
+    checksumText,
+  );
+  if (!match) {
+    fail(
+      "IMAGE_MANIFEST_CHECKSUM_INVALID",
+      "Checksum sidecar must use the exact GNU sha256sum format.",
+    );
+  }
+  const actual = crypto.createHash("sha256").update(bytes).digest("hex");
+  if (match[1] !== actual) {
+    fail(
+      "IMAGE_MANIFEST_CHECKSUM_MISMATCH",
+      "Manifest bytes do not match their checksum sidecar.",
+    );
+  }
+  if (expectedManifestSha256 !== undefined) {
+    requireString(expectedManifestSha256, SHA256, "expectedManifestSha256");
+    if (expectedManifestSha256 !== actual) {
+      fail(
+        "IMAGE_MANIFEST_TRUST_MISMATCH",
+        "Manifest does not match the separately approved checksum.",
+      );
+    }
+  }
+  return actual;
+}
+
+export function validateStagingImageManifest(
+  manifestBytes,
+  checksumText,
+  options = {},
+) {
+  const manifestSha256 = validateChecksum(
+    manifestBytes,
+    checksumText,
+    options.expectedManifestSha256,
+  );
+  const manifest = parseStrictJson(manifestBytes);
+  assertKeys(
+    manifest,
+    [
+      "schemaVersion",
+      "kind",
+      "publicationStage",
+      "sourceSha",
+      "callerRepository",
+      "callerWorkflowRef",
+      "initialPackageState",
+      "registryAction",
+      "publisherRun",
+      "deletedHistoryControl",
+      "registryLedger",
+      "toolchain",
+      "images",
+      "packages",
+    ],
+    "manifest",
+  );
+  if (manifest.schemaVersion !== 3) {
+    fail("IMAGE_MANIFEST_SCHEMA_INVALID", "schemaVersion must equal 3.");
+  }
+  if (
+    manifest.kind !== "site-logbook-staging-images" ||
+    manifest.publicationStage !== "complete"
+  ) {
+    fail(
+      "IMAGE_MANIFEST_SCHEMA_INVALID",
+      "Manifest kind and publicationStage are invalid.",
+    );
+  }
+  const sourceSha = requireString(manifest.sourceSha, SHA40, "sourceSha");
+  if (/^0{40}$/.test(sourceSha)) {
+    fail(
+      "IMAGE_MANIFEST_SOURCE_MISMATCH",
+      "sourceSha cannot be a placeholder.",
+    );
+  }
+  if (options.expectedSourceSha && sourceSha !== options.expectedSourceSha) {
+    fail(
+      "IMAGE_MANIFEST_SOURCE_MISMATCH",
+      "sourceSha does not match the approved source SHA.",
+    );
+  }
+  if (manifest.callerRepository !== "modvolt/site-logbook-registry") {
+    fail(
+      "IMAGE_MANIFEST_CALLER_INVALID",
+      "callerRepository is not the private registry repository.",
+    );
+  }
+  requireString(manifest.callerWorkflowRef, /^\S+$/, "callerWorkflowRef");
+  if (
+    options.expectedCallerWorkflowRef &&
+    manifest.callerWorkflowRef !== options.expectedCallerWorkflowRef
+  ) {
+    fail(
+      "IMAGE_MANIFEST_CALLER_INVALID",
+      "callerWorkflowRef does not match the approved workflow ref.",
+    );
+  }
+  const allowedPublication =
+    (manifest.initialPackageState === "10000" &&
+      manifest.registryAction === "published") ||
+    (manifest.initialPackageState === "11111" &&
+      manifest.registryAction === "verified-noop");
+  if (!allowedPublication) {
+    fail(
+      "IMAGE_MANIFEST_PUBLICATION_STATE_INVALID",
+      "Package state and registry action are not a complete-stage pair.",
+    );
+  }
+  assertKeys(manifest.publisherRun, ["id", "attempt"], "publisherRun");
+  assertKeys(manifest.toolchain, ["buildx", "buildkitImage"], "toolchain");
+  if (
+    manifest.toolchain.buildx !== TOOLCHAIN.buildx ||
+    manifest.toolchain.buildkitImage !== TOOLCHAIN.buildkitImage
+  ) {
+    fail("IMAGE_MANIFEST_TOOLCHAIN_INVALID", "Toolchain pin is invalid.");
+  }
+  requireString(manifest.publisherRun.id, POSITIVE_DECIMAL, "publisherRun.id");
+  requireString(
+    manifest.publisherRun.attempt,
+    POSITIVE_DECIMAL,
+    "publisherRun.attempt",
+  );
+  if (manifest.publisherRun.attempt !== "1") {
+    fail(
+      "IMAGE_MANIFEST_RUN_MISMATCH",
+      "publisherRun.attempt must equal the reviewed first attempt.",
+    );
+  }
+  if (
+    options.expectedRunId &&
+    manifest.publisherRun.id !== options.expectedRunId
+  ) {
+    fail(
+      "IMAGE_MANIFEST_RUN_MISMATCH",
+      "publisherRun.id does not match trusted evidence.",
+    );
+  }
+  if (
+    options.expectedRunAttempt &&
+    manifest.publisherRun.attempt !== options.expectedRunAttempt
+  ) {
+    fail(
+      "IMAGE_MANIFEST_RUN_MISMATCH",
+      "publisherRun.attempt does not match trusted evidence.",
+    );
+  }
+  assertKeys(
+    manifest.deletedHistoryControl,
+    [
+      "mode",
+      "decision",
+      "ledgerEntrySha256",
+      "callerWorkflowSha",
+      "visibleRunUniquenessVerified",
+      "workflowRunHistoryScope",
+      "deletedApiQueried",
+    ],
+    "deletedHistoryControl",
+  );
+  if (
+    manifest.deletedHistoryControl.mode !==
+      "reviewed-caller-visible-history-ledger" ||
+    manifest.deletedHistoryControl.decision !==
+      "explicitly-accepted-external-ledger" ||
+    typeof manifest.deletedHistoryControl.ledgerEntrySha256 !== "string" ||
+    !/^sha256:[0-9a-f]{64}$/.test(
+      manifest.deletedHistoryControl.ledgerEntrySha256,
+    ) ||
+    typeof manifest.deletedHistoryControl.callerWorkflowSha !== "string" ||
+    !SHA40.test(manifest.deletedHistoryControl.callerWorkflowSha) ||
+    /^0{40}$/.test(manifest.deletedHistoryControl.callerWorkflowSha) ||
+    manifest.deletedHistoryControl.visibleRunUniquenessVerified !== true ||
+    manifest.deletedHistoryControl.workflowRunHistoryScope !==
+      "github-visible-workflow-runs-below-1000-api-cap" ||
+    manifest.deletedHistoryControl.deletedApiQueried !== false
+  ) {
+    fail(
+      "IMAGE_MANIFEST_DELETED_HISTORY_CONTROL_INVALID",
+      "deletedHistoryControl is not the reviewed visible-history external-ledger decision.",
+    );
+  }
+  if (
+    options.expectedCallerWorkflowSha !== undefined &&
+    manifest.deletedHistoryControl.callerWorkflowSha !==
+      options.expectedCallerWorkflowSha
+  ) {
+    fail(
+      "IMAGE_MANIFEST_CALLER_MISMATCH",
+      "deletedHistoryControl.callerWorkflowSha does not match trusted evidence.",
+    );
+  }
+
+  assertKeys(
+    manifest.registryLedger,
+    [
+      "schemaVersion",
+      "kind",
+      "sourceSha",
+      "stage",
+      "expectedInitialPackageState",
+      "packageNames",
+      "deletedHistoryControl",
+      "previousEntry",
+    ],
+    "registryLedger",
+  );
+  assertKeys(
+    manifest.registryLedger.deletedHistoryControl,
+    ["mode", "decision", "deletedApiQueried", "historicalAbsenceProven"],
+    "registryLedger.deletedHistoryControl",
+  );
+  assertKeys(
+    manifest.registryLedger.previousEntry,
+    ["ledgerEntrySha256", "preflightDigest"],
+    "registryLedger.previousEntry",
+  );
+  const expectedPackageNames = Object.values(IMAGE_SPECS).map(
+    (spec) => spec.packageName,
+  );
+  if (
+    manifest.registryLedger.schemaVersion !== 1 ||
+    manifest.registryLedger.kind !==
+      "site-logbook-staging-registry-ledger-entry" ||
+    manifest.registryLedger.sourceSha !== sourceSha ||
+    manifest.registryLedger.stage !== "complete" ||
+    manifest.registryLedger.expectedInitialPackageState !==
+      manifest.initialPackageState ||
+    JSON.stringify(manifest.registryLedger.packageNames) !==
+      JSON.stringify(expectedPackageNames) ||
+    manifest.registryLedger.deletedHistoryControl.mode !==
+      "reviewed-caller-visible-history-ledger" ||
+    manifest.registryLedger.deletedHistoryControl.decision !==
+      "explicitly-accepted-external-ledger" ||
+    manifest.registryLedger.deletedHistoryControl.deletedApiQueried !== false ||
+    manifest.registryLedger.deletedHistoryControl.historicalAbsenceProven !==
+      false ||
+    typeof manifest.registryLedger.previousEntry.ledgerEntrySha256 !==
+      "string" ||
+    !/^sha256:[0-9a-f]{64}$/.test(
+      manifest.registryLedger.previousEntry.ledgerEntrySha256,
+    )
+  ) {
+    fail(
+      "IMAGE_MANIFEST_DELETED_HISTORY_CONTROL_INVALID",
+      "registryLedger does not match the exact complete-stage reviewed ledger contract.",
+    );
+  }
+  const ledgerSha256 = `sha256:${crypto
+    .createHash("sha256")
+    .update(canonicalCompactJson(manifest.registryLedger))
+    .digest("hex")}`;
+  if (ledgerSha256 !== manifest.deletedHistoryControl.ledgerEntrySha256) {
+    fail(
+      "IMAGE_MANIFEST_DELETED_HISTORY_CONTROL_INVALID",
+      "registryLedger canonical bytes do not match ledgerEntrySha256.",
+    );
+  }
+
+  const imageKeys = Object.keys(IMAGE_SPECS);
+  assertKeys(manifest.images, imageKeys, "images");
+  assertKeys(manifest.packages, imageKeys, "packages");
+  for (const [key, spec] of Object.entries(IMAGE_SPECS)) {
+    const imagePattern = new RegExp(
+      `^${spec.repository.replaceAll(".", "\\.")}@sha256:[0-9a-f]{64}$`,
+    );
+    const image = requireString(
+      manifest.images[key],
+      imagePattern,
+      `images.${key}`,
+    );
+    const digest = image.slice(image.indexOf("@") + 1);
+    const pkg = manifest.packages[key];
+    assertKeys(
+      pkg,
+      [
+        "packageName",
+        "packageId",
+        "visibility",
+        "repository",
+        "registryRepository",
+        "sourceSha",
+        "versionId",
+        "digest",
+        "runnableManifestDigest",
+        "platform",
+        "activeInventoryPaginated",
+        "activeVersionCount",
+        "packageVersionCount",
+        "deletedInventoryMode",
+        "visibleDeletedTagConflictChecked",
+        "deletedVersionCount",
+        "deletedHistoryScope",
+        "selectedVersionRefetched",
+        "remoteManifestVerified",
+        "runtimeMetadata",
+        "provenance",
+        "sbom",
+      ],
+      `packages.${key}`,
+    );
+    if (
+      pkg.packageName !== spec.packageName ||
+      typeof pkg.packageId !== "string" ||
+      !POSITIVE_DECIMAL.test(pkg.packageId) ||
+      pkg.visibility !== "private" ||
+      pkg.repository !== "modvolt/site-logbook-registry" ||
+      pkg.registryRepository !== spec.repository ||
+      pkg.sourceSha !== sourceSha ||
+      typeof pkg.versionId !== "string" ||
+      !POSITIVE_DECIMAL.test(pkg.versionId) ||
+      pkg.digest !== digest ||
+      !/^sha256:[0-9a-f]{64}$/.test(pkg.runnableManifestDigest) ||
+      pkg.platform !== "linux/amd64" ||
+      pkg.activeInventoryPaginated !== true ||
+      !Number.isInteger(pkg.activeVersionCount) ||
+      pkg.activeVersionCount < 1 ||
+      pkg.packageVersionCount !== pkg.activeVersionCount ||
+      pkg.deletedInventoryMode !== "not-queryable-exact-read-scope" ||
+      pkg.visibleDeletedTagConflictChecked !== false ||
+      pkg.deletedVersionCount !== null ||
+      pkg.deletedHistoryScope !== "external-audit-ledger-only" ||
+      pkg.selectedVersionRefetched !== true ||
+      pkg.remoteManifestVerified !== true
+    ) {
+      fail(
+        "IMAGE_MANIFEST_PACKAGE_INVALID",
+        `packages.${key} is not bound to its verified image.`,
+      );
+    }
+    assertKeys(
+      pkg.runtimeMetadata,
+      ["source", "revision", "url", "buildSha", "buildShaEnv"],
+      `packages.${key}.runtimeMetadata`,
+    );
+    if (
+      pkg.runtimeMetadata.source !== PUBLIC_SOURCE ||
+      pkg.runtimeMetadata.revision !== sourceSha ||
+      pkg.runtimeMetadata.url !== `${PUBLIC_SOURCE}/commit/${sourceSha}` ||
+      pkg.runtimeMetadata.buildSha !== sourceSha ||
+      pkg.runtimeMetadata.buildShaEnv !== spec.buildShaEnv
+    ) {
+      fail(
+        "IMAGE_MANIFEST_RUNTIME_METADATA_INVALID",
+        `packages.${key}.runtimeMetadata is invalid.`,
+      );
+    }
+    assertKeys(
+      pkg.provenance,
+      [
+        "buildType",
+        "vcsSource",
+        "vcsRevision",
+        "dockerfile",
+        "buildArg",
+        "buildSha",
+        "verifiedBaseImageDigests",
+      ],
+      `packages.${key}.provenance`,
+    );
+    if (
+      pkg.provenance.buildType !== "https://mobyproject.org/buildkit@v1" ||
+      !VCS_SOURCE.test(pkg.provenance.vcsSource) ||
+      pkg.provenance.vcsRevision !== sourceSha ||
+      pkg.provenance.dockerfile !== spec.dockerfile ||
+      pkg.provenance.buildArg !== spec.buildArg ||
+      pkg.provenance.buildSha !== sourceSha ||
+      JSON.stringify(pkg.provenance.verifiedBaseImageDigests) !==
+        JSON.stringify(spec.baseImageDigests)
+    ) {
+      fail(
+        "IMAGE_MANIFEST_PROVENANCE_INVALID",
+        `packages.${key}.provenance is invalid.`,
+      );
+    }
+    assertKeys(
+      pkg.sbom,
+      ["spdxVersion", "packageCount", "relationshipCount"],
+      `packages.${key}.sbom`,
+    );
+    if (
+      !["SPDX-2.2", "SPDX-2.3"].includes(pkg.sbom.spdxVersion) ||
+      !Number.isInteger(pkg.sbom.packageCount) ||
+      pkg.sbom.packageCount < 1 ||
+      !Number.isInteger(pkg.sbom.relationshipCount) ||
+      pkg.sbom.relationshipCount < 1
+    ) {
+      fail("IMAGE_MANIFEST_SBOM_INVALID", `packages.${key}.sbom is invalid.`);
+    }
+  }
+  if (
+    manifest.registryLedger.previousEntry.preflightDigest !==
+    manifest.images.preflight.split("@")[1]
+  ) {
+    fail(
+      "IMAGE_MANIFEST_DELETED_HISTORY_CONTROL_INVALID",
+      "registryLedger previous preflight digest does not match the immutable preflight image.",
+    );
+  }
+
+  const trusted = options.expectedManifestSha256 !== undefined;
+  return Object.freeze({
+    decision: trusted ? "PASS" : "INTERNALLY_CONSISTENT_UNTRUSTED",
+    trusted,
+    schemaVersion: 3,
+    sourceSha,
+    manifestSha256,
+    callerWorkflowRef: manifest.callerWorkflowRef,
+    publisherRun: Object.freeze({ ...manifest.publisherRun }),
+    deletedHistoryControl: Object.freeze({
+      ...manifest.deletedHistoryControl,
+    }),
+    registryLedger: Object.freeze({ ...manifest.registryLedger }),
+    images: Object.freeze({ ...manifest.images }),
+    manifestBase64: trusted ? manifestBytes.toString("base64") : undefined,
+  });
+}
+
+function argument(name) {
+  const index = process.argv.indexOf(name);
+  return index >= 0 ? process.argv[index + 1] : undefined;
+}
+
+function requireRegularFile(filePath, label) {
+  const stat = fs.lstatSync(filePath);
+  if (!stat.isFile() || stat.isSymbolicLink()) {
+    fail(
+      "IMAGE_MANIFEST_INPUT_INVALID",
+      `${label} must be a regular nonsymlink file.`,
+    );
+  }
+}
+
+function main() {
+  const manifestPath = path.resolve(argument("--manifest") ?? "");
+  const checksumPath = path.resolve(argument("--checksum") ?? "");
+  if (!argument("--manifest") || !argument("--checksum")) {
+    fail("IMAGE_MANIFEST_INPUT_INVALID", "Pass --manifest and --checksum.");
+  }
+  requireRegularFile(manifestPath, "manifest");
+  requireRegularFile(checksumPath, "checksum");
+  const result = validateStagingImageManifest(
+    fs.readFileSync(manifestPath),
+    fs.readFileSync(checksumPath, "utf8"),
+    {
+      expectedManifestSha256: argument("--expected-manifest-sha256"),
+      expectedSourceSha: argument("--expected-source-sha"),
+      expectedCallerWorkflowRef: argument("--expected-caller-workflow-ref"),
+      expectedCallerWorkflowSha: argument("--expected-caller-workflow-sha"),
+      expectedRunId: argument("--expected-run-id"),
+      expectedRunAttempt: argument("--expected-run-attempt"),
+    },
+  );
+  const output = { ...result };
+  if (!result.trusted) {
+    delete output.manifestBase64;
+    delete output.images;
+  }
+  process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  try {
+    main();
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  }
+}

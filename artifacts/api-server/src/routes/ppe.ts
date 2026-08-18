@@ -1,6 +1,6 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request, type Response } from "express";
 import { and, count, eq, gte, isNotNull, isNull, lte, or } from "drizzle-orm";
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   db,
   ppeItemsTable,
@@ -8,6 +8,7 @@ import {
   ppeHandoverDocumentsTable,
   ppeHandoverEventsTable,
   peopleTable,
+  type PpePublicEvidenceSnapshot,
 } from "@workspace/db";
 import { PPE_CATEGORIES, PPE_STATUSES } from "@workspace/db";
 import { requireRole } from "../middlewares/auth";
@@ -17,17 +18,79 @@ import { z } from "zod/v4";
 import { generatePpePdf, generatePpeCsv, type PpeExportRow } from "../lib/ppe-pdf";
 import { ensureBillingSettings } from "../lib/invoice-service";
 import { sendPlainEmail } from "../lib/email";
+import { decodeSignatureImage } from "../lib/signature-image";
+import { publicAppGrantUrl } from "../lib/public-origin";
+import {
+  PublicAccessTokenError,
+  publicAccessTokenHttpStatus,
+  publicTokenExpiry,
+  revokePublicAccessTokens,
+} from "../lib/public-access-token";
+import {
+  consumePpePublicEvidenceToken,
+  issuePpePublicEvidenceToken,
+  PpePublicEvidenceError,
+  PPE_PUBLIC_SIGNATURE_CONFIRMATION_TEXT,
+  resolvePpePublicEvidenceToken,
+} from "../lib/ppe-public-evidence";
+import {
+  assertNoAuthorizationCredential,
+  readPublicBearerOrLegacyToken,
+  readPublicBearerToken,
+  sendPublicBearerCredentialError,
+} from "../lib/public-bearer-auth";
 
 const objectStorage = new ObjectStorageService();
 
 const router: IRouter = Router();
 
-const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-const MAX_SIGNATURE_BYTES = 500 * 1024;
+const CONFIRMATION_TEXT_DEFAULT = PPE_PUBLIC_SIGNATURE_CONFIRMATION_TEXT;
 
-const CONFIRMATION_TEXT_DEFAULT =
-  "Svým podpisem potvrzuji, že jsem převzal/a výše uvedené ochranné pracovní pomůcky (OOPP). " +
-  "Zavazuji se je používat v souladu s pokyny výrobce a zaměstnavatele a chránit je před poškozením.";
+function sendPublicTokenError(
+  res: import("express").Response,
+  error: PublicAccessTokenError,
+  noun: string,
+): void {
+  const status = publicAccessTokenHttpStatus(error);
+  const message = error.code === "expired"
+    ? `Platnost odkazu pro ${noun} vypršela. Požádejte správce o nový odkaz.`
+    : error.code === "consumed"
+      ? `Tento odkaz pro ${noun} již byl použit.`
+      : `Odkaz pro ${noun} nebyl nalezen, byl zrušen nebo již není platný.`;
+  res.status(status).json({ error: message, code: `public_token_${error.code}` });
+}
+
+function sendPpePublicEvidenceError(
+  res: import("express").Response,
+  error: PpePublicEvidenceError,
+  mode: "signature" | "confirmation",
+): void {
+  const status = error.code === "not_found" ? 404 : 409;
+  const message = error.code === "not_found"
+    ? "Výdej nebyl nalezen."
+    : error.code === "closed"
+      ? mode === "signature"
+        ? "Výdej byl uzavřen a nelze ho již podepsat."
+        : "Tato pomůcka již byla vrácena nebo uzavřena."
+      : mode === "signature"
+        ? "Výdej byl již podepsán."
+        : "Výdej již byl potvrzen zaměstnancem.";
+  res.status(status).json({ error: message });
+}
+
+function serializePublicEvidenceSnapshot(
+  snapshot: PpePublicEvidenceSnapshot,
+  employeeConfirmedAt: Date | null = null,
+) {
+  return {
+    ...snapshot.assignment,
+    confirmationText: snapshot.confirmationText,
+    status: "issued",
+    closed: false,
+    alreadySigned: employeeConfirmedAt !== null,
+    employeeConfirmedAt: employeeConfirmedAt?.toISOString() ?? null,
+  };
+}
 
 function today(): string {
   return new Date().toISOString().slice(0, 10);
@@ -258,19 +321,27 @@ router.post("/ppe/assignments/:id/sign-token", requireRole("admin", "master"), a
     return;
   }
 
-  const [existing] = await db.select().from(ppeAssignmentsTable).where(eq(ppeAssignmentsTable.id, params.data.id));
-  if (!existing) {
-    res.status(404).json({ error: "Výdej nenalezen" });
-    return;
+  const expiresAt = publicTokenExpiry("PPE_SIGNATURE_EXPIRY_DAYS", 30);
+  let token: string;
+  try {
+    ({ token } = await issuePpePublicEvidenceToken({
+      purpose: "ppe_signature",
+      assignmentId: params.data.id,
+      expiresAt,
+      createdByUserId: req.auth!.userId,
+    }));
+  } catch (error) {
+    if (error instanceof PpePublicEvidenceError) {
+      sendPpePublicEvidenceError(res, error, "signature");
+      return;
+    }
+    throw error;
   }
 
-  let token = existing.signatureToken;
-  if (!token) {
-    token = randomUUID();
-    await db.update(ppeAssignmentsTable).set({ signatureToken: token }).where(eq(ppeAssignmentsTable.id, params.data.id));
-  }
-
-  res.json({ token, signUrl: `/oopp/sign/${token}` });
+  res.json({
+    signUrl: publicAppGrantUrl("/oopp/sign", token),
+    expiresAt: expiresAt.toISOString(),
+  });
 });
 
 router.delete("/ppe/assignments/:id/sign-token", requireRole("admin", "master"), async (req, res): Promise<void> => {
@@ -286,52 +357,70 @@ router.delete("/ppe/assignments/:id/sign-token", requireRole("admin", "master"),
     return;
   }
 
-  await db.update(ppeAssignmentsTable).set({ signatureToken: null }).where(eq(ppeAssignmentsTable.id, params.data.id));
+  await db.transaction(async (tx) => {
+    await revokePublicAccessTokens({
+      purpose: "ppe_signature",
+      resourceId: existing.id,
+      revokedByUserId: req.auth?.userId ?? null,
+      reason: "manual_revoke",
+    }, tx);
+    await tx
+      .update(ppeAssignmentsTable)
+      .set({ signatureToken: null })
+      .where(eq(ppeAssignmentsTable.id, existing.id));
+  });
 
   res.status(204).end();
 });
 
+function ppeSignatureToken(
+  req: Request,
+  res: Response,
+  legacyToken?: string,
+): string | null {
+  try {
+    if (legacyToken !== undefined) {
+      assertNoAuthorizationCredential(req);
+      return legacyToken;
+    }
+    return readPublicBearerToken(req);
+  } catch (error) {
+    if (sendPublicBearerCredentialError(res, error)) return null;
+    throw error;
+  }
+}
+
 // Public: fetch assignment info for signing (by token)
-router.get("/ppe/sign/:token", async (req, res): Promise<void> => {
-  const token = req.params.token;
-  if (!token || !/^[0-9a-f-]{36}$/.test(token)) {
-    res.status(400).json({ error: "Neplatný token" });
-    return;
+async function getPublicPpeSignature(
+  req: Request,
+  res: Response,
+  token: string,
+): Promise<void> {
+  try {
+    const { snapshot } = await resolvePpePublicEvidenceToken(
+      "ppe_signature",
+      token,
+    );
+    res.json(serializePublicEvidenceSnapshot(snapshot));
+  } catch (error) {
+    if (error instanceof PublicAccessTokenError) {
+      sendPublicTokenError(res, error, "podpis");
+      return;
+    }
+    if (error instanceof PpePublicEvidenceError) {
+      sendPpePublicEvidenceError(res, error, "signature");
+      return;
+    }
+    throw error;
   }
-
-  const [assignment] = await db
-    .select()
-    .from(ppeAssignmentsTable)
-    .where(eq(ppeAssignmentsTable.signatureToken, token));
-
-  if (!assignment) {
-    res.status(404).json({ error: "Odkaz pro podpis nebyl nalezen nebo vypršel" });
-    return;
-  }
-
-  res.json({
-    id: assignment.id,
-    ppeNameSnapshot: assignment.ppeNameSnapshot,
-    personNameSnapshot: assignment.personNameSnapshot,
-    quantity: assignment.quantity,
-    size: assignment.size,
-    serialNumber: assignment.serialNumber,
-    issuedAt: assignment.issuedAt,
-    status: assignment.status,
-    closed: assignment.status !== "issued",
-    alreadySigned: !!assignment.employeeConfirmedAt,
-    employeeConfirmedAt: assignment.employeeConfirmedAt ? assignment.employeeConfirmedAt.toISOString() : null,
-  });
-});
+}
 
 // Public: submit signature PNG (base64) — sets employeeConfirmedAt + uploads to storage
-router.post("/ppe/sign/:token", async (req, res): Promise<void> => {
-  const token = req.params.token;
-  if (!token || !/^[0-9a-f-]{36}$/.test(token)) {
-    res.status(400).json({ error: "Neplatný token" });
-    return;
-  }
-
+async function postPublicPpeSignature(
+  req: Request,
+  res: Response,
+  token: string,
+): Promise<void> {
   const body = z.object({
     signatureDataUrl: z.string().startsWith("data:image/png;base64,"),
   }).safeParse(req.body);
@@ -341,30 +430,35 @@ router.post("/ppe/sign/:token", async (req, res): Promise<void> => {
     return;
   }
 
-  const [assignment] = await db
-    .select()
-    .from(ppeAssignmentsTable)
-    .where(eq(ppeAssignmentsTable.signatureToken, token));
+  let snapshot: PpePublicEvidenceSnapshot;
+  try {
+    ({ snapshot } = await resolvePpePublicEvidenceToken(
+      "ppe_signature",
+      token,
+    ));
+  } catch (error) {
+    if (error instanceof PublicAccessTokenError) {
+      sendPublicTokenError(res, error, "podpis");
+      return;
+    }
+    if (error instanceof PpePublicEvidenceError) {
+      sendPpePublicEvidenceError(res, error, "signature");
+      return;
+    }
+    throw error;
+  }
 
-  if (!assignment) {
-    res.status(404).json({ error: "Odkaz pro podpis nebyl nalezen" });
+  let pngBuffer: Buffer;
+  try {
+    ({ pngBuffer } = await decodeSignatureImage(body.data.signatureDataUrl));
+  } catch (error) {
+    res.status(400).json({
+      error: error instanceof Error ? error.message : "Podpis není platný PNG obrázek.",
+    });
     return;
   }
 
-  if (assignment.status !== "issued") {
-    res.status(409).json({ error: "Výdej byl uzavřen a nelze ho již podepsat" });
-    return;
-  }
-
-  if (assignment.employeeConfirmedAt) {
-    res.status(409).json({ error: "Výdej byl již podepsán" });
-    return;
-  }
-
-  const base64Data = body.data.signatureDataUrl.replace(/^data:image\/png;base64,/, "");
-  const pngBuffer = Buffer.from(base64Data, "base64");
-
-  const objectPath = `/objects/ppe-signatures/${assignment.id}-${token}.png`;
+  const objectPath = `/objects/ppe-signatures/${snapshot.assignment.id}-${randomUUID()}.png`;
   let uploaded = false;
   try {
     await objectStorage.putPrivateObject(objectPath, pngBuffer, "image/png");
@@ -376,30 +470,19 @@ router.post("/ppe/sign/:token", async (req, res): Promise<void> => {
   }
 
   try {
-    const confirmedAt = new Date();
-    await db.transaction(async (tx) => {
-      // Lock the row to serialize concurrent sign attempts from multiple tabs/devices
-      const [recheck] = await tx
-        .select()
-        .from(ppeAssignmentsTable)
-        .where(eq(ppeAssignmentsTable.id, assignment.id))
-        .for("update");
-
-      if (recheck?.employeeConfirmedAt) {
-        throw new Error("ALREADY_SIGNED");
-      }
-
-      await tx
-        .update(ppeAssignmentsTable)
-        .set({ employeeConfirmedAt: confirmedAt, signatureObjectPath: objectPath })
-        .where(eq(ppeAssignmentsTable.id, assignment.id));
+    const consumed = await consumePpePublicEvidenceToken({
+      purpose: "ppe_signature",
+      token,
+      action: "signed",
+      signatureObjectPath: objectPath,
+      signatureSha256: createHash("sha256").update(pngBuffer).digest("hex"),
     });
 
     res.json({
       ok: true,
-      employeeConfirmedAt: confirmedAt.toISOString(),
-      personNameSnapshot: assignment.personNameSnapshot,
-      ppeNameSnapshot: assignment.ppeNameSnapshot,
+      employeeConfirmedAt: consumed.confirmedAt.toISOString(),
+      personNameSnapshot: consumed.snapshot.assignment.personNameSnapshot,
+      ppeNameSnapshot: consumed.snapshot.assignment.ppeNameSnapshot,
     });
   } catch (err) {
     // Clean up the uploaded signature PNG if we could not commit
@@ -407,43 +490,37 @@ router.post("/ppe/sign/:token", async (req, res): Promise<void> => {
       objectStorage.deletePrivateObject(objectPath).catch(() => undefined);
     }
 
-    if (err instanceof Error && err.message === "ALREADY_SIGNED") {
-      res.status(409).json({ error: "Výdej byl již podepsán" });
+    if (err instanceof PublicAccessTokenError) {
+      sendPublicTokenError(res, err, "podpis");
+      return;
+    }
+    if (err instanceof PpePublicEvidenceError) {
+      sendPpePublicEvidenceError(res, err, "signature");
       return;
     }
     req.log?.error({ err }, "PPE signature save failed");
     res.status(500).json({ error: "Nepodařilo se uložit podpis" });
   }
+}
+
+router.get("/ppe/sign", async (req, res): Promise<void> => {
+  const token = ppeSignatureToken(req, res);
+  if (token) await getPublicPpeSignature(req, res, token);
 });
 
-// Admin: serve stored signature image for a confirmed assignment
-router.get("/ppe/assignments/:id/signature", requireRole("admin", "master"), async (req, res): Promise<void> => {
-  const params = IdParamSchema.safeParse(req.params);
-  if (!params.success) {
-    res.status(400).json({ error: "Neplatné ID" });
-    return;
-  }
+router.get("/ppe/sign/:token", async (req, res): Promise<void> => {
+  const token = ppeSignatureToken(req, res, req.params.token);
+  if (token) await getPublicPpeSignature(req, res, token);
+});
 
-  const [assignment] = await db.select().from(ppeAssignmentsTable).where(eq(ppeAssignmentsTable.id, params.data.id));
-  if (!assignment) {
-    res.status(404).json({ error: "Výdej nenalezen" });
-    return;
-  }
+router.post("/ppe/sign", async (req, res): Promise<void> => {
+  const token = ppeSignatureToken(req, res);
+  if (token) await postPublicPpeSignature(req, res, token);
+});
 
-  if (!assignment.signatureObjectPath) {
-    res.status(404).json({ error: "Podpis nebyl nalezen" });
-    return;
-  }
-
-  try {
-    const buffer = await objectStorage.getPrivateObjectBuffer(assignment.signatureObjectPath);
-    res.setHeader("Content-Type", "image/png");
-    res.setHeader("Cache-Control", "private, max-age=3600");
-    res.send(buffer);
-  } catch (err) {
-    req.log?.warn({ err }, "PPE signature fetch failed — object missing or inaccessible");
-    res.status(404).json({ error: "Podpis nebyl nalezen" });
-  }
+router.post("/ppe/sign/:token", async (req, res): Promise<void> => {
+  const token = ppeSignatureToken(req, res, req.params.token);
+  if (token) await postPublicPpeSignature(req, res, token);
 });
 
 // ─────────── Export ───────────
@@ -694,25 +771,14 @@ router.post("/ppe/assignments/:id/sign", requireRole("admin", "master"), async (
     return;
   }
 
-  // Validate PNG data URL
-  const dataUrl = parsed.data.signatureDataUrl;
-  if (!dataUrl.startsWith("data:image/png;base64,")) {
-    res.status(400).json({ error: "Podpis musí být ve formátu PNG (data:image/png;base64,...)" });
-    return;
-  }
   let pngBuffer: Buffer;
+  let dataUrl: string;
   try {
-    pngBuffer = Buffer.from(dataUrl.slice("data:image/png;base64,".length), "base64");
-  } catch {
-    res.status(400).json({ error: "Nepodařilo se dekódovat podpis" });
-    return;
-  }
-  if (pngBuffer.length > MAX_SIGNATURE_BYTES) {
-    res.status(400).json({ error: `Podpis je příliš velký (max ${Math.round(MAX_SIGNATURE_BYTES / 1024)} kB)` });
-    return;
-  }
-  if (pngBuffer.length < 8 || !pngBuffer.slice(0, 8).equals(PNG_MAGIC)) {
-    res.status(400).json({ error: "Soubor podpisu není platný PNG" });
+    ({ pngBuffer, dataUrl } = await decodeSignatureImage(parsed.data.signatureDataUrl));
+  } catch (error) {
+    res.status(400).json({
+      error: error instanceof Error ? error.message : "Podpis není platný PNG obrázek.",
+    });
     return;
   }
 
@@ -966,28 +1032,30 @@ router.get("/ppe/assignments/:id/signature", async (req, res): Promise<void> => 
     .select()
     .from(ppeHandoverDocumentsTable)
     .where(eq(ppeHandoverDocumentsTable.assignmentId, params.data.id));
-  if (!doc) {
+  const signatureObjectPath = doc?.pngObjectPath ?? assignment.signatureObjectPath;
+  if (!signatureObjectPath) {
     res.status(404).json({ error: "Podpis nenalezen" });
     return;
   }
-  db.insert(ppeHandoverEventsTable)
-    .values({
-      assignmentId: params.data.id,
-      handoverDocumentId: doc.id,
-      eventType: "signature_viewed",
-      actorUserId: req.auth?.userId ?? null,
-      actorName: req.auth?.name ?? req.auth?.username ?? null,
-    })
-    .catch(() => undefined);
-
-  res.setHeader("Content-Type", "image/png");
-  res.setHeader("Content-Disposition", `inline; filename="podpis-${doc.documentNumber}.png"`);
   try {
-    await objectStorage.servePrivateObject(doc.pngObjectPath, res);
+    const signature = await objectStorage.getPrivateObjectBuffer(signatureObjectPath);
+    res.setHeader("Content-Type", "image/png");
+    res.setHeader(
+      "Content-Disposition",
+      `inline; filename="podpis-${doc?.documentNumber ?? assignment.id}.png"`,
+    );
+    res.send(signature);
+    db.insert(ppeHandoverEventsTable)
+      .values({
+        assignmentId: params.data.id,
+        handoverDocumentId: doc?.id ?? null,
+        eventType: "signature_viewed",
+        actorUserId: req.auth?.userId ?? null,
+        actorName: req.auth?.name ?? req.auth?.username ?? null,
+      })
+      .catch(() => undefined);
   } catch {
-    if (!res.headersSent) {
-      res.status(404).json({ error: "Soubor nenalezen" });
-    }
+    res.status(404).json({ error: "Soubor nenalezen" });
   }
 });
 
@@ -1019,44 +1087,36 @@ router.post("/ppe/assignments/:id/request-confirm", requireRole("admin", "master
     return;
   }
 
-  const [existing] = await db.select().from(ppeAssignmentsTable).where(eq(ppeAssignmentsTable.id, params.data.id));
-  if (!existing) {
-    res.status(404).json({ error: "Výdej nenalezen" });
-    return;
+  const expiresAt = publicTokenExpiry("PPE_CONFIRM_EXPIRY_DAYS", 30);
+  let issued;
+  try {
+    issued = await issuePpePublicEvidenceToken({
+      purpose: "ppe_confirmation",
+      assignmentId: params.data.id,
+      expiresAt,
+      createdByUserId: req.auth!.userId,
+    });
+  } catch (error) {
+    if (error instanceof PpePublicEvidenceError) {
+      sendPpePublicEvidenceError(res, error, "confirmation");
+      return;
+    }
+    throw error;
   }
-  if (existing.status !== "issued") {
-    res.status(409).json({ error: "Potvrdit lze pouze aktivní výdej" });
-    return;
-  }
-  if (existing.employeeConfirmedAt) {
-    res.status(409).json({ error: "Výdej již byl potvrzen zaměstnancem" });
-    return;
-  }
-
-  const expiryDays = parseInt(process.env.PPE_CONFIRM_EXPIRY_DAYS ?? "30", 10);
-  const expiresAt = new Date();
-  expiresAt.setDate(expiresAt.getDate() + expiryDays);
-
-  const isExpired = existing.confirmTokenExpiresAt && existing.confirmTokenExpiresAt < new Date();
-  const token = (!existing.confirmToken || isExpired) ? randomBytes(32).toString("hex") : existing.confirmToken;
-  await db.update(ppeAssignmentsTable)
-    .set({ confirmToken: token, confirmTokenExpiresAt: expiresAt })
-    .where(eq(ppeAssignmentsTable.id, params.data.id));
-
-  const baseUrl = `${req.protocol}://${req.get("host")}`;
-  const confirmUrl = `${baseUrl}/oopp/potvrdit?token=${token}`;
+  const { token, assignment: existing, snapshot } = issued;
+  const confirmUrl = publicAppGrantUrl("/oopp/potvrdit", token);
 
   const [person] = await db.select().from(peopleTable).where(eq(peopleTable.id, existing.personId));
   let emailSent = false;
 
-  if (person?.email && !existing.confirmEmailSentAt) {
+  if (person?.email) {
     try {
       await sendPlainEmail({
         to: person.email,
-        subject: `Potvrzení převzetí OOPP – ${existing.ppeNameSnapshot}`,
+        subject: `Potvrzení převzetí OOPP – ${snapshot.assignment.ppeNameSnapshot}`,
         text:
-          `Dobrý den ${existing.personNameSnapshot},\n\n` +
-          `Prosíme potvrďte převzetí ochranné pomůcky: ${existing.ppeNameSnapshot}.\n\n` +
+          `Dobrý den ${snapshot.assignment.personNameSnapshot},\n\n` +
+          `Prosíme potvrďte převzetí ochranné pomůcky: ${snapshot.assignment.ppeNameSnapshot}.\n\n` +
           `Pro potvrzení klikněte na odkaz:\n${confirmUrl}\n\n` +
           `Pokud jste pomůcku nepřevzali, tuto zprávu ignorujte.\n`,
       });
@@ -1070,69 +1130,86 @@ router.post("/ppe/assignments/:id/request-confirm", requireRole("admin", "master
     }
   }
 
-  res.json({ confirmUrl, token, emailSent });
+  res.json({ confirmUrl, expiresAt: expiresAt.toISOString(), emailSent });
 });
 
+function ppeConfirmationToken(
+  req: Request,
+  res: Response,
+  legacyToken: unknown,
+): string | null {
+  try {
+    return readPublicBearerOrLegacyToken(req, legacyToken);
+  } catch (error) {
+    if (sendPublicBearerCredentialError(res, error)) return null;
+    throw error;
+  }
+}
+
+async function postPublicPpeConfirmation(
+  res: Response,
+  token: string,
+): Promise<void> {
+  try {
+    const consumed = await consumePpePublicEvidenceToken({
+      purpose: "ppe_confirmation",
+      token,
+      action: "confirmed",
+    });
+    res.json({
+      already: false,
+      assignment: serializePublicEvidenceSnapshot(
+        consumed.snapshot,
+        consumed.confirmedAt,
+      ),
+    });
+  } catch (error) {
+    if (error instanceof PublicAccessTokenError) {
+      sendPublicTokenError(res, error, "potvrzení");
+      return;
+    }
+    if (error instanceof PpePublicEvidenceError) {
+      sendPpePublicEvidenceError(res, error, "confirmation");
+      return;
+    }
+    throw error;
+  }
+}
+
+async function getPublicPpeConfirmation(
+  res: Response,
+  token: string,
+): Promise<void> {
+  try {
+    const { snapshot } = await resolvePpePublicEvidenceToken(
+      "ppe_confirmation",
+      token,
+    );
+    res.json(serializePublicEvidenceSnapshot(snapshot));
+  } catch (error) {
+    if (error instanceof PublicAccessTokenError) {
+      sendPublicTokenError(res, error, "potvrzení");
+      return;
+    }
+    if (error instanceof PpePublicEvidenceError) {
+      sendPpePublicEvidenceError(res, error, "confirmation");
+      return;
+    }
+    throw error;
+  }
+}
+
 router.post("/ppe/confirm", async (req, res): Promise<void> => {
-  const parsed = z.object({ token: z.string().min(1) }).safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: "Chybí token" });
-    return;
-  }
-
-  const [assignment] = await db
-    .select()
-    .from(ppeAssignmentsTable)
-    .where(eq(ppeAssignmentsTable.confirmToken, parsed.data.token));
-
-  if (!assignment) {
-    res.status(404).json({ error: "Odkaz je neplatný nebo vypršel" });
-    return;
-  }
-  if (assignment.confirmTokenExpiresAt && assignment.confirmTokenExpiresAt < new Date()) {
-    res.status(410).json({ error: "Odkaz vypršel. Požádejte správce o nový potvrzovací odkaz." });
-    return;
-  }
-  if (assignment.status !== "issued") {
-    res.status(409).json({ error: "Tato pomůcka již byla vrácena nebo uzavřena" });
-    return;
-  }
-  if (assignment.employeeConfirmedAt) {
-    res.json({ already: true, assignment: serializeAssignment(assignment) });
-    return;
-  }
-
-  const [updated] = await db
-    .update(ppeAssignmentsTable)
-    .set({ employeeConfirmedAt: new Date() })
-    .where(eq(ppeAssignmentsTable.id, assignment.id))
-    .returning();
-
-  res.json({ already: false, assignment: serializeAssignment(updated) });
+  const body = req.body && typeof req.body === "object"
+    ? req.body as Record<string, unknown>
+    : {};
+  const token = ppeConfirmationToken(req, res, body.token);
+  if (token) await postPublicPpeConfirmation(res, token);
 });
 
 router.get("/ppe/confirm", async (req, res): Promise<void> => {
-  const token = typeof req.query.token === "string" ? req.query.token : null;
-  if (!token) {
-    res.status(400).json({ error: "Chybí token" });
-    return;
-  }
-
-  const [assignment] = await db
-    .select()
-    .from(ppeAssignmentsTable)
-    .where(eq(ppeAssignmentsTable.confirmToken, token));
-
-  if (!assignment) {
-    res.status(404).json({ error: "Odkaz je neplatný nebo vypršel" });
-    return;
-  }
-  if (assignment.confirmTokenExpiresAt && assignment.confirmTokenExpiresAt < new Date()) {
-    res.status(410).json({ error: "Odkaz vypršel. Požádejte správce o nový potvrzovací odkaz." });
-    return;
-  }
-
-  res.json(serializeAssignment(assignment));
+  const token = ppeConfirmationToken(req, res, req.query.token);
+  if (token) await getPublicPpeConfirmation(res, token);
 });
 
 export default router;

@@ -27,6 +27,7 @@ import {
   useListLinkableDocumentLines, getListLinkableDocumentLinesQueryKey,
   useLinkMaterialToDocument,
   useRequestJobSignature,
+  useReopenJobSignatureRevision,
   useGetJobCompletionReadiness, getGetJobCompletionReadinessQueryKey,
   useUpdateJobBillingIntent,
 } from "@workspace/api-client-react";
@@ -108,7 +109,6 @@ import {
 } from "@/lib/timer-notification";
 import { invalidateData } from "@/lib/query-invalidation";
 import { useOfflineQueue } from "@/hooks/use-offline-queue";
-import { saveBlob } from "@/lib/offline-queue";
 import { DecimalInput, parseDecimal, decimalError } from "@/components/decimal-input";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer,
@@ -186,8 +186,11 @@ export default function JobDetail() {
   const [statusSaveState, setStatusSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [sigEmail, setSigEmail] = useState("");
   const [sigDialogOpen, setSigDialogOpen] = useState(false);
+  const [sigRevisionDialogOpen, setSigRevisionDialogOpen] = useState(false);
+  const [sigRevisionReason, setSigRevisionReason] = useState("");
   const [completionDialogOpen, setCompletionDialogOpen] = useState(false);
   const requestSignature = useRequestJobSignature();
+  const reopenSignatureRevision = useReopenJobSignatureRevision();
   const completionReadiness = useGetJobCompletionReadiness(id, {
     query: {
       enabled: canManage && completionDialogOpen && id > 0,
@@ -558,6 +561,25 @@ export default function JobDetail() {
                 />
               </a>
             )}
+            {canManage && (
+              <div className="flex shrink-0 flex-col gap-1 sm:flex-row">
+                <Button variant="outline" size="sm" asChild>
+                  <a href={`/api/jobs/${id}/signed-document`} target="_blank" rel="noreferrer">
+                    <FileText className="h-4 w-4 mr-1" /> Podepsané PDF
+                  </a>
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setSigRevisionReason("");
+                    setSigRevisionDialogOpen(true);
+                  }}
+                >
+                  <RotateCcw className="h-4 w-4 mr-1" /> Opravit verzí
+                </Button>
+              </div>
+            )}
           </div>
         ) : canManage ? (
           <Button
@@ -622,6 +644,58 @@ export default function JobDetail() {
                 </Button>
               </div>
             </div>
+          </DialogContent>
+        </Dialog>}
+
+        {canManage && <Dialog open={sigRevisionDialogOpen} onOpenChange={setSigRevisionDialogOpen}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Vytvořit opravenou verzi protokolu</DialogTitle>
+              <DialogDescription>
+                Původní podepsané PDF, podpis, otisky a časová stopa zůstanou zachované. Zakázka se znovu otevře pro nový podpis.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2">
+              <Label htmlFor="signature-revision-reason">Důvod opravy *</Label>
+              <Textarea
+                id="signature-revision-reason"
+                value={sigRevisionReason}
+                onChange={(event) => setSigRevisionReason(event.target.value)}
+                maxLength={500}
+                rows={3}
+              />
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setSigRevisionDialogOpen(false)}>
+                Zrušit
+              </Button>
+              <Button
+                disabled={reopenSignatureRevision.isPending || sigRevisionReason.trim().length < 3}
+                onClick={() => reopenSignatureRevision.mutate(
+                  { id, data: { reason: sigRevisionReason.trim() } },
+                  {
+                    onSuccess: (result) => {
+                      setSigRevisionDialogOpen(false);
+                      setSigRevisionReason("");
+                      queryClient.invalidateQueries({ queryKey: getGetJobQueryKey(id) });
+                      invalidateJobLists(queryClient);
+                      toast({
+                        title: `Podepsaná verze ${result.supersededVersion} zůstala zachovaná.`,
+                        description: "Nyní lze odeslat opravený protokol k novému podpisu.",
+                      });
+                    },
+                    onError: (err: unknown) => toast({
+                      title: "Opravenou verzi se nepodařilo založit.",
+                      description: err instanceof Error ? err.message : undefined,
+                      variant: "destructive",
+                    }),
+                  },
+                )}
+              >
+                <RotateCcw className="h-4 w-4 mr-1" />
+                {reopenSignatureRevision.isPending ? "Otevírám…" : "Zachovat a otevřít opravu"}
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>}
 
@@ -3564,7 +3638,7 @@ function AttachmentsSection({ jobId, isExpanded, onToggle }: any) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const { isOnline, enqueue, pendingOps } = useOfflineQueue();
+  const { isOnline, enqueue, saveBlob, pendingOps } = useOfflineQueue();
 
   // Pending photo ops for this job — shown as optimistic placeholders
   const pendingPhotos = pendingOps.filter(

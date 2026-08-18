@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import {
   generateRegistrationOptions,
   verifyRegistrationResponse,
@@ -13,10 +13,21 @@ import {
   auditLogTable,
   type UserRole,
 } from "@workspace/db";
-import { requireRole } from "../middlewares/auth";
 import { serializeUser } from "./auth";
 import { getPermissionOverrides } from "../lib/permissions";
 import rateLimit from "express-rate-limit";
+import { establishAuthenticatedSessionIfCurrent } from "../lib/auth-session";
+import { establishVaultStepUp } from "../lib/vault-step-up";
+import {
+  auditSecurityResponse,
+  recordRateLimitAuditEvent,
+  SECURITY_AUDIT_CODES,
+} from "../lib/security-audit";
+import {
+  lockAndAuthorizeUserManager,
+  UserOffboardingError,
+} from "../lib/user-offboarding-service";
+import { webauthnRelyingParty } from "../lib/webauthn-rp";
 
 const router: IRouter = Router();
 
@@ -25,23 +36,22 @@ const webauthnLimiter = rateLimit({
   limit: 30,
   standardHeaders: "draft-7",
   legacyHeaders: false,
-  message: { error: "Příliš mnoho pokusů. Zkuste to prosím za chvíli." },
+  handler: async (req, res) => {
+    await recordRateLimitAuditEvent(req, "webauthn");
+    res.status(429).json({ error: "Příliš mnoho pokusů. Zkuste to prosím za chvíli." });
+  },
   skip: (req) => {
     const ip = req.ip ?? "";
     return ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1";
   },
 });
 
-function getRpId(req: { hostname: string }): string {
-  const h = req.hostname;
-  return h === "localhost" || h === "127.0.0.1" ? "localhost" : h;
+function getRpId(req: Parameters<typeof webauthnRelyingParty>[0]): string {
+  return webauthnRelyingParty(req).rpId;
 }
 
-function getRpOrigin(req: { protocol: string; hostname: string; get: (h: string) => string | undefined }): string {
-  const forwarded = req.get("x-forwarded-proto") ?? req.protocol;
-  const proto = forwarded === "https" ? "https" : "http";
-  const host = req.get("host") ?? req.hostname;
-  return `${proto}://${host}`;
+function getRpOrigin(req: Parameters<typeof webauthnRelyingParty>[0]): string {
+  return webauthnRelyingParty(req).origin;
 }
 
 function serializeCred(c: typeof webauthnCredentialsTable.$inferSelect) {
@@ -52,6 +62,26 @@ function serializeCred(c: typeof webauthnCredentialsTable.$inferSelect) {
     createdAt: c.createdAt.toISOString(),
   };
 }
+
+const auditRegistrationComplete = auditSecurityResponse({
+  succeededCode: SECURITY_AUDIT_CODES.webauthnRegistrationSucceeded,
+  deniedCode: SECURITY_AUDIT_CODES.webauthnRegistrationDenied,
+  actorUserId: (req) => req.auth?.userId,
+  skipUnauthenticated: true,
+  dedupeDeniedByActorAndSource: true,
+});
+const auditLoginComplete = auditSecurityResponse({
+  succeededCode: SECURITY_AUDIT_CODES.webauthnLoginSucceeded,
+  deniedCode: SECURITY_AUDIT_CODES.webauthnLoginDenied,
+  actorUserId: (req) => req.session.userId,
+});
+const auditVerifyComplete = auditSecurityResponse({
+  succeededCode: SECURITY_AUDIT_CODES.webauthnVerifySucceeded,
+  deniedCode: SECURITY_AUDIT_CODES.webauthnVerifyDenied,
+  actorUserId: (req) => req.auth?.userId,
+  skipUnauthenticated: true,
+  dedupeDeniedByActorAndSource: true,
+});
 
 router.post("/auth/webauthn/register/begin", async (req, res): Promise<void> => {
   if (!req.auth) {
@@ -96,7 +126,7 @@ router.post("/auth/webauthn/register/begin", async (req, res): Promise<void> => 
   res.json(options);
 });
 
-router.post("/auth/webauthn/register/complete", async (req, res): Promise<void> => {
+router.post("/auth/webauthn/register/complete", auditRegistrationComplete, async (req, res): Promise<void> => {
   if (!req.auth) {
     res.status(401).json({ error: "Unauthorized" });
     return;
@@ -128,8 +158,8 @@ router.post("/auth/webauthn/register/complete", async (req, res): Promise<void> 
       expectedRPID: getRpId(req),
       requireUserVerification: true,
     });
-  } catch (err: any) {
-    res.status(400).json({ error: err?.message ?? "Verification failed" });
+  } catch {
+    res.status(400).json({ error: "Registraci bezpečnostního klíče nelze ověřit" });
     return;
   }
 
@@ -140,28 +170,49 @@ router.post("/auth/webauthn/register/complete", async (req, res): Promise<void> 
 
   const { credential } = verification.registrationInfo;
 
-  const [existing] = await db
-    .select({ id: webauthnCredentialsTable.id })
-    .from(webauthnCredentialsTable)
-    .where(eq(webauthnCredentialsTable.credentialId, credential.id));
+  const saved = await db.transaction(async (tx) => {
+    await tx.execute(sql`select id from users where id = ${req.auth!.userId} for update`);
+    const [lockedUser] = await tx
+      .select({
+        isActive: usersTable.isActive,
+        sessionGeneration: usersTable.sessionGeneration,
+      })
+      .from(usersTable)
+      .where(eq(usersTable.id, req.auth!.userId));
+    if (!lockedUser?.isActive || req.session.sessionGeneration !== lockedUser.sessionGeneration) {
+      return { status: "access_revoked" } as const;
+    }
 
-  if (existing) {
+    const [existing] = await tx
+      .select({ id: webauthnCredentialsTable.id })
+      .from(webauthnCredentialsTable)
+      .where(eq(webauthnCredentialsTable.credentialId, credential.id));
+    if (existing) return { status: "duplicate" } as const;
+
+    const [inserted] = await tx
+      .insert(webauthnCredentialsTable)
+      .values({
+        userId: req.auth!.userId,
+        credentialId: credential.id,
+        publicKey: Buffer.from(credential.publicKey).toString("base64"),
+        counter: credential.counter,
+        deviceName: deviceName?.trim() || null,
+      })
+      .returning();
+    if (!inserted) throw new Error("WebAuthn credential was not inserted");
+    return { status: "saved", value: inserted } as const;
+  });
+
+  if (saved.status === "access_revoked") {
+    res.status(403).json({ error: "Přístup byl mezitím odvolán", code: "access_revoked" });
+    return;
+  }
+  if (saved.status === "duplicate") {
     res.status(409).json({ error: "Zařízení je již registrováno" });
     return;
   }
 
-  const [saved] = await db
-    .insert(webauthnCredentialsTable)
-    .values({
-      userId: req.auth.userId,
-      credentialId: credential.id,
-      publicKey: Buffer.from(credential.publicKey).toString("base64"),
-      counter: credential.counter,
-      deviceName: deviceName?.trim() || null,
-    })
-    .returning();
-
-  res.status(201).json(serializeCred(saved));
+  res.status(201).json(serializeCred(saved.value));
 });
 
 router.post("/auth/webauthn/login/begin", webauthnLimiter, async (req, res): Promise<void> => {
@@ -214,7 +265,7 @@ router.post("/auth/webauthn/login/begin", webauthnLimiter, async (req, res): Pro
   res.json(options);
 });
 
-router.post("/auth/webauthn/login/complete", webauthnLimiter, async (req, res): Promise<void> => {
+router.post("/auth/webauthn/login/complete", webauthnLimiter, auditLoginComplete, async (req, res): Promise<void> => {
   const challenge = req.session.webauthnChallenge;
   const username = req.session.webauthnUsername;
 
@@ -309,8 +360,8 @@ router.post("/auth/webauthn/login/complete", webauthnLimiter, async (req, res): 
         counter: cred.counter,
       },
     });
-  } catch (err: any) {
-    res.status(401).json({ error: err?.message ?? "Verification failed" });
+  } catch {
+    res.status(401).json({ error: "Biometrické ověření selhalo" });
     return;
   }
 
@@ -324,12 +375,12 @@ router.post("/auth/webauthn/login/complete", webauthnLimiter, async (req, res): 
     .set({ counter: verification.authenticationInfo.newCounter })
     .where(eq(webauthnCredentialsTable.id, cred.id));
 
-  req.session.userId = user.id;
-  req.session.username = user.username;
-  req.session.role = user.role as UserRole;
-  req.session.name = user.name;
-
-  res.json(serializeUser(user, await getPermissionOverrides(user.id)));
+  if (!(await establishAuthenticatedSessionIfCurrent(req, user))) {
+    res.status(401).json({ error: "Neplatné přihlašovací údaje" });
+    return;
+  }
+  const overrides = await getPermissionOverrides(user.id);
+  res.json(serializeUser(user, overrides));
 });
 
 router.post("/auth/webauthn/verify/begin", async (req, res): Promise<void> => {
@@ -358,7 +409,7 @@ router.post("/auth/webauthn/verify/begin", async (req, res): Promise<void> => {
   res.json(options);
 });
 
-router.post("/auth/webauthn/verify/complete", async (req, res): Promise<void> => {
+router.post("/auth/webauthn/verify/complete", auditVerifyComplete, async (req, res): Promise<void> => {
   if (!req.auth) {
     res.status(401).json({ error: "Unauthorized" });
     return;
@@ -409,8 +460,8 @@ router.post("/auth/webauthn/verify/complete", async (req, res): Promise<void> =>
         counter: cred.counter,
       },
     });
-  } catch (err: any) {
-    res.status(401).json({ error: err?.message ?? "Verification failed" });
+  } catch {
+    res.status(401).json({ error: "Biometrické ověření selhalo" });
     return;
   }
 
@@ -424,8 +475,12 @@ router.post("/auth/webauthn/verify/complete", async (req, res): Promise<void> =>
     .set({ counter: verification.authenticationInfo.newCounter })
     .where(eq(webauthnCredentialsTable.id, cred.id));
 
-  req.session.biometricVerifiedAt = Date.now();
-  res.json({ verified: true });
+  const result = await establishVaultStepUp(req, "webauthn");
+  res.json({
+    verified: true,
+    method: "webauthn",
+    expiresAt: new Date(result.expiresAt).toISOString(),
+  });
 });
 
 router.get("/auth/webauthn/credentials", async (req, res): Promise<void> => {
@@ -434,12 +489,12 @@ router.get("/auth/webauthn/credentials", async (req, res): Promise<void> => {
     return;
   }
 
-  const isAdmin = req.auth.role === "admin" || req.auth.role === "master";
+  const canManageUsers = req.auth.permissions.includes("users.manage");
   const userIdParam = (req.query as { userId?: string }).userId;
   let targetUserId = req.auth.userId;
 
   if (userIdParam) {
-    if (!isAdmin) {
+    if (!canManageUsers) {
       res.status(403).json({ error: "Forbidden" });
       return;
     }
@@ -451,16 +506,32 @@ router.get("/auth/webauthn/credentials", async (req, res): Promise<void> => {
     targetUserId = parsed;
   }
 
-  const creds = await db
-    .select()
-    .from(webauthnCredentialsTable)
-    .where(eq(webauthnCredentialsTable.userId, targetUserId))
-    .orderBy(webauthnCredentialsTable.createdAt);
+  let creds;
+  try {
+    creds = userIdParam
+      ? await db.transaction(async (tx) => {
+          await lockAndAuthorizeUserManager(tx, req.auth!.userId);
+          return tx
+            .select()
+            .from(webauthnCredentialsTable)
+            .where(eq(webauthnCredentialsTable.userId, targetUserId))
+            .orderBy(webauthnCredentialsTable.createdAt);
+        })
+      : await db
+          .select()
+          .from(webauthnCredentialsTable)
+          .where(eq(webauthnCredentialsTable.userId, targetUserId))
+          .orderBy(webauthnCredentialsTable.createdAt);
+  } catch (error) {
+    if (error instanceof UserOffboardingError) {
+      res.status(error.status).json({ error: error.message, code: error.code });
+      return;
+    }
+    throw error;
+  }
 
   res.json(creds.map(serializeCred));
 });
-
-const requireAdmin = requireRole("admin", "master");
 
 router.delete("/auth/webauthn/credentials/:id", async (req, res): Promise<void> => {
   if (!req.auth) {
@@ -474,37 +545,56 @@ router.delete("/auth/webauthn/credentials/:id", async (req, res): Promise<void> 
     return;
   }
 
-  const [cred] = await db
-    .select()
-    .from(webauthnCredentialsTable)
-    .where(eq(webauthnCredentialsTable.id, id));
+  const canManageUsers = req.auth.permissions.includes("users.manage");
+  try {
+    const outcome = await db.transaction(async (tx) => {
+      if (canManageUsers) {
+        await lockAndAuthorizeUserManager(tx, req.auth!.userId);
+        const [candidate] = await tx
+          .select({ userId: webauthnCredentialsTable.userId })
+          .from(webauthnCredentialsTable)
+          .where(eq(webauthnCredentialsTable.id, id));
+        if (!candidate) return { status: "not_found" } as const;
+        await tx.execute(sql`select id from users where id = ${candidate.userId} for update`);
+        await tx.execute(sql`select id from webauthn_credentials where id = ${id} for update`);
+      } else {
+        await tx.execute(sql`select id from users where id = ${req.auth!.userId} and is_active = true for update`);
+        await tx.execute(sql`select id from webauthn_credentials where id = ${id} and user_id = ${req.auth!.userId} for update`);
+      }
 
-  if (!cred) {
-    res.status(404).json({ error: "Credential not found" });
-    return;
-  }
+      const [credential] = await tx
+        .select()
+        .from(webauthnCredentialsTable)
+        .where(eq(webauthnCredentialsTable.id, id));
+      if (!credential) return { status: "not_found" } as const;
+      const isOwner = credential.userId === req.auth!.userId;
+      if (!isOwner && !canManageUsers) return { status: "not_found" } as const;
 
-  const isOwner = cred.userId === req.auth.userId;
-  const isAdmin = req.auth.role === "admin" || req.auth.role === "master";
-
-  if (!isOwner && !isAdmin) {
-    res.status(403).json({ error: "Forbidden" });
-    return;
-  }
-
-  await db.delete(webauthnCredentialsTable).where(eq(webauthnCredentialsTable.id, id));
-
-  if (!isOwner && isAdmin) {
-    await db.insert(auditLogTable).values({
-      actorUserId: req.auth.userId,
-      actorName: req.auth.name ?? req.auth.username,
-      action: "delete",
-      entityType: "webauthn-credentials",
-      entityId: id,
-      summary: `Admin odebral biometrické zařízení #${id} (${cred.deviceName ?? "bez názvu"}) uživateli #${cred.userId}`,
-      method: "DELETE",
-      path: req.path,
+      await tx.delete(webauthnCredentialsTable).where(eq(webauthnCredentialsTable.id, id));
+      if (!isOwner) {
+        await tx.insert(auditLogTable).values({
+          actorUserId: req.auth!.userId,
+          actorName: null,
+          action: "delete",
+          entityType: "webauthn-credentials",
+          entityId: id,
+          summary: JSON.stringify({ targetUserId: credential.userId }),
+          method: "DELETE",
+          path: req.path,
+        });
+      }
+      return { status: "deleted" } as const;
     });
+    if (outcome.status === "not_found") {
+      res.status(404).json({ error: "Credential not found" });
+      return;
+    }
+  } catch (error) {
+    if (error instanceof UserOffboardingError) {
+      res.status(error.status).json({ error: error.message, code: error.code });
+      return;
+    }
+    throw error;
   }
 
   res.sendStatus(204);

@@ -4,10 +4,11 @@ import { useOfflineQueue } from "@/hooks/use-offline-queue";
 import { OfflineFailedDialog } from "@/components/offline-failed-dialog";
 
 export function OfflineBanner() {
-  const { isOnline, pendingCount, failedCount, isFlushing } = useOfflineQueue();
+  const { isOnline, pendingCount, failedCount, lockedCount, legacyCount, isFlushing } = useOfflineQueue();
   const [showFailed, setShowFailed] = useState(false);
 
-  const showBanner = !isOnline || pendingCount > 0 || failedCount > 0;
+  const isolatedCount = lockedCount + legacyCount;
+  const showBanner = !isOnline || pendingCount > 0 || failedCount > 0 || isolatedCount > 0;
   if (!showBanner) return null;
 
   return (
@@ -53,6 +54,15 @@ export function OfflineBanner() {
             >
               <X className="w-4 h-4" />
             </button>
+          </div>
+        )}
+
+        {isolatedCount > 0 && (
+          <div className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-slate-700 text-white">
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            <span className="flex-1">
+              {isolatedCount} {isolatedCount === 1 ? "lokální položka je" : "lokálních položek je"} bezpečně uzamčeno pro jinou nebo starší relaci. Nebudou automaticky odeslány.
+            </span>
           </div>
         )}
       </div>

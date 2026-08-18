@@ -2,7 +2,8 @@ import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { eq, inArray } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import request, { type Agent } from "supertest";
-import { db, usersTable, ppeItemsTable, ppeAssignmentsTable, peopleTable } from "@workspace/db";
+import { db, usersTable, ppeItemsTable, ppeAssignmentsTable, peopleTable, publicAccessTokensTable } from "@workspace/db";
+import { bindAuthenticatedAgent } from "./scoped-test-agent";
 
 /**
  * Integration tests for POST /ppe/assignments/:id/request-confirm
@@ -34,6 +35,7 @@ const { default: app } = await import("../src/app");
 
 const TAG = `test-ppe-email-${Date.now()}`;
 const PASSWORD = "ppe-email-test-pw";
+const originalPublicUrl = process.env.PUBLIC_APP_URL;
 
 let adminAgent: Agent;
 let adminUserId: number;
@@ -44,6 +46,7 @@ const itemIds: number[] = [];
 const assignmentIds: number[] = [];
 
 beforeAll(async () => {
+  process.env.PUBLIC_APP_URL = "https://ppe.test";
   const [admin] = await db
     .insert(usersTable)
     .values({
@@ -63,17 +66,12 @@ beforeAll(async () => {
     password: PASSWORD,
   });
   expect(res.status).toBe(200);
+  await bindAuthenticatedAgent(adminAgent);
 });
 
 afterAll(async () => {
-  if (assignmentIds.length > 0)
-    await db.delete(ppeAssignmentsTable).where(inArray(ppeAssignmentsTable.id, assignmentIds));
-  if (itemIds.length > 0)
-    await db.delete(ppeItemsTable).where(inArray(ppeItemsTable.id, itemIds));
-  if (personIds.length > 0)
-    await db.delete(peopleTable).where(inArray(peopleTable.id, personIds));
-  if (userIds.length > 0)
-    await db.delete(usersTable).where(inArray(usersTable.id, userIds));
+  if (originalPublicUrl == null) delete process.env.PUBLIC_APP_URL;
+  else process.env.PUBLIC_APP_URL = originalPublicUrl;
 });
 
 describe("request-confirm: person WITH email", () => {
@@ -112,11 +110,20 @@ describe("request-confirm: person WITH email", () => {
   });
 
   it("returns 200 with emailSent=true", async () => {
-    const res = await adminAgent.post(`/api/ppe/assignments/${assignmentId}/request-confirm`);
+    const res = await adminAgent
+      .post(`/api/ppe/assignments/${assignmentId}/request-confirm`)
+      .set("Host", "attacker.example");
     expect(res.status).toBe(200);
     expect(res.body.emailSent).toBe(true);
     expect(typeof res.body.confirmUrl).toBe("string");
     expect(res.body.confirmUrl.length).toBeGreaterThan(0);
+    expect(res.body.confirmUrl).toMatch(/^https:\/\/ppe\.test\//);
+    expect(res.body.confirmUrl).not.toContain("attacker.example");
+    const confirmUrl = new URL(res.body.confirmUrl);
+    expect(confirmUrl.pathname).toBe("/oopp/potvrdit");
+    expect(confirmUrl.search).toBe("");
+    expect(new URLSearchParams(confirmUrl.hash.slice(1)).get("token"))
+      .toMatch(/^[A-Za-z0-9_-]{43}$/);
   });
 
   it("calls sendPlainEmail once with the person's email address", async () => {
@@ -125,6 +132,7 @@ describe("request-confirm: person WITH email", () => {
     expect(call.to).toBe("worker@example.com");
     expect(call.subject).toMatch(/OOPP/i);
     expect(call.text).toMatch(/http/);
+    expect(call.text).toContain("https://ppe.test/");
   });
 
   it("sets confirmEmailSentAt in the DB", async () => {

@@ -1,0 +1,1778 @@
+name: Publish immutable staging images (private caller, no deploy)
+
+on:
+  workflow_call:
+    inputs:
+      source_sha:
+        description: Exact 40-character Site-Logbook commit SHA selected for publication
+        required: true
+        type: string
+      source_ref:
+        description: Approved Site-Logbook candidate branch
+        required: true
+        type: string
+      source_pr_number:
+        description: Open draft PR whose head is the selected source SHA
+        required: true
+        type: number
+      publication_stage:
+        description: Explicit two-stage gate (preflight-only or complete)
+        required: true
+        type: string
+      expected_preflight_digest:
+        description: Preflight digest proven by the preceding preflight-only run; empty for preflight-only
+        required: false
+        default: ""
+        type: string
+      confirm_registry_publication:
+        description: Publish only the explicitly selected staging stage to private GHCR without deploying it
+        required: true
+        type: boolean
+      registry_history_acceptance:
+        description: Exact reviewed acceptance of the external-ledger residual limitation
+        required: true
+        type: string
+      registry_ledger_json:
+        description: Canonical stage-specific external-ledger entry hard-coded by the reviewed private caller
+        required: true
+        type: string
+    secrets:
+      packages_metadata_token:
+        description: Dedicated classic PAT with exactly read:packages for private Packages REST metadata
+        required: true
+
+permissions: {}
+
+concurrency:
+  group: site-logbook-images-publication
+  cancel-in-progress: false
+
+jobs:
+  validate-public-source:
+    permissions: {}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require exact private manual caller workflow
+        shell: bash
+        env:
+          APPROVED_CALLER_REPOSITORY: modvolt/site-logbook-registry
+          APPROVED_CALLER_WORKFLOW_REF: modvolt/site-logbook-registry/.github/workflows/publish-staging-images.yml@refs/heads/main
+          CALLER_ACTOR: ${{ github.actor }}
+          CALLER_EVENT_NAME: ${{ github.event_name }}
+          CALLER_REF: ${{ github.ref }}
+          CALLER_REPOSITORY: ${{ github.repository }}
+          CALLER_TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          CALLER_WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          set -euo pipefail
+
+          fail() {
+            echo "Private staging image caller validation failed: $1" >&2
+            exit 1
+          }
+
+          [[ "${CALLER_REPOSITORY,,}" == "$APPROVED_CALLER_REPOSITORY" ]] \
+            || fail "the reusable workflow must be called by the approved private repository."
+          [[ "$CALLER_EVENT_NAME" == "workflow_dispatch" ]] \
+            || fail "the caller must be a manual workflow dispatch."
+          [[ "$CALLER_REF" == "refs/heads/main" ]] \
+            || fail "the caller must run from the private default branch."
+          [[ "${CALLER_ACTOR,,}" == "modvolt" ]] \
+            || fail "the caller actor must be the repository owner."
+          [[ "${CALLER_TRIGGERING_ACTOR,,}" == "modvolt" ]] \
+            || fail "the triggering actor must be the repository owner."
+          [[ "${CALLER_WORKFLOW_REF,,}" == "$APPROVED_CALLER_WORKFLOW_REF" ]] \
+            || fail "the caller workflow path and ref are not approved."
+
+      - name: Require exact green public source candidate
+        shell: bash
+        env:
+          APPROVED_SOURCE_REF: agent/phase16c3-staging-preflight
+          PUBLICATION_CONFIRMED: ${{ inputs.confirm_registry_publication }}
+          PUBLICATION_STAGE: ${{ inputs.publication_stage }}
+          EXPECTED_PREFLIGHT_DIGEST: ${{ inputs.expected_preflight_digest }}
+          SOURCE_PR_NUMBER: ${{ inputs.source_pr_number }}
+          SOURCE_REF: ${{ inputs.source_ref }}
+          SOURCE_REPOSITORY: modvolt/Site-Logbook
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+
+          fail() {
+            echo "Public Site-Logbook source validation failed: $1" >&2
+            exit 1
+          }
+
+          public_source_api() {
+            local url="$1"
+            case "$url" in
+              "https://api.github.com/repos/${SOURCE_REPOSITORY}/"*) ;;
+              *) fail "unexpected public source API origin." ;;
+            esac
+            curl --disable \
+              --fail-with-body --silent --show-error \
+              --proto '=https' --tlsv1.2 \
+              --connect-timeout 10 --max-time 30 \
+              --header 'Accept: application/vnd.github+json' \
+              --header 'User-Agent: site-logbook-private-publisher' \
+              --header 'X-GitHub-Api-Version: 2022-11-28' \
+              "$url"
+          }
+
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] \
+            || fail "source_sha must be 40 lowercase hexadecimal characters."
+          [[ "$SOURCE_REF" == "$APPROVED_SOURCE_REF" ]] \
+            || fail "source_ref must equal the approved candidate branch."
+          [[ "$SOURCE_PR_NUMBER" =~ ^[1-9][0-9]*$ ]] \
+            || fail "source_pr_number must be a positive integer."
+          [[ "$PUBLICATION_CONFIRMED" == "true" ]] \
+            || fail "registry publication confirmation is required."
+          [[ "$PUBLICATION_STAGE" == "preflight-only" || "$PUBLICATION_STAGE" == "complete" ]] \
+            || fail "publication_stage must be preflight-only or complete."
+          if [[ "$PUBLICATION_STAGE" == "preflight-only" ]]; then
+            [[ -z "$EXPECTED_PREFLIGHT_DIGEST" ]] \
+              || fail "expected_preflight_digest must be empty for preflight-only."
+          else
+            [[ "$EXPECTED_PREFLIGHT_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] \
+              || fail "complete requires the exact preflight digest from the preflight-only evidence."
+          fi
+
+          ref_json="$(
+            public_source_api \
+              "https://api.github.com/repos/${SOURCE_REPOSITORY}/git/ref/heads/${SOURCE_REF}"
+          )" || fail "the public source branch head could not be read."
+          ref_sha="$(jq -r '.object.sha' <<<"$ref_json")"
+          [[ "$ref_sha" == "$SOURCE_SHA" ]] \
+            || fail "source_sha is not the current approved candidate branch head."
+
+          pr_json="$(
+            public_source_api \
+              "https://api.github.com/repos/${SOURCE_REPOSITORY}/pulls/${SOURCE_PR_NUMBER}"
+          )" || fail "the public source PR could not be read."
+          jq -e \
+            --arg branch "$SOURCE_REF" \
+            --arg repository "${SOURCE_REPOSITORY,,}" \
+            --arg sha "$SOURCE_SHA" \
+            '.state == "open" and
+             .draft == true and
+             .merged == false and
+             (.head.repo.full_name | ascii_downcase) == $repository and
+             .head.ref == $branch and
+             .head.sha == $sha and
+             .base.ref == "main"' \
+            <<<"$pr_json" >/dev/null \
+            || fail "source PR must be the open draft candidate with the exact source head."
+
+          quality_json="$(
+            public_source_api \
+              "https://api.github.com/repos/${SOURCE_REPOSITORY}/actions/workflows/quality-gate.yml/runs?head_sha=${SOURCE_SHA}&event=pull_request&per_page=100"
+          )" || fail "the public source Quality gate could not be read."
+          jq -e \
+            --arg branch "$SOURCE_REF" \
+            --argjson pr "$SOURCE_PR_NUMBER" \
+            --arg repository "${SOURCE_REPOSITORY,,}" \
+            --arg sha "$SOURCE_SHA" \
+            '[.workflow_runs[] |
+              select(
+                .name == "Quality gate" and
+                .path == ".github/workflows/quality-gate.yml" and
+                .event == "pull_request" and
+                .head_branch == $branch and
+                .head_sha == $sha and
+                any(.pull_requests[]?; .number == $pr) and
+                (.head_repository.full_name | ascii_downcase) == $repository
+              )] |
+             sort_by([.run_number, .run_attempt]) |
+             last |
+             .status == "completed" and .conclusion == "success"' \
+            <<<"$quality_json" >/dev/null \
+            || fail "no successful exact-SHA pull-request Quality gate was found."
+
+  publish-staging-images:
+    needs: validate-public-source
+    permissions:
+      actions: read
+      contents: read
+      packages: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Require canonical reviewed visible-history registry ledger
+        id: registry-ledger
+        shell: bash
+        env:
+          CALLER_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CALLER_REPOSITORY: ${{ github.repository }}
+          CALLER_WORKFLOW_REF: ${{ github.workflow_ref }}
+          CALLER_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          EXPECTED_PREFLIGHT_DIGEST: ${{ inputs.expected_preflight_digest }}
+          GITHUB_RUN_ATTEMPT_VALUE: ${{ github.run_attempt }}
+          GITHUB_RUN_ID_VALUE: ${{ github.run_id }}
+          PUBLICATION_STAGE: ${{ inputs.publication_stage }}
+          REGISTRY_HISTORY_ACCEPTANCE: ${{ inputs.registry_history_acceptance }}
+          REGISTRY_LEDGER_JSON: ${{ inputs.registry_ledger_json }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+
+          fail() {
+            echo "External registry ledger validation failed: $1" >&2
+            exit 1
+          }
+
+          approved_acceptance="ACCEPT_EXTERNAL_LEDGER_RESIDUAL_WITHOUT_DELETED_HISTORY_PROOF_NO_DEPLOY"
+          approved_workflow_ref="modvolt/site-logbook-registry/.github/workflows/publish-staging-images.yml@refs/heads/main"
+          approved_workflow_path=".github/workflows/publish-staging-images.yml"
+          [[ "$REGISTRY_HISTORY_ACCEPTANCE" == "$approved_acceptance" ]] \
+            || fail "the exact reviewed residual-acceptance phrase is required."
+          [[ "${CALLER_REPOSITORY,,}" == "modvolt/site-logbook-registry" ]] \
+            || fail "the ledger caller repository is not approved."
+          [[ "${CALLER_WORKFLOW_REF,,}" == "$approved_workflow_ref" ]] \
+            || fail "the ledger caller workflow path and ref are not approved."
+          [[ "$CALLER_WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]] \
+            || fail "the caller workflow commit is invalid."
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] \
+            || fail "the source commit is invalid."
+          [[ "$GITHUB_RUN_ID_VALUE" =~ ^[1-9][0-9]*$ ]] \
+            || fail "the caller run id is invalid."
+          [[ "$GITHUB_RUN_ATTEMPT_VALUE" == "1" ]] \
+            || fail "the reviewed caller run must be the first attempt and cannot be rerun."
+          [[ "${#REGISTRY_LEDGER_JSON}" -le 8192 ]] \
+            || fail "the canonical ledger entry exceeds the bounded size."
+
+          canonical_ledger="$(jq -cS . <<<"$REGISTRY_LEDGER_JSON")" \
+            || fail "the registry ledger entry is not valid JSON."
+          [[ "$canonical_ledger" == "$REGISTRY_LEDGER_JSON" ]] \
+            || fail "the registry ledger entry must be exact canonical JSON without duplicate, reordered or extra whitespace content."
+          jq -e \
+            --arg expectedPreflightDigest "$EXPECTED_PREFLIGHT_DIGEST" \
+            --arg sourceSha "$SOURCE_SHA" \
+            --arg stage "$PUBLICATION_STAGE" \
+            '
+              (keys == ["deletedHistoryControl", "expectedInitialPackageState", "kind", "packageNames", "previousEntry", "schemaVersion", "sourceSha", "stage"]) and
+              .schemaVersion == 1 and
+              .kind == "site-logbook-staging-registry-ledger-entry" and
+              .sourceSha == $sourceSha and
+              .stage == $stage and
+              .packageNames == [
+                "site-logbook-staging-preflight",
+                "site-logbook-staging-mailpit",
+                "site-logbook-staging-api",
+                "site-logbook-staging-web",
+                "site-logbook-staging-alert-receiver"
+              ] and
+              .deletedHistoryControl == {
+                mode: "reviewed-caller-visible-history-ledger",
+                decision: "explicitly-accepted-external-ledger",
+                deletedApiQueried: false,
+                historicalAbsenceProven: false
+              } and
+              (.previousEntry | keys) == ["ledgerEntrySha256", "preflightDigest"] and
+              (if $stage == "preflight-only" then
+                 $expectedPreflightDigest == "" and
+                 ((.expectedInitialPackageState == "00000" and
+                   .previousEntry == {ledgerEntrySha256: null, preflightDigest: null}) or
+                  (.expectedInitialPackageState == "10000" and
+                   (.previousEntry.ledgerEntrySha256 | type == "string" and test("^sha256:[0-9a-f]{64}$")) and
+                   (.previousEntry.preflightDigest | type == "string" and test("^sha256:[0-9a-f]{64}$"))))
+               elif $stage == "complete" then
+                 (.expectedInitialPackageState == "10000" or .expectedInitialPackageState == "11111") and
+                 (.previousEntry.ledgerEntrySha256 | type == "string" and test("^sha256:[0-9a-f]{64}$")) and
+                 .previousEntry.preflightDigest == $expectedPreflightDigest and
+                 ($expectedPreflightDigest | test("^sha256:[0-9a-f]{64}$"))
+               else false end)
+            ' <<<"$canonical_ledger" >/dev/null \
+            || fail "the registry ledger entry does not match the exact stage contract."
+
+          current_run_json="$(
+            GH_TOKEN="$CALLER_GITHUB_TOKEN" gh api \
+              --header 'X-GitHub-Api-Version: 2022-11-28' \
+              "repos/${CALLER_REPOSITORY}/actions/runs/${GITHUB_RUN_ID_VALUE}"
+          )" || fail "the current private caller run could not be read."
+          jq -e \
+            --arg headSha "$CALLER_WORKFLOW_SHA" \
+            --arg repository "${CALLER_REPOSITORY,,}" \
+            --arg runId "$GITHUB_RUN_ID_VALUE" \
+            --arg workflowPath "$approved_workflow_path" \
+            '(.id | tostring) == $runId and
+             .run_attempt == 1 and
+             .event == "workflow_dispatch" and
+             .head_branch == "main" and
+             .head_sha == $headSha and
+             .path == $workflowPath and
+             (.head_repository.full_name | ascii_downcase) == $repository and
+             (.status == "queued" or .status == "in_progress")' \
+            <<<"$current_run_json" >/dev/null \
+            || fail "the current caller run is not the exact first-attempt private-main dispatch."
+
+          run_history_json="$(
+            GH_TOKEN="$CALLER_GITHUB_TOKEN" gh api --paginate \
+              --header 'X-GitHub-Api-Version: 2022-11-28' \
+              "repos/${CALLER_REPOSITORY}/actions/workflows/publish-staging-images.yml/runs?event=workflow_dispatch&per_page=100" |
+              jq -s '{totalCounts: ([.[].total_count] | unique), workflowRuns: [.[].workflow_runs[]]}'
+          )" || fail "the private caller dispatch history could not be read."
+          jq -e \
+            --arg headSha "$CALLER_WORKFLOW_SHA" \
+            --arg runId "$GITHUB_RUN_ID_VALUE" \
+            --arg workflowPath "$approved_workflow_path" \
+            '. as $root |
+             (.totalCounts | type == "array" and length == 1 and .[0] >= 1 and .[0] < 1000) and
+             (.workflowRuns | type == "array" and length == $root.totalCounts[0]) and
+             ([.workflowRuns[].id] | length) == ([.workflowRuns[].id] | unique | length) and
+             ([.workflowRuns[] |
+               select(
+                 .event == "workflow_dispatch" and
+                 .head_branch == "main" and
+                 .head_sha == $headSha and
+                 .path == $workflowPath
+               )] | length) == 1 and
+             ([.workflowRuns[] |
+               select(
+                 .event == "workflow_dispatch" and
+                 .head_branch == "main" and
+                 .head_sha == $headSha and
+                 .path == $workflowPath
+               )][0].id | tostring) == $runId' \
+            <<<"$run_history_json" >/dev/null \
+            || fail "the reviewed private caller commit has an ambiguous or non-unique visible dispatch history."
+
+          ledger_path="${RUNNER_TEMP}/staging-registry-ledger-entry.json"
+          printf '%s' "$canonical_ledger" >"$ledger_path"
+          ledger_sha256="sha256:$(sha256sum "$ledger_path" | awk '{print $1}')"
+          [[ "$ledger_sha256" =~ ^sha256:[0-9a-f]{64}$ ]] \
+            || fail "the canonical ledger checksum is invalid."
+          echo "ledger_sha256=${ledger_sha256}" >>"$GITHUB_OUTPUT"
+
+      - name: Require dedicated read-only Packages metadata credential
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.packages_metadata_token }}
+          REGISTRY_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          fail() {
+            echo "Private Packages metadata credential validation failed: $1" >&2
+            exit 1
+          }
+
+          [[ -n "$GH_TOKEN" ]] \
+            || fail "the named Packages metadata credential is required."
+          [[ -n "$REGISTRY_GITHUB_TOKEN" ]] \
+            || fail "the caller GITHUB_TOKEN is required for registry publication."
+          [[ "$GH_TOKEN" != "$REGISTRY_GITHUB_TOKEN" ]] \
+            || fail "the Packages metadata credential must be distinct from GITHUB_TOKEN."
+
+          umask 077
+          response_file="$(mktemp)"
+          trap 'rm -f -- "$response_file"' EXIT
+          gh api --include \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            /user >"$response_file" \
+            || fail "the Packages metadata credential identity could not be read."
+
+          oauth_scopes="$(
+            awk 'BEGIN { IGNORECASE=1 }
+              /^x-oauth-scopes:/ {
+                sub(/^[^:]*:[[:space:]]*/, "")
+                gsub(/\r/, "")
+                print
+                exit
+              }' "$response_file"
+          )"
+          normalized_scopes="$(
+            tr ',' '\n' <<<"$oauth_scopes" |
+              sed 's/^[[:space:]]*//;s/[[:space:]]*$//' |
+              sed '/^$/d' |
+              LC_ALL=C sort -u |
+              paste -sd, -
+          )"
+          [[ "$normalized_scopes" == "read:packages" ]] \
+            || fail "the Packages metadata credential must have exactly the read:packages scope."
+
+          identity_json="$(sed -n '/^[[:space:]]*{/,$p' "$response_file")"
+          jq -e \
+            '.login == "modvolt" and
+             .id == 289280891 and
+             .type == "User"' \
+            <<<"$identity_json" >/dev/null \
+            || fail "the Packages metadata credential must belong to the exact modvolt user."
+
+      - name: Require private caller and exact staged package state
+        id: package-state
+        shell: bash
+        env:
+          APPROVED_CALLER_REPOSITORY: modvolt/site-logbook-registry
+          CALLER_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CALLER_REPOSITORY: ${{ github.repository }}
+          CALLER_REPOSITORY_OWNER: ${{ github.repository_owner }}
+          CALLER_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          EXPECTED_PREFLIGHT_DIGEST: ${{ inputs.expected_preflight_digest }}
+          GH_TOKEN: ${{ secrets.packages_metadata_token }}
+          PRIVATE_REGISTRY_OWNER: modvolt
+          PUBLICATION_CONFIRMED: ${{ inputs.confirm_registry_publication }}
+          PUBLICATION_STAGE: ${{ inputs.publication_stage }}
+          REGISTRY_LEDGER_JSON: ${{ inputs.registry_ledger_json }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+
+          fail() {
+            echo "Private staging image publication preflight failed: $1" >&2
+            exit 1
+          }
+
+          [[ "$PUBLICATION_CONFIRMED" == "true" ]] \
+            || fail "registry publication confirmation is required."
+          [[ "$PUBLICATION_STAGE" == "preflight-only" || "$PUBLICATION_STAGE" == "complete" ]] \
+            || fail "publication stage is invalid."
+          [[ "${CALLER_REPOSITORY,,}" == "$APPROVED_CALLER_REPOSITORY" ]] \
+            || fail "the reusable workflow must be called by the approved private publisher repository."
+          [[ "${CALLER_REPOSITORY_OWNER,,}" == "$PRIVATE_REGISTRY_OWNER" ]] \
+            || fail "the reusable workflow must be called by the approved registry owner."
+          [[ "$CALLER_WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]] \
+            || fail "the caller workflow commit is invalid."
+          expected_initial_state="$(jq -r '.expectedInitialPackageState' <<<"$REGISTRY_LEDGER_JSON")"
+          case "${PUBLICATION_STAGE}:${expected_initial_state}" in
+            preflight-only:00000|preflight-only:10000|complete:10000|complete:11111) ;;
+            *) fail "the reviewed ledger initial package state is invalid." ;;
+          esac
+
+          caller_json="$(GH_TOKEN="$CALLER_GITHUB_TOKEN" gh api "repos/${CALLER_REPOSITORY}")"
+          jq -e \
+            --arg caller "${CALLER_REPOSITORY,,}" \
+            --arg owner "$PRIVATE_REGISTRY_OWNER" \
+            '(.full_name | ascii_downcase) == $caller and
+             (.owner.login | ascii_downcase) == $owner and
+             .private == true and
+             .default_branch == "main"' \
+            <<<"$caller_json" >/dev/null \
+            || fail "the caller repository must be private and owned by modvolt."
+          caller_main_json="$(
+            GH_TOKEN="$CALLER_GITHUB_TOKEN" gh api \
+              "repos/${CALLER_REPOSITORY}/git/ref/heads/main"
+          )" || fail "the private caller main ref could not be read."
+          jq -e \
+            --arg workflowSha "$CALLER_WORKFLOW_SHA" \
+            '.ref == "refs/heads/main" and
+             .object.type == "commit" and
+             .object.sha == $workflowSha' \
+            <<<"$caller_main_json" >/dev/null \
+            || fail "the caller workflow commit is not the live private main head."
+
+          package_names=( \
+            site-logbook-staging-preflight \
+            site-logbook-staging-mailpit \
+            site-logbook-staging-api \
+            site-logbook-staging-web \
+            site-logbook-staging-alert-receiver
+          )
+          package_keys=(preflight mailpit api web alert_receiver)
+
+          inventory_json="$(
+            gh api --paginate \
+              --header 'X-GitHub-Api-Version: 2022-11-28' \
+              '/user/packages?package_type=container&visibility=private&per_page=100' |
+              jq -s 'add'
+          )" || fail "the authenticated private package inventory could not be read."
+          jq -e 'type == "array"' <<<"$inventory_json" >/dev/null \
+            || fail "the authenticated private package inventory is malformed."
+
+          package_count() {
+            local package_name="$1"
+            jq -r --arg name "$package_name" \
+              '[.[] | select((.name | ascii_downcase) == $name)] | length' \
+              <<<"$inventory_json"
+          }
+
+          declare -A exact_digests=()
+          state=""
+          for index in "${!package_names[@]}"; do
+            package_name="${package_names[$index]}"
+            package_key="${package_keys[$index]}"
+            exact_digests["$package_key"]=""
+            count="$(package_count "$package_name")"
+            [[ "$count" =~ ^[0-9]+$ ]] \
+              || fail "inventory count for ${package_name} is invalid."
+            [[ "$count" -le 1 ]] \
+              || fail "duplicate package metadata found for ${package_name}."
+            if [[ "$count" == "0" ]]; then
+              state+="0"
+              continue
+            fi
+
+            package_json="$(
+              gh api --header 'X-GitHub-Api-Version: 2022-11-28' \
+                "/user/packages/container/${package_name}"
+            )" || fail "package metadata for ${package_name} could not be read."
+            jq -e \
+              --arg caller "$APPROVED_CALLER_REPOSITORY" \
+              --arg package "$package_name" \
+              '(.id | type) == "number" and .id > 0 and
+               .name == $package and
+               .package_type == "container" and
+               (.owner.login | ascii_downcase) == "modvolt" and
+               .visibility == "private" and
+               (.repository.full_name | ascii_downcase) == $caller and
+               .repository.private == true and
+               (.version_count | type) == "number" and .version_count >= 0' \
+              <<<"$package_json" >/dev/null \
+              || fail "package ${package_name} is not private and linked to the approved private caller."
+
+            versions_json="$(
+              gh api --paginate \
+                --header 'X-GitHub-Api-Version: 2022-11-28' \
+                "/user/packages/container/${package_name}/versions?state=active&per_page=100" |
+                jq -s 'add'
+            )" || fail "package versions for ${package_name} could not be read."
+            jq -e \
+              --argjson expected "$(jq -r '.version_count' <<<"$package_json")" \
+              'type == "array" and length == $expected and
+               ([.[].id] | length) == ([.[].id] | unique | length) and
+               ([.[].name] | length) == ([.[].name] | unique | length) and
+               all(.[];
+                 (.id | type) == "number" and .id > 0 and
+                 (.name | type) == "string" and (.name | test("^sha256:[0-9a-f]{64}$")) and
+                 .metadata.package_type == "container" and
+                 ((.metadata.container.tags // []) | type) == "array" and
+                 ((.metadata.container.tags // []) | length) == ((.metadata.container.tags // []) | unique | length) and
+                 all((.metadata.container.tags // [])[]; type == "string"))' \
+              <<<"$versions_json" >/dev/null \
+              || fail "package versions for ${package_name} are malformed."
+            matches_json="$(
+              jq -c \
+                --arg sha "$SOURCE_SHA" \
+                '[.[] |
+                  select(((.metadata.container.tags // []) | index($sha)) != null)]' \
+                <<<"$versions_json"
+            )"
+            match_count="$(jq -r 'length' <<<"$matches_json")"
+            case "$match_count" in
+              0)
+                state+="0"
+                ;;
+              1)
+                version_json="$(jq -c '.[0]' <<<"$matches_json")"
+                version_id="$(jq -r '.id' <<<"$version_json")"
+                digest="$(jq -r '.name' <<<"$version_json")"
+                [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] \
+                  || fail "the exact source tag for ${package_name} has an invalid digest."
+                selected_version_json="$(
+                  gh api --header 'X-GitHub-Api-Version: 2022-11-28' \
+                    "/user/packages/container/${package_name}/versions/${version_id}"
+                )" || fail "the exact source version for ${package_name} could not be refetched."
+                jq -e \
+                  --arg digest "$digest" \
+                  --arg sha "$SOURCE_SHA" \
+                  --argjson id "$version_id" \
+                  '.id == $id and .name == $digest and
+                   .metadata.package_type == "container" and
+                   (.metadata.container.tags // []) == [$sha]' \
+                  <<<"$selected_version_json" >/dev/null \
+                  || fail "the refetched exact source version for ${package_name} is not immutable."
+                exact_digests["$package_key"]="$digest"
+                state+="1"
+                ;;
+              *)
+                fail "the exact source tag for ${package_name} is not unique."
+                ;;
+            esac
+          done
+
+          [[ "$state" == "$expected_initial_state" ]] \
+            || fail "the live exact-SHA package state does not match the reviewed ledger entry."
+          if [[ "$state" == "10000" || "$state" == "11111" ]]; then
+            ledger_preflight_digest="$(jq -r '.previousEntry.preflightDigest' <<<"$REGISTRY_LEDGER_JSON")"
+            [[ "$ledger_preflight_digest" == "${exact_digests[preflight]}" ]] \
+              || fail "the reviewed ledger preflight digest does not match the live exact tag."
+          fi
+
+          publish_preflight=false
+          publish_remaining=false
+          case "${PUBLICATION_STAGE}:${state}" in
+            preflight-only:00000)
+              publish_preflight=true
+              ;;
+            preflight-only:10000)
+              ;;
+            complete:10000)
+              publish_remaining=true
+              ;;
+            complete:11111)
+              ;;
+            *)
+              fail "exact-SHA package state ${state} is not valid for ${PUBLICATION_STAGE}; partial recovery requires a separate review."
+              ;;
+          esac
+
+          if [[ "$PUBLICATION_STAGE" == "complete" ]]; then
+            [[ "${exact_digests[preflight]}" == "$EXPECTED_PREFLIGHT_DIGEST" ]] \
+              || fail "the exact source tag does not resolve to the approved preflight digest."
+          fi
+
+          {
+            echo "state=${state}"
+            echo "publish_preflight=${publish_preflight}"
+            echo "publish_remaining=${publish_remaining}"
+            for package_key in "${package_keys[@]}"; do
+              echo "${package_key}_digest=${exact_digests[$package_key]}"
+            done
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Check out the exact public source commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          repository: modvolt/Site-Logbook
+          ref: ${{ inputs.source_sha }}
+
+      - name: Configure Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+        with:
+          version: v0.34.1
+          driver-opts: image=moby/buildkit:v0.30.0@sha256:0168606be2315b7c807a03b3d8aa79beefdb31c98740cebdffdfeebf31190c9f
+
+      - name: Authenticate to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive private staging image names
+        id: names
+        shell: bash
+        env:
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          owner="${REPOSITORY_OWNER,,}"
+          [[ "$owner" == "modvolt" ]] || exit 1
+          {
+            echo "preflight=ghcr.io/${owner}/site-logbook-staging-preflight"
+            echo "mailpit=ghcr.io/${owner}/site-logbook-staging-mailpit"
+            echo "api=ghcr.io/${owner}/site-logbook-staging-api"
+            echo "web=ghcr.io/${owner}/site-logbook-staging-web"
+            echo "alert_receiver=ghcr.io/${owner}/site-logbook-staging-alert-receiver"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Configure fail-closed private package verifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "${RUNNER_TEMP}/verify-private-package.sh" <<'VERIFY_SCRIPT'
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          package_name="${1:?package name required}"
+          expected_digest="${2:?expected digest required}"
+          evidence_path="${3:?evidence path required}"
+          source_sha="${SOURCE_SHA:?source SHA required}"
+          approved_caller="modvolt/site-logbook-registry"
+          verification_attempts=36
+          verification_poll_seconds=5
+          expected_source="https://github.com/modvolt/Site-Logbook"
+
+          case "$package_name" in
+            site-logbook-staging-preflight)
+              expected_dockerfile_dir="deploy/staging/preflight"
+              expected_build_arg="BUILD_SHA"
+              expected_build_env="BUILD_SHA"
+              expected_base_digests='["sha256:4bcff63911fcb4448bd4fdacec207030997caf25e9bea4045fa6c8c44de311d1"]'
+              ;;
+            site-logbook-staging-mailpit)
+              expected_dockerfile_dir="deploy/staging/mailpit"
+              expected_build_arg="BUILD_SHA"
+              expected_build_env="BUILD_SHA"
+              expected_base_digests='["sha256:0059ef81e492a7192af3816281eed6859eb078bd7bdc58b76757c13e10e53a7d","sha256:4bcff63911fcb4448bd4fdacec207030997caf25e9bea4045fa6c8c44de311d1"]'
+              ;;
+            site-logbook-staging-api)
+              expected_dockerfile_dir="artifacts/api-server"
+              expected_build_arg="BUILD_SHA"
+              expected_build_env="BUILD_SHA"
+              expected_base_digests='["sha256:235600a8101ab264e117b1768e925532262668dc9b581ef1dd7d96ced463b8e7"]'
+              ;;
+            site-logbook-staging-web)
+              expected_dockerfile_dir="artifacts/stavba"
+              expected_build_arg="VITE_BUILD_SHA"
+              expected_build_env="VITE_BUILD_SHA"
+              expected_base_digests='["sha256:235600a8101ab264e117b1768e925532262668dc9b581ef1dd7d96ced463b8e7","sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10"]'
+              ;;
+            site-logbook-staging-alert-receiver)
+              expected_dockerfile_dir="deploy/operational-alert-receiver"
+              expected_build_arg="BUILD_SHA"
+              expected_build_env="RECEIVER_BUILD_SHA"
+              expected_base_digests='["sha256:235600a8101ab264e117b1768e925532262668dc9b581ef1dd7d96ced463b8e7"]'
+              ;;
+            *) echo "Unexpected package name: ${package_name}" >&2; exit 1 ;;
+          esac
+          [[ "$expected_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+            echo "Invalid expected digest for ${package_name}." >&2
+            exit 1
+          }
+          [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "Invalid source SHA." >&2
+            exit 1
+          }
+
+          retry_verification() {
+            local diagnostic_code="$1"
+            echo "::notice title=Candidate image verifier::attempt ${attempt}/${verification_attempts}: ${diagnostic_code}"
+            if [[ "$attempt" == "$verification_attempts" ]]; then
+              echo "Candidate image verification exhausted after ${verification_attempts} attempts: ${diagnostic_code}." >&2
+              exit 1
+            fi
+            sleep "$verification_poll_seconds"
+          }
+
+          for attempt in $(seq 1 "$verification_attempts"); do
+            diagnostic_code="PACKAGE_METADATA_NOT_READY"
+            package_json="$(
+              gh api --header 'X-GitHub-Api-Version: 2022-11-28' \
+                "/user/packages/container/${package_name}" 2>/dev/null
+            )" || package_json=""
+            versions_json="$(
+              gh api --paginate \
+                --header 'X-GitHub-Api-Version: 2022-11-28' \
+                "/user/packages/container/${package_name}/versions?state=active&per_page=100" 2>/dev/null |
+                jq -s 'add'
+            )" || versions_json=""
+
+            if ! jq -e \
+              --arg caller "$approved_caller" \
+              --arg package "$package_name" \
+              '(.id | type) == "number" and .id > 0 and
+               .name == $package and
+               .package_type == "container" and
+               (.owner.login | ascii_downcase) == "modvolt" and
+               .visibility == "private" and
+               (.repository.full_name | ascii_downcase) == $caller and
+               .repository.private == true and
+               (.version_count | type) == "number" and .version_count >= 0' \
+              <<<"$package_json" >/dev/null 2>&1
+            then
+              diagnostic_code="PACKAGE_METADATA_NOT_READY"
+            elif ! jq -e \
+                --arg digest "$expected_digest" \
+                --arg sha "$source_sha" \
+                --argjson expected "$(jq -r '.version_count' <<<"$package_json")" \
+                'type == "array" and length == $expected and
+                 ([.[].id] | length) == ([.[].id] | unique | length) and
+                 ([.[].name] | length) == ([.[].name] | unique | length) and
+                 all(.[];
+                   (.id | type) == "number" and .id > 0 and
+                   (.name | type) == "string" and (.name | test("^sha256:[0-9a-f]{64}$")) and
+                   .metadata.package_type == "container" and
+                   ((.metadata.container.tags // []) | type) == "array" and
+                   ((.metadata.container.tags // []) | length) == ((.metadata.container.tags // []) | unique | length) and
+                   all((.metadata.container.tags // [])[]; type == "string")) and
+                 ([.[] | select(((.metadata.container.tags // []) | index($sha)) != null)] |
+                  length == 1 and .[0].name == $digest)' \
+                <<<"$versions_json" >/dev/null 2>&1
+            then
+              diagnostic_code="ACTIVE_VERSION_INVENTORY_NOT_READY"
+            else
+              version_json="$(
+                jq -c --arg sha "$source_sha" \
+                  '.[] | select(((.metadata.container.tags // []) | index($sha)) != null)' \
+                  <<<"$versions_json"
+              )"
+              version_id="$(jq -r '.id' <<<"$version_json")"
+              selected_version_json="$(
+                gh api --header 'X-GitHub-Api-Version: 2022-11-28' \
+                  "/user/packages/container/${package_name}/versions/${version_id}" 2>/dev/null
+              )" || selected_version_json=""
+              if ! jq -e \
+                --arg digest "$expected_digest" \
+                --arg sha "$source_sha" \
+                --argjson id "$version_id" \
+                '.id == $id and .name == $digest and
+                 .metadata.package_type == "container" and
+                 (.metadata.container.tags // []) == [$sha]' \
+                <<<"$selected_version_json" >/dev/null 2>&1
+              then
+                retry_verification "SELECTED_VERSION_REFETCH_NOT_READY"
+                continue
+              fi
+              repository="ghcr.io/modvolt/${package_name}"
+              reference="${repository}@${expected_digest}"
+              manifest_json="$(
+                docker buildx imagetools inspect "$reference" \
+                  --format '{{json .Manifest}}' 2>/dev/null
+              )" || manifest_json=""
+              runnable_digest_candidate="$(
+                jq -r '[.manifests[]? | select((.annotations["vnd.docker.reference.type"] // "") != "attestation-manifest")][0].digest // empty' \
+                  <<<"$manifest_json" 2>/dev/null
+              )" || runnable_digest_candidate=""
+              if [[ "$runnable_digest_candidate" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+                image_json="$(
+                  docker buildx imagetools inspect \
+                    "${repository}@${runnable_digest_candidate}" \
+                    --format '{{json .Image}}' 2>/dev/null
+                )" || image_json=""
+              else
+                image_json=""
+              fi
+              provenance_json="$(docker buildx imagetools inspect "$reference" --format '{{json .Provenance}}' 2>/dev/null)" || provenance_json=""
+              sbom_json="$(docker buildx imagetools inspect "$reference" --format '{{json .SBOM}}' 2>/dev/null)" || sbom_json=""
+
+              if ! jq -e --arg digest "$expected_digest" \
+                '.schemaVersion == 2 and
+                 .mediaType == "application/vnd.oci.image.index.v1+json" and
+                 .digest == $digest and
+                 ((.manifests // []) as $manifests |
+                  ($manifests | map(select((.annotations["vnd.docker.reference.type"] // "") != "attestation-manifest"))) as $runnable |
+                  ($manifests | map(select(.annotations["vnd.docker.reference.type"] == "attestation-manifest"))) as $attestations |
+                  ($manifests | length) == 2 and
+                  ([ $manifests[].digest ] | length) == ([ $manifests[].digest ] | unique | length) and
+                  all($manifests[];
+                    .mediaType == "application/vnd.oci.image.manifest.v1+json" and
+                    (.size | type) == "number" and .size > 0 and
+                    (.digest | test("^sha256:[0-9a-f]{64}$"))) and
+                  ($runnable | length) == 1 and
+                  $runnable[0].platform.os == "linux" and
+                  $runnable[0].platform.architecture == "amd64" and
+                  ($attestations | length) == 1 and
+                  all($attestations[];
+                    .annotations["vnd.docker.reference.digest"] == $runnable[0].digest and
+                    .platform.os == "unknown" and
+                    .platform.architecture == "unknown"))' \
+                <<<"$manifest_json" >/dev/null 2>&1
+              then
+                diagnostic_code="OCI_INDEX_NOT_READY"
+              elif ! jq -e \
+                --arg envKey "$expected_build_env" \
+                --arg sha "$source_sha" \
+                --arg source "$expected_source" \
+                '.architecture == "amd64" and .os == "linux" and
+                 .config.Labels["org.opencontainers.image.source"] == $source and
+                 .config.Labels["org.opencontainers.image.revision"] == $sha and
+                 .config.Labels["org.opencontainers.image.url"] == ($source + "/commit/" + $sha) and
+                 ((.config.Env // []) | index($envKey + "=" + $sha)) != null' \
+                <<<"$image_json" >/dev/null 2>&1
+              then
+                diagnostic_code="RUNTIME_METADATA_NOT_READY"
+              elif ! jq -e \
+                --arg argName "$expected_build_arg" \
+                --arg dockerfileDir "$expected_dockerfile_dir" \
+                --arg sha "$source_sha" \
+                --argjson bases "$expected_base_digests" \
+                '(.SLSA.materials // []) as $materials |
+                 .SLSA.buildType == "https://mobyproject.org/buildkit@v1" and
+                 .SLSA.invocation.environment.platform == "linux/amd64" and
+                 .SLSA.metadata.completeness.parameters == true and
+                 .SLSA.metadata.completeness.environment == true and
+                 .SLSA.invocation.configSource.entryPoint == "Dockerfile" and
+                 .SLSA.invocation.parameters.root.configSource.path == "Dockerfile" and
+                 .SLSA.invocation.parameters.root.request.args["vcs:localdir:context"] == "." and
+                 .SLSA.invocation.parameters.root.request.args["vcs:localdir:dockerfile"] == $dockerfileDir and
+                 .SLSA.invocation.parameters.root.request.args["vcs:revision"] == $sha and
+                 ((.SLSA.invocation.parameters.root.request.args["vcs:source"] | ascii_downcase) |
+                  test("^(https://github\\.com/modvolt/site-logbook(?:\\.git)?|git\\+https://github\\.com/modvolt/site-logbook(?:\\.git)?|git@github\\.com:modvolt/site-logbook\\.git)$")) and
+                 .SLSA.invocation.parameters.args["build-arg:" + $argName] == $sha and
+                 ($materials | length) > 0 and
+                 all($bases[];
+                   . as $base |
+                   any($materials[]?; .digest.sha256 == ($base | sub("^sha256:"; "")))) and
+                 (.SLSA.metadata["https://mobyproject.org/buildkit@v1#metadata"].vcs as $vcs |
+                  $vcs.revision == $sha and
+                  (($vcs.source | ascii_downcase) |
+                   test("^(https://github\\.com/modvolt/site-logbook(?:\\.git)?|git\\+https://github\\.com/modvolt/site-logbook(?:\\.git)?|git@github\\.com:modvolt/site-logbook\\.git)$")))' \
+                <<<"$provenance_json" >/dev/null 2>&1
+              then
+                diagnostic_code="PROVENANCE_NOT_READY"
+              elif ! jq -e \
+                '.SPDX.SPDXID == "SPDXRef-DOCUMENT" and
+                 .SPDX.dataLicense == "CC0-1.0" and
+                 (.SPDX.spdxVersion == "SPDX-2.2" or .SPDX.spdxVersion == "SPDX-2.3") and
+                 (.SPDX.documentNamespace | type) == "string" and
+                 (.SPDX.documentNamespace | test("^https://")) and
+                 (.SPDX.creationInfo.created | type) == "string" and
+                 (.SPDX.creationInfo.created | length) > 0 and
+                 ((.SPDX.creationInfo.creators // []) | length) > 0 and
+                 all(.SPDX.creationInfo.creators[]; type == "string" and length > 0) and
+                 ((.SPDX.packages // []) as $packages |
+                  (.SPDX.relationships // []) as $relationships |
+                  ([ $packages[].SPDXID ]) as $packageIds |
+                  ($packages | length) > 0 and
+                  ($packageIds | length) == ($packageIds | unique | length) and
+                  all($packages[];
+                    (.SPDXID | type) == "string" and (.SPDXID | length) > 0 and
+                    (.name | type) == "string" and (.name | length) > 0) and
+                  ($relationships | length) > 0 and
+                  any($relationships[];
+                    . as $relationship |
+                    $relationship.relationshipType == "CONTAINS" and
+                    (($packageIds | index($relationship.spdxElementId)) != null or
+                     ($packageIds | index($relationship.relatedSpdxElement)) != null)))' \
+                <<<"$sbom_json" >/dev/null 2>&1
+              then
+                diagnostic_code="SBOM_NOT_READY"
+              else
+                runnable_manifest_digest="$(
+                  jq -r \
+                    '[.manifests[] |
+                      select(
+                        (.annotations["vnd.docker.reference.type"] // "") != "attestation-manifest"
+                      )][0].digest' \
+                    <<<"$manifest_json"
+                )"
+                active_version_count="$(jq -r 'length' <<<"$versions_json")"
+                package_version_count="$(jq -r '.version_count' <<<"$package_json")"
+                runtime_source="$(jq -r '.config.Labels["org.opencontainers.image.source"]' <<<"$image_json")"
+                runtime_revision="$(jq -r '.config.Labels["org.opencontainers.image.revision"]' <<<"$image_json")"
+                runtime_url="$(jq -r '.config.Labels["org.opencontainers.image.url"]' <<<"$image_json")"
+                provenance_vcs_source="$(jq -r '.SLSA.metadata["https://mobyproject.org/buildkit@v1#metadata"].vcs.source' <<<"$provenance_json")"
+                provenance_vcs_revision="$(jq -r '.SLSA.metadata["https://mobyproject.org/buildkit@v1#metadata"].vcs.revision' <<<"$provenance_json")"
+                provenance_build_sha="$(jq -r --arg argName "$expected_build_arg" '.SLSA.invocation.parameters.args["build-arg:" + $argName]' <<<"$provenance_json")"
+                sbom_version="$(jq -r '.SPDX.spdxVersion' <<<"$sbom_json")"
+                sbom_package_count="$(jq -r '(.SPDX.packages // []) | length' <<<"$sbom_json")"
+                sbom_relationship_count="$(jq -r '(.SPDX.relationships // []) | length' <<<"$sbom_json")"
+                jq -n \
+                  --argjson activeVersionCount "$active_version_count" \
+                  --arg buildShaEnv "$expected_build_env" \
+                  --arg buildArg "$expected_build_arg" \
+                  --argjson baseImageDigests "$expected_base_digests" \
+                  --arg digest "$expected_digest" \
+                  --arg packageId "$(jq -r '.id' <<<"$package_json")" \
+                  --arg packageName "$package_name" \
+                  --argjson packageVersionCount "$package_version_count" \
+                  --arg provenanceBuildSha "$provenance_build_sha" \
+                  --arg provenanceDockerfile "${expected_dockerfile_dir}/Dockerfile" \
+                  --arg provenanceVcsRevision "$provenance_vcs_revision" \
+                  --arg provenanceVcsSource "$provenance_vcs_source" \
+                  --arg registryRepository "$repository" \
+                  --arg repository "$(jq -r '.repository.full_name' <<<"$package_json")" \
+                  --arg runnableManifestDigest "$runnable_manifest_digest" \
+                  --arg runtimeRevision "$runtime_revision" \
+                  --arg runtimeSource "$runtime_source" \
+                  --arg runtimeUrl "$runtime_url" \
+                  --argjson sbomPackageCount "$sbom_package_count" \
+                  --argjson sbomRelationshipCount "$sbom_relationship_count" \
+                  --arg sbomVersion "$sbom_version" \
+                  --arg sourceSha "$source_sha" \
+                  --arg versionId "$(jq -r '.id' <<<"$selected_version_json")" \
+                  '{packageName: $packageName, packageId: $packageId, visibility: "private", repository: $repository, registryRepository: $registryRepository, sourceSha: $sourceSha, versionId: $versionId, digest: $digest, runnableManifestDigest: $runnableManifestDigest, platform: "linux/amd64", activeInventoryPaginated: true, activeVersionCount: $activeVersionCount, packageVersionCount: $packageVersionCount, deletedInventoryMode: "not-queryable-exact-read-scope", visibleDeletedTagConflictChecked: false, deletedVersionCount: null, deletedHistoryScope: "external-audit-ledger-only", selectedVersionRefetched: true, remoteManifestVerified: true, runtimeMetadata: {source: $runtimeSource, revision: $runtimeRevision, url: $runtimeUrl, buildSha: $sourceSha, buildShaEnv: $buildShaEnv}, provenance: {buildType: "https://mobyproject.org/buildkit@v1", vcsSource: $provenanceVcsSource, vcsRevision: $provenanceVcsRevision, dockerfile: $provenanceDockerfile, buildArg: $buildArg, buildSha: $provenanceBuildSha, verifiedBaseImageDigests: $baseImageDigests}, sbom: {spdxVersion: $sbomVersion, packageCount: $sbomPackageCount, relationshipCount: $sbomRelationshipCount}}' \
+                  > "$evidence_path"
+                echo "::notice title=Candidate image verifier::verification succeeded on attempt ${attempt}/${verification_attempts}"
+                exit 0
+              fi
+            fi
+
+            retry_verification "$diagnostic_code"
+          done
+
+          echo "Package ${package_name} verification ended without success." >&2
+          exit 1
+          VERIFY_SCRIPT
+          chmod 700 "${RUNNER_TEMP}/verify-private-package.sh"
+
+          cat > "${RUNNER_TEMP}/assert-exact-tag-absent.sh" <<'ABSENCE_SCRIPT'
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          package_name="${1:?package name required}"
+          source_sha="${SOURCE_SHA:?source SHA required}"
+          approved_caller="modvolt/site-logbook-registry"
+          case "$package_name" in
+            site-logbook-staging-preflight|site-logbook-staging-mailpit|site-logbook-staging-api|site-logbook-staging-web|site-logbook-staging-alert-receiver) ;;
+            *) echo "Unexpected package name: ${package_name}" >&2; exit 1 ;;
+          esac
+
+          inventory_json="$(
+            gh api --paginate \
+              --header 'X-GitHub-Api-Version: 2022-11-28' \
+              '/user/packages?package_type=container&visibility=private&per_page=100' |
+              jq -s 'add'
+          )"
+          jq -e 'type == "array"' <<<"$inventory_json" >/dev/null
+          count="$(
+            jq -r --arg name "$package_name" \
+              '[.[] | select((.name | ascii_downcase) == $name)] | length' \
+              <<<"$inventory_json"
+          )"
+          [[ "$count" == "0" || "$count" == "1" ]]
+          if [[ "$count" == "0" ]]; then exit 0; fi
+
+          package_json="$(
+            gh api --header 'X-GitHub-Api-Version: 2022-11-28' \
+              "/user/packages/container/${package_name}"
+          )"
+          jq -e \
+            --arg caller "$approved_caller" \
+            --arg package "$package_name" \
+            '(.id | type) == "number" and .id > 0 and
+             .name == $package and
+             .package_type == "container" and
+             (.owner.login | ascii_downcase) == "modvolt" and
+             .visibility == "private" and
+             (.repository.full_name | ascii_downcase) == $caller and
+             .repository.private == true and
+             (.version_count | type) == "number" and .version_count >= 0' \
+            <<<"$package_json" >/dev/null
+          versions_json="$(
+            gh api --paginate \
+              --header 'X-GitHub-Api-Version: 2022-11-28' \
+              "/user/packages/container/${package_name}/versions?state=active&per_page=100" |
+              jq -s 'add'
+          )"
+          jq -e \
+            --arg sha "$source_sha" \
+            --argjson expected "$(jq -r '.version_count' <<<"$package_json")" \
+            'type == "array" and length == $expected and
+             ([.[].id] | length) == ([.[].id] | unique | length) and
+             ([.[].name] | length) == ([.[].name] | unique | length) and
+             all(.[];
+               (.id | type) == "number" and .id > 0 and
+               (.name | type) == "string" and (.name | test("^sha256:[0-9a-f]{64}$")) and
+               .metadata.package_type == "container" and
+               ((.metadata.container.tags // []) | type) == "array" and
+               ((.metadata.container.tags // []) | length) == ((.metadata.container.tags // []) | unique | length) and
+               all((.metadata.container.tags // [])[]; type == "string")) and
+             ([.[] |
+               select(((.metadata.container.tags // []) | index($sha)) != null)] |
+              length == 0)' \
+            <<<"$versions_json" >/dev/null || {
+              echo "Exact source tag appeared before the approved push for ${package_name}; refusing overwrite." >&2
+              exit 1
+            }
+          ABSENCE_SCRIPT
+          chmod 700 "${RUNNER_TEMP}/assert-exact-tag-absent.sh"
+
+      - name: Verify approved preflight package before completion
+        if: inputs.publication_stage == 'complete'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.packages_metadata_token }}
+          PREFLIGHT_DIGEST: ${{ inputs.expected_preflight_digest }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          "${RUNNER_TEMP}/verify-private-package.sh" \
+            site-logbook-staging-preflight \
+            "$PREFLIGHT_DIGEST" \
+            "${RUNNER_TEMP}/preflight-package.json"
+
+      - name: Validate preflight image build without registry write
+        if: inputs.publication_stage == 'preflight-only' && steps.package-state.outputs.publish_preflight == 'true'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: deploy/staging/preflight/Dockerfile
+          platforms: linux/amd64
+          push: false
+          build-args: BUILD_SHA=${{ inputs.source_sha }}
+          cache-from: type=gha,scope=staging-preflight
+          cache-to: type=gha,mode=max,scope=staging-preflight
+
+      - name: Recheck preflight tag absence immediately before publication
+        if: inputs.publication_stage == 'preflight-only' && steps.package-state.outputs.publish_preflight == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.packages_metadata_token }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          "${RUNNER_TEMP}/assert-exact-tag-absent.sh" site-logbook-staging-preflight
+
+      - name: Build and publish preflight image
+        id: preflight
+        if: inputs.publication_stage == 'preflight-only' && steps.package-state.outputs.publish_preflight == 'true'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: deploy/staging/preflight/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.names.outputs.preflight }}:${{ inputs.source_sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/modvolt/Site-Logbook
+            org.opencontainers.image.revision=${{ inputs.source_sha }}
+            org.opencontainers.image.url=https://github.com/modvolt/Site-Logbook/commit/${{ inputs.source_sha }}
+          build-args: BUILD_SHA=${{ inputs.source_sha }}
+          cache-from: type=gha,scope=staging-preflight
+          cache-to: type=gha,mode=max,scope=staging-preflight
+          provenance: mode=max,version=v0.2
+          sbom: true
+
+      - name: Select exact preflight digest
+        id: selected-preflight
+        if: inputs.publication_stage == 'preflight-only'
+        shell: bash
+        env:
+          BUILT_DIGEST: ${{ steps.preflight.outputs.digest }}
+          EXISTING_DIGEST: ${{ steps.package-state.outputs.preflight_digest }}
+          PUBLISHED: ${{ steps.package-state.outputs.publish_preflight }}
+        run: |
+          set -euo pipefail
+          if [[ "$PUBLISHED" == "true" ]]; then
+            digest="$BUILT_DIGEST"
+          else
+            digest="$EXISTING_DIGEST"
+          fi
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify first published package is private before continuing
+        if: inputs.publication_stage == 'preflight-only'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.packages_metadata_token }}
+          PREFLIGHT_DIGEST: ${{ steps.selected-preflight.outputs.digest }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          "${RUNNER_TEMP}/verify-private-package.sh" \
+            site-logbook-staging-preflight \
+            "$PREFLIGHT_DIGEST" \
+            "${RUNNER_TEMP}/preflight-package.json"
+
+      - name: Create secret-free preflight publication evidence
+        if: inputs.publication_stage == 'preflight-only'
+        shell: bash
+        env:
+          CALLER_REPOSITORY: ${{ github.repository }}
+          CALLER_WORKFLOW_REF: ${{ github.workflow_ref }}
+          CALLER_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          INITIAL_PACKAGE_STATE: ${{ steps.package-state.outputs.state }}
+          LEDGER_ENTRY_SHA256: ${{ steps.registry-ledger.outputs.ledger_sha256 }}
+          PREFLIGHT_DIGEST: ${{ steps.selected-preflight.outputs.digest }}
+          PREFLIGHT_REPOSITORY: ${{ steps.names.outputs.preflight }}
+          REGISTRY_WRITE: ${{ steps.package-state.outputs.publish_preflight }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          RUN_ID: ${{ github.run_id }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$PREFLIGHT_REPOSITORY" == "ghcr.io/modvolt/site-logbook-staging-preflight" ]]
+          [[ "$PREFLIGHT_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "sha256:$(sha256sum "${RUNNER_TEMP}/staging-registry-ledger-entry.json" | awk '{print $1}')" == "$LEDGER_ENTRY_SHA256" ]]
+          cp "${RUNNER_TEMP}/staging-registry-ledger-entry.json" staging-registry-ledger-entry.json
+          if [[ "$REGISTRY_WRITE" == "true" ]]; then registry_action=published; else registry_action=verified-noop; fi
+          jq -n \
+            --arg callerRepository "$CALLER_REPOSITORY" \
+            --arg callerWorkflowRef "$CALLER_WORKFLOW_REF" \
+            --arg callerWorkflowSha "$CALLER_WORKFLOW_SHA" \
+            --arg initialPackageState "$INITIAL_PACKAGE_STATE" \
+            --arg ledgerEntrySha256 "$LEDGER_ENTRY_SHA256" \
+            --arg registryAction "$registry_action" \
+            --arg repositoryDigest "${PREFLIGHT_REPOSITORY}@${PREFLIGHT_DIGEST}" \
+            --arg runAttempt "$RUN_ATTEMPT" \
+            --arg runId "$RUN_ID" \
+            --arg sourceSha "$SOURCE_SHA" \
+            --slurpfile package "${RUNNER_TEMP}/preflight-package.json" \
+            --slurpfile registryLedger "${RUNNER_TEMP}/staging-registry-ledger-entry.json" \
+            '{schemaVersion: 3, kind: "site-logbook-staging-preflight-publication", stage: "preflight-only", sourceSha: $sourceSha, callerRepository: $callerRepository, callerWorkflowRef: $callerWorkflowRef, initialPackageState: $initialPackageState, registryAction: $registryAction, run: {id: $runId, attempt: $runAttempt}, deletedHistoryControl: {mode: "reviewed-caller-visible-history-ledger", decision: "explicitly-accepted-external-ledger", ledgerEntrySha256: $ledgerEntrySha256, callerWorkflowSha: $callerWorkflowSha, visibleRunUniquenessVerified: true, workflowRunHistoryScope: "github-visible-workflow-runs-below-1000-api-cap", deletedApiQueried: false}, registryLedger: $registryLedger[0], toolchain: {buildx: "v0.34.1", buildkitImage: "moby/buildkit:v0.30.0@sha256:0168606be2315b7c807a03b3d8aa79beefdb31c98740cebdffdfeebf31190c9f"}, repositoryDigest: $repositoryDigest, package: $package[0]}' \
+            > preflight-publication.json
+          jq -e \
+            --arg digest "$PREFLIGHT_DIGEST" \
+            --arg callerWorkflowSha "$CALLER_WORKFLOW_SHA" \
+            --arg ledgerEntrySha256 "$LEDGER_ENTRY_SHA256" \
+            --arg sha "$SOURCE_SHA" \
+            '.schemaVersion == 3 and
+             .kind == "site-logbook-staging-preflight-publication" and
+             .stage == "preflight-only" and
+             .sourceSha == $sha and
+             ((.initialPackageState == "00000" and .registryAction == "published") or
+              (.initialPackageState == "10000" and .registryAction == "verified-noop")) and
+             .run.attempt == "1" and
+             .deletedHistoryControl == {mode: "reviewed-caller-visible-history-ledger", decision: "explicitly-accepted-external-ledger", ledgerEntrySha256: $ledgerEntrySha256, callerWorkflowSha: $callerWorkflowSha, visibleRunUniquenessVerified: true, workflowRunHistoryScope: "github-visible-workflow-runs-below-1000-api-cap", deletedApiQueried: false} and
+             (.registryLedger | keys) == ["deletedHistoryControl", "expectedInitialPackageState", "kind", "packageNames", "previousEntry", "schemaVersion", "sourceSha", "stage"] and
+             .registryLedger.schemaVersion == 1 and .registryLedger.kind == "site-logbook-staging-registry-ledger-entry" and
+             .registryLedger.sourceSha == $sha and .registryLedger.stage == "preflight-only" and
+             .registryLedger.expectedInitialPackageState == .initialPackageState and
+             .registryLedger.packageNames == ["site-logbook-staging-preflight", "site-logbook-staging-mailpit", "site-logbook-staging-api", "site-logbook-staging-web", "site-logbook-staging-alert-receiver"] and
+             .registryLedger.deletedHistoryControl == {mode: "reviewed-caller-visible-history-ledger", decision: "explicitly-accepted-external-ledger", deletedApiQueried: false, historicalAbsenceProven: false} and
+             (.registryLedger.previousEntry | keys) == ["ledgerEntrySha256", "preflightDigest"] and
+             ((.initialPackageState == "00000" and .registryLedger.previousEntry == {ledgerEntrySha256: null, preflightDigest: null}) or
+              (.initialPackageState == "10000" and (.registryLedger.previousEntry.ledgerEntrySha256 | test("^sha256:[0-9a-f]{64}$")) and .registryLedger.previousEntry.preflightDigest == $digest)) and
+             .toolchain == {buildx: "v0.34.1", buildkitImage: "moby/buildkit:v0.30.0@sha256:0168606be2315b7c807a03b3d8aa79beefdb31c98740cebdffdfeebf31190c9f"} and
+             .package.packageName == "site-logbook-staging-preflight" and
+             .package.visibility == "private" and .package.repository == "modvolt/site-logbook-registry" and
+             .package.registryRepository == "ghcr.io/modvolt/site-logbook-staging-preflight" and
+             .package.sourceSha == $sha and .package.platform == "linux/amd64" and
+             .package.digest == $digest and
+             .package.activeInventoryPaginated == true and
+             (.package.activeVersionCount | type) == "number" and .package.activeVersionCount >= 1 and
+             .package.packageVersionCount == .package.activeVersionCount and
+             .package.deletedInventoryMode == "not-queryable-exact-read-scope" and
+             .package.visibleDeletedTagConflictChecked == false and .package.deletedVersionCount == null and
+             .package.deletedHistoryScope == "external-audit-ledger-only" and
+             .package.selectedVersionRefetched == true and
+             .package.remoteManifestVerified == true and
+             .package.runtimeMetadata == {source: "https://github.com/modvolt/Site-Logbook", revision: $sha, url: ("https://github.com/modvolt/Site-Logbook/commit/" + $sha), buildSha: $sha, buildShaEnv: "BUILD_SHA"} and
+             .package.provenance.buildType == "https://mobyproject.org/buildkit@v1" and
+             .package.provenance.vcsRevision == $sha and
+             .package.provenance.dockerfile == "deploy/staging/preflight/Dockerfile" and
+             .package.provenance.buildArg == "BUILD_SHA" and .package.provenance.buildSha == $sha and
+             .package.provenance.verifiedBaseImageDigests == ["sha256:4bcff63911fcb4448bd4fdacec207030997caf25e9bea4045fa6c8c44de311d1"] and
+             (.package.provenance.vcsSource | ascii_downcase | test("^(https://github\\.com/modvolt/site-logbook(?:\\.git)?|git\\+https://github\\.com/modvolt/site-logbook(?:\\.git)?|git@github\\.com:modvolt/site-logbook\\.git)$")) and
+             (.package.sbom.spdxVersion == "SPDX-2.2" or .package.sbom.spdxVersion == "SPDX-2.3") and
+             .package.sbom.packageCount > 0 and .package.sbom.relationshipCount > 0' \
+            preflight-publication.json >/dev/null
+          sha256sum preflight-publication.json > preflight-publication.sha256
+          [[ "$(awk '{print $1}' preflight-publication.sha256)" =~ ^[0-9a-f]{64}$ ]]
+
+      - name: Upload preflight-only publication evidence
+        if: inputs.publication_stage == 'preflight-only'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: preflight-publication-${{ inputs.source_sha }}
+          path: |
+            preflight-publication.json
+            preflight-publication.sha256
+            staging-registry-ledger-entry.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Validate Mailpit image build without registry write
+        if: inputs.publication_stage == 'complete' && steps.package-state.outputs.publish_remaining == 'true'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: deploy/staging/mailpit/Dockerfile
+          platforms: linux/amd64
+          push: false
+          build-args: BUILD_SHA=${{ inputs.source_sha }}
+          cache-from: type=gha,scope=staging-mailpit
+          cache-to: type=gha,mode=max,scope=staging-mailpit
+
+      - name: Validate API image build without registry write
+        if: inputs.publication_stage == 'complete' && steps.package-state.outputs.publish_remaining == 'true'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: artifacts/api-server/Dockerfile
+          platforms: linux/amd64
+          push: false
+          build-args: BUILD_SHA=${{ inputs.source_sha }}
+          cache-from: type=gha,scope=staging-api
+          cache-to: type=gha,mode=max,scope=staging-api
+
+      - name: Validate web image build without registry write
+        if: inputs.publication_stage == 'complete' && steps.package-state.outputs.publish_remaining == 'true'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: artifacts/stavba/Dockerfile
+          platforms: linux/amd64
+          push: false
+          build-args: |
+            BASE_PATH=/
+            VITE_BUILD_SHA=${{ inputs.source_sha }}
+          cache-from: type=gha,scope=staging-web
+          cache-to: type=gha,mode=max,scope=staging-web
+
+      - name: Validate alert receiver image build without registry write
+        if: inputs.publication_stage == 'complete' && steps.package-state.outputs.publish_remaining == 'true'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: deploy/operational-alert-receiver
+          file: deploy/operational-alert-receiver/Dockerfile
+          platforms: linux/amd64
+          push: false
+          build-args: BUILD_SHA=${{ inputs.source_sha }}
+          cache-from: type=gha,scope=staging-alert-receiver
+          cache-to: type=gha,mode=max,scope=staging-alert-receiver
+
+      - name: Recheck Mailpit tag absence immediately before publication
+        if: inputs.publication_stage == 'complete' && steps.package-state.outputs.publish_remaining == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.packages_metadata_token }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          "${RUNNER_TEMP}/assert-exact-tag-absent.sh" site-logbook-staging-mailpit
+
+      - name: Build and publish Mailpit image
+        id: mailpit
+        if: inputs.publication_stage == 'complete' && steps.package-state.outputs.publish_remaining == 'true'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: deploy/staging/mailpit/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.names.outputs.mailpit }}:${{ inputs.source_sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/modvolt/Site-Logbook
+            org.opencontainers.image.revision=${{ inputs.source_sha }}
+            org.opencontainers.image.url=https://github.com/modvolt/Site-Logbook/commit/${{ inputs.source_sha }}
+          build-args: BUILD_SHA=${{ inputs.source_sha }}
+          cache-from: type=gha,scope=staging-mailpit
+          cache-to: type=gha,mode=max,scope=staging-mailpit
+          provenance: mode=max,version=v0.2
+          sbom: true
+
+      - name: Select exact Mailpit digest
+        id: selected-mailpit
+        if: inputs.publication_stage == 'complete'
+        shell: bash
+        env:
+          BUILT_DIGEST: ${{ steps.mailpit.outputs.digest }}
+          EXISTING_DIGEST: ${{ steps.package-state.outputs.mailpit_digest }}
+          PUBLISHED: ${{ steps.package-state.outputs.publish_remaining }}
+        run: |
+          set -euo pipefail
+          if [[ "$PUBLISHED" == "true" ]]; then digest="$BUILT_DIGEST"; else digest="$EXISTING_DIGEST"; fi
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify Mailpit package is private and digest-bound
+        if: inputs.publication_stage == 'complete'
+        shell: bash
+        env:
+          EXPECTED_DIGEST: ${{ steps.selected-mailpit.outputs.digest }}
+          GH_TOKEN: ${{ secrets.packages_metadata_token }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          "${RUNNER_TEMP}/verify-private-package.sh" \
+            site-logbook-staging-mailpit \
+            "$EXPECTED_DIGEST" \
+            "${RUNNER_TEMP}/mailpit-package.json"
+
+      - name: Seal Mailpit partial-publication recovery evidence
+        if: inputs.publication_stage == 'complete' && steps.package-state.outputs.publish_remaining == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp "${RUNNER_TEMP}/mailpit-package.json" remaining-mailpit-package.json
+          sha256sum remaining-mailpit-package.json > remaining-mailpit-package.sha256
+
+      - name: Upload Mailpit partial-publication recovery evidence
+        if: inputs.publication_stage == 'complete' && steps.package-state.outputs.publish_remaining == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: remaining-mailpit-${{ inputs.source_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            remaining-mailpit-package.json
+            remaining-mailpit-package.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Recheck API tag absence immediately before publication
+        if: inputs.publication_stage == 'complete' && steps.package-state.outputs.publish_remaining == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.packages_metadata_token }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          "${RUNNER_TEMP}/assert-exact-tag-absent.sh" site-logbook-staging-api
+
+      - name: Build and publish API image
+        id: api
+        if: inputs.publication_stage == 'complete' && steps.package-state.outputs.publish_remaining == 'true'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: artifacts/api-server/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.names.outputs.api }}:${{ inputs.source_sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/modvolt/Site-Logbook
+            org.opencontainers.image.revision=${{ inputs.source_sha }}
+            org.opencontainers.image.url=https://github.com/modvolt/Site-Logbook/commit/${{ inputs.source_sha }}
+          build-args: BUILD_SHA=${{ inputs.source_sha }}
+          cache-from: type=gha,scope=staging-api
+          cache-to: type=gha,mode=max,scope=staging-api
+          provenance: mode=max,version=v0.2
+          sbom: true
+
+      - name: Select exact API digest
+        id: selected-api
+        if: inputs.publication_stage == 'complete'
+        shell: bash
+        env:
+          BUILT_DIGEST: ${{ steps.api.outputs.digest }}
+          EXISTING_DIGEST: ${{ steps.package-state.outputs.api_digest }}
+          PUBLISHED: ${{ steps.package-state.outputs.publish_remaining }}
+        run: |
+          set -euo pipefail
+          if [[ "$PUBLISHED" == "true" ]]; then digest="$BUILT_DIGEST"; else digest="$EXISTING_DIGEST"; fi
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify API package is private and digest-bound
+        if: inputs.publication_stage == 'complete'
+        shell: bash
+        env:
+          EXPECTED_DIGEST: ${{ steps.selected-api.outputs.digest }}
+          GH_TOKEN: ${{ secrets.packages_metadata_token }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          "${RUNNER_TEMP}/verify-private-package.sh" \
+            site-logbook-staging-api \
+            "$EXPECTED_DIGEST" \
+            "${RUNNER_TEMP}/api-package.json"
+
+      - name: Seal API partial-publication recovery evidence
+        if: inputs.publication_stage == 'complete' && steps.package-state.outputs.publish_remaining == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp "${RUNNER_TEMP}/api-package.json" remaining-api-package.json
+          sha256sum remaining-api-package.json > remaining-api-package.sha256
+
+      - name: Upload API partial-publication recovery evidence
+        if: inputs.publication_stage == 'complete' && steps.package-state.outputs.publish_remaining == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: remaining-api-${{ inputs.source_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            remaining-api-package.json
+            remaining-api-package.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Recheck web tag absence immediately before publication
+        if: inputs.publication_stage == 'complete' && steps.package-state.outputs.publish_remaining == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.packages_metadata_token }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          "${RUNNER_TEMP}/assert-exact-tag-absent.sh" site-logbook-staging-web
+
+      - name: Build and publish web image
+        id: web
+        if: inputs.publication_stage == 'complete' && steps.package-state.outputs.publish_remaining == 'true'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: artifacts/stavba/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.names.outputs.web }}:${{ inputs.source_sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/modvolt/Site-Logbook
+            org.opencontainers.image.revision=${{ inputs.source_sha }}
+            org.opencontainers.image.url=https://github.com/modvolt/Site-Logbook/commit/${{ inputs.source_sha }}
+          build-args: |
+            BASE_PATH=/
+            VITE_BUILD_SHA=${{ inputs.source_sha }}
+          cache-from: type=gha,scope=staging-web
+          cache-to: type=gha,mode=max,scope=staging-web
+          provenance: mode=max,version=v0.2
+          sbom: true
+
+      - name: Select exact web digest
+        id: selected-web
+        if: inputs.publication_stage == 'complete'
+        shell: bash
+        env:
+          BUILT_DIGEST: ${{ steps.web.outputs.digest }}
+          EXISTING_DIGEST: ${{ steps.package-state.outputs.web_digest }}
+          PUBLISHED: ${{ steps.package-state.outputs.publish_remaining }}
+        run: |
+          set -euo pipefail
+          if [[ "$PUBLISHED" == "true" ]]; then digest="$BUILT_DIGEST"; else digest="$EXISTING_DIGEST"; fi
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify web package is private and digest-bound
+        if: inputs.publication_stage == 'complete'
+        shell: bash
+        env:
+          EXPECTED_DIGEST: ${{ steps.selected-web.outputs.digest }}
+          GH_TOKEN: ${{ secrets.packages_metadata_token }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          "${RUNNER_TEMP}/verify-private-package.sh" \
+            site-logbook-staging-web \
+            "$EXPECTED_DIGEST" \
+            "${RUNNER_TEMP}/web-package.json"
+
+      - name: Seal web partial-publication recovery evidence
+        if: inputs.publication_stage == 'complete' && steps.package-state.outputs.publish_remaining == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp "${RUNNER_TEMP}/web-package.json" remaining-web-package.json
+          sha256sum remaining-web-package.json > remaining-web-package.sha256
+
+      - name: Upload web partial-publication recovery evidence
+        if: inputs.publication_stage == 'complete' && steps.package-state.outputs.publish_remaining == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: remaining-web-${{ inputs.source_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            remaining-web-package.json
+            remaining-web-package.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Recheck alert receiver tag absence immediately before publication
+        if: inputs.publication_stage == 'complete' && steps.package-state.outputs.publish_remaining == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.packages_metadata_token }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          "${RUNNER_TEMP}/assert-exact-tag-absent.sh" site-logbook-staging-alert-receiver
+
+      - name: Build and publish alert receiver image
+        id: alert-receiver
+        if: inputs.publication_stage == 'complete' && steps.package-state.outputs.publish_remaining == 'true'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: deploy/operational-alert-receiver
+          file: deploy/operational-alert-receiver/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.names.outputs.alert_receiver }}:${{ inputs.source_sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/modvolt/Site-Logbook
+            org.opencontainers.image.revision=${{ inputs.source_sha }}
+            org.opencontainers.image.url=https://github.com/modvolt/Site-Logbook/commit/${{ inputs.source_sha }}
+          build-args: BUILD_SHA=${{ inputs.source_sha }}
+          cache-from: type=gha,scope=staging-alert-receiver
+          cache-to: type=gha,mode=max,scope=staging-alert-receiver
+          provenance: mode=max,version=v0.2
+          sbom: true
+
+      - name: Select exact alert receiver digest
+        id: selected-alert-receiver
+        if: inputs.publication_stage == 'complete'
+        shell: bash
+        env:
+          BUILT_DIGEST: ${{ steps.alert-receiver.outputs.digest }}
+          EXISTING_DIGEST: ${{ steps.package-state.outputs.alert_receiver_digest }}
+          PUBLISHED: ${{ steps.package-state.outputs.publish_remaining }}
+        run: |
+          set -euo pipefail
+          if [[ "$PUBLISHED" == "true" ]]; then digest="$BUILT_DIGEST"; else digest="$EXISTING_DIGEST"; fi
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify alert receiver package is private and digest-bound
+        if: inputs.publication_stage == 'complete'
+        shell: bash
+        env:
+          EXPECTED_DIGEST: ${{ steps.selected-alert-receiver.outputs.digest }}
+          GH_TOKEN: ${{ secrets.packages_metadata_token }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          "${RUNNER_TEMP}/verify-private-package.sh" \
+            site-logbook-staging-alert-receiver \
+            "$EXPECTED_DIGEST" \
+            "${RUNNER_TEMP}/alert-receiver-package.json"
+
+      - name: Seal alert receiver partial-publication recovery evidence
+        if: inputs.publication_stage == 'complete' && steps.package-state.outputs.publish_remaining == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp "${RUNNER_TEMP}/alert-receiver-package.json" remaining-alert-receiver-package.json
+          sha256sum remaining-alert-receiver-package.json > remaining-alert-receiver-package.sha256
+
+      - name: Upload alert receiver partial-publication recovery evidence
+        if: inputs.publication_stage == 'complete' && steps.package-state.outputs.publish_remaining == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: remaining-alert-receiver-${{ inputs.source_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            remaining-alert-receiver-package.json
+            remaining-alert-receiver-package.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Verify all published packages remain private
+        if: inputs.publication_stage == 'complete'
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          jq -s -e \
+            --arg sha "$SOURCE_SHA" \
+            'length == 5 and
+             (map(.packageName) | sort) == [
+               "site-logbook-staging-alert-receiver",
+               "site-logbook-staging-api",
+               "site-logbook-staging-mailpit",
+               "site-logbook-staging-preflight",
+               "site-logbook-staging-web"
+             ] and
+             all(.[];
+               .visibility == "private" and
+               .repository == "modvolt/site-logbook-registry" and
+               .sourceSha == $sha and
+               .platform == "linux/amd64" and
+               .activeInventoryPaginated == true and
+               (.activeVersionCount | type) == "number" and .activeVersionCount >= 1 and
+               .packageVersionCount == .activeVersionCount and
+               .deletedInventoryMode == "not-queryable-exact-read-scope" and
+               .visibleDeletedTagConflictChecked == false and
+               .deletedVersionCount == null and
+               .deletedHistoryScope == "external-audit-ledger-only" and
+               .selectedVersionRefetched == true and
+               .remoteManifestVerified == true and
+               .runtimeMetadata.source == "https://github.com/modvolt/Site-Logbook" and
+               .runtimeMetadata.revision == $sha and .runtimeMetadata.buildSha == $sha and
+               .provenance.buildType == "https://mobyproject.org/buildkit@v1" and
+               .provenance.vcsRevision == $sha and .provenance.buildSha == $sha and
+               (.provenance.verifiedBaseImageDigests | type) == "array" and (.provenance.verifiedBaseImageDigests | length) > 0 and
+               (.sbom.spdxVersion == "SPDX-2.2" or .sbom.spdxVersion == "SPDX-2.3") and
+               .sbom.packageCount > 0 and .sbom.relationshipCount > 0)' \
+            "${RUNNER_TEMP}/preflight-package.json" \
+            "${RUNNER_TEMP}/mailpit-package.json" \
+            "${RUNNER_TEMP}/api-package.json" \
+            "${RUNNER_TEMP}/web-package.json" \
+            "${RUNNER_TEMP}/alert-receiver-package.json" >/dev/null
+
+      - name: Create and validate secret-free immutable image manifest
+        if: inputs.publication_stage == 'complete'
+        shell: bash
+        env:
+          ALERT_RECEIVER_DIGEST: ${{ steps.selected-alert-receiver.outputs.digest }}
+          ALERT_RECEIVER_REPOSITORY: ${{ steps.names.outputs.alert_receiver }}
+          API_DIGEST: ${{ steps.selected-api.outputs.digest }}
+          API_REPOSITORY: ${{ steps.names.outputs.api }}
+          CALLER_REPOSITORY: ${{ github.repository }}
+          CALLER_WORKFLOW_REF: ${{ github.workflow_ref }}
+          CALLER_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          INITIAL_PACKAGE_STATE: ${{ steps.package-state.outputs.state }}
+          LEDGER_ENTRY_SHA256: ${{ steps.registry-ledger.outputs.ledger_sha256 }}
+          MAILPIT_DIGEST: ${{ steps.selected-mailpit.outputs.digest }}
+          MAILPIT_REPOSITORY: ${{ steps.names.outputs.mailpit }}
+          PREFLIGHT_DIGEST: ${{ inputs.expected_preflight_digest }}
+          PREFLIGHT_REPOSITORY: ${{ steps.names.outputs.preflight }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          RUN_ID: ${{ github.run_id }}
+          REGISTRY_WRITE: ${{ steps.package-state.outputs.publish_remaining }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          WEB_DIGEST: ${{ steps.selected-web.outputs.digest }}
+          WEB_REPOSITORY: ${{ steps.names.outputs.web }}
+        run: |
+          set -euo pipefail
+
+          require_digest() {
+            local label="$1"
+            local digest="$2"
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+              echo "${label} digest is missing or invalid." >&2
+              exit 1
+            }
+          }
+
+          [[ "$PREFLIGHT_REPOSITORY" == "ghcr.io/modvolt/site-logbook-staging-preflight" ]]
+          [[ "$MAILPIT_REPOSITORY" == "ghcr.io/modvolt/site-logbook-staging-mailpit" ]]
+          [[ "$API_REPOSITORY" == "ghcr.io/modvolt/site-logbook-staging-api" ]]
+          [[ "$WEB_REPOSITORY" == "ghcr.io/modvolt/site-logbook-staging-web" ]]
+          [[ "$ALERT_RECEIVER_REPOSITORY" == "ghcr.io/modvolt/site-logbook-staging-alert-receiver" ]]
+          require_digest preflight "$PREFLIGHT_DIGEST"
+          require_digest mailpit "$MAILPIT_DIGEST"
+          require_digest api "$API_DIGEST"
+          require_digest web "$WEB_DIGEST"
+          require_digest alert-receiver "$ALERT_RECEIVER_DIGEST"
+          [[ "sha256:$(sha256sum "${RUNNER_TEMP}/staging-registry-ledger-entry.json" | awk '{print $1}')" == "$LEDGER_ENTRY_SHA256" ]]
+          cp "${RUNNER_TEMP}/staging-registry-ledger-entry.json" staging-registry-ledger-entry.json
+          if [[ "$REGISTRY_WRITE" == "true" ]]; then registry_action=published; else registry_action=verified-noop; fi
+
+          jq -n \
+            --arg schemaVersion "3" \
+            --arg sourceSha "$SOURCE_SHA" \
+            --arg preflight "${PREFLIGHT_REPOSITORY}@${PREFLIGHT_DIGEST}" \
+            --arg mailpit "${MAILPIT_REPOSITORY}@${MAILPIT_DIGEST}" \
+            --arg api "${API_REPOSITORY}@${API_DIGEST}" \
+            --arg alertReceiver "${ALERT_RECEIVER_REPOSITORY}@${ALERT_RECEIVER_DIGEST}" \
+            --arg callerRepository "$CALLER_REPOSITORY" \
+            --arg callerWorkflowRef "$CALLER_WORKFLOW_REF" \
+            --arg callerWorkflowSha "$CALLER_WORKFLOW_SHA" \
+            --arg initialPackageState "$INITIAL_PACKAGE_STATE" \
+            --arg ledgerEntrySha256 "$LEDGER_ENTRY_SHA256" \
+            --arg registryAction "$registry_action" \
+            --arg web "${WEB_REPOSITORY}@${WEB_DIGEST}" \
+            --arg runAttempt "$RUN_ATTEMPT" \
+            --arg runId "$RUN_ID" \
+            --slurpfile apiPackage "${RUNNER_TEMP}/api-package.json" \
+            --slurpfile alertReceiverPackage "${RUNNER_TEMP}/alert-receiver-package.json" \
+            --slurpfile mailpitPackage "${RUNNER_TEMP}/mailpit-package.json" \
+            --slurpfile preflightPackage "${RUNNER_TEMP}/preflight-package.json" \
+            --slurpfile registryLedger "${RUNNER_TEMP}/staging-registry-ledger-entry.json" \
+            --slurpfile webPackage "${RUNNER_TEMP}/web-package.json" \
+            '{schemaVersion: ($schemaVersion | tonumber), kind: "site-logbook-staging-images", publicationStage: "complete", sourceSha: $sourceSha, callerRepository: $callerRepository, callerWorkflowRef: $callerWorkflowRef, initialPackageState: $initialPackageState, registryAction: $registryAction, publisherRun: {id: $runId, attempt: $runAttempt}, deletedHistoryControl: {mode: "reviewed-caller-visible-history-ledger", decision: "explicitly-accepted-external-ledger", ledgerEntrySha256: $ledgerEntrySha256, callerWorkflowSha: $callerWorkflowSha, visibleRunUniquenessVerified: true, workflowRunHistoryScope: "github-visible-workflow-runs-below-1000-api-cap", deletedApiQueried: false}, registryLedger: $registryLedger[0], toolchain: {buildx: "v0.34.1", buildkitImage: "moby/buildkit:v0.30.0@sha256:0168606be2315b7c807a03b3d8aa79beefdb31c98740cebdffdfeebf31190c9f"}, images: {preflight: $preflight, mailpit: $mailpit, api: $api, web: $web, alertReceiver: $alertReceiver}, packages: {preflight: $preflightPackage[0], mailpit: $mailpitPackage[0], api: $apiPackage[0], web: $webPackage[0], alertReceiver: $alertReceiverPackage[0]}}' \
+            > staging-images.json
+
+          jq -e \
+            --arg callerWorkflowSha "$CALLER_WORKFLOW_SHA" \
+            --arg ledgerEntrySha256 "$LEDGER_ENTRY_SHA256" \
+            --arg sha "$SOURCE_SHA" \
+            '.schemaVersion == 3 and
+             .kind == "site-logbook-staging-images" and .publicationStage == "complete" and
+             .sourceSha == $sha and
+             ((.initialPackageState == "10000" and .registryAction == "published") or
+              (.initialPackageState == "11111" and .registryAction == "verified-noop")) and
+             .publisherRun.attempt == "1" and
+             .deletedHistoryControl == {mode: "reviewed-caller-visible-history-ledger", decision: "explicitly-accepted-external-ledger", ledgerEntrySha256: $ledgerEntrySha256, callerWorkflowSha: $callerWorkflowSha, visibleRunUniquenessVerified: true, workflowRunHistoryScope: "github-visible-workflow-runs-below-1000-api-cap", deletedApiQueried: false} and
+             (.registryLedger | keys) == ["deletedHistoryControl", "expectedInitialPackageState", "kind", "packageNames", "previousEntry", "schemaVersion", "sourceSha", "stage"] and
+             .registryLedger.schemaVersion == 1 and .registryLedger.kind == "site-logbook-staging-registry-ledger-entry" and
+             .registryLedger.sourceSha == $sha and .registryLedger.stage == "complete" and
+             .registryLedger.expectedInitialPackageState == .initialPackageState and
+             .registryLedger.packageNames == ["site-logbook-staging-preflight", "site-logbook-staging-mailpit", "site-logbook-staging-api", "site-logbook-staging-web", "site-logbook-staging-alert-receiver"] and
+             .registryLedger.deletedHistoryControl == {mode: "reviewed-caller-visible-history-ledger", decision: "explicitly-accepted-external-ledger", deletedApiQueried: false, historicalAbsenceProven: false} and
+             (.registryLedger.previousEntry | keys) == ["ledgerEntrySha256", "preflightDigest"] and
+             (.registryLedger.previousEntry.ledgerEntrySha256 | test("^sha256:[0-9a-f]{64}$")) and
+             .registryLedger.previousEntry.preflightDigest == (.images.preflight | split("@")[1]) and
+             .toolchain == {buildx: "v0.34.1", buildkitImage: "moby/buildkit:v0.30.0@sha256:0168606be2315b7c807a03b3d8aa79beefdb31c98740cebdffdfeebf31190c9f"} and
+             (.images | keys) == ["alertReceiver", "api", "mailpit", "preflight", "web"] and
+             (.images.preflight | test("^ghcr\\.io/modvolt/site-logbook-staging-preflight@sha256:[0-9a-f]{64}$")) and
+             (.images.mailpit | test("^ghcr\\.io/modvolt/site-logbook-staging-mailpit@sha256:[0-9a-f]{64}$")) and
+             (.images.api | test("^ghcr\\.io/modvolt/site-logbook-staging-api@sha256:[0-9a-f]{64}$")) and
+             (.images.web | test("^ghcr\\.io/modvolt/site-logbook-staging-web@sha256:[0-9a-f]{64}$")) and
+             (.images.alertReceiver | test("^ghcr\\.io/modvolt/site-logbook-staging-alert-receiver@sha256:[0-9a-f]{64}$")) and
+             .packages.preflight.digest == (.images.preflight | split("@")[1]) and
+             .packages.mailpit.digest == (.images.mailpit | split("@")[1]) and
+             .packages.api.digest == (.images.api | split("@")[1]) and
+             .packages.web.digest == (.images.web | split("@")[1]) and
+             .packages.alertReceiver.digest == (.images.alertReceiver | split("@")[1]) and
+             (.packages | keys) == ["alertReceiver", "api", "mailpit", "preflight", "web"] and
+             (.packages | to_entries | all(.[].value;
+               .visibility == "private" and .repository == "modvolt/site-logbook-registry" and
+               .sourceSha == $sha and .platform == "linux/amd64" and
+               .activeInventoryPaginated == true and
+               (.activeVersionCount | type) == "number" and .activeVersionCount >= 1 and
+               .packageVersionCount == .activeVersionCount and
+               .deletedInventoryMode == "not-queryable-exact-read-scope" and
+               .visibleDeletedTagConflictChecked == false and .deletedVersionCount == null and
+               .deletedHistoryScope == "external-audit-ledger-only" and
+               .selectedVersionRefetched == true and .remoteManifestVerified == true and
+               .runtimeMetadata.source == "https://github.com/modvolt/Site-Logbook" and
+               .runtimeMetadata.revision == $sha and .runtimeMetadata.buildSha == $sha and
+               .provenance.buildType == "https://mobyproject.org/buildkit@v1" and
+               .provenance.vcsRevision == $sha and .provenance.buildSha == $sha and
+               (.provenance.vcsSource | ascii_downcase | test("^(https://github\\.com/modvolt/site-logbook(?:\\.git)?|git\\+https://github\\.com/modvolt/site-logbook(?:\\.git)?|git@github\\.com:modvolt/site-logbook\\.git)$")) and
+               (.provenance.verifiedBaseImageDigests | type) == "array" and (.provenance.verifiedBaseImageDigests | length) > 0 and
+               (.sbom.spdxVersion == "SPDX-2.2" or .sbom.spdxVersion == "SPDX-2.3") and
+               .sbom.packageCount > 0 and .sbom.relationshipCount > 0)) and
+             .packages.preflight.packageName == "site-logbook-staging-preflight" and .packages.preflight.runtimeMetadata.buildShaEnv == "BUILD_SHA" and .packages.preflight.provenance.dockerfile == "deploy/staging/preflight/Dockerfile" and .packages.preflight.provenance.buildArg == "BUILD_SHA" and
+             .packages.mailpit.packageName == "site-logbook-staging-mailpit" and .packages.mailpit.runtimeMetadata.buildShaEnv == "BUILD_SHA" and .packages.mailpit.provenance.dockerfile == "deploy/staging/mailpit/Dockerfile" and .packages.mailpit.provenance.buildArg == "BUILD_SHA" and
+             .packages.api.packageName == "site-logbook-staging-api" and .packages.api.runtimeMetadata.buildShaEnv == "BUILD_SHA" and .packages.api.provenance.dockerfile == "artifacts/api-server/Dockerfile" and .packages.api.provenance.buildArg == "BUILD_SHA" and
+             .packages.web.packageName == "site-logbook-staging-web" and .packages.web.runtimeMetadata.buildShaEnv == "VITE_BUILD_SHA" and .packages.web.provenance.dockerfile == "artifacts/stavba/Dockerfile" and .packages.web.provenance.buildArg == "VITE_BUILD_SHA" and
+             .packages.alertReceiver.packageName == "site-logbook-staging-alert-receiver" and .packages.alertReceiver.runtimeMetadata.buildShaEnv == "RECEIVER_BUILD_SHA" and .packages.alertReceiver.provenance.dockerfile == "deploy/operational-alert-receiver/Dockerfile" and .packages.alertReceiver.provenance.buildArg == "BUILD_SHA"' \
+            staging-images.json >/dev/null
+          sha256sum staging-images.json > staging-images.sha256
+          [[ "$(awk '{print $1}' staging-images.sha256)" =~ ^[0-9a-f]{64}$ ]]
+
+      - name: Upload immutable image manifest
+        if: inputs.publication_stage == 'complete'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: staging-images-${{ inputs.source_sha }}
+          path: |
+            staging-images.json
+            staging-images.sha256
+            staging-registry-ledger-entry.json
+          if-no-files-found: error
+          retention-days: 30

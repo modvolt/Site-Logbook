@@ -5,7 +5,8 @@ import express, {
   type Response,
   type NextFunction,
 } from "express";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { rateLimit } from "express-rate-limit";
 import { UploadObjectResponse } from "@workspace/api-zod";
 import {
   ObjectStorageService,
@@ -14,6 +15,16 @@ import {
 } from "../lib/objectStorage";
 import { requirePermission } from "../middlewares/permissions";
 import { contentMatchesType } from "../lib/fileSignature";
+import { canAccessPrivateObject } from "../lib/private-object-access";
+import { verifyOfflineContentDigest } from "../lib/offline-content-digest";
+import { scanUploadContent } from "../lib/upload-scanner";
+import {
+  createObjectUploadIntent,
+  LEDGERED_UPLOAD_PREFIX,
+  markObjectUploadFailed,
+  markObjectUploadQuarantined,
+  markObjectUploadStored,
+} from "../lib/object-upload-ledger";
 
 const router: IRouter = Router();
 const objectStorageService = new ObjectStorageService();
@@ -24,7 +35,19 @@ const objectStorageService = new ObjectStorageService();
 // or large files are rejected at the proxy with an HTML 413 before reaching here.
 // Note: the body is buffered in memory, so each concurrent upload uses up to this
 // many bytes of RAM — raise with that in mind.
-const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
+
+function requestCorrelationId(req: Request): string {
+  return String((req as Request & { id?: string | number }).id ?? "unknown");
+}
+
+const uploadRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1_000,
+  limit: 60,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  message: { error: "Limit nahrávání byl dočasně vyčerpán. Zkuste to později." },
+});
 
 // Allowlist of content types the app accepts. Notably excludes text/html and
 // SVG to avoid storing active content that could be served back inline.
@@ -56,6 +79,14 @@ const ALLOWED_UPLOAD_TYPES = new Set<string>([
  */
 router.post(
   "/storage/uploads",
+  (req: Request, res: Response, next: NextFunction) => {
+    if (!req.auth) {
+      res.status(401).json({ error: "Pro nahrání souboru je nutné přihlášení." });
+      return;
+    }
+    next();
+  },
+  uploadRateLimit,
   (req: Request, res: Response, next: NextFunction) => {
     // Parse the raw body capped at MAX_UPLOAD_BYTES. A too-large payload is
     // rejected here with a clean JSON 413 instead of bubbling up as HTML.
@@ -95,6 +126,13 @@ router.post(
       });
       return;
     }
+    if (!verifyOfflineContentDigest(req, body)) {
+      res.status(400).json({
+        error: "SHA-256 offline uploadu neodpovídá přijatému obsahu.",
+        code: "offline_content_digest_mismatch",
+      });
+      return;
+    }
 
     // Verify the actual file bytes match the declared content type, so a client
     // cannot store disguised active content (e.g. HTML labelled image/png).
@@ -105,9 +143,40 @@ router.post(
       return;
     }
 
-    const objectPath = `/objects/uploads/${randomUUID()}`;
+    const scan = await scanUploadContent(body, contentType, name || "soubor");
+    const sha256 = createHash("sha256").update(body).digest("hex");
+    const attemptId = randomUUID();
+    const objectPath = scan.verdict === "content_validated" || scan.verdict === "clean"
+      ? `${LEDGERED_UPLOAD_PREFIX}${attemptId}`
+      : `/objects/quarantine/${attemptId}`;
     try {
-      await objectStorageService.putPrivateObject(objectPath, body, contentType);
+      await createObjectUploadIntent({
+        objectPath,
+        uploadedByUserId: req.auth!.userId,
+        originalName: (name || "soubor").slice(0, 255),
+        contentType,
+        sizeBytes: body.length,
+        sha256,
+      });
+
+      if (scan.verdict === "malicious") {
+        await markObjectUploadFailed(objectPath, scan.reason, "malicious");
+        res.status(422).json({ error: "Soubor neprošel bezpečnostní kontrolou." });
+        return;
+      }
+
+      await objectStorageService.putPrivateObject(objectPath, body, contentType, {
+        uploadStatus: scan.verdict === "unavailable" ? "quarantined" : "stored",
+      });
+      if (scan.verdict === "unavailable") {
+        await markObjectUploadQuarantined(objectPath, scan.reason);
+        res.status(503).json({
+          error: `${scan.reason} Soubor byl bezpečně oddělen a nebyl zpřístupněn.`,
+          code: "upload_quarantined",
+        });
+        return;
+      }
+      await markObjectUploadStored(objectPath, scan.verdict);
       res.json(
         UploadObjectResponse.parse({
           objectPath,
@@ -115,51 +184,46 @@ router.post(
         }),
       );
     } catch (error) {
-      // Capture the full S3/Hetzner error detail. An InvalidAccessKeyId XML
-      // body echoes back the exact key the provider received (`AWSAccessKeyId`)
-      // and a human message — invaluable for telling a mangled/wrong key apart
-      // from a genuinely-unknown one. These fields never contain the secret.
-      const s3err = error as Record<string, unknown> & {
+      const requestId = requestCorrelationId(req);
+      await markObjectUploadFailed(
+        objectPath,
+        "Storage provider request failed.",
+        scan.verdict === "unavailable" ? "unavailable" : "pending",
+      ).catch((ledgerError: unknown) => {
+        const ledgerFailure = ledgerError as { name?: string; code?: string };
+        req.log.error(
+          {
+            requestId,
+            objectPath,
+            errorName: ledgerFailure?.name,
+            errorCode: ledgerFailure?.code,
+          },
+          "Upload ledger update failed",
+        );
+      });
+      const providerError = error as Record<string, unknown> & {
         name?: string;
-        message?: string;
         Code?: string;
         $metadata?: { httpStatusCode?: number; requestId?: string };
       };
       req.log.error(
         {
-          err: error,
-          s3Detail: {
-            name: s3err?.name,
-            code: s3err?.Code,
-            message: s3err?.message,
-            awsAccessKeyId: s3err?.["AWSAccessKeyId"],
-            hostId: s3err?.["HostId"],
-            endpoint: s3err?.["Endpoint"],
-            bucketRegion: s3err?.["Region"] ?? s3err?.["region"],
-            httpStatusCode: s3err?.$metadata?.httpStatusCode,
-            requestId: s3err?.$metadata?.requestId,
+          requestId,
+          objectPath,
+          storageError: {
+            name: providerError?.name,
+            code: providerError?.Code,
+            bucketRegion: providerError?.["Region"] ?? providerError?.["region"],
+            httpStatusCode: providerError?.$metadata?.httpStatusCode,
+            providerRequestId: providerError?.$metadata?.requestId,
           },
         },
         "Error uploading object",
       );
-      // Surface the underlying storage reason (e.g. "InvalidAccessKeyId",
-      // "Access Denied", "bucket does not exist", "ENOTFOUND <endpoint>") so a
-      // misconfigured deployment is diagnosable from the UI instead of a blanket
-      // "save failed". The AWS SDK often sets `message` to a useless
-      // "UnknownError" while the real reason is in `name`/`Code` — prefer those.
-      // Storage SDK error fields don't contain credentials; we still cap length.
-      const err = error as { name?: string; Code?: string; message?: string };
-      const code = err?.Code || err?.name;
-      const rawMessage =
-        err?.message && err.message !== "UnknownError" ? err.message : "";
-      const detail = [code, rawMessage]
-        .filter((p): p is string => Boolean(p) && p !== "Error")
-        .join(": ")
-        .slice(0, 200);
       res.status(500).json({
-        error: detail
-          ? `Nepodařilo se uložit soubor do úložiště: ${detail}`
-          : "Nepodařilo se uložit soubor do úložiště.",
+        error: "Nepodařilo se uložit soubor do úložiště.",
+        code: "storage_upload_failed",
+        requestId,
       });
     }
   },
@@ -211,46 +275,24 @@ router.get("/storage/public-objects/*filePath", async (req: Request, res: Respon
 });
 
 /**
- * Object key prefixes that must NEVER be served through the generic
- * (any authenticated user, incl. guests on GET) `/storage/objects/*` route.
- * They hold admin-only sensitive data and are reachable only via their own
- * admin-gated endpoints:
- *  - `backups/`  → full DB dumps; only via GET /api/backups/:id/download.
- *  - `invoices/` → issued invoice PDFs/ISDOC; only via the admin-gated
- *                  GET /api/billing/invoices/:id/pdf. The object path is
- *                  guessable from the invoice number, so it must be blocked here
- *                  to stop a non-admin from downloading invoices directly.
- */
-export const PROTECTED_OBJECT_PREFIXES = ["backups", "invoices", "ppe-handovers", "switchboards"] as const;
-
-/**
- * True when `wildcardPath` (the part after `/objects/`) falls under an
- * admin-only prefix that the generic object route must treat as nonexistent.
- */
-export function isProtectedObjectPath(wildcardPath: string): boolean {
-  return PROTECTED_OBJECT_PREFIXES.some(
-    (prefix) => wildcardPath === prefix || wildcardPath.startsWith(`${prefix}/`),
-  );
-}
-
-/**
  * GET /storage/objects/*
  *
- * Serve private object entities uploaded via the server-proxied upload flow
- * (POST /storage/uploads).
+ * Serve only an exact DB-linked object whose owning module permissions are all
+ * present. Typed-only and unknown prefixes, unlinked uploads and forbidden
+ * objects are all returned as the same 404 response.
  */
 router.get("/storage/objects/*path", async (req: Request, res: Response) => {
   try {
     const raw = req.params.path;
     const wildcardPath = Array.isArray(raw) ? raw.join("/") : raw;
-    // Some object prefixes hold admin-only sensitive data (DB backups, issued
-    // invoice PDFs). They must NEVER be served through this generic endpoint —
-    // only via their own admin-gated routes. Treat them as nonexistent here.
-    if (isProtectedObjectPath(wildcardPath)) {
+    const objectPath = `/objects/${wildcardPath}`;
+    if (
+      !req.auth ||
+      !(await canAccessPrivateObject(objectPath, req.auth.permissions))
+    ) {
       res.status(404).json({ error: "Object not found" });
       return;
     }
-    const objectPath = `/objects/${wildcardPath}`;
     await objectStorageService.servePrivateObject(objectPath, res);
   } catch (error) {
     if (error instanceof ObjectNotFoundError) {

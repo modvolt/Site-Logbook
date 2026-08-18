@@ -12,6 +12,10 @@ import { useLiveUpdates } from "@/hooks/use-live-updates";
 import { OfflineQueueProvider } from "@/hooks/use-offline-queue";
 import { OfflineBanner } from "@/components/offline-banner";
 import PwaUpdatePrompt from "@/components/pwa-update-prompt";
+import {
+  isPublicGrantRoutePath,
+  retainPublicGrantForRoutePath,
+} from "@/lib/public-grant-bootstrap";
 
 const NotFound = lazy(() => import("@/pages/not-found"));
 const OoppSign = lazy(() => import("@/pages/oopp-sign"));
@@ -78,6 +82,8 @@ const AdminSessions = lazy(() => import("@/pages/admin-sessions"));
 const AdminWarehouseBackfill = lazy(() => import("@/pages/admin-warehouse-backfill"));
 const Quotes = lazy(() => import("@/pages/quotes"));
 const QuoteDetail = lazy(() => import("@/pages/quote-detail"));
+const ExternalPortal = lazy(() => import("@/pages/external-portal"));
+const ExternalAccountsAdmin = lazy(() => import("@/pages/external-accounts-admin"));
 
 interface ErrorBoundaryState {
   hasError: boolean;
@@ -254,6 +260,7 @@ function AuthenticatedApp() {
         <Route path="/billing/recurring-templates">{() => <PermissionOnly component={BillingRecurringTemplates} permission="billing.manage" />}</Route>
         <Route path="/billing">{() => <PermissionOnly component={Billing} permission="billing.view" />}</Route>
         <Route path="/admin/users">{() => <PermissionOnly component={UsersAdmin} permission="users.manage" />}</Route>
+        <Route path="/admin/external-accounts">{() => <PermissionOnly component={ExternalAccountsAdmin} permission="users.manage" />}</Route>
         <Route path="/admin/audit">{() => <PermissionOnly component={AuditLog} permission="audit.view" />}</Route>
         <Route path="/admin/client-errors">{() => <PermissionOnly component={ClientErrors} permission="diagnostics.view" />}</Route>
         <Route path="/admin/gdpr">{() => <PermissionOnly component={Gdpr} permission="settings.manage" />}</Route>
@@ -275,21 +282,23 @@ function AuthenticatedApp() {
 
 function Router() {
   const [path] = useLocation();
-  const { isAuthenticated, isLoading } = useAuth();
-  // Public pages — accessible without authentication
-  if (path.startsWith("/sign/")) {
+  const { isAuthenticated, isLoading, user } = useAuth();
+  const pathname = path.split("?", 1)[0];
+  retainPublicGrantForRoutePath(pathname);
+  // Public pages — credentials were captured before React mounted.
+  if (pathname === "/sign") {
     return <JobSign />;
   }
-  if (path.startsWith("/oopp/sign/")) {
+  if (pathname === "/oopp/sign") {
     return <OoppSign />;
   }
-  if (path.startsWith("/quote-share/")) {
+  if (pathname === "/quote-share") {
     return <QuoteShare />;
   }
-  if (path.startsWith("/q/board/")) {
+  if (pathname === "/q/board") {
     return <SwitchboardPublic />;
   }
-  if (path === "/oopp/potvrdit" || path.startsWith("/oopp/potvrdit?")) {
+  if (pathname === "/oopp/potvrdit") {
     return <PpeConfirm />;
   }
   if (isLoading) {
@@ -300,7 +309,16 @@ function Router() {
     );
   }
   if (!isAuthenticated) return <Login />;
+  if (user?.accountType === "external") return <ExternalPortal />;
   return <AuthenticatedApp />;
+}
+
+function PublicAwarePwaUpdatePrompt() {
+  const [path] = useLocation();
+  const { user } = useAuth();
+  return isPublicGrantRoutePath(path.split("?", 1)[0]) || user?.accountType === "external"
+    ? null
+    : <PwaUpdatePrompt />;
 }
 
 function App() {
@@ -320,10 +338,10 @@ function App() {
                   <Router />
                 </Suspense>
               </PageErrorBoundary>
+              <PublicAwarePwaUpdatePrompt />
             </AuthProvider>
           </WouterRouter>
           <Toaster />
-          <PwaUpdatePrompt />
         </TooltipProvider>
       </QueryClientProvider>
     </ThemeProvider>

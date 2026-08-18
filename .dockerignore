@@ -3,6 +3,8 @@
 **/dist
 **/.tsbuildinfo
 *.tsbuildinfo
+/tmp
+/e2e/test-results
 
 .git
 .gitignore

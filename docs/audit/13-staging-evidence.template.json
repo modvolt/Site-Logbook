@@ -1,0 +1,160 @@
+{
+  "_templateStatus": "PENDING - copy, replace every placeholder, attach all eight source artifacts, then run gate:staging-evidence",
+  "schemaVersion": 4,
+  "run": {
+    "id": "PENDING",
+    "environmentId": "site-logbook-staging",
+    "baseUrl": "https://replace-me.invalid",
+    "commitSha": "0000000000000000000000000000000000000000",
+    "startedAt": "PENDING",
+    "completedAt": "PENDING"
+  },
+  "isolation": {
+    "confirmed": false,
+    "productionTargetsTouched": false,
+    "productionCopyPresentInsideApprovedBoundary": true,
+    "rawProductionDataOutsideApprovedBoundary": false,
+    "mailSandbox": false
+  },
+  "ci": {
+    "conclusion": "pending",
+    "runId": 0,
+    "runAttempt": 0,
+    "commitSha": "0000000000000000000000000000000000000000",
+    "workflowUrl": "https://github.com/modvolt/Site-Logbook/actions/runs/0"
+  },
+  "deployment": {
+    "healthStatus": "pending",
+    "healthVersion": "0000000000000000000000000000000000000000",
+    "migrationParity": false,
+    "latestExpectedTag": "0105_smooth_nitro",
+    "expectedMigrations": 105,
+    "appliedMigrations": 0,
+    "missingMigrationTags": ["PENDING"],
+    "excludedMigration0100Present": false,
+    "schemaAction": "steady-0105",
+    "externalAccountsEnabled": false,
+    "externalState": {
+      "externalUsers": 0,
+      "externalAccounts": 0,
+      "externalScopes": 0,
+      "externalEvents": 0,
+      "totalRows": 0
+    },
+    "steadyInputSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "schemaTransition": {
+    "decision": "PENDING",
+    "sourceSha": "0000000000000000000000000000000000000000",
+    "latestExpectedTag": "0105_smooth_nitro",
+    "expectedMigrations": 105,
+    "externalStateRows": 0,
+    "backupEvidenceId": 0,
+    "backupRestoreAgeHours": 0,
+    "backupRestoreMaxAgeHours": 24,
+    "sourceBackupExecutionSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "backupMaxPayloadBytes": 268435456,
+    "backupSizeBytes": 0,
+    "inputSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "evidenceArtifactSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "backupEvidence": {
+    "id": 0,
+    "status": "pending",
+    "sizeBytes": 0,
+    "encryptedBackupSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "encryptionFormat": "mve1",
+    "restoreStatus": "pending",
+    "createdAt": "PENDING",
+    "restoreTestedAt": "PENDING",
+    "checkedAt": "PENDING",
+    "restoreAgeHours": 0,
+    "sourceExecutionSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "maxPayloadBytes": 268435456,
+    "evidenceArtifactSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "artifacts": {
+    "imageManifest": {
+      "schemaVersion": 3,
+      "sourceSha": "0000000000000000000000000000000000000000",
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "callerWorkflowSha": "0000000000000000000000000000000000000000",
+      "publisherWorkflowUrl": "https://github.com/modvolt/site-logbook-registry/actions/runs/0",
+      "publisherRunId": "0",
+      "publisherRunAttempt": 0
+    },
+    "deploymentInputs": {
+      "inspectSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "transitionSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "steadySha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "provisioning": {
+      "schemaVersion": 1,
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "bootstrap": {
+      "schemaVersion": 1,
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "workflowUrl": "https://github.com/modvolt/Site-Logbook/actions/runs/0",
+      "runId": 0,
+      "runAttempt": 0,
+      "sourceSha": "0000000000000000000000000000000000000000",
+      "capturedAt": "PENDING"
+    }
+  },
+  "storage": {
+    "policyPreflight": "pending",
+    "distinctTarget": false,
+    "versioning": "pending",
+    "immutableRetention": "pending",
+    "targetFingerprint": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "recovery": {
+    "performed": false,
+    "dataClassification": "production-copy-restricted",
+    "databaseRestore": false,
+    "objectRestore": false,
+    "objectHashesVerified": false,
+    "businessSmoke": false,
+    "objectCountExpected": 0,
+    "objectCountRestored": 0,
+    "sourceCreatedAt": "PENDING",
+    "startedAt": "PENDING",
+    "completedAt": "PENDING",
+    "rpoMinutes": 0,
+    "approvedRpoMinutes": 0,
+    "rtoMinutes": 0,
+    "approvedRtoMinutes": 0
+  },
+  "browser": {
+    "authSmoke": "pending",
+    "adminHealth": "pending",
+    "pwaAssets": "pending",
+    "desktopSmoke": "pending",
+    "mobileSmoke": "pending"
+  },
+  "mail": { "sandboxDelivery": "pending" },
+  "alerts": {
+    "freshnessAlertDelivery": "pending",
+    "receiverHealth": "pending",
+    "receiverBuildSha": "0000000000000000000000000000000000000000",
+    "receiverSyntheticDelivery": "pending",
+    "durableOutboxDelivery": "pending",
+    "persistentIdempotency": "pending",
+    "deadManTrigger": "pending",
+    "deadManRecovery": "pending"
+  },
+  "approvals": {
+    "mode": "solo_maintainer",
+    "operator": "PENDING",
+    "reviewer": null,
+    "serviceOwner": "PENDING",
+    "soloMaintainerRiskAccepted": false,
+    "compensatingControls": {
+      "mainBranchProtected": false,
+      "exactShaQualityGateRequired": false,
+      "environmentBranchRestricted": false
+    },
+    "approvedAt": "PENDING"
+  }
+}

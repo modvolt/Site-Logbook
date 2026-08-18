@@ -29,6 +29,7 @@ import { jobSheetPdfBase64 } from "@/lib/job-sheet-pdf";
 import { BRAND_LOGO_URL, BRAND_NAME } from "@/lib/brand";
 import { loadCompanySettings } from "@/lib/company-settings";
 import { NetworkTopologyDiagram } from "@/components/network-topology-diagram";
+import { BiometricVaultGate } from "@/components/biometric-vault-gate";
 
 const PRINT_CSS = `
 @media print {
@@ -67,6 +68,7 @@ export default function PristupoveUdajeExport() {
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
   const recipientInputRef = useRef<HTMLInputElement>(null);
+  const auditRecordedRef = useRef(false);
   const { toast } = useToast();
   const sendEmail = useSendCredentialsEmail();
   const auditExport = useAuditCredentialExport();
@@ -81,7 +83,12 @@ export default function PristupoveUdajeExport() {
       queryKey: getListCustomerSitesQueryKey(customerId),
     },
   });
-  const { data: credentials, isLoading: loadingCreds } = useListDeviceCredentials(
+  const {
+    data: credentials,
+    isLoading: loadingCreds,
+    error: credsError,
+    refetch: refetchCreds,
+  } = useListDeviceCredentials(
     customerId,
     {
       query: {
@@ -92,11 +99,20 @@ export default function PristupoveUdajeExport() {
   );
 
   useEffect(() => {
-    if (!customerId) return;
-    auditExport.mutate({ customerId });
-    // Only run once on mount
+    if (!customerId || !credentials || auditRecordedRef.current) return;
+    auditRecordedRef.current = true;
+    auditExport.mutate(
+      { customerId },
+      { onError: () => { auditRecordedRef.current = false; } },
+    );
+    // Record only after the vault list passed server-side step-up.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [customerId]);
+  }, [customerId, credentials]);
+
+  const needsVaultStepUp =
+    !!credsError &&
+    (credsError as any)?.status === 403 &&
+    ((credsError as any)?.data as any)?.code === "biometric_required";
 
   const customer = customers?.find((c) => c.id === customerId);
 
@@ -243,6 +259,17 @@ export default function PristupoveUdajeExport() {
 
   if (!customer) {
     return <div className="p-8 text-center">Zákazník nenalezen</div>;
+  }
+
+  if (needsVaultStepUp) {
+    return (
+      <div className="p-4 md:p-8 max-w-xl mx-auto w-full space-y-4">
+        <Button variant="ghost" onClick={() => window.history.back()}>
+          <ArrowLeft className="h-4 w-4 mr-2" /> Zpět
+        </Button>
+        <BiometricVaultGate onVerified={() => { void refetchCreds(); }} />
+      </div>
+    );
   }
 
   return (

@@ -19,6 +19,7 @@ import {
   ObjectStorageService,
 } from "../lib/objectStorage";
 import { sendEmailWithPdf } from "../lib/email";
+import { decodeCanonicalBase64 } from "../lib/base64-file";
 import {
   sendInvoiceReminder,
   composeReminder,
@@ -507,7 +508,10 @@ router.post("/billing/invoices/:id/cancel", async (req, res): Promise<void> => {
     res.json(
       await cancelInvoice(
         id,
-        parsed.data.returnJobsToDone ?? false,
+        {
+          returnJobsToDone: parsed.data.returnJobsToDone ?? false,
+          reasonCode: parsed.data.reasonCode,
+        },
         actorOf(req),
       ),
     );
@@ -535,7 +539,7 @@ router.patch(
           status: parsed.data.status,
           paidDate: parsed.data.paidDate ?? null,
           paidAmount: parsed.data.paidAmount ?? null,
-        }),
+        }, actorOf(req)),
       );
     } catch (err) {
       handleError(err, "Změna stavu faktury selhala.", res);
@@ -557,7 +561,7 @@ router.post(
     }
     let buf: Buffer;
     try {
-      buf = Buffer.from(parsed.data.contentBase64, "base64");
+      buf = decodeCanonicalBase64(parsed.data.contentBase64, 20 * 1024 * 1024);
     } catch {
       res.status(400).json({ error: "Obsah souboru se nepodařilo dekódovat." });
       return;

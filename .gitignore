@@ -48,6 +48,7 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+!.env.staging.example
 
 # Database dumps / backups (these belong in object storage, never the repo)
 *.pgcustom
@@ -64,3 +65,4 @@ logs/
 .cache/
 .local/
 e2e/test-results/.last-run.json
+/e2e/test-results/r14-full-stack/

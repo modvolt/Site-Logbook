@@ -1,32 +1,48 @@
-import { Router, type IRouter } from "express";
-import { eq, inArray } from "drizzle-orm";
+import { Router, type IRouter, type Response } from "express";
+import { eq, inArray, or, sql } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import {
   db,
   peopleTable,
   usersTable,
   userPermissionOverridesTable,
+  userSessionsTable,
   USER_ROLES,
   isPermission,
-  resolvePermissions,
+  resolveAccountPermissions,
   type PermissionEffect,
   type UserRole,
+  type UserAccountType,
 } from "@workspace/db";
 import { CreateUserBody, UpdateUserBody, UpdateUserParams, DeleteUserParams } from "@workspace/api-zod";
+import { GetUserOffboardingPreviewParams, OffboardUserBody, OffboardUserHeader, OffboardUserParams } from "@workspace/api-zod";
 import { requirePermission } from "../middlewares/permissions";
+import { requireVaultStepUp } from "../middlewares/auth";
 import { serializeUser } from "./auth";
 import { getPermissionOverrides } from "../lib/permissions";
+import { destroySession } from "../lib/auth-session";
+import { getUserOffboardingPreview, lockAndAuthorizeUserManager, offboardUserAccess, UserOffboardingError } from "../lib/user-offboarding-service";
 
 const router: IRouter = Router();
 
 router.use("/users", requirePermission("users.manage"));
 
-async function validatePersonLink(personId: number | null | undefined, currentUserId?: number) {
+type DbOrTx = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+async function validatePersonLink(
+  personId: number | null | undefined,
+  currentUserId?: number,
+  client: DbOrTx = db,
+) {
   if (personId == null) return null;
-  const [[person], [linkedUser]] = await Promise.all([
-    db.select({ id: peopleTable.id }).from(peopleTable).where(eq(peopleTable.id, personId)),
-    db.select({ id: usersTable.id, username: usersTable.username }).from(usersTable).where(eq(usersTable.personId, personId)),
-  ]);
+  const [person] = await client
+    .select({ id: peopleTable.id })
+    .from(peopleTable)
+    .where(eq(peopleTable.id, personId));
+  const [linkedUser] = await client
+    .select({ id: usersTable.id, username: usersTable.username })
+    .from(usersTable)
+    .where(eq(usersTable.personId, personId));
   if (!person) return "Vybraný zaměstnanec neexistuje.";
   if (linkedUser && linkedUser.id !== currentUserId) {
     return `Zaměstnanec je již propojen s účtem ${linkedUser.username}.`;
@@ -51,7 +67,11 @@ async function overridesByUser(userIds: number[]) {
 }
 
 router.get("/users", async (_req, res): Promise<void> => {
-  const users = await db.select().from(usersTable).orderBy(usersTable.username);
+  const users = await db
+    .select()
+    .from(usersTable)
+    .where(eq(usersTable.accountType, "internal"))
+    .orderBy(usersTable.username);
   const overrides = await overridesByUser(users.map((user) => user.id));
   res.json(users.map((user) => serializeUser(user, overrides.get(user.id) ?? [])));
 });
@@ -67,30 +87,107 @@ router.post("/users", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Neplatná role" });
     return;
   }
-  const existing = await db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.username, username));
-  if (existing.length > 0) {
-    res.status(409).json({ error: "Uživatelské jméno již existuje" });
+  const passwordHash = await bcrypt.hash(password, 12);
+  try {
+    const user = await db.transaction(async (tx) => {
+      await lockAndAuthorizeUserManager(tx, req.auth!.userId);
+      const existing = await tx
+        .select({ id: usersTable.id })
+        .from(usersTable)
+        .where(eq(usersTable.username, username));
+      if (existing.length > 0) {
+        throw new UserOffboardingError(409, "username_conflict", "Uživatelské jméno již existuje");
+      }
+      const personLinkError = await validatePersonLink(personId, undefined, tx);
+      if (personLinkError) {
+        throw new UserOffboardingError(409, "person_link_conflict", personLinkError);
+      }
+      const [created] = await tx
+        .insert(usersTable)
+        .values({
+          username,
+          passwordHash,
+          name,
+          personId: personId ?? null,
+          email: email ?? null,
+          role,
+          accountType: "internal",
+          isActive: isActive ?? true,
+        })
+        .returning();
+      if (!created) throw new Error("User was not created");
+      return created;
+    });
+    res.status(201).json(serializeUser(user));
+  } catch (error) {
+    if (sendOffboardingError(res, error)) return;
+    throw error;
+  }
+});
+
+function sendOffboardingError(res: Response, error: unknown): boolean {
+  if (!(error instanceof UserOffboardingError)) return false;
+  res.status(error.status).json({ error: error.message, code: error.code });
+  return true;
+}
+
+router.get("/users/:id/offboarding-preview", async (req, res): Promise<void> => {
+  const params = GetUserOffboardingPreviewParams.safeParse(req.params);
+  if (!params.success || !Number.isSafeInteger(params.data.id) || params.data.id <= 0) {
+    res.status(400).json({
+      error: params.success ? "Neplatné ID uživatele." : params.error.message,
+    });
     return;
   }
-  const personLinkError = await validatePersonLink(personId);
-  if (personLinkError) {
-    res.status(409).json({ error: personLinkError });
+  try {
+    res.json(
+      await getUserOffboardingPreview({
+        actorUserId: req.auth!.userId,
+        targetUserId: params.data.id,
+      }),
+    );
+  } catch (error) {
+    if (sendOffboardingError(res, error)) return;
+    throw error;
+  }
+});
+
+router.post("/users/:id/offboard", requireVaultStepUp, async (req, res): Promise<void> => {
+  const params = OffboardUserParams.safeParse(req.params);
+  const header = OffboardUserHeader.safeParse({
+    "Idempotency-Key": req.get("Idempotency-Key"),
+  });
+  const bodyKeys = req.body && typeof req.body === "object" && !Array.isArray(req.body) ? Object.keys(req.body).sort() : [];
+  const exactBodyKeys = ["confirmation", "expectedSessionGeneration", "expectedUsername", "reason"];
+  if (!params.success || !Number.isSafeInteger(params.data.id) || params.data.id <= 0 || !header.success || bodyKeys.length !== exactBodyKeys.length || bodyKeys.some((key, index) => key !== exactBodyKeys[index])) {
+    res.status(400).json({
+      error: "Neplatný nebo neúplný požadavek na odpojení uživatele.",
+    });
     return;
   }
-  const passwordHash = await bcrypt.hash(password, 10);
-  const [user] = await db
-    .insert(usersTable)
-    .values({
-      username,
-      passwordHash,
-      name,
-      personId: personId ?? null,
-      email: email ?? null,
-      role,
-      isActive: isActive ?? true,
-    })
-    .returning();
-  res.status(201).json(serializeUser(user));
+  const parsed = OffboardUserBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  if (!Number.isSafeInteger(parsed.data.expectedSessionGeneration)) {
+    res.status(400).json({ error: "Generace session musí být celé číslo." });
+    return;
+  }
+  try {
+    res.json(
+      await offboardUserAccess({
+        actorUserId: req.auth!.userId,
+        targetUserId: params.data.id,
+        expectedUsername: parsed.data.expectedUsername,
+        expectedSessionGeneration: parsed.data.expectedSessionGeneration,
+        reason: parsed.data.reason,
+      }),
+    );
+  } catch (error) {
+    if (sendOffboardingError(res, error)) return;
+    throw error;
+  }
 });
 
 router.patch("/users/:id", async (req, res): Promise<void> => {
@@ -105,8 +202,6 @@ router.patch("/users/:id", async (req, res): Promise<void> => {
     return;
   }
   const { name, email, personId, role, isActive, password } = parsed.data;
-  const [currentUser] = await db.select().from(usersTable).where(eq(usersTable.id, params.data.id));
-  if (!currentUser) { res.status(404).json({ error: "User not found" }); return; }
   const updates: Record<string, unknown> = {};
   if (name !== undefined) updates.name = name;
   if (email !== undefined) updates.email = email;
@@ -125,32 +220,51 @@ router.patch("/users/:id", async (req, res): Promise<void> => {
     }
     updates.role = role;
   }
-  if (isActive !== undefined) updates.isActive = isActive;
-  if (password) updates.passwordHash = await bcrypt.hash(password, 10);
+  if (password) updates.passwordHash = await bcrypt.hash(password, 12);
 
-  // Prevent locking yourself out
-  if (req.auth?.userId === params.data.id) {
-    if (updates.role && updates.role !== currentUser.role) {
-      res.status(400).json({ error: "Nemůžete změnit vlastní roli" });
-      return;
-    }
-    if (updates.isActive === false) {
-      res.status(400).json({ error: "Nemůžete deaktivovat vlastní účet" });
-      return;
-    }
+  let user;
+  try {
+    user = await db.transaction(async (tx) => {
+      await lockAndAuthorizeUserManager(tx, req.auth!.userId);
+      await tx.execute(sql`select id from users where id = ${params.data.id} for update`);
+      const [currentUser] = await tx.select().from(usersTable).where(eq(usersTable.id, params.data.id));
+      if (!currentUser) {
+        throw new UserOffboardingError(404, "user_not_found", "User not found");
+      }
+      if (currentUser.accountType !== "internal") {
+        throw new UserOffboardingError(409, "external_account_workflow_required", "ExternĂ­ ĂşÄŤet lze spravovat pouze vyhrazenĂ˝m workflow.");
+      }
+      if (isActive === false && currentUser.isActive) {
+        throw new UserOffboardingError(409, "offboarding_required", "Pro deaktivaci použijte potvrzený offboarding.");
+      }
+      if (isActive === true && !currentUser.isActive) {
+        throw new UserOffboardingError(409, "reactivation_workflow_required", "Reaktivace vyžaduje nové heslo a samostatné potvrzení.");
+      }
+      if (req.auth?.userId === params.data.id && updates.role && updates.role !== currentUser.role) {
+        throw new UserOffboardingError(409, "self_role_change_forbidden", "Nemůžete změnit vlastní roli.");
+      }
+      if (Object.keys(updates).length === 0) return currentUser;
+
+      const revokeAllSessions = Boolean(password);
+      if (revokeAllSessions) updates.sessionGeneration = sql`${usersTable.sessionGeneration} + 1`;
+      const [updatedUser] = await tx.update(usersTable).set(updates).where(eq(usersTable.id, params.data.id)).returning();
+      if (updatedUser && revokeAllSessions) {
+        await tx.delete(userSessionsTable).where(or(eq(userSessionsTable.userId, params.data.id), sql`${userSessionsTable.sess}->>'userId' = ${String(params.data.id)}`));
+      }
+      return updatedUser;
+    });
+  } catch (error) {
+    if (sendOffboardingError(res, error)) return;
+    throw error;
   }
-
-  if (Object.keys(updates).length === 0) {
-    res.json(serializeUser(currentUser, await getPermissionOverrides(currentUser.id)));
+  if (!user) {
+    res.status(404).json({ error: "User not found" });
     return;
   }
-
-  const [user] = await db
-    .update(usersTable)
-    .set(updates)
-    .where(eq(usersTable.id, params.data.id))
-    .returning();
-  if (!user) { res.status(404).json({ error: "User not found" }); return; }
+  if (password && req.auth?.userId === user.id) {
+    await destroySession(req);
+    res.clearCookie("stavba.sid");
+  }
   res.json(serializeUser(user, await getPermissionOverrides(user.id)));
 });
 
@@ -179,36 +293,46 @@ router.put("/users/:id/permissions", async (req, res): Promise<void> => {
     overrides.push({ permission, effect });
   }
 
-  const [target] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
-  if (!target) {
-    res.status(404).json({ error: "User not found" });
-    return;
+  try {
+    const target = await db.transaction(async (tx) => {
+      await lockAndAuthorizeUserManager(tx, req.auth!.userId);
+      await tx.execute(sql`select id from users where id = ${userId} for update`);
+      const [lockedTarget] = await tx.select().from(usersTable).where(eq(usersTable.id, userId));
+      if (!lockedTarget) {
+        throw new UserOffboardingError(404, "user_not_found", "User not found");
+      }
+      if (!lockedTarget.isActive) {
+        throw new UserOffboardingError(409, "user_inactive", "Neaktivnímu účtu nelze udělit oprávnění.");
+      }
+      if (lockedTarget.accountType !== "internal") {
+        throw new UserOffboardingError(409, "external_account_workflow_required", "ExternĂ­ ĂşÄŤet lze spravovat pouze vyhrazenĂ˝m workflow.");
+      }
+      if (req.auth?.userId === userId && !resolveAccountPermissions(
+        lockedTarget.accountType as UserAccountType,
+        lockedTarget.role as UserRole,
+        overrides,
+      ).includes("users.manage")) {
+        throw new UserOffboardingError(409, "self_permission_lockout_forbidden", "Nemůžete si odebrat vlastní správu oprávnění.");
+      }
+      await tx.delete(userPermissionOverridesTable).where(eq(userPermissionOverridesTable.userId, userId));
+      if (overrides.length > 0) {
+        await tx.insert(userPermissionOverridesTable).values(
+          overrides.map((override) => ({
+            userId,
+            permission: override.permission,
+            effect: override.effect,
+            updatedByUserId: req.auth!.userId,
+            updatedAt: new Date(),
+          })),
+        );
+      }
+      return lockedTarget;
+    });
+    res.json(serializeUser(target, overrides));
+  } catch (error) {
+    if (sendOffboardingError(res, error)) return;
+    throw error;
   }
-
-  if (
-    req.auth?.userId === userId &&
-    !resolvePermissions(target.role as UserRole, overrides).includes("users.manage")
-  ) {
-    res.status(400).json({ error: "Nemůžete si odebrat vlastní správu oprávnění" });
-    return;
-  }
-
-  await db.transaction(async (tx) => {
-    await tx.delete(userPermissionOverridesTable).where(eq(userPermissionOverridesTable.userId, userId));
-    if (overrides.length > 0) {
-      await tx.insert(userPermissionOverridesTable).values(
-        overrides.map((override) => ({
-          userId,
-          permission: override.permission,
-          effect: override.effect,
-          updatedByUserId: req.auth!.userId,
-          updatedAt: new Date(),
-        })),
-      );
-    }
-  });
-
-  res.json(serializeUser(target, overrides));
 });
 
 router.delete("/users/:id", async (req, res): Promise<void> => {
@@ -217,13 +341,10 @@ router.delete("/users/:id", async (req, res): Promise<void> => {
     res.status(400).json({ error: params.error.message });
     return;
   }
-  if (req.auth?.userId === params.data.id) {
-    res.status(400).json({ error: "Nemůžete smazat vlastní účet" });
-    return;
-  }
-  const [user] = await db.delete(usersTable).where(eq(usersTable.id, params.data.id)).returning();
-  if (!user) { res.status(404).json({ error: "User not found" }); return; }
-  res.sendStatus(204);
+  res.status(409).json({
+    error: "Mazání účtů je kvůli auditní historii vypnuto. Použijte offboarding.",
+    code: "user_deletion_retired",
+  });
 });
 
 export default router;

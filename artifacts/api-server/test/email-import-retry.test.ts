@@ -84,7 +84,7 @@ vi.mock("imapflow", () => {
       })();
     }
     async download(): Promise<{ content: Readable }> {
-      return { content: Readable.from([Buffer.from("pdf-bytes")]) };
+      return { content: Readable.from([Buffer.from("%PDF-1.4\n%%EOF\n")]) };
     }
     async messageFlagsAdd(): Promise<void> {}
   }

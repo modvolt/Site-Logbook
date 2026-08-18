@@ -52,6 +52,15 @@ export default function PwaUpdatePrompt() {
     setNeedRefresh(false);
   };
 
+  const applyUpdate = async () => {
+    await updateServiceWorker(true);
+    // Workbox normally posts this itself. Querying the real registration is a
+    // fail-safe for externally discovered waiting workers during multi-tab
+    // updates, where the Workbox instance may not retain the waiting handle.
+    const registration = await navigator.serviceWorker?.getRegistration();
+    registration?.waiting?.postMessage({ type: "SKIP_WAITING" });
+  };
+
   if (!offlineReady && !needRefresh) return null;
 
   return (
@@ -70,7 +79,7 @@ export default function PwaUpdatePrompt() {
                 Aktualizujte aplikaci, ať máte nejnovější funkce.
               </p>
               <div className="flex gap-2 mt-3">
-                <Button size="sm" onClick={() => updateServiceWorker(true)}>
+                <Button size="sm" onClick={() => void applyUpdate()}>
                   Aktualizovat
                 </Button>
                 <Button size="sm" variant="ghost" onClick={close}>

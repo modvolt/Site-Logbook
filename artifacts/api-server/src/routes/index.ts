@@ -15,7 +15,6 @@ import deviceCredentialsRouter from "./device-credentials";
 import dashboardRouter from "./dashboard";
 import storageRouter from "./storage";
 import authRouter from "./auth";
-import securityQuestionsRouter from "./security-questions";
 import usersRouter from "./users";
 import preferencesRouter from "./preferences";
 import activitiesRouter from "./activities";
@@ -52,6 +51,9 @@ import switchboardChecklistsRouter from "./switchboard-checklists";
 import switchboardOperationsRouter from "./switchboard-operations";
 import switchboardProtocolsRouter from "./switchboard-protocols";
 import switchboardAdminRouter from "./switchboard-admin";
+import externalGrantsRouter from "./external-grants";
+import externalPortalRouter from "./external-portal";
+import externalAccountsRouter from "./external-accounts";
 
 const router: IRouter = Router();
 
@@ -71,7 +73,6 @@ router.use(deviceCredentialsRouter);
 router.use(dashboardRouter);
 router.use(storageRouter);
 router.use(authRouter);
-router.use(securityQuestionsRouter);
 router.use(usersRouter);
 router.use(preferencesRouter);
 router.use(activitiesRouter);
@@ -107,6 +108,9 @@ router.use(switchboardChecklistsRouter);
 router.use(switchboardOperationsRouter);
 router.use(switchboardProtocolsRouter);
 router.use(switchboardAdminRouter);
+router.use(externalGrantsRouter);
+router.use(externalAccountsRouter);
+router.use(externalPortalRouter);
 router.use(switchboardsRouter);
 
 export default router;

@@ -64,6 +64,27 @@ is normalized to `https://fsn1.your-objectstorage.com`. To force plain HTTP
 
 This repo's `docker-compose.yml` is Coolify-ready.
 
+> **Staging is a separate runtime.** Use `docker-compose.staging.yml` as a
+> standalone Compose file; never merge it with this production/local file. Its
+> input contract is `.env.staging.example`, all inputs use the `STAGING_` prefix,
+> and only the `web` service on container port `80` may receive a Coolify domain.
+> Do not add custom Compose networks: Coolify supplies the isolated per-resource
+> network and connects its proxy to it. PostgreSQL, API and Mailpit publish
+> no host ports and must not receive a domain. The staging preflight
+> rejects `modvoltapp.cz` (including subdomains), loopback origins, non-exact build
+> SHAs, a non-HTTPS or non-staging S3 target, and missing or reused
+> application/backup keyrings before stateful services start. Staging uses a
+> separately provisioned external S3 bucket and least-privilege credential;
+> this Compose file never creates or changes that bucket. Mailpit is fixed at
+> `v1.30.0`; its staging-only CA enables the API's
+> mandatory verified STARTTLS without weakening production mail transport. The API
+> receives only the public CA volume, never Mailpit's private server key. To
+> rotate that CA, replace the staging `staging_mailtls` and `staging_mailca`
+> volumes and restart Mailpit followed by the API. Provisioning and the first
+> staging deploy require a separate authorized
+> run; merely committing this definition does not create or modify a Coolify
+> resource.
+
 1. **Create resource** → *Docker Compose* → point it at this repository (the
    compose file is at the repo root).
 2. **Environment variables** — set everything from `.env.example` in Coolify's
@@ -71,7 +92,10 @@ This repo's `docker-compose.yml` is Coolify-ready.
    `S3_SECRET_ACCESS_KEY` (`openssl rand -hex 32`).
 3. **Domains / TLS** — Coolify's reverse proxy (Traefik) terminates TLS. Map
    your domain to the **`web`** service (container port `80`). TLS and
-   certificates are handled by Coolify; nothing to configure in the app.
+   certificates are handled by Coolify. Set `PUBLIC_APP_URL` to the canonical
+   HTTPS origin and `NGINX_SERVER_NAME` to the exact accepted hostname(s), for
+   example `modvoltapp.cz www.modvoltapp.cz`. Unknown Host values are rejected
+   by nginx and the API never derives bearer links from request headers.
 4. **Object storage** — the API reaches MinIO over the internal
    `http://minio:9000`; no public storage subdomain or bucket CORS is needed,
    since uploads are proxied through the API. Alternatively, point all the
@@ -103,6 +127,8 @@ This repo's `docker-compose.yml` is Coolify-ready.
 | `POSTGRES_USER/PASSWORD/DB` | yes\*  | —             | Used by the bundled `postgres` service to build `DATABASE_URL`.  |
 | `SESSION_SECRET`          | yes      | —             | Secret signing session cookies.                                  |
 | `PORT`                    | no       | `5000`        | API listen port (inside the container).                          |
+| `PUBLIC_APP_URL`          | yes      | —             | Canonical external origin used for all emailed/shared links; HTTPS is mandatory in production and no path/query is accepted. |
+| `NGINX_SERVER_NAME`       | yes in production | `localhost` | Space-separated public hostnames accepted by nginx. Loopback names are added internally for healthchecks. |
 | `S3_BUCKET`               | yes      | —             | Bucket for uploads.                                              |
 | `S3_ACCESS_KEY_ID`        | yes      | —             | Access key. Single credential pair for both the API and bundled MinIO; set to the provider's key for external S3. |
 | `S3_SECRET_ACCESS_KEY`    | yes      | —             | Secret key (>= 8 chars for MinIO). Set to the provider's secret for external S3. |

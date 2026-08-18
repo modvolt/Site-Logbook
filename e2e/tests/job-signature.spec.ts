@@ -34,7 +34,16 @@ const TINY_PNG =
 
 const TODAY = new Date().toISOString().split("T")[0];
 
-type TokenResponse = { token: string; signUrl: string; expiresAt: string };
+type TokenResponse = { signUrl: string; expiresAt: string };
+
+function tokenFromSignUrl(signUrl: string): string {
+  const url = new URL(signUrl);
+  expect(url.pathname).toBe("/sign");
+  expect(url.search).toBe("");
+  const token = new URLSearchParams(url.hash.slice(1)).get("token") ?? "";
+  expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  return token;
+}
 
 /** Fresh unauthenticated browser context (no stored session). */
 async function newUnauthContext(browser: Browser) {
@@ -49,7 +58,7 @@ async function newUnauthContext(browser: Browser) {
 async function seedJobWithRequestSignature(
   request: import("@playwright/test").APIRequestContext,
   emailTo: string = "e2e-test@example.com",
-): Promise<{ jobId: number; token: string }> {
+): Promise<{ jobId: number; token: string; title: string }> {
   const tag = `E2E_SIG_${Date.now()}`;
 
   const jobRes = await request.post("/api/jobs", {
@@ -64,10 +73,9 @@ async function seedJobWithRequestSignature(
   });
   expect(sigRes.status(), "request-signature endpoint").toBe(200);
   const { signUrl } = (await sigRes.json()) as { sent: boolean; to: string; signUrl: string };
-  const token = signUrl.split("/sign/")[1];
-  expect(token, "token extracted from signUrl").toBeTruthy();
+  const token = tokenFromSignUrl(signUrl);
 
-  return { jobId, token };
+  return { jobId, token, title: tag };
 }
 
 /**
@@ -78,7 +86,7 @@ async function seedJobWithRequestSignature(
 async function seedJobWithToken(
   request: import("@playwright/test").APIRequestContext,
   opts: { expiredForTesting?: boolean } = {},
-): Promise<{ jobId: number; token: string }> {
+): Promise<{ jobId: number; token: string; title: string }> {
   const tag = `E2E_SIG_${Date.now()}`;
 
   const jobRes = await request.post("/api/jobs", {
@@ -91,10 +99,10 @@ async function seedJobWithToken(
     data: opts.expiredForTesting ? { expiredForTesting: true } : {},
   });
   expect(tokenRes.status(), "generate signature token").toBe(200);
-  const { token } = (await tokenRes.json()) as TokenResponse;
-  expect(typeof token, "token should be a string").toBe("string");
+  const { signUrl } = (await tokenRes.json()) as TokenResponse;
+  const token = tokenFromSignUrl(signUrl);
 
-  return { jobId, token };
+  return { jobId, token, title: tag };
 }
 
 /**
@@ -162,14 +170,14 @@ test(
       // dialog step above already proved the request-signature endpoint works.
       const tokenRes = await request.post(`/api/jobs/${jobId}/signature-token`);
       expect(tokenRes.status(), "helper token for sign page").toBe(200);
-      const { token } = (await tokenRes.json()) as { token: string };
-      expect(token, "helper token is a non-empty string").toBeTruthy();
+      const { signUrl } = (await tokenRes.json()) as TokenResponse;
+      const token = tokenFromSignUrl(signUrl);
 
       // Open the sign page in an anonymous context (no session) and sign.
       const ctx = await newUnauthContext(browser);
       const signPage = await ctx.newPage();
       try {
-        await signPage.goto(`/sign/${token}`);
+        await signPage.goto(`/sign#token=${token}`);
         await expect(
           signPage.getByText("Digitální podpis předávacího protokolu"),
         ).toBeVisible({ timeout: 10_000 });
@@ -217,7 +225,7 @@ test("valid token shows job summary and signature canvas without a login session
   const page = await ctx.newPage();
 
   try {
-    await page.goto(`/sign/${token}`);
+    await page.goto(`/sign#token=${token}`);
 
     await expect(
       page.getByText("Digitální podpis předávacího protokolu"),
@@ -249,7 +257,7 @@ test("drawing a signature and submitting shows the success state", async ({
   const page = await ctx.newPage();
 
   try {
-    await page.goto(`/sign/${token}`);
+    await page.goto(`/sign#token=${token}`);
     await expect(
       page.locator("[data-testid='signature-canvas']"),
     ).toBeVisible({ timeout: 10_000 });
@@ -316,7 +324,7 @@ test("expired token shows the expired-state card with no signature canvas", asyn
   const page = await ctx.newPage();
 
   try {
-    await page.goto(`/sign/${token}`);
+    await page.goto(`/sign#token=${token}`);
 
     await expect(
       page.getByText("Platnost odkazu vypršela"),
@@ -350,7 +358,7 @@ test("already-signed token shows success state immediately without login", async
   const page = await ctx.newPage();
 
   try {
-    await page.goto(`/sign/${token}`);
+    await page.goto(`/sign#token=${token}`);
 
     await expect(
       page.getByText("Podpis byl úspěšně přijat"),
@@ -387,5 +395,30 @@ test("invalid token shows an error state with no signature canvas", async ({
     ).not.toBeVisible();
   } finally {
     await ctx.close();
+  }
+});
+
+test("a second fragment grant in the same tab replaces the first public job", async ({
+  browser,
+  request,
+}) => {
+  const first = await seedJobWithToken(request);
+  const second = await seedJobWithToken(request);
+  const ctx = await newUnauthContext(browser);
+  const page = await ctx.newPage();
+
+  try {
+    await page.goto(`/sign#token=${first.token}`);
+    await expect(page).toHaveURL(/\/sign$/);
+    await expect(page.getByText(first.title, { exact: true })).toBeVisible();
+
+    await page.goto(`/sign#token=${second.token}`);
+    await expect(page).toHaveURL(/\/sign$/);
+    await expect(page.getByText(second.title, { exact: true })).toBeVisible();
+    await expect(page.getByText(first.title, { exact: true })).not.toBeVisible();
+  } finally {
+    await ctx.close();
+    await cleanupJob(request, first.jobId);
+    await cleanupJob(request, second.jobId);
   }
 });

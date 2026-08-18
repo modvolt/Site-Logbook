@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { useLocation } from "wouter";
 import { ShieldCheck, CheckCircle2, PenLine, RotateCcw, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { clearPublicGrant, publicGrantToken } from "@/lib/public-grant-bootstrap";
+import { publicGrantFetch } from "@/lib/public-grant-fetch";
 
 interface AssignmentInfo {
   id: number;
@@ -122,11 +123,8 @@ function SignatureCanvas({ onCapture }: { onCapture: (dataUrl: string | null) =>
   );
 }
 
-const SIGN_PREFIX = "/oopp/sign/";
-
 export default function OoppSign() {
-  const [path] = useLocation();
-  const token = path.startsWith(SIGN_PREFIX) ? path.slice(SIGN_PREFIX.length) : "";
+  const hasGrant = useRef(publicGrantToken("ppe_signature") !== null).current;
 
   const [info, setInfo] = useState<AssignmentInfo | null>(null);
   const [loading, setLoading] = useState(true);
@@ -136,26 +134,33 @@ export default function OoppSign() {
   const [done, setDone] = useState(false);
 
   useEffect(() => {
-    if (!token) return;
-    fetch(`/api/ppe/sign/${token}`)
+    if (!hasGrant) {
+      setError("Otevřete původní odkaz k podpisu znovu.");
+      setLoading(false);
+      return;
+    }
+    publicGrantFetch("ppe_signature", "/api/ppe/sign")
       .then((r) => r.json())
       .then((data) => {
         if (data.error) {
           setError(data.error);
         } else {
           setInfo(data);
-          if (data.alreadySigned) setDone(true);
+          if (data.alreadySigned) {
+            setDone(true);
+            clearPublicGrant("ppe_signature");
+          }
         }
       })
       .catch(() => setError("Nepodařilo se načíst informace o výdeji"))
       .finally(() => setLoading(false));
-  }, [token]);
+  }, [hasGrant]);
 
   async function handleSign() {
-    if (!signatureDataUrl || !token) return;
+    if (!signatureDataUrl || !hasGrant) return;
     setSubmitting(true);
     try {
-      const res = await fetch(`/api/ppe/sign/${token}`, {
+      const res = await publicGrantFetch("ppe_signature", "/api/ppe/sign", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ signatureDataUrl }),
@@ -167,6 +172,7 @@ export default function OoppSign() {
       }
       setDone(true);
       setInfo((prev) => prev ? { ...prev, alreadySigned: true, employeeConfirmedAt: data.employeeConfirmedAt } : prev);
+      clearPublicGrant("ppe_signature");
     } catch {
       setError("Nepodařilo se odeslat podpis. Zkuste to prosím znovu.");
     } finally {

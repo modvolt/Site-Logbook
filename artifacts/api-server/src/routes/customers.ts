@@ -14,7 +14,11 @@ import {
   ImportCustomersBody,
 } from "@workspace/api-zod";
 import { sendEmailWithPdf } from "../lib/email";
-import { requireRole } from "../middlewares/auth";
+import { requireRole, requireVaultStepUp } from "../middlewares/auth";
+import { requirePermission } from "../middlewares/permissions";
+import { blockDirectPrivacyDeletion } from "../middlewares/privacy-case-required";
+import { decodeCanonicalBase64 } from "../lib/base64-file";
+import { contentMatchesType } from "../lib/fileSignature";
 
 const router: IRouter = Router();
 
@@ -36,7 +40,6 @@ router.post("/customers", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-
   const [customer] = await db.insert(customersTable).values(parsed.data).returning();
   res.status(201).json(serializeCustomer(customer));
 });
@@ -145,7 +148,10 @@ router.patch("/customers/:id", async (req, res): Promise<void> => {
   res.json(serializeCustomer(customer));
 });
 
-router.delete("/customers/:id", async (req, res): Promise<void> => {
+router.delete(
+  "/customers/:id",
+  blockDirectPrivacyDeletion("customer_hard_delete"),
+  async (req, res): Promise<void> => {
   const params = DeleteCustomerParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -174,7 +180,8 @@ router.delete("/customers/:id", async (req, res): Promise<void> => {
   });
 
   res.sendStatus(204);
-});
+  },
+);
 
 router.get("/customers/:id/financial-summary", requireRole("admin", "master"), async (req, res): Promise<void> => {
   const params = GetCustomerFinancialSummaryParams.safeParse(req.params);
@@ -243,9 +250,9 @@ router.get("/customers/:id/financial-summary", requireRole("admin", "master"), a
   });
 });
 
-// Distributes the sensitive credential-vault PDF; restrict to elevated roles
-// to match the device-credentials access boundary.
-router.post("/customers/:id/send-credentials-email", requireRole("master", "admin"), async (req, res): Promise<void> => {
+// customers.manage is enforced globally; credentials.view is additionally
+// required because this operation distributes a plaintext vault export.
+router.post("/customers/:id/send-credentials-email", requirePermission("credentials.view"), requireVaultStepUp, async (req, res): Promise<void> => {
   const params = SendCredentialsEmailParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -255,6 +262,15 @@ router.post("/customers/:id/send-credentials-email", requireRole("master", "admi
   const parsed = SendCredentialsEmailBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  let verifiedPdfBase64: string;
+  try {
+    const pdf = decodeCanonicalBase64(parsed.data.pdfBase64, 20 * 1024 * 1024);
+    if (!contentMatchesType("application/pdf", pdf)) throw new Error("Neplatný PDF soubor.");
+    verifiedPdfBase64 = pdf.toString("base64");
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Neplatný PDF soubor." });
     return;
   }
 
@@ -301,7 +317,7 @@ router.post("/customers/:id/send-credentials-email", requireRole("master", "admi
       to: rawTo,
       subject,
       text: message,
-      pdfBase64: parsed.data.pdfBase64,
+      pdfBase64: verifiedPdfBase64,
       filename,
     });
   } catch (err) {

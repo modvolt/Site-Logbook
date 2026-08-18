@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useLocation, Link } from "wouter";
 import {
-  useListPeople, useCreatePerson, useDeletePerson, getListPeopleQueryKey,
+  useListPeople, useCreatePerson, getListPeopleQueryKey,
   useGetPeopleStats, getGetPeopleStatsQueryKey,
   useGetActiveTimers, getGetActiveTimersQueryKey,
   useListLeaves, getListLeavesQueryKey,
@@ -509,14 +509,10 @@ function ActiveTimersPanel({ timers }: { timers: ActiveTimer[] }) {
 function PersonCard({
   person,
   stats,
-  onDelete,
-  isDeleting,
   onNavigate,
 }: {
   person: { id: number; name: string };
   stats: PersonStats | undefined;
-  onDelete: (id: number) => void;
-  isDeleting: boolean;
   onNavigate: (path: string) => void;
 }) {
   const [leavesOpen, setLeavesOpen] = useState(false);
@@ -622,16 +618,6 @@ function PersonCard({
                   Vydat OOPP
                 </Button>
               )}
-              <Button
-                variant="ghost"
-                size="icon"
-                className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                onClick={() => onDelete(person.id)}
-                disabled={isDeleting}
-                title="Odebrat pracovníka"
-              >
-                <Trash2 className="h-5 w-5" />
-              </Button>
             </div>
           </div>
         </CardContent>
@@ -650,7 +636,6 @@ export default function People() {
   const [nameError, setNameError] = useState("");
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const { openConfirm, dialogProps } = useConfirmDialog();
   const [, setLocation] = useLocation();
   const { can } = useAuth();
   const canWrite = can("write");
@@ -671,7 +656,6 @@ export default function People() {
   const statsMap = new Map((statsData ?? []).map((s) => [s.personId, s]));
 
   const createPerson = useCreatePerson();
-  const deletePerson = useDeletePerson();
 
   const handleAddPerson = (e: React.FormEvent) => {
     e.preventDefault();
@@ -696,25 +680,6 @@ export default function People() {
           toast({ title: "Nepodařilo se přidat pracovníka", variant: "destructive" });
         }
       },
-    });
-  };
-
-  const handleDeletePerson = (id: number) => {
-    openConfirm("Opravdu chcete odebrat tohoto pracovníka?", () => {
-      deletePerson.mutate({ id }, {
-        onSuccess: () => {
-          invalidateData(queryClient, "people");
-          toast({ title: "Pracovník odebrán" });
-        },
-        onError: (err) => {
-          const serverMsg = extractServerError(err);
-          toast({
-            title: serverMsg ? "Nelze odebrat pracovníka" : "Nepodařilo se odebrat pracovníka",
-            description: serverMsg ?? undefined,
-            variant: "destructive",
-          });
-        },
-      });
     });
   };
 
@@ -817,8 +782,6 @@ export default function People() {
               key={person.id}
               person={person}
               stats={statsMap.get(person.id)}
-              onDelete={handleDeletePerson}
-              isDeleting={deletePerson.isPending}
               onNavigate={setLocation}
             />
           ))
@@ -830,7 +793,6 @@ export default function People() {
           </div>
         )}
       </div>
-      <ConfirmDialog {...dialogProps} />
     </div>
   );
 }

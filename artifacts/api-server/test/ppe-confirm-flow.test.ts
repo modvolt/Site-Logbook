@@ -1,9 +1,10 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { inArray } from "drizzle-orm";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { randomUUID } from "crypto";
 import request from "supertest";
-import { db, ppeItemsTable, ppeAssignmentsTable, peopleTable } from "@workspace/db";
+import { db, ppeItemsTable, ppeAssignmentsTable, peopleTable, usersTable } from "@workspace/db";
 import app from "../src/app";
+import { ObjectStorageService } from "../src/lib/objectStorage";
+import { issuePpePublicEvidenceToken } from "../src/lib/ppe-public-evidence";
 
 /**
  * Contract tests for the public PPE sign-off flow.
@@ -14,7 +15,7 @@ import app from "../src/app";
  * Covers:
  * - GET /api/ppe/sign/:token with missing/invalid token → 400 / 404
  * - GET /api/ppe/sign/:token with a valid UUID token → 200 with assignment details
- * - GET /api/ppe/sign/:token when already signed → 200 with alreadySigned:true
+ * - GET /api/ppe/sign/:token after signing rejects replay
  * - POST /api/ppe/sign/:token with invalid token → 400 / 404
  * - POST /api/ppe/sign/:token when already signed → 409
  * - POST /api/ppe/sign/:token with valid token + PNG → sets employeeConfirmedAt
@@ -25,6 +26,7 @@ const TAG = `ppe-sign-${Date.now()}`;
 
 let personId: number;
 let itemId: number;
+let issuerId: number;
 
 const personIds: number[] = [];
 const itemIds: number[] = [];
@@ -32,10 +34,21 @@ const assignmentIds: number[] = [];
 
 /** Minimal 1×1 white PNG as a base64 data URL (valid per the signatureDataUrl schema). */
 const MINIMAL_PNG_DATA_URL =
-  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVQI12NgAAIABQ" +
-  "AABjkB6QAAAABJRU5ErkJggg==";
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
 
 beforeAll(async () => {
+  vi.spyOn(ObjectStorageService.prototype, "putPrivateObject").mockResolvedValue(undefined);
+  vi.spyOn(ObjectStorageService.prototype, "deletePrivateObject").mockResolvedValue(undefined);
+
+  const [issuer] = await db.insert(usersTable).values({
+    username: `${TAG}-issuer`,
+    passwordHash: "not-used",
+    name: `Issuer ${TAG}`,
+    role: "admin",
+    isActive: true,
+  }).returning();
+  issuerId = issuer!.id;
+
   const [person] = await db
     .insert(peopleTable)
     .values({ name: `Worker ${TAG}` })
@@ -52,13 +65,18 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  if (assignmentIds.length > 0)
-    await db.delete(ppeAssignmentsTable).where(inArray(ppeAssignmentsTable.id, assignmentIds));
-  if (itemIds.length > 0)
-    await db.delete(ppeItemsTable).where(inArray(ppeItemsTable.id, itemIds));
-  if (personIds.length > 0)
-    await db.delete(peopleTable).where(inArray(peopleTable.id, personIds));
+  vi.restoreAllMocks();
 });
+
+async function issueSignatureToken(assignmentId: number): Promise<string> {
+  const { token } = await issuePpePublicEvidenceToken({
+    assignmentId,
+    purpose: "ppe_signature",
+    expiresAt: new Date(Date.now() + 10 * 60_000),
+    createdByUserId: issuerId,
+  });
+  return token;
+}
 
 // ── GET /api/ppe/sign/:token ──────────────────────────────────────────────────
 
@@ -76,7 +94,7 @@ describe("GET /api/ppe/sign/:token", () => {
   });
 
   it("valid UUID token → 200 with assignment details (no session required)", async () => {
-    const token = randomUUID();
+    let token = randomUUID();
     const todayStr = new Date().toISOString().slice(0, 10);
 
     const [assignment] = await db
@@ -93,6 +111,7 @@ describe("GET /api/ppe/sign/:token", () => {
       })
       .returning();
     assignmentIds.push(assignment.id);
+    token = await issueSignatureToken(assignment.id);
 
     const res = await request(app).get(`/api/ppe/sign/${token}`);
     expect(res.status).toBe(200);
@@ -105,7 +124,7 @@ describe("GET /api/ppe/sign/:token", () => {
     expect(res.body.signatureToken).toBeUndefined();
   });
 
-  it("valid token for already-signed assignment → 200 with alreadySigned:true", async () => {
+  it("valid legacy token for already-signed assignment is treated as consumed", async () => {
     const token = randomUUID();
     const todayStr = new Date().toISOString().slice(0, 10);
 
@@ -126,9 +145,8 @@ describe("GET /api/ppe/sign/:token", () => {
     assignmentIds.push(assignment.id);
 
     const res = await request(app).get(`/api/ppe/sign/${token}`);
-    expect(res.status).toBe(200);
-    expect(res.body.alreadySigned).toBe(true);
-    expect(res.body.employeeConfirmedAt).not.toBeNull();
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe("public_token_consumed");
   });
 });
 
@@ -210,7 +228,7 @@ describe("POST /api/ppe/sign/:token", () => {
   });
 
   it("valid token + PNG → sets employeeConfirmedAt (no session required)", async () => {
-    const token = randomUUID();
+    let token = randomUUID();
     const todayStr = new Date().toISOString().slice(0, 10);
     const [a] = await db
       .insert(ppeAssignmentsTable)
@@ -226,6 +244,7 @@ describe("POST /api/ppe/sign/:token", () => {
       })
       .returning();
     assignmentIds.push(a.id);
+    token = await issueSignatureToken(a.id);
 
     const res = await request(app)
       .post(`/api/ppe/sign/${token}`)
@@ -239,15 +258,14 @@ describe("POST /api/ppe/sign/:token", () => {
     expect(res.body.personNameSnapshot).toBe(`Worker ${TAG}`);
     expect(res.body.ppeNameSnapshot).toBe(`Helma ${TAG}`);
 
-    // GET after sign → alreadySigned:true
+    // A one-time credential cannot be used to read the assignment after sign.
     const getRes = await request(app).get(`/api/ppe/sign/${token}`);
-    expect(getRes.status).toBe(200);
-    expect(getRes.body.alreadySigned).toBe(true);
-    expect(getRes.body.employeeConfirmedAt).not.toBeNull();
+    expect(getRes.status).toBe(409);
+    expect(getRes.body.code).toBe("public_token_consumed");
   });
 
   it("submitting a second time with same token → 409 (prevents duplicate signs)", async () => {
-    const token = randomUUID();
+    let token = randomUUID();
     const todayStr = new Date().toISOString().slice(0, 10);
     const [a] = await db
       .insert(ppeAssignmentsTable)
@@ -263,6 +281,7 @@ describe("POST /api/ppe/sign/:token", () => {
       })
       .returning();
     assignmentIds.push(a.id);
+    token = await issueSignatureToken(a.id);
 
     const first = await request(app)
       .post(`/api/ppe/sign/${token}`)

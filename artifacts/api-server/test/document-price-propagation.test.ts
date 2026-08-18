@@ -500,9 +500,17 @@ describe("invoice price propagation", () => {
     expect(reserved.invoicedInvoiceId).toBe(invoice.id);
     expect(reserved.priceSource).toBe("invoice");
 
-    // Delete the source invoice document WHILE the material is reserved. The
+    // Approved accounting evidence is immutable: hard delete is rejected.
+    await expect(deleteDocument(inv.docId, actor)).rejects.toMatchObject({
+      statusCode: 409,
+    });
+    const [stillLinked] = await jobMaterials(jobId);
+    expect(stillLinked.priceSourceDocumentId).toBe(inv.docId);
+
+    // Explicitly return the source document to review before deleting it. The
     // FK ON DELETE SET NULL clears priceSourceDocumentId but leaves
     // priceSource='invoice' → stale invoice provenance with no source.
+    await setDocumentStatus(inv.docId, "needs_review", actor);
     await deleteDocument(inv.docId, actor);
     docIds.splice(docIds.indexOf(inv.docId), 1);
     const [afterDocDelete] = await jobMaterials(jobId);

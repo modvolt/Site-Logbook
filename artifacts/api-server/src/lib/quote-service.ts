@@ -15,6 +15,22 @@ import { generateQuotePdf, type QuotePdfData } from "./quote-pdf";
 import { sendEmailWithPdf } from "./email";
 import { ObjectStorageService } from "./objectStorage";
 import { randomUUID } from "node:crypto";
+import { publicAppGrantUrl, publicAppOrigin } from "./public-origin";
+import {
+  consumePublicAccessToken,
+  isPlausiblePublicAccessToken,
+  publicTokenExpiry,
+  resolvePublicAccessToken,
+  revokePublicAccessTokens,
+} from "./public-access-token";
+import {
+  createQuoteVersionAndToken,
+  latestQuoteVersion,
+  publicQuoteVersion,
+  recordAdminQuoteDecision,
+  recordPublicQuoteDecision,
+} from "./quote-version-service";
+import { quoteDecisionExpiresAt, QuoteValidityError } from "./quote-validity";
 import {
   computeQuoteItemTotals,
   computeQuoteTotals,
@@ -97,7 +113,10 @@ async function ensureSettings() {
     .where(eq(billingSettingsTable.id, SETTINGS_ID))
     .limit(1);
   if (existing.length > 0) return existing[0];
-  const [row] = await db.insert(billingSettingsTable).values({ id: SETTINGS_ID }).returning();
+  const [row] = await db
+    .insert(billingSettingsTable)
+    .values({ id: SETTINGS_ID })
+    .returning();
   return row;
 }
 
@@ -139,8 +158,9 @@ export function serializeItem(item: QuoteItem) {
 }
 
 export function serializeQuote(quote: Quote) {
+  const { shareToken: _secretShareToken, ...safeQuote } = quote;
   return {
-    ...quote,
+    ...safeQuote,
     createdAt: quote.createdAt.toISOString(),
     updatedAt: quote.updatedAt.toISOString(),
   };
@@ -155,7 +175,8 @@ export async function listQuotes(opts?: {
   status?: string;
 }) {
   const conditions = [];
-  if (opts?.customerId != null) conditions.push(eq(quotesTable.customerId, opts.customerId));
+  if (opts?.customerId != null)
+    conditions.push(eq(quotesTable.customerId, opts.customerId));
   if (opts?.status != null && opts.status !== "all")
     conditions.push(eq(quotesTable.status, opts.status));
 
@@ -165,14 +186,26 @@ export async function listQuotes(opts?: {
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(quotesTable.createdAt));
 
-  const customerIds = [...new Set(quotes.map((q) => q.customerId).filter((id): id is number => id != null))];
-  const customersMap = new Map<number, { companyName: string | null; email: string | null }>();
+  const customerIds = [
+    ...new Set(
+      quotes.map((q) => q.customerId).filter((id): id is number => id != null),
+    ),
+  ];
+  const customersMap = new Map<
+    number,
+    { companyName: string | null; email: string | null }
+  >();
   if (customerIds.length > 0) {
     const customers = await db
-      .select({ id: customersTable.id, companyName: customersTable.companyName, email: customersTable.email })
+      .select({
+        id: customersTable.id,
+        companyName: customersTable.companyName,
+        email: customersTable.email,
+      })
       .from(customersTable)
       .where(inArray(customersTable.id, customerIds));
-    for (const c of customers) customersMap.set(c.id, { companyName: c.companyName, email: c.email });
+    for (const c of customers)
+      customersMap.set(c.id, { companyName: c.companyName, email: c.email });
   }
 
   return Promise.all(
@@ -184,7 +217,8 @@ export async function listQuotes(opts?: {
         .orderBy(asc(quoteItemsTable.position));
       const itemData = items.map(serializeItem);
       const totals = computeQuoteTotals(itemData, true);
-      const customerInfo = q.customerId != null ? (customersMap.get(q.customerId) ?? null) : null;
+      const customerInfo =
+        q.customerId != null ? (customersMap.get(q.customerId) ?? null) : null;
       return {
         ...serializeQuote(q),
         customerCompanyName: customerInfo?.companyName ?? null,
@@ -197,7 +231,11 @@ export async function listQuotes(opts?: {
 }
 
 export async function getQuoteDetail(id: number) {
-  const [quote] = await db.select().from(quotesTable).where(eq(quotesTable.id, id)).limit(1);
+  const [quote] = await db
+    .select()
+    .from(quotesTable)
+    .where(eq(quotesTable.id, id))
+    .limit(1);
   if (!quote) return null;
 
   const items = await db
@@ -254,107 +292,73 @@ export async function getQuoteDetail(id: number) {
 // Public share-token lookup (no auth — gated by token)
 // ---------------------------------------------------------------------------
 
-const TOKEN_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 export function isValidToken(token: string): boolean {
-  return TOKEN_RE.test(token);
+  return isPlausiblePublicAccessToken(token);
 }
 
 export async function getQuoteByShareToken(token: string) {
-  const [quote] = await db
-    .select()
-    .from(quotesTable)
-    .where(eq(quotesTable.shareToken, token))
-    .limit(1);
-  if (!quote) return null;
-
-  const settings = await ensureSettings();
-  const vatPayer = settings.vatPayer;
-
-  const items = await db
-    .select()
-    .from(quoteItemsTable)
-    .where(eq(quoteItemsTable.quoteId, quote.id))
-    .orderBy(asc(quoteItemsTable.position));
-
-  const itemData = items.map((item) => {
-    const serialized = serializeItem(item);
-    const totals = computeQuoteItemTotals(serialized, vatPayer);
-    return {
-      id: item.id,
-      position: item.position,
-      description: item.description,
-      rowType: serialized.rowType,
-      quantity: serialized.quantity,
-      unit: item.unit ?? null,
-      unitPrice: serialized.unitPrice,
-      vatRate: serialized.vatRate,
-      ...totals,
-    };
-  });
-
-  const totals = computeQuoteTotals(itemData, vatPayer);
-
-  let customerCompanyName: string | null = null;
-  if (quote.customerId != null) {
-    const [c] = await db
-      .select({ companyName: customersTable.companyName })
-      .from(customersTable)
-      .where(eq(customersTable.id, quote.customerId))
-      .limit(1);
-    customerCompanyName = c?.companyName ?? null;
-  }
+  const tokenRecord = await resolvePublicAccessToken("quote_decision", token);
+  const { version, status } = await publicQuoteVersion(tokenRecord);
+  const snapshot = version.dataSnapshot;
 
   return {
-    quoteNumber: quote.quoteNumber,
-    title: quote.title,
-    status: quote.status,
-    validUntil: quote.validUntil ?? null,
-    notes: quote.notes ?? null,
-    customerCompanyName,
-    supplierName: settings.supplierName ?? null,
-    supplierAddress: settings.supplierAddress ?? null,
-    supplierEmail: settings.supplierEmail ?? null,
-    supplierPhone: settings.supplierPhone ?? null,
-    items: itemData,
-    subtotalWithoutVat: totals.totalWithoutVat,
-    totalVat: totals.totalVat,
-    totalWithVat: totals.totalWithVat,
-    vatPayer,
-    createdAt: quote.createdAt.toISOString(),
+    quoteNumber: snapshot.quote.quoteNumber,
+    quoteVersion: version.version,
+    snapshotSha256: version.snapshotSha256,
+    pdfSha256: version.pdfSha256,
+    confirmationText: snapshot.confirmationText,
+    title: snapshot.quote.title,
+    status,
+    validUntil: snapshot.quote.validUntil,
+    notes: snapshot.quote.notes,
+    customerCompanyName: snapshot.customer.companyName,
+    supplierName: snapshot.supplier.name,
+    supplierAddress: snapshot.supplier.address,
+    supplierEmail: snapshot.supplier.email,
+    supplierPhone: snapshot.supplier.phone,
+    items: snapshot.items.map((item) => ({ ...item, id: item.lineId })),
+    subtotalWithoutVat: snapshot.totals.subtotalWithoutVat,
+    totalVat: snapshot.totals.totalVat,
+    totalWithVat: snapshot.totals.totalWithVat,
+    vatPayer: snapshot.supplier.vatPayer,
+    createdAt: snapshot.quote.createdAt,
   };
 }
 
-export async function acceptQuoteByToken(token: string) {
-  const [quote] = await db
-    .select()
-    .from(quotesTable)
-    .where(eq(quotesTable.shareToken, token))
-    .limit(1);
-  if (!quote) throw appError(404, "Nabídka nenalezena.");
-  if (!["sent", "draft"].includes(quote.status))
-    throw appError(409, "Tuto nabídku již nelze přijmout.");
-  await db
-    .update(quotesTable)
-    .set({ status: "accepted", updatedAt: new Date() })
-    .where(eq(quotesTable.shareToken, token));
-  return { accepted: true };
+export async function acceptQuoteByToken(
+  token: string,
+  evidence: { respondentName: string; userAgent?: string },
+) {
+  return consumePublicAccessToken({
+    purpose: "quote_decision",
+    token,
+    action: "accepted",
+    transition: (tx, record) =>
+      recordPublicQuoteDecision(tx, {
+        record,
+        action: "accepted",
+        respondentName: evidence.respondentName,
+        userAgent: evidence.userAgent,
+      }),
+  });
 }
 
-export async function rejectQuoteByToken(token: string) {
-  const [quote] = await db
-    .select()
-    .from(quotesTable)
-    .where(eq(quotesTable.shareToken, token))
-    .limit(1);
-  if (!quote) throw appError(404, "Nabídka nenalezena.");
-  if (!["sent", "draft"].includes(quote.status))
-    throw appError(409, "Tuto nabídku již nelze odmítnout.");
-  await db
-    .update(quotesTable)
-    .set({ status: "rejected", updatedAt: new Date() })
-    .where(eq(quotesTable.shareToken, token));
-  return { rejected: true };
+export async function rejectQuoteByToken(
+  token: string,
+  evidence: { respondentName: string; userAgent?: string },
+) {
+  return consumePublicAccessToken({
+    purpose: "quote_decision",
+    token,
+    action: "rejected",
+    transition: (tx, record) =>
+      recordPublicQuoteDecision(tx, {
+        record,
+        action: "rejected",
+        respondentName: evidence.respondentName,
+        userAgent: evidence.userAgent,
+      }),
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -364,7 +368,11 @@ export async function rejectQuoteByToken(token: string) {
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type DbOrTx = typeof db | Tx;
 
-async function upsertItems(tx: DbOrTx, quoteId: number, items: QuoteItemInput[]) {
+async function upsertItems(
+  tx: DbOrTx,
+  quoteId: number,
+  items: QuoteItemInput[],
+) {
   await tx.delete(quoteItemsTable).where(eq(quoteItemsTable.quoteId, quoteId));
   if (items.length === 0) return;
 
@@ -398,19 +406,34 @@ async function upsertItems(tx: DbOrTx, quoteId: number, items: QuoteItemInput[])
     const purchaseUnitPrice = item.purchaseUnitPrice ?? null;
     const vatRate = item.vatRate ?? null;
     if (!Number.isFinite(quantity) || quantity <= 0) {
-      throw appError(400, `Množství položky „${description}“ musí být větší než nula.`);
+      throw appError(
+        400,
+        `Množství položky „${description}“ musí být větší než nula.`,
+      );
     }
     if (!Number.isFinite(unitPrice) || unitPrice < 0) {
-      throw appError(400, `Prodejní cena položky „${description}“ nesmí být záporná.`);
+      throw appError(
+        400,
+        `Prodejní cena položky „${description}“ nesmí být záporná.`,
+      );
     }
     if (
       purchaseUnitPrice != null &&
       (!Number.isFinite(purchaseUnitPrice) || purchaseUnitPrice < 0)
     ) {
-      throw appError(400, `Nákupní cena položky „${description}“ nesmí být záporná.`);
+      throw appError(
+        400,
+        `Nákupní cena položky „${description}“ nesmí být záporná.`,
+      );
     }
-    if (vatRate != null && (!Number.isFinite(vatRate) || vatRate < 0 || vatRate > 100)) {
-      throw appError(400, `Sazba DPH položky „${description}“ je mimo povolený rozsah.`);
+    if (
+      vatRate != null &&
+      (!Number.isFinite(vatRate) || vatRate < 0 || vatRate > 100)
+    ) {
+      throw appError(
+        400,
+        `Sazba DPH položky „${description}“ je mimo povolený rozsah.`,
+      );
     }
 
     return {
@@ -427,9 +450,7 @@ async function upsertItems(tx: DbOrTx, quoteId: number, items: QuoteItemInput[])
     };
   });
 
-  await tx.insert(quoteItemsTable).values(
-    normalizedItems,
-  );
+  await tx.insert(quoteItemsTable).values(normalizedItems);
 }
 
 export async function createQuote(input: QuoteCreateInput) {
@@ -453,9 +474,14 @@ export async function createQuote(input: QuoteCreateInput) {
 }
 
 export async function updateQuote(id: number, input: QuoteUpdateInput) {
-  const [existing] = await db.select().from(quotesTable).where(eq(quotesTable.id, id)).limit(1);
+  const [existing] = await db
+    .select()
+    .from(quotesTable)
+    .where(eq(quotesTable.id, id))
+    .limit(1);
   if (!existing) throw appError(404, "Nabídka nenalezena.");
-  if (existing.status !== "draft") throw appError(409, "Upravovat lze pouze nabídky ve stavu Koncept.");
+  if (existing.status !== "draft")
+    throw appError(409, "Upravovat lze pouze nabídky ve stavu Koncept.");
 
   await db.transaction(async (tx) => {
     const set: Record<string, unknown> = { updatedAt: new Date() };
@@ -472,10 +498,23 @@ export async function updateQuote(id: number, input: QuoteUpdateInput) {
 }
 
 export async function deleteQuote(id: number) {
-  const [existing] = await db.select().from(quotesTable).where(eq(quotesTable.id, id)).limit(1);
+  const [existing] = await db
+    .select()
+    .from(quotesTable)
+    .where(eq(quotesTable.id, id))
+    .limit(1);
   if (!existing) throw appError(404, "Nabídka nenalezena.");
-  if (!["draft", "rejected", "expired"].includes(existing.status))
-    throw appError(409, "Smazat lze pouze nabídky ve stavu Koncept, Odmítnuta nebo Expirována.");
+  if (existing.status !== "draft")
+    throw appError(
+      409,
+      "Smazat lze pouze koncept, který ještě nemá důkazní verzi.",
+    );
+  if (await latestQuoteVersion(db, id)) {
+    throw appError(
+      409,
+      "Koncept navazuje na dříve odeslanou verzi a musí zůstat zachován.",
+    );
+  }
   await db.delete(quotesTable).where(eq(quotesTable.id, id));
 }
 
@@ -483,7 +522,9 @@ export async function deleteQuote(id: number) {
 // State transitions
 // ---------------------------------------------------------------------------
 
-async function buildPdfData(quote: NonNullable<Awaited<ReturnType<typeof getQuoteDetail>>>) {
+async function buildPdfData(
+  quote: NonNullable<Awaited<ReturnType<typeof getQuoteDetail>>>,
+) {
   const settings = await ensureSettings();
   const vatPayer = settings.vatPayer;
 
@@ -550,95 +591,199 @@ export async function sendQuote(
     to?: string | null;
     subject?: string | null;
     message?: string | null;
-    shareBaseUrl?: string | null;
+    createdByUserId: number;
   },
 ) {
+  // Validate the canonical external origin before generating or storing a PDF.
+  // Request Host headers are never accepted as link input.
+  publicAppOrigin();
   const quote = await getQuoteDetail(id);
   if (!quote) throw appError(404, "Nabídka nenalezena.");
   if (!["draft", "sent"].includes(quote.status))
     throw appError(409, "Nabídku v tomto stavu nelze odeslat.");
 
-  const { buffer, objectPath } = await generateAndStorePdf(id);
-
   const to = (opts.to ?? quote.customerEmail ?? "").trim();
   const emailPattern = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
-  if (!emailPattern.test(to)) throw appError(400, "Chybí platná e-mailová adresa příjemce.");
+  if (!emailPattern.test(to))
+    throw appError(400, "Chybí platná e-mailová adresa příjemce.");
 
-  // Generate or reuse share token
-  const [existing] = await db
-    .select({ shareToken: quotesTable.shareToken })
-    .from(quotesTable)
-    .where(eq(quotesTable.id, id))
-    .limit(1);
-  const shareToken = existing?.shareToken ?? randomUUID();
-  if (!existing?.shareToken) {
-    await db
-      .update(quotesTable)
-      .set({ shareToken })
-      .where(eq(quotesTable.id, id));
+  await ensureSettings();
+  let expiresAt: Date;
+  try {
+    expiresAt = quoteDecisionExpiresAt(
+      publicTokenExpiry("QUOTE_SHARE_EXPIRY_DAYS", 30),
+      quote.validUntil,
+    );
+  } catch (error) {
+    if (error instanceof QuoteValidityError) {
+      throw appError(
+        409,
+        "Platnost nabídky již skončila. Upravte datum platnosti před odesláním.",
+      );
+    }
+    throw error;
   }
+  const {
+    buffer,
+    version,
+    token: shareToken,
+  } = await createQuoteVersionAndToken({
+    quoteId: id,
+    expiresAt,
+    createdByUserId: opts.createdByUserId,
+  });
 
   const number = quote.quoteNumber ?? `#${id}`;
   const subject = (opts.subject ?? "").trim() || `Cenová nabídka ${number}`;
 
   // Build share link line
-  const shareLine = opts.shareBaseUrl
-    ? `\n\nPro zobrazení a potvrzení nabídky online klikněte zde:\n${opts.shareBaseUrl}/quote-share/${shareToken}`
-    : "";
+  const shareLine =
+    `\n\nPro zobrazení a potvrzení nabídky online klikněte zde:\n` +
+    publicAppGrantUrl("/quote-share", shareToken);
 
   const message =
     (opts.message ?? "").trim() ||
     `Dobrý den,\n\nv příloze zasíláme cenovou nabídku ${number}.${shareLine}\n\nS pozdravem`;
 
-  await sendEmailWithPdf({
+  try {
+    await sendEmailWithPdf({
+      to,
+      subject,
+      text: message,
+      pdfBase64: buffer.toString("base64"),
+      filename: `nabidka-${number.replace(/[^\w.-]+/g, "-")}.pdf`,
+    });
+  } catch (error) {
+    await revokePublicAccessTokens({
+      purpose: "quote_decision",
+      resourceId: id,
+      reason: "delivery_failed",
+    }).catch(() => undefined);
+    throw error;
+  }
+
+  await db
+    .update(quotesTable)
+    .set({
+      status: "sent",
+      pdfObjectPath: version.pdfObjectPath,
+      shareToken: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(quotesTable.id, id));
+
+  return {
+    sent: true,
     to,
-    subject,
-    text: message,
-    pdfBase64: buffer.toString("base64"),
-    filename: `nabidka-${number.replace(/[^\w.-]+/g, "-")}.pdf`,
+    expiresAt: expiresAt.toISOString(),
+    quoteVersion: version.version,
+    snapshotSha256: version.snapshotSha256,
+    pdfSha256: version.pdfSha256,
+  };
+}
+
+export async function acceptQuote(id: number, actor: Actor) {
+  await db.transaction(async (tx) => {
+    const [quote] = await tx
+      .select()
+      .from(quotesTable)
+      .where(eq(quotesTable.id, id))
+      .for("update")
+      .limit(1);
+    if (!quote) throw appError(404, "Nabídka nenalezena.");
+    if (quote.status !== "sent")
+      throw appError(
+        409,
+        "Přijmout lze pouze odeslanou neměnnou verzi nabídky.",
+      );
+    await recordAdminQuoteDecision(tx, {
+      quoteId: id,
+      action: "accepted",
+      actor,
+    });
+    await tx
+      .update(quotesTable)
+      .set({ status: "accepted", shareToken: null, updatedAt: new Date() })
+      .where(eq(quotesTable.id, id));
+    await revokePublicAccessTokens(
+      {
+        purpose: "quote_decision",
+        resourceId: id,
+        reason: "admin_accepted",
+      },
+      tx,
+    );
   });
-
-  await db
-    .update(quotesTable)
-    .set({ status: "sent", pdfObjectPath: objectPath, shareToken, updatedAt: new Date() })
-    .where(eq(quotesTable.id, id));
-
-  return { sent: true, to, shareToken };
-}
-
-export async function acceptQuote(id: number) {
-  const [quote] = await db.select().from(quotesTable).where(eq(quotesTable.id, id)).limit(1);
-  if (!quote) throw appError(404, "Nabídka nenalezena.");
-  if (!["sent", "draft"].includes(quote.status))
-    throw appError(409, "Přijmout lze pouze odeslané nebo konceptové nabídky.");
-  await db
-    .update(quotesTable)
-    .set({ status: "accepted", updatedAt: new Date() })
-    .where(eq(quotesTable.id, id));
   return getQuoteDetail(id);
 }
 
-export async function rejectQuote(id: number) {
-  const [quote] = await db.select().from(quotesTable).where(eq(quotesTable.id, id)).limit(1);
-  if (!quote) throw appError(404, "Nabídka nenalezena.");
-  if (!["sent", "draft"].includes(quote.status))
-    throw appError(409, "Odmítnout lze pouze odeslané nebo konceptové nabídky.");
-  await db
-    .update(quotesTable)
-    .set({ status: "rejected", updatedAt: new Date() })
-    .where(eq(quotesTable.id, id));
+export async function rejectQuote(id: number, actor: Actor) {
+  await db.transaction(async (tx) => {
+    const [quote] = await tx
+      .select()
+      .from(quotesTable)
+      .where(eq(quotesTable.id, id))
+      .for("update")
+      .limit(1);
+    if (!quote) throw appError(404, "Nabídka nenalezena.");
+    if (quote.status !== "sent")
+      throw appError(
+        409,
+        "Odmítnout lze pouze odeslanou neměnnou verzi nabídky.",
+      );
+    await recordAdminQuoteDecision(tx, {
+      quoteId: id,
+      action: "rejected",
+      actor,
+    });
+    await tx
+      .update(quotesTable)
+      .set({ status: "rejected", shareToken: null, updatedAt: new Date() })
+      .where(eq(quotesTable.id, id));
+    await revokePublicAccessTokens(
+      {
+        purpose: "quote_decision",
+        resourceId: id,
+        reason: "admin_rejected",
+      },
+      tx,
+    );
+  });
   return getQuoteDetail(id);
 }
 
-export async function expireQuote(id: number) {
-  const [quote] = await db.select().from(quotesTable).where(eq(quotesTable.id, id)).limit(1);
-  if (!quote) throw appError(404, "Nabídka nenalezena.");
-  if (!["sent", "draft"].includes(quote.status))
-    throw appError(409, "Expirovat lze pouze odeslané nebo konceptové nabídky.");
-  await db
-    .update(quotesTable)
-    .set({ status: "expired", updatedAt: new Date() })
-    .where(eq(quotesTable.id, id));
+export async function expireQuote(id: number, actor: Actor) {
+  await db.transaction(async (tx) => {
+    const [quote] = await tx
+      .select()
+      .from(quotesTable)
+      .where(eq(quotesTable.id, id))
+      .for("update")
+      .limit(1);
+    if (!quote) throw appError(404, "Nabídka nenalezena.");
+    if (quote.status !== "sent")
+      throw appError(
+        409,
+        "Expirovat lze pouze odeslanou neměnnou verzi nabídky.",
+      );
+    await recordAdminQuoteDecision(tx, {
+      quoteId: id,
+      action: "expired",
+      actor,
+    });
+    await tx
+      .update(quotesTable)
+      .set({ status: "expired", shareToken: null, updatedAt: new Date() })
+      .where(eq(quotesTable.id, id));
+    await revokePublicAccessTokens(
+      {
+        purpose: "quote_decision",
+        resourceId: id,
+        reason: "admin_expired",
+      },
+      tx,
+    );
+  });
   return getQuoteDetail(id);
 }
 
@@ -649,7 +794,11 @@ export async function convertQuoteToJob(
 ) {
   const plannedDate = input.plannedDate?.trim() || todayIso();
   const parsedDate = new Date(`${plannedDate}T00:00:00Z`);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(plannedDate) || Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== plannedDate) {
+  if (
+    !/^\d{4}-\d{2}-\d{2}$/.test(plannedDate) ||
+    Number.isNaN(parsedDate.getTime()) ||
+    parsedDate.toISOString().slice(0, 10) !== plannedDate
+  ) {
     throw appError(400, "Plánovaný termín musí být platné datum.");
   }
 
@@ -667,7 +816,9 @@ export async function convertQuoteToJob(
     if (quote.convertedToJobId != null || quote.convertedToJobGroupId != null)
       throw appError(409, "Nabídka již byla převedena na akci zakázek.");
 
-    const noteLines = [`Vytvořeno z nabídky ${quote.quoteNumber ?? `#${id}`}: ${quote.title}`];
+    const noteLines = [
+      `Vytvořeno z nabídky ${quote.quoteNumber ?? `#${id}`}: ${quote.title}`,
+    ];
     if (quote.notes) noteLines.push(quote.notes);
 
     const [group] = await tx
@@ -682,7 +833,9 @@ export async function convertQuoteToJob(
       })
       .returning();
 
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`jobs-sort:${plannedDate}`}))`);
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtext(${`jobs-sort:${plannedDate}`}))`,
+    );
     const [order] = await tx
       .select({ maxSort: max(jobsTable.sortOrder) })
       .from(jobsTable)

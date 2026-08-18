@@ -18,22 +18,52 @@ import {
   AuditCredentialAccessBody,
   AuditCredentialExportParams,
 } from "@workspace/api-zod";
-import { requireRole, requireBiometricVerified } from "../middlewares/auth";
+import { requireVaultStepUp } from "../middlewares/auth";
+import { requirePermission } from "../middlewares/permissions";
+import {
+  clearedLegacyDeviceSecrets,
+  decryptDeviceCredentialPayload,
+  encryptDeviceCredentialPayload,
+  hydrateDeviceCredential,
+  type DeviceCredentialSecretPayload,
+} from "../lib/device-credential-secrets";
 
 const router: IRouter = Router();
 
-// Device credentials are a sensitive credential vault (plaintext passwords).
-// Restrict all access to elevated roles; guests/read-only users must not read them.
-// NOTE: requireRole is applied per-route (not via a pathless router.use), because
-// this router is mounted pathlessly in routes/index.ts — a pathless middleware here
-// would run for every request flowing through the router chain, not just device
-// credential routes, and would 401 unauthenticated requests (e.g. login) downstream.
-const requireVaultAccess = requireRole("master", "admin");
+// Customer permissions control access to the parent entity; credentials.* is
+// always required in addition because this is a plaintext credential vault.
+const requireVaultView = requirePermission("credentials.view");
+const requireVaultManage = requirePermission("credentials.manage");
 
 function serializeCredential(c: typeof deviceCredentialsTable.$inferSelect) {
+  const {
+    secretCiphertext: _secretCiphertext,
+    secretKeyId: _secretKeyId,
+    secretEncryptedAt: _secretEncryptedAt,
+    ...credential
+  } = hydrateDeviceCredential(c);
   return {
-    ...c,
+    ...credential,
     createdAt: c.createdAt.toISOString(),
+  };
+}
+
+function secretPayloadFromInput(
+  input: Partial<DeviceCredentialSecretPayload>,
+  fallback?: DeviceCredentialSecretPayload,
+): DeviceCredentialSecretPayload {
+  return {
+    ipAddress: input.ipAddress !== undefined ? input.ipAddress : fallback?.ipAddress ?? null,
+    pin: input.pin !== undefined ? input.pin : fallback?.pin ?? null,
+    username: input.username !== undefined ? input.username : fallback?.username ?? null,
+    password: input.password !== undefined ? input.password : fallback?.password ?? null,
+    email: input.email !== undefined ? input.email : fallback?.email ?? null,
+    note: input.note !== undefined ? input.note : fallback?.note ?? null,
+    users: input.users !== undefined ? input.users : fallback?.users ?? [],
+    networkTopology:
+      input.networkTopology !== undefined
+        ? input.networkTopology
+        : fallback?.networkTopology ?? [],
   };
 }
 
@@ -56,8 +86,8 @@ async function siteBelongsToCustomer(
 
 router.get(
   "/customers/:customerId/device-credentials",
-  requireVaultAccess,
-  requireBiometricVerified,
+  requireVaultView,
+  requireVaultStepUp,
   async (req, res): Promise<void> => {
     const params = ListDeviceCredentialsParams.safeParse(req.params);
     if (!params.success) {
@@ -76,7 +106,8 @@ router.get(
 
 router.post(
   "/customers/:customerId/device-credentials",
-  requireVaultAccess,
+  requireVaultManage,
+  requireVaultStepUp,
   async (req, res): Promise<void> => {
     const params = CreateDeviceCredentialParams.safeParse(req.params);
     if (!params.success) {
@@ -107,15 +138,33 @@ router.post(
       return;
     }
 
-    const [credential] = await db
-      .insert(deviceCredentialsTable)
-      .values({ ...parsed.data, customerId: params.data.customerId })
-      .returning();
+    const credential = await db.transaction(async (tx) => {
+      const [inserted] = await tx
+        .insert(deviceCredentialsTable)
+        .values({
+          customerId: params.data.customerId,
+          siteId: parsed.data.siteId ?? null,
+          type: parsed.data.type ?? null,
+          serialNumber: parsed.data.serialNumber ?? null,
+          ...clearedLegacyDeviceSecrets,
+        })
+        .returning();
+      const encrypted = encryptDeviceCredentialPayload(
+        inserted.id,
+        secretPayloadFromInput(parsed.data),
+      );
+      const [updated] = await tx
+        .update(deviceCredentialsTable)
+        .set(encrypted)
+        .where(eq(deviceCredentialsTable.id, inserted.id))
+        .returning();
+      return updated;
+    });
     res.status(201).json(serializeCredential(credential));
   },
 );
 
-router.patch("/device-credentials/:id", requireVaultAccess, async (req, res): Promise<void> => {
+router.patch("/device-credentials/:id", requireVaultManage, requireVaultStepUp, async (req, res): Promise<void> => {
   const params = UpdateDeviceCredentialParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -129,7 +178,7 @@ router.patch("/device-credentials/:id", requireVaultAccess, async (req, res): Pr
   }
 
   const [existing] = await db
-    .select({ customerId: deviceCredentialsTable.customerId })
+    .select()
     .from(deviceCredentialsTable)
     .where(eq(deviceCredentialsTable.id, params.data.id));
 
@@ -146,16 +195,30 @@ router.patch("/device-credentials/:id", requireVaultAccess, async (req, res): Pr
     return;
   }
 
+  const currentSecrets = decryptDeviceCredentialPayload(existing);
+  const encrypted = encryptDeviceCredentialPayload(
+    existing.id,
+    secretPayloadFromInput(parsed.data, currentSecrets),
+  );
+
   const [credential] = await db
     .update(deviceCredentialsTable)
-    .set(parsed.data)
+    .set({
+      ...(parsed.data.siteId !== undefined ? { siteId: parsed.data.siteId } : {}),
+      ...(parsed.data.type !== undefined ? { type: parsed.data.type } : {}),
+      ...(parsed.data.serialNumber !== undefined
+        ? { serialNumber: parsed.data.serialNumber }
+        : {}),
+      ...clearedLegacyDeviceSecrets,
+      ...encrypted,
+    })
     .where(eq(deviceCredentialsTable.id, params.data.id))
     .returning();
 
   res.json(serializeCredential(credential));
 });
 
-router.delete("/device-credentials/:id", requireVaultAccess, async (req, res): Promise<void> => {
+router.delete("/device-credentials/:id", requireVaultManage, requireVaultStepUp, async (req, res): Promise<void> => {
   const params = DeleteDeviceCredentialParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -178,7 +241,8 @@ router.delete("/device-credentials/:id", requireVaultAccess, async (req, res): P
 // Audit event for the customer credential export/handover PDF page being opened.
 router.post(
   "/customers/:customerId/device-credentials/audit-export",
-  requireVaultAccess,
+  requireVaultView,
+  requireVaultStepUp,
   async (req, res): Promise<void> => {
     const params = AuditCredentialExportParams.safeParse(req.params);
     if (!params.success) {
@@ -223,7 +287,8 @@ const FIELD_LABELS: Record<string, string> = {
 // Excluded from the generic auditMutations middleware via SKIP_SUFFIXES.
 router.post(
   "/device-credentials/:id/audit-access",
-  requireVaultAccess,
+  requireVaultView,
+  requireVaultStepUp,
   async (req, res): Promise<void> => {
     const params = AuditCredentialAccessParams.safeParse(req.params);
     if (!params.success) {

@@ -466,7 +466,7 @@ describe("delivery-note exception permission", () => {
     const request = {
       path: "/billing/documents/123/delivery-note-resolution",
       method: "POST",
-      auth: { role: "admin", permissions },
+      auth: { role: "admin", accountType: "internal", permissions },
     };
     const response = {
       status: vi.fn(),

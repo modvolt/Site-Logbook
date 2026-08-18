@@ -1,0 +1,379 @@
+# R16-C3 – runbook izolovaného schema dark rollout
+
+Datum: 2026-08-05
+
+Tento runbook připravuje migraci `0105_smooth_nitro` pouze v novém izolovaném
+stagingu. Neautorizuje merge do `main`, produkční deploy, změnu produkčních
+secretů, spuštění migrace ani zapnutí externích účtů.
+
+## Neměnné hranice
+
+- Produkční Coolify resource `Modvolt`, doména `modvoltapp.cz`, produkční DB a
+  produkční S3 zůstávají mimo rozsah.
+- Staging smí použít obnovenou kopii produkční zálohy, ale musí mít vlastní
+  aplikaci, síť, PostgreSQL volume, DB identitu, S3 bucket a credentials, mail
+  sandbox, admin identitu a alert receiver.
+- `EXTERNAL_ACCOUNTS_ENABLED` zůstává přesně `false`.
+- Migrace `0100` nesmí být v journalu, souborech ani živé DB evidenci.
+- V R16-C3 se nevytváří draft, scope, event ani externí uživatel. První takový
+  záznam je point-of-no-return pro guarded rollback `0105`.
+
+## Povinné vstupy
+
+1. auditovatelný release-candidate branch a draft PR přímo proti `main`, bez
+   merge;
+2. zelený exact-SHA Quality gate pro konečný candidate SHA;
+3. privátní immutable GHCR manifest pro stejné SHA a všechny image reference
+   ve tvaru `repository@sha256:<digest>`;
+4. samostatná HTTPS staging doména mimo `modvoltapp.cz` a samostatný HTTPS alert
+   receiver;
+5. staging-only secrets z `.env.staging.example`; žádná hodnota se nesmí převzít
+   z produkce;
+6. nejnovější konkrétní `backup_log.id`, který patří úspěšné, neprázdné,
+   SHA-256 označené a `mve1` šifrované záloze a na témže řádku má
+   `restore_status=ok` s čerstvým `restore_tested_at`;
+7. staging admin s `diagnostics.view` i `users.manage`, protože smoke čte
+   redigovaný inventář `/api/external-accounts`;
+8. samostatný výslovný souhlas s aplikací `0105` na staging.
+
+Obnovená produkční kopie nemusí být na `0104`, protože aktuálně běžící produkční
+image je starší než R16-C2. Po restore se proto nejprve pouze přečte journal:
+
+- pokud je přesně na `0104`, pokračuje se níže;
+- pokud je za `0104`, rollout se zastaví a provede se samostatně schválený
+  baseline rollout immutable predecessor image, jehož journal končí na `0104`.
+  Známý auditovaný predecessor je
+  `c3a83a0e68e4c2eb4b2a64661e0396c81f1adde3`;
+- po baseline migracích se provede interní regrese, vytvoří nová staging-only
+  záloha přesného stavu `0104` a restore-test stejného backup ID;
+- pokud je DB před `0104` jinak driftovaná nebo už obsahuje `0105`, nepokračuje
+  se. Aktuální candidate se nikdy nesmí použít k tichému přeskočení baseline
+  brány.
+
+### Immutable predecessor publication boundary
+
+Příprava predecessor image je oddělená od candidate publisheru. Reusable workflow
+`.github/workflows/staging-predecessor-image.yml` nemá vstup pro SHA, ref ani PR a
+je natvrdo svázaný s commitem
+`c3a83a0e68e4c2eb4b2a64661e0396c81f1adde3` a Git tree
+`cd46c3bcf51d6ab64f2fe788e0a7af97e74c999c`. Ověřuje 104 SQL souborů, 104 journal
+řádků, ocas `0104_thin_sheva_callister` a absenci `0100` i `0105`.
+
+Workflow smí zavolat pouze ruční wrapper
+`modvolt/site-logbook-registry/.github/workflows/publish-staging-predecessor.yml`
+z privátní větve `main`. Publikuje nejvýše jednu `linux/amd64` API image do
+existujícího privátního package `site-logbook-staging-api`, s provenance a SBOM.
+Přesný SHA tag smí přejít pouze z absent do jedné publikované verze; jedna již
+existující a vzdáleně ověřená verze je no-op. Duplicitní tag, jiný caller nebo
+jiný package jsou stop.
+
+Výstup `staging-predecessor-image.json` a GNU checksum jsou samostatný artefakt;
+nenahrazují candidate manifest pěti images. Před použitím se raw bytes svážou s
+odděleně schváleným checksumem a identitou caller runu:
+
+```powershell
+pnpm gate:staging-predecessor-image -- --manifest staging-predecessor-image.json --checksum staging-predecessor-image.sha256 --expected-manifest-sha256 <64-hex> --expected-caller-workflow-ref modvolt/site-logbook-registry/.github/workflows/publish-staging-predecessor.yml@refs/heads/main --expected-run-id <id> --expected-run-attempt <attempt>
+```
+
+Tento publisher pouze připraví immutable image. Neautorizuje GHCR zápis bez
+samostatného potvrzení, nenasazuje ji, nekontaktuje Coolify a nespouští migrátor.
+
+### Manual-only runtime baseline `0104`
+
+Runtime baseline je samostatná fail-closed brána. Primární
+`STAGING_SCHEMA_ACTION` během ní zůstává `inspect` a confirmation pro `0105`
+zůstává prázdná. Candidate manifest/provisioning, čerstvý obnovený backup a
+predecessor manifest se nejprve spojí do jednoho secret-free bindingu:
+
+```powershell
+pnpm gate:staging-baseline-0104-binding -- --candidate-manifest staging-images.json --candidate-checksum staging-images.sha256 --provisioning staging-provisioning.json --expected-candidate-manifest-sha256 <64-hex> --expected-candidate-source-sha <40-hex> --expected-candidate-caller-workflow-ref <exact-ref> --expected-candidate-caller-workflow-sha <private-main-40-hex> --expected-candidate-run-id <id> --expected-candidate-run-attempt <attempt> --predecessor-manifest staging-predecessor-image.json --predecessor-checksum staging-predecessor-image.sha256 --expected-predecessor-manifest-sha256 <64-hex> --expected-predecessor-caller-workflow-ref modvolt/site-logbook-registry/.github/workflows/publish-staging-predecessor.yml@refs/heads/main --expected-predecessor-run-id <id> --expected-predecessor-run-attempt <attempt> --backup-evidence-id <id> --backup-restore-max-age-hours 24 --output-dir staging-baseline-binding
+```
+
+Výstup obsahuje kanonické `staging-baseline-0104-inputs.json`, GNU checksum a
+secret-free environment JSON. Binding explicitně uvádí
+`productionTargetsTouched=false`, přesný candidate API digest, fixní predecessor
+source/tree/API digest, backup ID, target 104/`0104`, zákaz `0100` i `0105` a
+`authorizes0105=false`. Confirmation zůstává v artifactu prázdná.
+
+Po samostatném souhlasu se environment hodnoty vloží do izolovaného stagingu,
+confirmation se nastaví přesně na
+`APPLY_FIXED_PREDECESSOR_0104_TO_ISOLATED_SITE_LOGBOOK_STAGING` a spustí se pouze
+host runner:
+
+```powershell
+pnpm staging:apply-0104-baseline -- --env-file .env.staging --compose-file docker-compose.staging.yml --expected-inputs-sha256 <64-hex> --confirm APPLY_FIXED_PREDECESSOR_0104_TO_ISOLATED_SITE_LOGBOOK_STAGING --output-dir staging-baseline-execution
+```
+
+Runner čtyřikrát ověří, že jedinou běžící Compose službou je `postgres`. Candidate
+image provede read-only precheck. Pouze při přesném journal prefixu před `0104`
+se spustí profile-only `baseline-0104-migrator` z fixní predecessor image; při již
+přesném `0104` jde o ověřený no-op. Candidate postcheck musí vždy potvrdit přesně
+104 migrací, ocas `0104_thin_sheva_callister`, čerstvý svázaný backup, dark flag
+a nulový externí stav. `0105`, drift, jiná image identita nebo běžící API/web jsou
+tvrdý stop.
+
+Úspěšný runner uloží `staging-baseline-0104-execution.json` a checksum, ale
+neautorizuje `0105`. Než vznikne transition binding pro `0105`, musí se na novém
+exact-0104 stavu vytvořit nová staging-only šifrovaná záloha a úspěšně
+restore-testovat stejné nové backup ID.
+
+### Vytvoření a read-only důkaz nového exact-0104 backupu
+
+Běžné API se na exact `0104` nesmí spustit. Po samostatném schválení vytvoří a
+restore-testuje novou staging-only zálohu pouze profile-only runner:
+
+```powershell
+pnpm staging:create-exact-0104-backup -- --env-file .env.staging --compose-file docker-compose.staging.yml --expected-source-sha <40-hex> --baseline-execution <baseline-execution-dir>\staging-baseline-0104-execution.json --baseline-execution-checksum <baseline-execution-dir>\staging-baseline-0104-execution.sha256 --expected-baseline-execution-sha256 <64-hex> --inspect-inputs <initial-binding-dir>\staging-deployment-inspect.json --inspect-inputs-checksum <initial-binding-dir>\staging-deployment-inspect.sha256 --expected-inspect-inputs-sha256 <64-hex> --confirm CREATE_FRESH_EXACT_0104_STAGING_BACKUP_AND_RESTORE_TEST --output-dir <backup-execution-dir>
+```
+
+Runner nejprve ověří kanonické inspect inputs a skutečný výstup
+`docker compose config --format json`: logické runtime ID
+`site-logbook-staging`, oddělené opaque Coolify environment ID, přesný Compose
+project, digest candidate API image, staging DB identitu a schválený S3
+endpoint/region/bucket. Teprve potom před i po běhu vyžaduje jako jedinou běžící
+Compose službu `postgres`.
+Candidate image provede pre/post inventuru exact `0104`, vytvoří právě jednu novou
+`mve1` zálohu bez retenčního promazávání a restore-testuje stejné ID v dočasné DB.
+One-shot má pevný payload limit 256 MiB a `/tmp` tmpfs 512 MiB. Velikost
+custom-format dumpu se kontroluje před načtením do paměti, encrypted payload před
+uploadem a uložený payload před restore downloadem; překročení je tvrdý stop bez
+pokusu o migraci. Tento limit se před stagingem nesmí zvyšovat bez nového review
+memory a diskového rozpočtu.
+Nové ID musí být vyšší než ID použité při baseline a `created_at` musí být
+striktně po `completedAt` baseline execution artefaktu. Výstup
+`staging-exact-0104-backup-execution.json` a checksum vždy uvádějí
+`authorizes0105=false`.
+
+Nejprve se oba baseline artefakty a jejich samostatně schválené checksumy spojí
+s přesnými bajty nového backup execution artefaktu:
+
+```powershell
+pnpm gate:staging-exact-0104-recovery-binding -- --baseline-inputs <baseline-binding-dir>\staging-baseline-0104-inputs.json --baseline-inputs-checksum <baseline-binding-dir>\staging-baseline-0104-inputs.sha256 --expected-baseline-inputs-sha256 <64-hex> --baseline-execution <baseline-execution-dir>\staging-baseline-0104-execution.json --baseline-execution-checksum <baseline-execution-dir>\staging-baseline-0104-execution.sha256 --expected-baseline-execution-sha256 <64-hex> --backup-execution <backup-execution-dir>\staging-exact-0104-backup-execution.json --backup-execution-checksum <backup-execution-dir>\staging-exact-0104-backup-execution.sha256 --expected-backup-execution-sha256 <64-hex> --inspect-inputs <initial-binding-dir>\staging-deployment-inspect.json --inspect-inputs-checksum <initial-binding-dir>\staging-deployment-inspect.sha256 --expected-inspect-inputs-sha256 <64-hex> --backup-restore-max-age-hours 24 --output-dir <recovery-binding-dir>
+```
+
+Backup ID se nezadává ručně. Binding jej převezme pouze z přesných, samostatně
+schválených bajtů backup execution artefaktu a do recovery inputs přenese také
+jeho SHA-256, skutečnou velikost a pevný 256 MiB strop.
+Z původních checksumově schválených inspect bajtů zároveň deterministicky odvodí
+`staging-exact-0104-recovery-inspect.json`: nahradí pouze staré backup ID novým ID
+z backup execution, nastaví schválený restore max-age a přepočítá inspect SHA.
+Tento nový SHA se vloží i do recovery environmentu; starý inspect artefakt zůstává
+jen vstupem lineage a recovery runner jej přímo nepoužije.
+
+Binding ponechá `STAGING_SCHEMA_ACTION=inspect`, flag `false`, confirmation pro
+`0105` prázdnou a vytvoří kanonické secret-free inputs, checksum a environment
+JSON. Potom se spustí pouze read-only host runner:
+
+Nejdříve zkontrolujte
+`<recovery-binding-dir>\staging-exact-0104-recovery-environment.json` a
+nainstalujte jeho přesné hodnoty do `.env.staging`. Starší baseline nebo recovery
+hodnoty musí být odstraněny; environment JSON je secret-free přenosový artefakt,
+nikoli náhrada za staging secrets.
+
+```powershell
+pnpm staging:verify-exact-0104-recovery -- --env-file .env.staging --compose-file docker-compose.staging.yml --expected-source-sha <40-hex> --expected-inputs-sha256 <64-hex> --inspect-inputs <recovery-binding-dir>\staging-exact-0104-recovery-inspect.json --inspect-inputs-checksum <recovery-binding-dir>\staging-exact-0104-recovery-inspect.sha256 --expected-inspect-inputs-sha256 <64-hex> --output-dir <recovery-execution-dir>
+```
+
+Host runner znovu ověří přesné canonical inspect bytes a samostatně schválený
+checksum proti skutečně resolved Compose targetu. Před i po gate váže image,
+project/service labels, staging volume, síť a nezměněné ID běžícího Postgres
+containeru; závěrečná kontrola proběhne v `finally` také při selhání gate.
+
+Runner před i po one-shot gate vyžaduje jako jedinou běžící službu `postgres`.
+Gate v jedné read-only repeatable-read transakci ověří přesný 104řádkový journal,
+tail `0104_thin_sheva_callister`, absenci `0100`, `0105` a externího stavu a
+nejnovější backup řádek. Záloha musí být úspěšná, neprázdná, `mve1` šifrovaná,
+hashovaná, vytvořená po baseline a úspěšně restore-testovaná do dočasné DB.
+Skutečný destruktivní restore (`restored_at`) je pro tento důkaz zakázán.
+
+Evidence neobsahuje object path ani key ID; ukládá pouze jejich SHA-256
+fingerprinty, digest šifrovaného payloadu, časovou posloupnost, dobu restore testu
+a hash ověřených tabulkových počtů. Výsledek má vždy `authorizes0105=false` a
+`nextGate=separate-0105-transition-binding-required`. Aplikace `0105` proto i po
+úspěšném recovery důkazu vyžaduje nový samostatný binding a výslovný souhlas.
+
+Po PASS recovery runneru spusťte znovu `gate:staging-deployment-binding` do
+nového prázdného adresáře s novým backup ID. Tím vzniknou nové inspect,
+transition a steady inputy i jejich tři GNU checksumy. Původní binding svázaný
+se starým backup ID se nesmí použít pro `0105`.
+
+Pro všechny následující příkazy si zaznamenejte absolutní cestu tohoto nového
+binding adresáře a absolutní cestu `staging-exact-0104-recovery-execution`.
+Z nového `staging-deployment-environment.json` zkontrolujte blok `transition` a
+instalujte jeho přesné hodnoty do `.env.staging`; hodnoty z dřívějšího inspect
+nebo transition bindingu se nesmí ponechat. JSON je secret-free přenosový
+artefakt, nikoli náhrada za staging secrets.
+
+## Fail-closed vstupní kontrakt
+
+Do prázdného staging secret store se doplní hodnoty podle
+`.env.staging.example`. Pro schema gate jsou navíc povinné:
+
+- `STAGING_BUILD_SHA` – exact candidate SHA;
+- `STAGING_IMAGE_MANIFEST_SOURCE_SHA` – `sourceSha` z immutable manifestu;
+- `STAGING_IMAGE_MANIFEST_B64` – přesné raw bytes `staging-images.json` jako
+  jednořádkové base64, nikdy ručně sestavený JSON;
+- `STAGING_IMAGE_MANIFEST_SHA256` – odděleně schválený SHA-256 raw manifestu;
+- `STAGING_PROVISIONING_MANIFEST_SHA256` – SHA-256 validovaného observed Coolify
+  provisioning manifestu;
+- `STAGING_DEPLOYMENT_INPUTS_SHA256` – hash kanonických secret-free vstupů pro
+  právě zvolený režim; `inspect`, `apply-0105` a `steady-0105` mají každý jiný hash;
+- `STAGING_EXTERNAL_ACCOUNTS_ENABLED=false`;
+- `STAGING_SCHEMA_ACTION` – přesně jeden z režimů níže;
+- `STAGING_BACKUP_EVIDENCE_ID` – ID nejnovějšího svázaného backup řádku;
+- `STAGING_BACKUP_RESTORE_MAX_AGE_HOURS` – celé číslo 1 až 168, doporučeně 24;
+- `STAGING_EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION` – ponechat prázdné až do
+  samostatného schválení migrace; poté pouze přesná fráze
+  `APPLY_0105_TO_ISOLATED_SITE_LOGBOOK_STAGING`.
+
+Režimy jsou záměrně oddělené:
+
+- `inspect` – confirmation musí být prázdné, backup ID/age jsou povinné a smí se
+  spustit pouze PostgreSQL plus read-only inventory;
+- `apply-0105` – vyžaduje přesnou confirmation frázi a čerstvě svázaný backup;
+  pouze tento režim smí spustit standardní migrátor;
+- `steady-0105` – confirmation i historické backup ID/age musí být prázdné;
+  povolí pouze exact-0105 read-only restart gate.
+
+Staging boundary preflight ověří formát, přesnou shodu SHA, explicitní
+`flag=false` a kontrakt zvoleného režimu ještě před startem PostgreSQL. DB schema
+gate následně porovná také `BUILD_SHA` zapečené v immutable API image.
+Host transition runner navíc před vytvořením intentu porovná resolved Compose
+project, exact API digest, staging DB identitu a source/input hashe s kanonickým
+transition artefaktem. Opaque Coolify environment ID se nikdy nepoužívá jako
+náhrada logického runtime ID `site-logbook-staging`.
+
+## Offline supply-chain a provisioning vazba
+
+Candidate manifest musi byt schema version 3 a musi obsahovat
+`deletedHistoryControl` svazany s kanonickym stage-specific ledgerem, exact private
+caller workflow SHA, first-attempt runem a jedinecnosti v aktualne viditelne Actions
+historii pod API limitem 1000 zaznamu. Stage `preflight-only`
+a stage `complete` pouzivaji dva ruzne, samostatne reviewovane private-main caller
+commity; druhy ledger navic odkazuje na checksum prvniho ledgeru a na schvaleny
+preflight digest. Actions runy lze smazat, proto ani tento reviewed visible-history
+ledger neprokazuje historickou neexistenci runu nebo smazanych GHCR verzi. Bez samostatneho prijeti
+tohoto residualu zustava prvni candidate dispatch `NO-GO`.
+
+Pět image referencí se nesmí přepisovat samostatně. Po stažení image artifactu
+se nejprve ověří raw manifest, jeho GNU checksum a odděleně schválený checksum:
+
+```powershell
+pnpm gate:staging-image-manifest -- --manifest staging-images.json --checksum staging-images.sha256 --expected-manifest-sha256 <64-hex> --expected-source-sha <40-hex> --expected-caller-workflow-ref <exact-ref> --expected-caller-workflow-sha <private-main-40-hex> --expected-run-id <id> --expected-run-attempt <attempt>
+```
+
+Nový Coolify resource se popíše kopií
+`docs/audit/16-c3-staging-provisioning.template.json`. Manifest neobsahuje hesla,
+tokeny, access keys ani keyringy. Režim `observed` musí obsahovat skutečné nové
+resource/network/volume identifikátory a explicitní seznam zakázaných produkčních
+targetů:
+
+```powershell
+pnpm gate:staging-provisioning -- --file staging-provisioning.json --expected-source-sha <40-hex>
+```
+
+Teprve oba PASS výsledky smějí atomicky vytvořit tři kanonické input artefakty a
+secret-free Coolify hodnoty. Existující evidence adresář se nepřepisuje:
+
+```powershell
+pnpm gate:staging-deployment-binding -- --manifest staging-images.json --checksum staging-images.sha256 --provisioning staging-provisioning.json --expected-manifest-sha256 <64-hex> --expected-source-sha <40-hex> --expected-caller-workflow-ref <exact-ref> --expected-caller-workflow-sha <private-main-40-hex> --expected-run-id <id> --expected-run-attempt <attempt> --backup-evidence-id <id> --backup-restore-max-age-hours 24 --output-dir staging-binding-evidence
+```
+
+`staging-provisioning-observed.json` je kanonická podoba provisioning artefaktu,
+jejíž raw SHA se rovná hodnotě vložené do deployment inputů.
+`staging-deployment-environment.json` je secret-free přenosový soubor. Obsahuje
+samostatné hodnoty pro inspect, transition a steady režim; produkční nebo staging
+secrets se do něj nikdy neukládají.
+
+Pro read-only inventuru se nastaví `STAGING_SCHEMA_ACTION=inspect`, spustí se jen
+izolovaný PostgreSQL a po obnovení schválené kopie se zavolá:
+
+```powershell
+docker compose --env-file .env.staging -f docker-compose.staging.yml up -d postgres
+docker compose --env-file .env.staging -f docker-compose.staging.yml run --rm --no-deps external-schema-gate node dist/external-schema-inventory.mjs
+```
+
+Výsledek může být pouze `BASELINE_0104_REQUIRED`, `READY_0104` nebo
+`ALREADY_0105`. Neznámý řádek, mezera uprostřed journalu, duplicate, hash drift,
+`0100` nebo řádek za `0105` končí chybou. Inventory nevypisuje DB URL, object
+path, hash zálohy ani key ID.
+
+Recovery běh po již úspěšné migraci neskládá finální evidence ze starého
+recovery JSON. Režim `apply-0105` v tomto případě znovu spustí úplný post
+preflight, v jedné read-only repeatable-read transakci zachytí současný journal i
+tentýž backup řádek a vrátí svázaný `NOOP` pár. Host runner jej přijme pouze s
+již existujícím shodným intentem.
+
+## Bezpečné pořadí
+
+1. Ověřit izolaci DNS/TLS, DB, storage, mailu, alert receiveru a credentials.
+2. Ověřit exact-SHA CI a immutable image manifest; nespoléhat na tag bez digestu.
+3. V režimu `inspect` obnovit schválenou produkční kopii do samostatného staging
+   volume a výše uvedeným příkazem read-only ověřit její exact journal. Pokud
+   inventory vrátí `BASELINE_0104_REQUIRED`, použít výše uvedený oddělený
+   candidate-precheck/predecessor-migrator/candidate-postcheck baseline runner;
+   jiný drift je stop.
+4. Na exact stavu `0104` vytvořit novou staging-only zálohu, restore-testovat
+   stejné ID a toto nejnovější ID nastavit jako schema-gate evidence.
+5. Teprve po výslovném souhlasu spustit pouze host runner s novým transition
+   inputem a ověřeným recovery execution artefaktem:
+
+   ```powershell
+   pnpm staging:apply-0105-transition -- --env-file .env.staging --compose-file docker-compose.staging.yml --expected-source-sha <40-hex> --transition-inputs <new-binding-dir>\staging-deployment-transition.json --transition-inputs-checksum <new-binding-dir>\staging-deployment-transition.sha256 --expected-transition-inputs-sha256 <64-hex> --recovery-execution <recovery-execution-dir>\staging-exact-0104-recovery-execution.json --recovery-execution-checksum <recovery-execution-dir>\staging-exact-0104-recovery-execution.sha256 --expected-recovery-execution-sha256 <64-hex> --confirm APPLY_0105_TO_ISOLATED_SITE_LOGBOOK_STAGING --output-dir staging-schema-transition
+   ```
+
+   Holý `docker compose run external-schema-gate` není evidenční cesta.
+
+6. State-aware one-shot `external-schema-gate` pod advisory lockem `911072468`
+   nejprve přijme idempotentní exact-0105 stav jako read-only no-op. Pro nový
+   přechod v pre-mode
+   vyžaduje:
+   - přesných 104 DB migration řádků a přesné hashe do `0104`;
+   - žádné extra nebo duplicitní řádky a žádnou `0105`;
+   - journal přesně 105 položek, ocas `0104 -> 0105`, správný snapshot chain a
+     pinned hashe obou migrací;
+   - nulový výskyt `0100`;
+   - absenci všech schema objektů `0105`;
+   - shodu DB name/user/host a platný nejnovější backup evidence řádek.
+7. Stejný one-shot container zavolá přímo sdílený `runMigrations`; nevytváří
+   vedlejší proces `dist/migrate.mjs`. Interní migrator result musí mít přesně
+   `newlyApplied=1` pro nový přechod nebo `newlyApplied=0` pro souběžný no-op.
+   Trvalý host evidence neukládá tento interní počet; ukládá z něj odvozenou
+   klasifikaci `APPLIED` nebo `NOOP`. `NOOP` se přijme pouze při obnově se shodným
+   dříve uloženým intentem.
+8. Post-mode vyžaduje přesných 105 migration řádků, kompletní validované
+   constraints/indexy/funkce a povolené triggery `0105`, všechny existující
+   uživatele typu `internal` a nulu externích users/profilů/scopes/events.
+   Runner před migrací uloží kanonický intent jen po `READY_0104` a z jednoho
+   post-mode DB snapshotu atomicky zpřístupní `final/staging-schema-gate.json`,
+   `final/staging-backup-evidence.json` a oba checksumy. Pokud host skončí po
+   migraci, smí následný `ALREADY_0105` finalizovat evidence pouze s již
+   existujícím shodným intentem; první no-op bez intentu je stop.
+9. Po úspěšném přechodu se nastaví `STAGING_SCHEMA_ACTION=steady-0105` a vymaže
+   confirmation i obě backup evidence proměnné. API smí startovat až po
+   úspěšném one-shot gate. Při každém restartu provede exact-0105 read-only
+   steady-state kontrolu a teprve potom spustí server; startup API již žádnou
+   migraci automaticky neprovádí a není svázaný se stářím historické zálohy.
+10. Ruční staging smoke ověří exact SHA, admin health, `0105`, 105/105,
+    `runtimeEnabled=false`, prázdný inventář, interní login, desktop/mobile/PWA,
+    S3 write/delete sondu a alert drill.
+11. Uložit secret-free bootstrap artifact a zastavit. Pilot a změna flagu jsou
+    samostatná další fáze.
+
+Finální schema-v4 release evidence se ověřuje pouze spolu se všemi osmi raw
+artefakty; deklarované hashe bez zdrojových bytes nestačí:
+
+```powershell
+pnpm gate:staging-evidence -- --file staging-release-evidence.json --image-manifest staging-images.json --inspect-inputs staging-deployment-inspect.json --transition-inputs staging-deployment-transition.json --steady-inputs staging-deployment-steady.json --schema-gate-evidence staging-schema-gate.json --backup-evidence staging-backup-evidence.json --provisioning staging-provisioning-observed.json --bootstrap staging-bootstrap-summary.json
+```
+
+## Stop podmínky
+
+Okamžitě zastavit při neshodě SHA/digestu, sdíleném produkčním targetu, chybějící
+nebo jiné migraci, hash driftu, extra DB journal řádku, schema driftu, jiném
+backup ID, nešifrované či neověřené záloze, starém restore důkazu, nenulovém
+externím stavu nebo flagu jiném než přesně `false`.
+
+Při selhání před migrací se nic nemění. Při selhání během migrace API nenastartuje.
+Před prvním externím datovým řádkem lze po samostatném rozhodnutí použít guarded
+rollback `0105`; po vzniku externích dat pouze roll-forward a vypnutí flagu.

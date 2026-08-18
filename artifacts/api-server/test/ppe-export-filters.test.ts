@@ -10,6 +10,7 @@ import {
   peopleTable,
 } from "@workspace/db";
 import app from "../src/app";
+import { bindAuthenticatedAgent } from "./scoped-test-agent";
 
 /**
  * Integration tests for GET /api/ppe/assignments/export.
@@ -144,6 +145,7 @@ beforeAll(async () => {
     .post("/api/auth/login")
     .send({ username: `${TAG}-admin`, password: PASSWORD });
   expect(loginRes.status).toBe(200);
+  await bindAuthenticatedAgent(adminAgent);
 });
 
 afterAll(async () => {

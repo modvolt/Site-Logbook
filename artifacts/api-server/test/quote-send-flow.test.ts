@@ -1,12 +1,18 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import {
   db,
   quotesTable,
   quoteItemsTable,
   customersTable,
+  billingSettingsTable,
+  publicAccessTokensTable,
+  quoteDecisionEventsTable,
+  quoteVersionsTable,
+  usersTable,
 } from "@workspace/db";
 import { ObjectStorageService } from "../src/lib/objectStorage";
+import { hashPublicAccessToken } from "../src/lib/public-access-token";
 
 /**
  * Quote send flow — create → send (DB-backed).
@@ -46,7 +52,7 @@ vi.mock("../src/lib/email", () => ({
 
 // Import service AFTER vi.mock so the hoisted mock is applied when the
 // module resolves its own `import { sendEmailWithPdf } from "./email"`.
-const { createQuote, sendQuote, generateAndStorePdf } = await import(
+const { createQuote, sendQuote, generateAndStorePdf, getQuoteByShareToken } = await import(
   "../src/lib/quote-service"
 );
 
@@ -55,8 +61,10 @@ const { createQuote, sendQuote, generateAndStorePdf } = await import(
 // ---------------------------------------------------------------------------
 
 const TAG = `test-quote-send-${Date.now()}`;
+const originalPublicUrl = process.env.PUBLIC_APP_URL;
 
 let customerId: number;
+let quoteIssuerId: number;
 const quoteIds: number[] = [];
 
 // Spy on the prototype so the module-level `new ObjectStorageService()` inside
@@ -64,12 +72,29 @@ const quoteIds: number[] = [];
 let putSpy: ReturnType<typeof vi.spyOn>;
 
 beforeAll(async () => {
+  process.env.PUBLIC_APP_URL = "https://quotes.test";
   putSpy = vi
     .spyOn(ObjectStorageService.prototype, "putPrivateObject")
     .mockResolvedValue(undefined);
 
-  // billing_settings row is auto-created by ensureSettings() if absent, so
-  // we do not need to seed it here.
+  // Quote number allocation locks the singleton row. A fresh isolated DB has
+  // no settings yet, so seed the same default row production setup creates.
+  await db
+    .insert(billingSettingsTable)
+    .values({ id: 1 })
+    .onConflictDoNothing();
+
+  const [issuer] = await db
+    .insert(usersTable)
+    .values({
+      username: `quote-send-issuer-${TAG}`,
+      passwordHash: "not-used",
+      name: "Quote send test issuer",
+      role: "admin",
+      isActive: true,
+    })
+    .returning({ id: usersTable.id });
+  quoteIssuerId = issuer.id;
 
   const [customer] = await db
     .insert(customersTable)
@@ -82,15 +107,19 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  if (originalPublicUrl == null) delete process.env.PUBLIC_APP_URL;
+  else process.env.PUBLIC_APP_URL = originalPublicUrl;
   vi.restoreAllMocks();
   if (quoteIds.length > 0) {
     await db
-      .delete(quoteItemsTable)
-      .where(inArray(quoteItemsTable.quoteId, quoteIds));
-    await db.delete(quotesTable).where(inArray(quotesTable.id, quoteIds));
+      .delete(publicAccessTokensTable)
+      .where(inArray(publicAccessTokensTable.resourceId, quoteIds));
   }
   if (customerId) {
     await db.delete(customersTable).where(eq(customersTable.id, customerId));
+  }
+  if (quoteIssuerId) {
+    await db.delete(usersTable).where(eq(usersTable.id, quoteIssuerId));
   }
 });
 
@@ -218,17 +247,22 @@ describe("sendQuote", () => {
       to: "zakaznik@example.com",
       subject: null,
       message: null,
+      createdByUserId: quoteIssuerId,
     });
 
     // Return value
     expect(result.sent).toBe(true);
     expect(result.to).toBe("zakaznik@example.com");
+    expect(result.quoteVersion).toBe(1);
+    expect(result.snapshotSha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(result.pdfSha256).toMatch(/^[0-9a-f]{64}$/);
 
     // DB: status → sent, pdfObjectPath set
     const [row] = await db
       .select({
         status: quotesTable.status,
         pdfObjectPath: quotesTable.pdfObjectPath,
+        shareToken: quotesTable.shareToken,
       })
       .from(quotesTable)
       .where(eq(quotesTable.id, quote!.id))
@@ -236,6 +270,7 @@ describe("sendQuote", () => {
 
     expect(row?.status).toBe("sent");
     expect(row?.pdfObjectPath).toBeTruthy();
+    expect(row?.shareToken).toBeNull();
 
     // Object storage: PDF was uploaded
     expect(putSpy).toHaveBeenCalledOnce();
@@ -251,12 +286,54 @@ describe("sendQuote", () => {
     };
     expect(emailCall.to).toBe("zakaznik@example.com");
     expect(emailCall.subject).toContain("Cenová nabídka");
+    const emailedUrl = /https:\/\/quotes\.test\/quote-share#token=[A-Za-z0-9_-]{43}/
+      .exec(emailCall.text)?.[0];
+    expect(emailedUrl).toBeTruthy();
+    const parsedEmailUrl = new URL(emailedUrl!);
+    expect(parsedEmailUrl.pathname).toBe("/quote-share");
+    expect(parsedEmailUrl.search).toBe("");
+    const emailedToken = new URLSearchParams(parsedEmailUrl.hash.slice(1)).get("token");
+    expect(emailedToken).toBeTruthy();
+    const [tokenRow] = await db
+      .select({
+        tokenHash: publicAccessTokensTable.tokenHash,
+        binding: publicAccessTokensTable.artifactBindingStatus,
+        quoteVersionId: publicAccessTokensTable.quoteVersionId,
+      })
+      .from(publicAccessTokensTable)
+      .where(and(
+        eq(publicAccessTokensTable.purpose, "quote_decision"),
+        eq(publicAccessTokensTable.resourceId, quote!.id),
+        isNull(publicAccessTokensTable.revokedAt),
+      ));
+    expect(tokenRow?.tokenHash).toBe(hashPublicAccessToken(emailedToken!));
+    expect(tokenRow?.binding).toBe("bound");
+    expect(tokenRow?.quoteVersionId).toEqual(expect.any(Number));
+    expect(JSON.stringify(tokenRow)).not.toContain(emailedToken!);
     expect(emailCall.pdfBase64.length).toBeGreaterThan(100);
     expect(emailCall.filename).toMatch(/^nabidka-.*\.pdf$/);
 
     // Sanity: the base64 decodes to a real PDF
     const decoded = Buffer.from(emailCall.pdfBase64, "base64");
     expect(decoded.slice(0, 4).toString()).toBe("%PDF");
+
+    const [version] = await db
+      .select()
+      .from(quoteVersionsTable)
+      .where(eq(quoteVersionsTable.quoteId, quote!.id));
+    expect(version).toMatchObject({
+      version: 1,
+      snapshotSha256: result.snapshotSha256,
+      pdfSha256: result.pdfSha256,
+    });
+
+    const publicBefore = await getQuoteByShareToken(emailedToken!);
+    await db.update(quotesTable).set({ title: `${TAG}-tampered-live-title` }).where(eq(quotesTable.id, quote!.id));
+    await db.update(quoteItemsTable).set({ description: `${TAG}-tampered-live-item` }).where(eq(quoteItemsTable.quoteId, quote!.id));
+    const publicAfter = await getQuoteByShareToken(emailedToken!);
+    expect(publicAfter?.title).toBe(publicBefore?.title);
+    expect(publicAfter?.items).toEqual(publicBefore?.items);
+    expect(publicAfter?.snapshotSha256).toBe(publicBefore?.snapshotSha256);
   });
 
   it("rejects send when the recipient email is missing or invalid", async () => {
@@ -269,7 +346,12 @@ describe("sendQuote", () => {
     quoteIds.push(quote!.id);
 
     await expect(
-      sendQuote(quote!.id, { to: "", subject: null, message: null }),
+      sendQuote(quote!.id, {
+        to: "",
+        subject: null,
+        message: null,
+        createdByUserId: quoteIssuerId,
+      }),
     ).rejects.toThrow(/platná e-mailová adresa/i);
   });
 
@@ -295,6 +377,7 @@ describe("sendQuote", () => {
       to: "a@example.com",
       subject: null,
       message: null,
+      createdByUserId: quoteIssuerId,
     });
 
     // Second send — quote is already "sent"; service allows re-sending
@@ -303,10 +386,23 @@ describe("sendQuote", () => {
       to: "b@example.com",
       subject: "Druhé zaslání",
       message: "Posíláme znovu.",
+      createdByUserId: quoteIssuerId,
     });
     expect(result.sent).toBe(true);
     expect(result.to).toBe("b@example.com");
+    expect(result.quoteVersion).toBe(2);
     expect(sendEmailWithPdfMock).toHaveBeenCalledOnce();
+    const supersededEvents = await db
+      .select()
+      .from(quoteDecisionEventsTable)
+      .where(eq(quoteDecisionEventsTable.quoteId, quote!.id));
+    expect(supersededEvents).toEqual([
+      expect.objectContaining({
+        action: "superseded",
+        actorType: "system",
+        reason: "quote_reissued",
+      }),
+    ]);
     const emailCall = sendEmailWithPdfMock.mock.calls[0][0] as {
       subject: string;
     };

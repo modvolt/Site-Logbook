@@ -4,10 +4,8 @@ import { Briefcase, Plus, LogOut, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useQuickAddDate } from "@/hooks/use-quick-add-date";
-import { useLogout, useListClientErrors, getListClientErrorsQueryKey, useGetWatchdogStatus, getGetWatchdogStatusQueryKey } from "@workspace/api-client-react";
-import { clearApiCache } from "@/lib/pwa";
-import { clearTimerNotification } from "@/lib/timer-notification";
-import { useQueryClient } from "@tanstack/react-query";
+import { useListClientErrors, getListClientErrorsQueryKey, useGetWatchdogStatus, getGetWatchdogStatusQueryKey } from "@workspace/api-client-react";
+import { useSecureLogout } from "@/hooks/use-secure-logout";
 import { MobileNav } from "@/components/mobile-nav";
 import { mainNavItems, adminNavItems, type NavItem } from "@/components/nav-items";
 
@@ -51,10 +49,9 @@ const ROLE_BADGE: Record<string, string> = {
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
-  const { user, role, can, refresh } = useAuth();
+  const { user, role, can } = useAuth();
   const { quickAddDate } = useQuickAddDate();
-  const queryClient = useQueryClient();
-  const logout = useLogout();
+  const { requestLogout } = useSecureLogout();
 
   const canSeeErrors = can("diagnostics.view");
   const fieldMode = can("jobs.work") && !can("jobs.manage");
@@ -78,17 +75,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
     if (location === CLIENT_ERRORS_PATH) markSeen();
   }, [location]);
 
-  const handleLogout = () => {
-    logout.mutate(undefined, {
-      onSuccess: () => {
-        queryClient.clear();
-        void clearApiCache();
-        void clearTimerNotification();
-        refresh();
-      },
-    });
-  };
-
   const isActive = (item: NavItem) => (item.match ? item.match(location) : location === item.href);
 
   return (
@@ -107,7 +93,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                   {role === "admin" ? "Admin" : role === "master" ? "Master" : "Guest"}
                 </span>
               </div>
-              <Button variant="ghost" size="icon" onClick={handleLogout} className="h-8 w-8" title="Odhlásit">
+              <Button variant="ghost" size="icon" onClick={requestLogout} className="h-8 w-8" title="Odhlásit">
                 <LogOut className="h-4 w-4" />
               </Button>
             </div>
@@ -181,7 +167,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
             <span className={`px-1.5 py-0.5 rounded text-[0.625rem] font-medium truncate max-w-[40vw] ${ROLE_BADGE[role || "guest"]}`}>
               {user.name}
             </span>
-            <Button variant="ghost" size="icon" onClick={handleLogout} className="h-10 w-10" aria-label="Odhlásit">
+            <Button variant="ghost" size="icon" onClick={requestLogout} className="h-10 w-10" aria-label="Odhlásit">
               <LogOut className="h-5 w-5" />
             </Button>
           </div>

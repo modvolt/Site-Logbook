@@ -8,9 +8,27 @@ describe("server quote calculations", () => {
   it("excludes headings and spacers from price and margin totals", () => {
     const totals = computeQuoteTotals(
       [
-        { rowType: "section", quantity: 20, unitPrice: 20, purchaseUnitPrice: 20, vatRate: 21 },
-        { rowType: "item", quantity: 2, unitPrice: 125, purchaseUnitPrice: 100, vatRate: 21 },
-        { rowType: "spacer", quantity: 20, unitPrice: 20, purchaseUnitPrice: 20, vatRate: 21 },
+        {
+          rowType: "section",
+          quantity: 20,
+          unitPrice: 20,
+          purchaseUnitPrice: 20,
+          vatRate: 21,
+        },
+        {
+          rowType: "item",
+          quantity: 2,
+          unitPrice: 125,
+          purchaseUnitPrice: 100,
+          vatRate: 21,
+        },
+        {
+          rowType: "spacer",
+          quantity: 20,
+          unitPrice: 20,
+          purchaseUnitPrice: 20,
+          vatRate: 21,
+        },
       ],
       true,
     );
@@ -34,7 +52,15 @@ describe("server quote calculations", () => {
 
   it("leaves the percentage undefined when all entered purchase costs are zero", () => {
     const totals = computeQuoteTotals(
-      [{ rowType: "item", quantity: 1, unitPrice: 100, purchaseUnitPrice: 0, vatRate: 21 }],
+      [
+        {
+          rowType: "item",
+          quantity: 1,
+          unitPrice: 100,
+          purchaseUnitPrice: 0,
+          vatRate: 21,
+        },
+      ],
       true,
     );
 

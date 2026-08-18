@@ -13,6 +13,7 @@ import {
   workSessionsTable,
 } from "@workspace/db";
 import app from "../src/app";
+import { bindAuthenticatedAgent } from "./scoped-test-agent";
 
 /**
  * Forensic baseline for the staged permissions/time-accounting rebuild.
@@ -54,6 +55,7 @@ async function createUser(role: "guest" | "master" | "admin"): Promise<Agent> {
     .post("/api/auth/login")
     .send({ username, password: PASSWORD });
   expect(login.status).toBe(200);
+  await bindAuthenticatedAgent(agent);
   return agent;
 }
 
@@ -199,10 +201,14 @@ describe("staged acceptance tests not implemented in phase 1", () => {
     expect(
       (
         await admin.put(`/api/users/${masterId}/permissions`).send({
-          overrides: [{ permission: "statistics.view", effect: "allow" }],
+          overrides: [
+            { permission: "statistics.view", effect: "allow" },
+            { permission: "billing.view", effect: "allow" },
+          ],
         })
       ).status,
     ).toBe(200);
+    await bindAuthenticatedAgent(master);
     expect((await master.get("/api/stats/overview")).status).not.toBe(403);
 
     expect(
@@ -212,11 +218,14 @@ describe("staged acceptance tests not implemented in phase 1", () => {
         })
       ).status,
     ).toBe(200);
+    await bindAuthenticatedAgent(admin);
     expect((await admin.get("/api/billing/summary")).status).toBe(403);
 
     await db
       .delete(userPermissionOverridesTable)
       .where(inArray(userPermissionOverridesTable.userId, [masterId, adminId]));
+    await bindAuthenticatedAgent(master);
+    await bindAuthenticatedAgent(admin);
   });
 
   it("allows an individual guest to manage jobs without changing the role", async () => {
@@ -228,7 +237,13 @@ describe("staged acceptance tests not implemented in phase 1", () => {
         })
       ).status,
     ).toBe(200);
-    const created = await guest.post("/api/jobs").send({ title: `${TAG}-guest-job`, date: "2041-01-15" });
+    await bindAuthenticatedAgent(guest);
+    const created = await guest.post("/api/jobs").send({
+      title: `${TAG}-guest-job`,
+      type: "other",
+      date: "2041-01-15",
+      status: "planned",
+    });
     expect(created.status).toBe(201);
     jobIds.push(created.body.id);
   });
@@ -238,7 +253,8 @@ describe("staged acceptance tests not implemented in phase 1", () => {
     const response = await admin.put(`/api/users/${adminId}/permissions`).send({
       overrides: [{ permission: "users.manage", effect: "deny" }],
     });
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(409);
+    expect(response.body.code).toBe("self_permission_lockout_forbidden");
   });
 
   it.todo("prevents the last permission administrator from being removed or disabled");

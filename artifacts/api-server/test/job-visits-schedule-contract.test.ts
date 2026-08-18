@@ -26,11 +26,11 @@ describe("job visit schedule contract", () => {
   it("does not hard-code admin or master roles in the visit route", () => {
     const route = read("artifacts/api-server/src/routes/visits.ts");
     const detail = read("artifacts/stavba/src/pages/job-detail.tsx");
-    const permissions = read("artifacts/api-server/src/middlewares/permissions.ts");
+    const permissions = read("artifacts/api-server/src/lib/api-route-access-policy.ts");
 
     expect(route).not.toContain("requireRole");
     expect(detail).toContain('can("jobs.manage")');
-    expect(permissions).toContain('prefixes: ["/jobs", "/dashboard"');
+    expect(permissions).toContain('"/dashboard"');
     expect(permissions).toContain('manage: "jobs.manage"');
   });
 

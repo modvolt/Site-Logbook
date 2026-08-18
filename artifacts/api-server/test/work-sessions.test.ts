@@ -9,15 +9,21 @@ import {
   personHourlyRatesTable,
   timeEntriesTable,
   usersTable,
+  invoicesTable,
   workSessionsTable,
+  workSessionBillingLinksTable,
+  workSessionEventsTable,
 } from "@workspace/db";
 import app from "../src/app";
+import { bindAuthenticatedAgent } from "./scoped-test-agent";
 
 const TAG = `test-work-sessions-${Date.now()}`;
 const PASSWORD = "test-work-session-password";
 const userIds: number[] = [];
 const personIds: number[] = [];
 const jobIds: number[] = [];
+const invoiceIds: number[] = [];
+const billingLinkIds: number[] = [];
 let admin: Agent;
 
 async function createPerson(label: string) {
@@ -47,6 +53,7 @@ async function createLinkedAdmin(label: string, personId: number): Promise<Agent
   userIds.push(user.id);
   const agent = request.agent(app);
   expect((await agent.post("/api/auth/login").send({ username: user.username, password: PASSWORD })).status).toBe(200);
+  await bindAuthenticatedAgent(agent);
   return agent;
 }
 
@@ -64,9 +71,18 @@ beforeAll(async () => {
   userIds.push(user.id);
   admin = request.agent(app);
   expect((await admin.post("/api/auth/login").send({ username: user.username, password: PASSWORD })).status).toBe(200);
+  await bindAuthenticatedAgent(admin);
 });
 
 afterAll(async () => {
+  if (billingLinkIds.length) {
+    await db
+      .delete(workSessionBillingLinksTable)
+      .where(inArray(workSessionBillingLinksTable.id, billingLinkIds));
+  }
+  if (invoiceIds.length) {
+    await db.delete(invoicesTable).where(inArray(invoicesTable.id, invoiceIds));
+  }
   if (personIds.length) {
     await db.delete(workSessionsTable).where(inArray(workSessionsTable.personId, personIds));
     await db.delete(timeEntriesTable).where(inArray(timeEntriesTable.personId, personIds));
@@ -296,6 +312,103 @@ describe("work-session lifecycle", () => {
     expect(response.status).toBe(201);
     expect(response.body.durationSeconds).toBe(46_800);
     expect(response.body.reviewStatus).toBe("needs_review");
+  });
+
+  it("blocks direct void and aggregate removal for ready, billed, or actively linked work", async () => {
+    const personId = await createPerson("Billing locked session");
+    const jobId = await createJob("Billing locked parent");
+    const created = await admin.post(`/api/jobs/${jobId}/work-sessions`).send({
+      personId,
+      startedAt: "2042-02-05T08:00:00.000Z",
+      endedAt: "2042-02-05T10:00:00.000Z",
+      note: "Práce později rezervovaná do faktury",
+    });
+    expect(created.status).toBe(201);
+    const sessionId = created.body.id as number;
+
+    await db
+      .update(workSessionsTable)
+      .set({ billingStatus: "ready" })
+      .where(eq(workSessionsTable.id, sessionId));
+    const readyVoid = await admin.delete(`/api/jobs/${jobId}/work-sessions/${sessionId}`);
+    expect(readyVoid.status).toBe(409);
+    expect(readyVoid.body.code).toBe("work_session_billing_locked");
+
+    await db
+      .update(workSessionsTable)
+      .set({ billingStatus: "billed" })
+      .where(eq(workSessionsTable.id, sessionId));
+    const billedRemove = await admin.delete(`/api/jobs/${jobId}/time-entries/${personId}`);
+    expect(billedRemove.status).toBe(409);
+    expect(billedRemove.body.code).toBe("work_session_billing_locked");
+
+    await db
+      .update(workSessionsTable)
+      .set({ billingStatus: "unbilled" })
+      .where(eq(workSessionsTable.id, sessionId));
+    const [invoice] = await db
+      .insert(invoicesTable)
+      .values({
+        invoiceNumber: `${TAG}-billing-lock`,
+        status: "issued",
+        totalWithVat: "1000.00",
+      })
+      .returning();
+    invoiceIds.push(invoice.id);
+    const [link] = await db
+      .insert(workSessionBillingLinksTable)
+      .values({
+        sessionId,
+        invoiceId: invoice.id,
+        invoiceIdSnapshot: invoice.id,
+        status: "reserved",
+        durationSecondsSnapshot: 7200,
+        saleRateSnapshot: "500.00",
+        amountWithoutVatSnapshot: "1000.00",
+      })
+      .returning();
+    billingLinkIds.push(link.id);
+    const linkedVoid = await admin.delete(`/api/jobs/${jobId}/work-sessions/${sessionId}`);
+    expect(linkedVoid.status).toBe(409);
+    expect(linkedVoid.body.code).toBe("work_session_billing_locked");
+
+    const failedVoidEvents = await db
+      .select()
+      .from(workSessionEventsTable)
+      .where(
+        and(
+          eq(workSessionEventsTable.sessionId, sessionId),
+          eq(workSessionEventsTable.eventType, "voided"),
+        ),
+      );
+    expect(failedVoidEvents).toHaveLength(0);
+    const [preserved] = await db
+      .select()
+      .from(workSessionsTable)
+      .where(eq(workSessionsTable.id, sessionId));
+    expect(preserved.status).toBe("completed");
+
+    await db
+      .update(workSessionBillingLinksTable)
+      .set({ status: "released", releasedAt: new Date(), releaseReason: "test_correction" })
+      .where(eq(workSessionBillingLinksTable.id, link.id));
+    const releasedVoid = await admin.delete(`/api/jobs/${jobId}/work-sessions/${sessionId}`);
+    expect(releasedVoid.status).toBe(204);
+    const [voided] = await db
+      .select()
+      .from(workSessionsTable)
+      .where(eq(workSessionsTable.id, sessionId));
+    expect(voided.status).toBe("voided");
+    const successfulVoidEvents = await db
+      .select()
+      .from(workSessionEventsTable)
+      .where(
+        and(
+          eq(workSessionEventsTable.sessionId, sessionId),
+          eq(workSessionEventsTable.eventType, "voided"),
+        ),
+      );
+    expect(successfulVoidEvents).toHaveLength(1);
   });
 
   it("snapshots the effective rates without repricing older work", async () => {

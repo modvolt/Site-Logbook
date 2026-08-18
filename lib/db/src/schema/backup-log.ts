@@ -1,4 +1,5 @@
-import { pgTable, serial, text, bigint, timestamp, char, integer, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, bigint, timestamp, char, integer, jsonb, check } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 /**
  * Record of every database backup attempt (manual or scheduled). The backup
@@ -20,6 +21,10 @@ export const backupLogTable = pgTable("backup_log", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   // SHA-256 hex digest of the dump bytes; stored on successful backup, null otherwise.
   sha256: char("sha256", { length: 64 }),
+  // New backups are encrypted before object storage with a dedicated keyring.
+  // Null identifies a legacy plaintext pg_dump retained for compatibility.
+  encryptionFormat: text("encryption_format"),
+  encryptionKeyId: text("encryption_key_id"),
   // Set when this backup row was used as the source of a successful restore/test-restore.
   restoredAt: timestamp("restored_at"),
   // Restore-test result fields (non-destructive test into a temporary DB).
@@ -28,6 +33,11 @@ export const backupLogTable = pgTable("backup_log", {
   restoreError: text("restore_error"),
   restoreDurationMs: integer("restore_duration_ms"),
   restoreVerifiedTables: jsonb("restore_verified_tables").$type<Record<string, number>>(),
-});
+}, (t) => [
+  check(
+    "backup_log_encryption_metadata_chk",
+    sql`(${t.encryptionFormat} is null and ${t.encryptionKeyId} is null) or (${t.encryptionFormat} = 'mve1' and ${t.encryptionKeyId} is not null)`,
+  ),
+]);
 
 export type BackupLog = typeof backupLogTable.$inferSelect;

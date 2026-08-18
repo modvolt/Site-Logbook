@@ -7,6 +7,7 @@ import {
   CreateCustomerSiteAttachmentBody,
   DeleteCustomerSiteAttachmentParams,
 } from "@workspace/api-zod";
+import { claimObjectUpload, ObjectUploadClaimError } from "../lib/object-upload-ledger";
 
 const router: IRouter = Router();
 
@@ -55,10 +56,33 @@ router.post("/customer-sites/:siteId/attachments", async (req, res): Promise<voi
     return;
   }
 
-  const [att] = await db
-    .insert(customerSiteAttachmentsTable)
-    .values({ siteId: params.data.siteId, ...parsed.data } as any)
-    .returning();
+  if (!req.auth) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+  let att: typeof customerSiteAttachmentsTable.$inferSelect;
+  try {
+    att = await db.transaction(async (tx) => {
+      const [created] = await tx.insert(customerSiteAttachmentsTable)
+        .values({ siteId: params.data.siteId, ...parsed.data } as any)
+        .returning();
+      if (created.url) {
+        await claimObjectUpload(tx, {
+          objectPath: created.url,
+          userId: req.auth!.userId,
+          claimType: "customer_site_attachment",
+          claimId: created.id,
+        });
+      }
+      return created;
+    });
+  } catch (error) {
+    if (error instanceof ObjectUploadClaimError) {
+      res.status(409).json({ error: error.message, code: "upload_claim_failed" });
+      return;
+    }
+    throw error;
+  }
 
   res.status(201).json(serializeAttachment(att));
 });

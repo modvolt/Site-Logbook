@@ -7,6 +7,8 @@ servers:
   - url: /api
     description: Base API path
 tags:
+  - name: publicGrant
+    description: Public grant transports excluded from the generated React Query client.
   - name: health
     description: Health operations
   - name: admin
@@ -38,6 +40,10 @@ tags:
     description: Authentication and session management
   - name: users
     description: User management (admin)
+  - name: externalAccounts
+    description: Dark-rollout administration of authenticated external identities
+  - name: externalPortal
+    description: Network-only, resource-scoped external account read model
   - name: activities
     description: Long-term activities with timers and materials
   - name: me
@@ -104,6 +110,27 @@ paths:
         "403":
           description: Forbidden
 
+  /admin/health/operational:
+    get:
+      operationId: getAdminOperationalSnapshot
+      tags: [admin]
+      summary: Redacted operational queues, backup and security snapshot (admin only)
+      description: >
+        Returns DB-backed aggregate signals only. This endpoint never runs an
+        object-storage write probe or returns raw worker errors, identities,
+        recipients, object paths or provider secrets.
+      responses:
+        "200":
+          description: Redacted operational snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OperationalSnapshot"
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+
   /admin/health/watchdog:
     get:
       operationId: getWatchdogStatus
@@ -120,6 +147,69 @@ paths:
           description: Unauthorized
         "403":
           description: Forbidden
+
+  /admin/health/operational-alert-outbox/dead-letters:
+    get:
+      operationId: listOperationalAlertDeadLetters
+      tags: [admin]
+      summary: List redacted operational alert dead letters (admin only)
+      description: >
+        Returns at most 50 newest dead-letter rows with stable operational
+        metadata and optimistic-concurrency fields. Payload bodies,
+        fingerprints, recipients, identities, object paths and secrets are
+        never returned.
+      responses:
+        "200":
+          description: Redacted dead-letter list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OperationalAlertDeadLetterList"
+        "401":
+          description: Unauthorized
+        "403":
+          description: Missing diagnostics.manage permission
+
+  /admin/health/operational-alert-outbox/{id}/requeue:
+    post:
+      operationId: requeueOperationalAlertDeadLetter
+      tags: [admin]
+      summary: Requeue one dead-lettered operational alert (admin only)
+      description: >
+        Atomically returns exactly one dead-lettered delivery to the pending
+        queue. The request must match the current attempt count and
+        dead-letter timestamp. Identity-scoped Idempotency-Key handling is
+        enforced by the API middleware; bulk requeue is intentionally absent.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OperationalAlertDeadLetterRequeueInput"
+      responses:
+        "200":
+          description: The individual dead-letter row was requeued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OperationalAlertDeadLetterRequeueResult"
+        "400":
+          description: Invalid path or request body
+        "401":
+          description: Unauthorized
+        "403":
+          description: Missing diagnostics.manage permission
+        "404":
+          description: Outbox row not found
+        "409":
+          description: State, attempt count or dead-letter timestamp changed
 
   /admin/health/log:
     get:
@@ -522,7 +612,7 @@ paths:
     post:
       operationId: saveJobSheet
       tags: [jobs]
-      summary: Save the (signed) job sheet PDF as an attachment of the job
+      summary: Save a client-generated job sheet PDF as a regular job attachment
       parameters:
         - name: id
           in: path
@@ -573,6 +663,101 @@ paths:
           description: Job not found
         "502":
           description: Email delivery failed
+
+  /jobs/{id}/signature-token:
+    post:
+      operationId: createJobSignatureToken
+      tags: [jobs]
+      summary: Create a one-time link bound to a new immutable job-document version
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Bound signature link
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobSignatureTokenResult"
+        "404":
+          description: Job not found
+        "409":
+          description: Job is already signed
+
+  /jobs/{id}/signature-evidence:
+    get:
+      operationId: getJobSignatureEvidence
+      tags: [jobs]
+      summary: List immutable job-document versions and signature events
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Signature evidence history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobSignatureEvidence"
+        "404":
+          description: Job not found
+
+  /jobs/{id}/signed-document:
+    get:
+      operationId: downloadSignedJobDocument
+      tags: [jobs]
+      summary: Download the current immutable signed job-document PDF
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Signed PDF
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: Signed document not found
+
+  /jobs/{id}/signature-revision:
+    post:
+      operationId: reopenJobSignatureRevision
+      tags: [jobs]
+      summary: Preserve the signed version and reopen the job for a corrected version
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DocumentRevisionInput"
+      responses:
+        "200":
+          description: Job reopened without changing prior evidence
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentRevisionResult"
+        "404":
+          description: Job or signed version not found
+        "409":
+          description: Job is not currently signed
 
   /jobs/{jobId}/tasks:
     get:
@@ -1097,7 +1282,9 @@ paths:
     delete:
       operationId: deletePerson
       tags: [people]
-      summary: Delete a person
+      deprecated: true
+      summary: Legacy direct person deletion (disabled)
+      description: Direct deletion is fail-closed until a verified privacy-case, legal-hold, and retention workflow is available.
       parameters:
         - name: id
           in: path
@@ -1106,7 +1293,13 @@ paths:
             type: integer
       responses:
         "204":
-          description: Deleted
+          description: Legacy success response; unreachable while containment is active
+        "409":
+          description: Direct deletion is disabled; a verified privacy case is required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
 
   /people/{id}/hourly-rates:
     get:
@@ -1477,7 +1670,9 @@ paths:
     delete:
       operationId: deleteCustomer
       tags: [customers]
-      summary: Delete a customer
+      deprecated: true
+      summary: Legacy direct customer deletion (disabled)
+      description: Direct deletion is fail-closed until a verified privacy-case, legal-hold, and retention workflow is available.
       parameters:
         - name: id
           in: path
@@ -1486,7 +1681,13 @@ paths:
             type: integer
       responses:
         "204":
-          description: Deleted
+          description: Legacy success response; unreachable while containment is active
+        "409":
+          description: Direct deletion is disabled; a verified privacy case is required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
         "404":
           description: Not found
 
@@ -1647,7 +1848,9 @@ paths:
     delete:
       operationId: deleteCustomerContact
       tags: [customers]
-      summary: Delete a customer contact
+      deprecated: true
+      summary: Legacy direct customer-contact deletion (disabled)
+      description: Direct deletion is fail-closed until a verified privacy-case, legal-hold, and retention workflow is available.
       parameters:
         - name: id
           in: path
@@ -1656,7 +1859,13 @@ paths:
             type: integer
       responses:
         "204":
-          description: Deleted
+          description: Legacy success response; unreachable while containment is active
+        "409":
+          description: Direct deletion is disabled; a verified privacy case is required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
         "404":
           description: Not found
 
@@ -1752,7 +1961,9 @@ paths:
     delete:
       operationId: deleteCustomerSite
       tags: [customers]
-      summary: Delete a customer site
+      deprecated: true
+      summary: Legacy direct customer-site deletion (disabled)
+      description: Direct deletion is fail-closed until a verified privacy-case, legal-hold, and retention workflow is available.
       parameters:
         - name: id
           in: path
@@ -1761,7 +1972,13 @@ paths:
             type: integer
       responses:
         "204":
-          description: Deleted
+          description: Legacy success response; unreachable while containment is active
+        "409":
+          description: Direct deletion is disabled; a verified privacy case is required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
         "404":
           description: Not found
 
@@ -2134,7 +2351,7 @@ paths:
       summary: Record a security audit event for opening the credential export page
       description: |
         Writes a `security` audit log entry when the export/handover PDF page is
-        opened for a customer. Restricted to roles with vault access (master/admin).
+        opened for a customer. Requires both customer access and `credentials.view`.
       parameters:
         - name: customerId
           in: path
@@ -2156,8 +2373,8 @@ paths:
       summary: Record a security audit event for viewing or copying a credential field
       description: |
         Writes a `security` audit log entry without the secret value. Must be
-        called when the UI reveals or copies a PIN/password/card. Restricted to
-        roles with vault access (master/admin).
+        called when the UI reveals or copies a PIN/password/card. Requires
+        `credentials.view`.
       parameters:
         - name: id
           in: path
@@ -3021,6 +3238,29 @@ paths:
                 format: binary
 
   /ppe/assignments/{id}/sign-token:
+    post:
+      operationId: issuePpeSignToken
+      tags: [ppe]
+      summary: Issue a new one-time signature link for an active assignment (admin/master)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Newly issued one-time signature link
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PpeSignLinkResponse"
+        "403":
+          description: Forbidden
+        "404":
+          description: Assignment not found
+        "409":
+          description: Assignment is closed or already signed
     delete:
       operationId: revokePpeSignToken
       tags: [ppe]
@@ -3091,7 +3331,7 @@ paths:
     post:
       operationId: requestPpeConfirm
       tags: [ppe]
-      summary: Generate (or re-use) a confirmation link for an issued PPE assignment (admin/master)
+      summary: Generate a new one-time confirmation link for an issued PPE assignment (admin/master)
       parameters:
         - name: id
           in: path
@@ -3112,15 +3352,133 @@ paths:
         "403":
           description: Forbidden
 
+  /ppe/sign:
+    get:
+      operationId: getPublicPpeSignature
+      tags: [ppe, publicGrant]
+      summary: Fetch the immutable PPE handover snapshot using a public Bearer credential
+      security:
+        - publicBearer: []
+      responses:
+        "200":
+          description: PPE handover snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicPpeEvidence"
+        "400":
+          description: Ambiguous public credential
+        "401":
+          description: Missing or malformed public Bearer credential
+        "404":
+          description: Unknown credential or assignment
+        "409":
+          description: Credential was already consumed
+        "410":
+          description: Credential expired or was revoked
+    post:
+      operationId: signPublicPpeSignature
+      tags: [ppe, publicGrant]
+      summary: Sign the immutable PPE handover snapshot using a public Bearer credential
+      security:
+        - publicBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublicPpeSignatureInput"
+      responses:
+        "200":
+          description: PPE handover signed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicPpeSignatureResult"
+        "400":
+          description: Invalid signature image or ambiguous credential
+        "401":
+          description: Missing or malformed public Bearer credential
+        "404":
+          description: Unknown credential or assignment
+        "409":
+          description: Credential was already consumed or concurrent signature won
+        "410":
+          description: Credential expired or was revoked
+
+  /ppe/sign/{token}:
+    get:
+      operationId: getPublicPpeSignatureLegacy
+      deprecated: true
+      tags: [ppe, publicGrant]
+      summary: Legacy path-token PPE signature snapshot adapter
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: PPE handover snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicPpeEvidence"
+        "400":
+          description: Ambiguous public credential
+        "404":
+          description: Unknown credential or assignment
+        "409":
+          description: Credential was already consumed
+        "410":
+          description: Credential expired or was revoked
+    post:
+      operationId: signPublicPpeSignatureLegacy
+      deprecated: true
+      tags: [ppe, publicGrant]
+      summary: Legacy path-token PPE signature adapter
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublicPpeSignatureInput"
+      responses:
+        "200":
+          description: PPE handover signed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicPpeSignatureResult"
+        "400":
+          description: Invalid signature image or ambiguous credential
+        "404":
+          description: Unknown credential or assignment
+        "409":
+          description: Credential was already consumed or concurrent signature won
+        "410":
+          description: Credential expired or was revoked
+
   /ppe/confirm:
     get:
       operationId: getPpeConfirmDetails
-      tags: [ppe]
-      summary: Fetch assignment details by confirmation token (public)
+      tags: [ppe, publicGrant]
+      summary: Fetch assignment details using Bearer or the deprecated query token
+      security:
+        - publicBearer: []
+        - {}
       parameters:
         - name: token
           in: query
-          required: true
+          required: false
+          deprecated: true
           schema:
             type: string
       responses:
@@ -3129,34 +3487,47 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PpeAssignment"
+                $ref: "#/components/schemas/PublicPpeEvidence"
         "400":
-          description: Missing token
+          description: Ambiguous public credential
         "404":
-          description: Invalid or expired token
+          description: Unknown token
+        "409":
+          description: Token was already consumed
+        "410":
+          description: Token expired or was revoked
+        "401":
+          description: Missing or malformed public Bearer credential
     post:
       operationId: confirmPpeAssignment
-      tags: [ppe]
-      summary: Confirm PPE receipt by token (public — no login required)
+      tags: [ppe, publicGrant]
+      summary: Confirm PPE receipt using Bearer or the deprecated body token
+      security:
+        - publicBearer: []
+        - {}
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema:
               $ref: "#/components/schemas/PpeConfirmInput"
       responses:
         "200":
-          description: Confirmed (or already confirmed)
+          description: Confirmed
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/PpeConfirmResult"
         "400":
-          description: Missing token
+          description: Ambiguous public credential
         "404":
-          description: Invalid or expired token
+          description: Unknown token
         "409":
-          description: Assignment is no longer active
+          description: Token was already consumed or assignment is no longer active
+        "410":
+          description: Token expired or was revoked
+        "401":
+          description: Missing or malformed public Bearer credential
 
   /ppe/assignments/{id}/sign:
     post:
@@ -3363,6 +3734,31 @@ paths:
         "204":
           description: Logged out
 
+  /auth/vault/verify-password:
+    post:
+      operationId: verifyVaultPassword
+      tags: [auth]
+      summary: Re-verify the current password for temporary plaintext vault access
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VaultPasswordVerifyInput"
+      responses:
+        "200":
+          description: Vault step-up established for the current session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebAuthnVerifyResult"
+        "401":
+          description: Current password did not verify
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /auth/me:
     get:
       operationId: getMe
@@ -3396,110 +3792,6 @@ paths:
                 $ref: "#/components/schemas/AuthUser"
         "409":
           description: Setup already completed
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-
-  /security-questions/status:
-    get:
-      operationId: getSecurityQuestionsStatus
-      tags: [auth]
-      summary: Whether the current user has security questions configured
-      responses:
-        "200":
-          description: Status
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/SecurityQuestionsStatus"
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-
-  /security-questions:
-    put:
-      operationId: setSecurityQuestions
-      tags: [auth]
-      summary: Set or replace the current admin's 3 security questions (requires current password)
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/SetSecurityQuestionsInput"
-      responses:
-        "204":
-          description: Saved
-        "400":
-          description: Invalid input
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "401":
-          description: Unauthorized or wrong current password
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "403":
-          description: Forbidden (admins only)
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-
-  /auth/forgot-password/questions:
-    post:
-      operationId: forgotPasswordQuestions
-      tags: [auth]
-      summary: Public — fetch an admin account's security questions by username
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ForgotPasswordQuestionsInput"
-      responses:
-        "200":
-          description: The account's security questions (without answers)
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ForgotPasswordQuestions"
-        "404":
-          description: No reset available for this account
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-
-  /auth/forgot-password/reset:
-    post:
-      operationId: resetPasswordWithAnswers
-      tags: [auth]
-      summary: Public — reset an admin password by answering all security questions
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ResetPasswordWithAnswersInput"
-      responses:
-        "204":
-          description: Password reset
-        "400":
-          description: Invalid input
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "401":
-          description: Incorrect answers
           content:
             application/json:
               schema:
@@ -3634,7 +3926,7 @@ paths:
     post:
       operationId: webauthnVerifyComplete
       tags: [auth]
-      summary: Complete biometric re-verification; sets session biometricVerifiedAt
+      summary: Complete biometric re-verification for temporary plaintext vault access
       requestBody:
         required: true
         content:
@@ -3727,6 +4019,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+
     put:
       operationId: updateMyPreferences
       tags: [auth]
@@ -4028,6 +4321,464 @@ paths:
               schema:
                 $ref: "#/components/schemas/AuthUser"
 
+  /external-accounts:
+    get:
+      operationId: listExternalAccounts
+      tags: [externalAccounts]
+      parameters:
+        - {
+            name: status,
+            in: query,
+            schema:
+              {
+                type: string,
+                enum: [draft, active, suspended, revoked, expired, all],
+              },
+          }
+        - {
+            name: custodianUserId,
+            in: query,
+            schema: { type: integer, minimum: 1 },
+          }
+        - { name: beforeId, in: query, schema: { type: integer, minimum: 1 } }
+        - {
+            name: limit,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 100 },
+          }
+      responses:
+        "200":
+          description: Redacted external account inventory and runtime flag state
+          content:
+            {
+              application/json:
+                {
+                  schema: { $ref: "#/components/schemas/ExternalAccountList" },
+                },
+            }
+    post:
+      operationId: createExternalAccount
+      tags: [externalAccounts]
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          {
+            application/json:
+              {
+                schema:
+                  { $ref: "#/components/schemas/ExternalAccountCreateInput" },
+              },
+          }
+      responses:
+        "201":
+          description: Inactive draft created; password is never returned
+          content:
+            {
+              application/json:
+                {
+                  schema:
+                    { $ref: "#/components/schemas/ExternalAccountDetail" },
+                },
+            }
+        "400": { description: Invalid request }
+        "403": { description: Forbidden or step-up required }
+        "409": { description: Conflict }
+
+  /external-accounts/{id}:
+    get:
+      operationId: getExternalAccount
+      tags: [externalAccounts]
+      parameters:
+        - {
+            name: id,
+            in: path,
+            required: true,
+            schema: { type: integer, minimum: 1 },
+          }
+      responses:
+        "200":
+          description: External account detail
+          content:
+            {
+              application/json:
+                {
+                  schema:
+                    { $ref: "#/components/schemas/ExternalAccountDetail" },
+                },
+            }
+        "404": { description: Not found }
+
+  /external-accounts/{id}/scopes:
+    put:
+      operationId: replaceExternalAccountScopes
+      tags: [externalAccounts]
+      parameters:
+        - {
+            name: id,
+            in: path,
+            required: true,
+            schema: { type: integer, minimum: 1 },
+          }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          {
+            application/json:
+              {
+                schema:
+                  { $ref: "#/components/schemas/ExternalAccountScopesInput" },
+              },
+          }
+      responses:
+        "200": { description: Scopes replaced and sessions revoked }
+        "400": { description: Invalid request }
+        "403": { description: Forbidden or step-up required }
+        "409": { description: Version or lifecycle conflict }
+
+  /external-accounts/{id}/expiry:
+    patch:
+      operationId: updateExternalAccountExpiry
+      tags: [externalAccounts]
+      parameters:
+        - {
+            name: id,
+            in: path,
+            required: true,
+            schema: { type: integer, minimum: 1 },
+          }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          {
+            application/json:
+              {
+                schema:
+                  { $ref: "#/components/schemas/ExternalAccountExpiryInput" },
+              },
+          }
+      responses:
+        "200": { description: Expiry reviewed and sessions revoked }
+        "400": { description: Invalid request }
+        "403": { description: Forbidden or step-up required }
+        "409": { description: Version or lifecycle conflict }
+
+  /external-accounts/{id}/activate:
+    post:
+      operationId: activateExternalAccount
+      tags: [externalAccounts]
+      parameters:
+        - {
+            name: id,
+            in: path,
+            required: true,
+            schema: { type: integer, minimum: 1 },
+          }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          {
+            application/json:
+              {
+                schema:
+                  { $ref: "#/components/schemas/ExternalAccountVersionInput" },
+              },
+          }
+      responses:
+        "200": { description: Account activated and previous sessions revoked }
+        "403": { description: Forbidden or step-up required }
+        "409":
+          {
+            description: "Runtime disabled, missing scope, or version conflict",
+          }
+
+  /external-accounts/{id}/transfer:
+    post:
+      operationId: transferExternalAccountCustodian
+      tags: [externalAccounts]
+      parameters:
+        - {
+            name: id,
+            in: path,
+            required: true,
+            schema: { type: integer, minimum: 1 },
+          }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          {
+            application/json:
+              {
+                schema:
+                  { $ref: "#/components/schemas/ExternalAccountTransferInput" },
+              },
+          }
+      responses:
+        "200": { description: Custody transferred and sessions revoked }
+        "403": { description: Forbidden or step-up required }
+        "409": { description: Invalid custodian or version conflict }
+
+  /external-accounts/{id}/revoke:
+    post:
+      operationId: revokeExternalAccount
+      tags: [externalAccounts]
+      parameters:
+        - {
+            name: id,
+            in: path,
+            required: true,
+            schema: { type: integer, minimum: 1 },
+          }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          {
+            application/json:
+              {
+                schema:
+                  { $ref: "#/components/schemas/ExternalAccountRevokeInput" },
+              },
+          }
+      responses:
+        "200": { description: Account and all scopes permanently revoked }
+        "403": { description: Forbidden or step-up required }
+        "409": { description: Already terminal or version conflict }
+
+  /portal/resources:
+    get:
+      operationId: listExternalPortalResources
+      tags: [externalPortal]
+      responses:
+        "200":
+          description: Exact current resource scopes; never cached offline
+          content:
+            {
+              application/json:
+                {
+                  schema:
+                    { $ref: "#/components/schemas/ExternalPortalResourceList" },
+                },
+            }
+        "403": { description: Portal disabled or wrong account type }
+
+  /portal/resources/{scopeId}:
+    get:
+      operationId: getExternalPortalResource
+      tags: [externalPortal]
+      parameters:
+        - {
+            name: scopeId,
+            in: path,
+            required: true,
+            schema: { type: integer, minimum: 1 },
+          }
+      responses:
+        "200":
+          description: One directly scoped redacted resource
+          content:
+            {
+              application/json:
+                {
+                  schema:
+                    {
+                      $ref: "#/components/schemas/ExternalPortalResourceResponse",
+                    },
+                },
+            }
+        "404": { description: Missing or not in the current account scope }
+
+  /external-grants:
+    get:
+      operationId: listExternalGrants
+      tags: [security]
+      summary: List redacted external bearer grants (users.manage required)
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, expired, revoked, consumed, all]
+            default: active
+        - name: purpose
+          in: query
+          schema:
+            type: string
+            enum:
+              [job_signature, ppe_signature, ppe_confirmation, quote_decision]
+        - name: resourceType
+          in: query
+          schema:
+            type: string
+            enum: [job, ppe_assignment, quote]
+        - name: resourceId
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+        - name: beforeId
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        "200":
+          description: Redacted grant inventory; raw hashes and bearer values are never returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExternalGrantList"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /external-grants/public/{id}/revoke:
+    post:
+      operationId: revokeExternalGrant
+      tags: [security]
+      summary: Revoke one public bearer grant after fresh step-up verification
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExternalGrantRevokeInput"
+      responses:
+        "200":
+          description: Grant revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExternalGrantRevokeResult"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden or step-up verification required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Grant not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Grant is already terminal
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /external-grants/switchboard-qr:
+    get:
+      operationId: listSwitchboardQrGrants
+      tags: [security]
+      summary: List redacted switchboard QR grants (users.manage required)
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, expired, disabled, all]
+            default: active
+        - name: beforeId
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        "200":
+          description: Redacted QR grant inventory
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SwitchboardQrGrantList"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /external-grants/switchboard-qr/{id}/deactivate:
+    post:
+      operationId: deactivateSwitchboardQrExternalGrant
+      tags: [security]
+      summary: Deactivate a switchboard QR grant after fresh step-up verification
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: QR grant disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SwitchboardQrGrantDeactivateResult"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden or step-up verification required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Switchboard not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: QR grant cannot be changed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /users/{id}:
     patch:
       operationId: updateUser
@@ -4052,10 +4803,16 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AuthUser"
+        "409":
+          description: Offboarding is required to deactivate an active user, and reactivation requires a dedicated confirmed workflow
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
     delete:
       operationId: deleteUser
       tags: [users]
-      summary: Delete user (admin only)
+      summary: Retired hard-delete endpoint; users are preserved for audit history
       parameters:
         - name: id
           in: path
@@ -4063,8 +4820,99 @@ paths:
           schema:
             type: integer
       responses:
-        "204":
-          description: Deleted
+        "409":
+          description: Hard deletion is retired; returns user_deletion_retired and preserves audit history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /users/{id}/offboarding-preview:
+    get:
+      operationId: getUserOffboardingPreview
+      tags: [users]
+      summary: Preview access revocation and handover obligations before offboarding a user
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Current access and handover inventory for the target user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserOffboardingPreview"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /users/{id}/offboard:
+    post:
+      operationId: offboardUser
+      tags: [users]
+      summary: Atomically revoke a user's access and report retained handover obligations
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 8
+            maxLength: 100
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserOffboardingInput"
+      responses:
+        "200":
+          description: User access was revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserOffboardingResult"
+        "400":
+          description: Invalid offboarding request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Offboarding precondition failed or the user was already offboarded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
 
   /users/{id}/permissions:
     put:
@@ -4091,13 +4939,25 @@ paths:
               schema:
                 $ref: "#/components/schemas/AuthUser"
         "400":
-          description: Invalid permission override or self-lockout attempt
+          description: Invalid permission override
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "403":
           description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Permission replacement targets an inactive user or would lock out the current administrator
           content:
             application/json:
               schema:
@@ -4202,6 +5062,18 @@ paths:
       responses:
         "204":
           description: All user sessions terminated
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: The target user is already inactive; returns user_inactive
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
 
   /audit-logs:
     get:
@@ -4290,7 +5162,9 @@ paths:
     post:
       operationId: eraseSubjectData
       tags: [gdpr]
-      summary: Permanently erase a data subject's personal data (admin only)
+      deprecated: true
+      summary: Legacy direct data-subject erasure (disabled)
+      description: Direct erasure is fail-closed until a verified privacy-case, legal-hold, retention, and reconciled object-deletion workflow is available.
       requestBody:
         required: true
         content:
@@ -4299,11 +5173,17 @@ paths:
               $ref: "#/components/schemas/GdprEraseInput"
       responses:
         "200":
-          description: Erasure result
+          description: Legacy erasure result; unreachable while containment is active
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/GdprEraseResult"
+        "409":
+          description: Direct erasure is disabled; a verified privacy case is required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
         "404":
           description: Subject not found
           content:
@@ -4344,36 +5224,36 @@ paths:
               type: string
               format: binary
       responses:
-        '200':
+        "200":
           description: File stored.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/UploadedObject'
-        '400':
+                $ref: "#/components/schemas/UploadedObject"
+        "400":
           description: Missing file content.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
-        '413':
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "413":
           description: File too large.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
-        '415':
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "415":
           description: File type not allowed.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
-        '500':
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
           description: Failed to store file.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
+                $ref: "#/components/schemas/ErrorEnvelope"
   /storage/public-objects/{filePath}:
     get:
       tags: [Storage]
@@ -4386,19 +5266,19 @@ paths:
           schema:
             type: string
       responses:
-        '200':
+        "200":
           description: Object content streamed with correct Content-Type.
           content:
-            '*/*':
+            "*/*":
               schema:
                 type: string
                 format: binary
-        '404':
+        "404":
           description: File not found.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
+                $ref: "#/components/schemas/ErrorEnvelope"
   /storage/objects/{objectPath}:
     get:
       tags: [Storage]
@@ -4411,19 +5291,19 @@ paths:
           schema:
             type: string
       responses:
-        '200':
+        "200":
           description: Object content streamed with correct Content-Type.
           content:
-            '*/*':
+            "*/*":
               schema:
                 type: string
                 format: binary
-        '404':
+        "404":
           description: Object not found.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
+                $ref: "#/components/schemas/ErrorEnvelope"
 
   /activities:
     get:
@@ -5194,6 +6074,12 @@ paths:
       responses:
         "204":
           description: Work session voided
+        "409":
+          description: Work session is reserved or billed and must be released through invoice correction/storno
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
 
   /jobs/{jobId}/work-sessions:
     get:
@@ -5278,6 +6164,12 @@ paths:
       responses:
         "204":
           description: Work session voided
+        "409":
+          description: Work session is reserved or billed and must be released through invoice correction/storno
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
 
   /me/stats:
     get:
@@ -5840,15 +6732,36 @@ paths:
       tags: [billing]
       summary: Financial summary of recorded work with cost fields permission-filtered
       parameters:
-        - { name: from, in: query, required: false, schema: { type: string, format: date } }
-        - { name: to, in: query, required: false, schema: { type: string, format: date } }
-        - { name: personId, in: query, required: false, schema: { type: integer } }
+        - {
+            name: from,
+            in: query,
+            required: false,
+            schema: { type: string, format: date },
+          }
+        - {
+            name: to,
+            in: query,
+            required: false,
+            schema: { type: string, format: date },
+          }
+        - {
+            name: personId,
+            in: query,
+            required: false,
+            schema: { type: integer },
+          }
         - { name: jobId, in: query, required: false, schema: { type: integer } }
-        - { name: activityId, in: query, required: false, schema: { type: integer } }
+        - {
+            name: activityId,
+            in: query,
+            required: false,
+            schema: { type: integer },
+          }
         - name: billingStatus
           in: query
           required: false
-          schema: { type: string, enum: [unbilled, ready, billed, non_billable] }
+          schema:
+            { type: string, enum: [unbilled, ready, billed, non_billable] }
       responses:
         "200":
           description: Work financial summary
@@ -6402,7 +7315,7 @@ paths:
     post:
       operationId: cancelInvoice
       tags: [billing]
-      summary: Cancel (storno) an invoice, optionally returning jobs to done (admin only)
+      summary: Cancel an unpaid invoice with a registered reason, optionally returning jobs to done (admin only)
       parameters:
         - name: id
           in: path
@@ -6422,6 +7335,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/InvoiceDetail"
+        "400":
+          description: Missing or unsupported cancellation reason
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
         "403":
           description: Forbidden
           content:
@@ -6435,7 +7354,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "409":
-          description: Invoice already cancelled
+          description: Invoice already cancelled or contains immutable payment evidence
           content:
             application/json:
               schema:
@@ -6445,7 +7364,7 @@ paths:
     patch:
       operationId: updateInvoiceStatus
       tags: [billing]
-      summary: Mark an issued invoice as sent or paid (admin only)
+      summary: Advance an issued invoice to sent or paid without rewriting recorded payment evidence (admin only)
       parameters:
         - name: id
           in: path
@@ -6484,7 +7403,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "409":
-          description: Invalid status transition
+          description: Invalid status transition or attempted rewrite/removal of recorded payment evidence
           content:
             application/json:
               schema:
@@ -6513,7 +7432,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/SendInvoiceEmailResult"
+                $ref: "#/components/schemas/SendQuoteEmailResult"
         "400":
           description: Invalid input
           content:
@@ -6685,7 +7604,14 @@ paths:
           description: Filter by review reason (needs_review | low_confidence | missing_job | missing_warehouse_item | price_jump)
           schema:
             type: string
-            enum: [needs_review, low_confidence, missing_job, missing_warehouse_item, price_jump]
+            enum:
+              [
+                needs_review,
+                low_confidence,
+                missing_job,
+                missing_warehouse_item,
+                price_jump,
+              ]
       responses:
         "200":
           description: Paginated review queue
@@ -7349,6 +8275,61 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "404":
           description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/documents/{id}/disposition:
+    post:
+      operationId: disposeCostDocument
+      tags: [billing]
+      summary: Explicitly discard an untouched upload or immutably reject a reviewed source (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CostDocumentDispositionInput"
+      responses:
+        "200":
+          description: Disposition recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CostDocumentDetail"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Disposition is incompatible with the document evidence boundary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: Reviewed-rejection evidence plane is not activated
           content:
             application/json:
               schema:
@@ -8722,6 +9703,56 @@ paths:
         "409":
           description: Cannot expire in current status
 
+  /quotes/{id}/revision:
+    post:
+      operationId: reopenQuoteRevision
+      tags: [quotes]
+      summary: Preserve the issued version and reopen the quote as a corrected draft
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DocumentRevisionInput"
+      responses:
+        "200":
+          description: Quote reopened without changing prior evidence
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentRevisionResult"
+        "404":
+          description: Quote or issued version not found
+        "409":
+          description: Quote cannot be reopened in its current state
+
+  /quotes/{id}/evidence:
+    get:
+      operationId: getQuoteEvidence
+      tags: [quotes]
+      summary: List immutable quote versions and decision events
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Quote evidence history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuoteEvidence"
+        "404":
+          description: Quote not found
+
   /quotes/{id}/convert-to-job:
     post:
       operationId: convertQuoteToJob
@@ -8749,11 +9780,91 @@ paths:
         "409":
           description: Quote is not accepted or already converted
 
-  /quotes/public/{token}:
+  /quotes/public:
     get:
       operationId: getPublicQuote
-      tags: [quotes]
-      summary: Get quote details via public share token (no auth required)
+      tags: [quotes, publicGrant]
+      summary: Get quote details using a public Bearer credential
+      security:
+        - publicBearer: []
+      responses:
+        "200":
+          description: Public quote detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicQuoteDetail"
+        "400":
+          description: Ambiguous public credential
+        "404":
+          description: Not found or invalid token
+        "401":
+          description: Missing or malformed public Bearer credential
+
+  /quotes/public/accept:
+    post:
+      operationId: acceptPublicQuote
+      tags: [quotes, publicGrant]
+      summary: Customer accepts a quote using a public Bearer credential
+      security:
+        - publicBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublicQuoteDecisionInput"
+      responses:
+        "200":
+          description: Quote accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuotePublicActionResult"
+        "400":
+          description: Invalid respondent name or ambiguous public credential
+        "404":
+          description: Not found or invalid token
+        "409":
+          description: Cannot accept in current status
+        "401":
+          description: Missing or malformed public Bearer credential
+
+  /quotes/public/reject:
+    post:
+      operationId: rejectPublicQuote
+      tags: [quotes, publicGrant]
+      summary: Customer rejects a quote using a public Bearer credential
+      security:
+        - publicBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublicQuoteDecisionInput"
+      responses:
+        "200":
+          description: Quote rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuotePublicActionResult"
+        "400":
+          description: Invalid respondent name or ambiguous public credential
+        "404":
+          description: Not found or invalid token
+        "409":
+          description: Cannot reject in current status
+        "401":
+          description: Missing or malformed public Bearer credential
+
+  /quotes/public/{token}:
+    get:
+      operationId: getPublicQuoteLegacy
+      deprecated: true
+      tags: [quotes, publicGrant]
+      summary: Legacy path-token quote adapter
       parameters:
         - name: token
           in: path
@@ -8767,20 +9878,29 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PublicQuoteDetail"
+        "400":
+          description: Ambiguous public credential
         "404":
           description: Not found or invalid token
 
   /quotes/public/{token}/accept:
     post:
-      operationId: acceptPublicQuote
-      tags: [quotes]
-      summary: Customer accepts a quote via share token (no auth required)
+      operationId: acceptPublicQuoteLegacy
+      deprecated: true
+      tags: [quotes, publicGrant]
+      summary: Legacy path-token quote acceptance adapter
       parameters:
         - name: token
           in: path
           required: true
           schema:
             type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublicQuoteDecisionInput"
       responses:
         "200":
           description: Quote accepted
@@ -8788,6 +9908,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/QuotePublicActionResult"
+        "400":
+          description: Invalid respondent name or ambiguous public credential
         "404":
           description: Not found or invalid token
         "409":
@@ -8795,15 +9917,22 @@ paths:
 
   /quotes/public/{token}/reject:
     post:
-      operationId: rejectPublicQuote
-      tags: [quotes]
-      summary: Customer rejects a quote via share token (no auth required)
+      operationId: rejectPublicQuoteLegacy
+      deprecated: true
+      tags: [quotes, publicGrant]
+      summary: Legacy path-token quote rejection adapter
       parameters:
         - name: token
           in: path
           required: true
           schema:
             type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublicQuoteDecisionInput"
       responses:
         "200":
           description: Quote rejected
@@ -8811,6 +9940,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/QuotePublicActionResult"
+        "400":
+          description: Invalid respondent name or ambiguous public credential
         "404":
           description: Not found or invalid token
         "409":
@@ -8838,11 +9969,251 @@ paths:
         "404":
           description: Not found
 
+  /sign:
+    get:
+      operationId: getPublicJobDocumentForSignature
+      tags: [jobs, publicGrant]
+      summary: Read the immutable job-document version using a public Bearer credential
+      security:
+        - publicBearer: []
+      responses:
+        "200":
+          description: Immutable job-document snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicJobDocument"
+        "400":
+          description: Ambiguous public credential
+        "404":
+          description: Token or bound version not found
+        "410":
+          description: Token expired, revoked, or consumed
+        "401":
+          description: Missing or malformed public Bearer credential
+    post:
+      operationId: signPublicJobDocument
+      tags: [jobs, publicGrant]
+      summary: Sign the immutable job-document version using a public Bearer credential
+      security:
+        - publicBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublicJobSignatureInput"
+      responses:
+        "200":
+          description: Signed immutable version and evidence hashes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicJobSignatureResult"
+        "400":
+          description: Invalid self-declared identity, signature PNG, or ambiguous public credential
+        "404":
+          description: Token or bound version not found
+        "409":
+          description: Version already signed or concurrent signature won
+        "410":
+          description: Token expired, revoked, or consumed
+        "401":
+          description: Missing or malformed public Bearer credential
+
+  /sign/{token}:
+    get:
+      operationId: getPublicJobDocumentForSignatureLegacy
+      deprecated: true
+      tags: [jobs, publicGrant]
+      summary: Legacy path-token job signature adapter
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Immutable job-document snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicJobDocument"
+        "400":
+          description: Ambiguous public credential
+        "404":
+          description: Token or bound version not found
+        "410":
+          description: Token expired, revoked, or consumed
+    post:
+      operationId: signPublicJobDocumentLegacy
+      deprecated: true
+      tags: [jobs, publicGrant]
+      summary: Legacy path-token job signature adapter
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublicJobSignatureInput"
+      responses:
+        "200":
+          description: Signed immutable version and evidence hashes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicJobSignatureResult"
+        "400":
+          description: Invalid self-declared identity, signature PNG, or ambiguous public credential
+        "404":
+          description: Token or bound version not found
+        "409":
+          description: Version already signed or concurrent signature won
+        "410":
+          description: Token expired, revoked, or consumed
+
+  /q/board:
+    get:
+      operationId: getPublicSwitchboard
+      tags: [switchboards, publicGrant]
+      summary: Fetch public switchboard documentation using a public Bearer credential
+      security:
+        - publicBearer: []
+      responses:
+        "200":
+          description: Public switchboard documentation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicSwitchboard"
+        "400":
+          description: Ambiguous public credential
+        "401":
+          description: Missing or malformed public Bearer credential
+        "404":
+          description: QR credential is invalid or inactive
+
+  /q/board/documents/{sha256}:
+    get:
+      operationId: getPublicSwitchboardDocument
+      tags: [switchboards, publicGrant]
+      summary: Download a public switchboard document using a public Bearer credential
+      security:
+        - publicBearer: []
+      parameters:
+        - name: sha256
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Sha256Hex"
+      responses:
+        "200":
+          description: Public switchboard document
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "400":
+          description: Ambiguous public credential
+        "401":
+          description: Missing or malformed public Bearer credential
+        "404":
+          description: Credential or document not found
+
+  /q/board/{token}:
+    get:
+      operationId: getPublicSwitchboardLegacy
+      deprecated: true
+      tags: [switchboards, publicGrant]
+      summary: Legacy path-token switchboard documentation adapter
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Public switchboard documentation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicSwitchboard"
+        "400":
+          description: Ambiguous public credential
+        "404":
+          description: QR credential is invalid or inactive
+
+  /q/board/{token}/documents/{sha256}:
+    get:
+      operationId: getPublicSwitchboardDocumentLegacy
+      deprecated: true
+      tags: [switchboards, publicGrant]
+      summary: Legacy path-token public switchboard document adapter
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: sha256
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Sha256Hex"
+      responses:
+        "200":
+          description: Public switchboard document
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "400":
+          description: Ambiguous public credential
+        "404":
+          description: Credential or document not found
+
 components:
+  securitySchemes:
+    publicBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque-public-grant
+      description: Purpose-bound, high-entropy public grant held only in browser memory.
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 200
+        pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{7,199}$"
+      description: Stable unique key for one lifecycle mutation and its exact body.
   schemas:
     CalendarJob:
       type: object
-      required: [id, jobNumber, title, type, status, date, occurrenceKey, occurrenceType]
+      required:
+        [
+          id,
+          jobNumber,
+          title,
+          type,
+          status,
+          date,
+          occurrenceKey,
+          occurrenceType,
+        ]
       properties:
         id:
           type: integer
@@ -8975,7 +10346,13 @@ components:
 
     WatchdogStatus:
       type: object
-      required: [overallStatus, consecutiveFailures]
+      required:
+        - overallStatus
+        - consecutiveFailures
+        - operationalStatus
+        - activeOperationalAlerts
+        - alertTransport
+        - delivery
       properties:
         overallStatus:
           type: string
@@ -8984,6 +10361,334 @@ components:
           type: ["string", "null"]
         consecutiveFailures:
           type: integer
+        operationalStatus:
+          type: string
+          enum: [ok, warning, critical, unknown]
+        activeOperationalAlerts:
+          type: integer
+          minimum: 0
+        lastOperationalAlertAt:
+          type: ["string", "null"]
+        alertTransport:
+          type: string
+          enum: [local_log_only, local_log_and_https_webhook]
+        delivery:
+          $ref: "#/components/schemas/OperationalAlertDeliveryStatus"
+
+    OperationalAlertDeliveryStatus:
+      type: object
+      required:
+        - status
+        - pending
+        - delivering
+        - deadLetter
+        - oldestPendingAt
+        - lastDeliveredAt
+      properties:
+        status:
+          type: string
+          enum: [available, unavailable]
+        pending:
+          type: [integer, "null"]
+          minimum: 0
+        delivering:
+          type: [integer, "null"]
+          minimum: 0
+        deadLetter:
+          type: [integer, "null"]
+          minimum: 0
+        oldestPendingAt:
+          type: [string, "null"]
+          format: date-time
+        lastDeliveredAt:
+          type: [string, "null"]
+          format: date-time
+
+    OperationalAlertDeadLetterRequeueInput:
+      type: object
+      additionalProperties: false
+      required:
+        - expectedAttemptCount
+        - expectedDeadLetteredAt
+        - reason
+      properties:
+        expectedAttemptCount:
+          type: integer
+          minimum: 1
+        expectedDeadLetteredAt:
+          type: string
+          format: date-time
+        reason:
+          type: string
+          enum:
+            - receiver_configuration_corrected
+            - receiver_recovered
+            - transient_provider_outage_resolved
+            - operator_verified_safe_retry
+
+    OperationalAlertDeadLetterList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/OperationalAlertDeadLetterListItem"
+
+    OperationalAlertDeadLetterListItem:
+      type: object
+      additionalProperties: false
+      required:
+        - outboxId
+        - code
+        - severity
+        - transitionKind
+        - attemptCount
+        - lastFailureCategory
+        - lastHttpStatus
+        - deadLetteredAt
+        - createdAt
+      properties:
+        outboxId:
+          type: integer
+          minimum: 1
+        code:
+          type: string
+          maxLength: 160
+        severity:
+          type: string
+          enum: [warning, critical]
+        transitionKind:
+          type: string
+          enum: [triggered, escalated, deescalated, recovered]
+        attemptCount:
+          type: integer
+          minimum: 1
+        lastFailureCategory:
+          type: [string, "null"]
+          maxLength: 80
+        lastHttpStatus:
+          type: [integer, "null"]
+          minimum: 100
+          maximum: 599
+        deadLetteredAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+
+    OperationalAlertDeadLetterRequeueResult:
+      type: object
+      additionalProperties: false
+      required:
+        - outboxId
+        - state
+        - attemptCount
+        - availableAt
+        - requeued
+      properties:
+        outboxId:
+          type: integer
+          minimum: 1
+        state:
+          type: string
+          enum: [pending]
+        attemptCount:
+          type: integer
+          minimum: 0
+        availableAt:
+          type: string
+          format: date-time
+        requeued:
+          type: boolean
+          const: true
+
+    OperationalAlert:
+      type: object
+      required:
+        - fingerprint
+        - code
+        - severity
+        - owner
+        - runbook
+        - summary
+        - metric
+        - observed
+        - threshold
+      properties:
+        fingerprint:
+          type: string
+        code:
+          type: string
+        severity:
+          type: string
+          enum: [warning, critical]
+        owner:
+          type: string
+        runbook:
+          type: string
+        summary:
+          type: string
+        metric:
+          type: string
+        observed:
+          type: ["integer", "null"]
+        threshold:
+          type: ["integer", "null"]
+
+    OperationalQueueSignal:
+      type: object
+      required:
+        - id
+        - available
+        - status
+        - readyDepth
+        - runningDepth
+        - failedDepth
+        - oldestReadyAgeSeconds
+        - warningAgeSeconds
+        - criticalAgeSeconds
+      properties:
+        id:
+          type: string
+          enum: [extraction, switchboard, email_import]
+        available:
+          type: boolean
+        status:
+          type: string
+          enum: [ok, warning, critical, unknown]
+        readyDepth:
+          type: integer
+          minimum: 0
+        runningDepth:
+          type: integer
+          minimum: 0
+        failedDepth:
+          type: integer
+          minimum: 0
+        oldestReadyAgeSeconds:
+          type: ["integer", "null"]
+          minimum: 0
+        warningAgeSeconds:
+          type: integer
+          minimum: 1
+        criticalAgeSeconds:
+          type: integer
+          minimum: 1
+
+    OperationalBackupSignal:
+      type: object
+      required:
+        - available
+        - enabled
+        - status
+        - lastSuccessAt
+        - lastSuccessAgeSeconds
+        - lastAttemptStatus
+        - lastRestoreTestAt
+        - lastRestoreTestAgeSeconds
+        - lastRestoreStatus
+        - warningAgeSeconds
+        - criticalAgeSeconds
+        - restoreWarningAgeSeconds
+        - restoreCriticalAgeSeconds
+      properties:
+        available:
+          type: boolean
+        enabled:
+          type: boolean
+        status:
+          type: string
+          enum: [ok, warning, critical, unknown, not_configured]
+        lastSuccessAt:
+          type: ["string", "null"]
+        lastSuccessAgeSeconds:
+          type: ["integer", "null"]
+          minimum: 0
+        lastAttemptStatus:
+          type: ["string", "null"]
+        lastRestoreTestAt:
+          type: ["string", "null"]
+        lastRestoreTestAgeSeconds:
+          type: ["integer", "null"]
+          minimum: 0
+        lastRestoreStatus:
+          type: ["string", "null"]
+        warningAgeSeconds:
+          type: integer
+          minimum: 1
+        criticalAgeSeconds:
+          type: integer
+          minimum: 1
+        restoreWarningAgeSeconds:
+          type: integer
+          minimum: 1
+        restoreCriticalAgeSeconds:
+          type: integer
+          minimum: 1
+
+    OperationalSecuritySignal:
+      type: object
+      required:
+        - available
+        - status
+        - windowSeconds
+        - sensitiveEventCount
+        - warningEvents
+        - criticalEvents
+      properties:
+        available:
+          type: boolean
+        status:
+          type: string
+          enum: [ok, warning, critical, unknown]
+        windowSeconds:
+          type: integer
+          minimum: 1
+        sensitiveEventCount:
+          type: integer
+          minimum: 0
+        warningEvents:
+          type: integer
+          minimum: 1
+        criticalEvents:
+          type: integer
+          minimum: 1
+
+    OperationalSnapshot:
+      type: object
+      required:
+        - generatedAt
+        - status
+        - alertTransport
+        - queues
+        - backup
+        - security
+        - activeAlerts
+      properties:
+        generatedAt:
+          type: string
+        status:
+          type: string
+          enum: [ok, warning, critical, unknown]
+        alertTransport:
+          type: string
+          enum: [local_log_only, local_log_and_https_webhook]
+        queues:
+          type: array
+          items:
+            $ref: "#/components/schemas/OperationalQueueSignal"
+        backup:
+          $ref: "#/components/schemas/OperationalBackupSignal"
+        security:
+          $ref: "#/components/schemas/OperationalSecuritySignal"
+        activeAlerts:
+          type: array
+          items:
+            $ref: "#/components/schemas/OperationalAlert"
 
     HealthLogEntry:
       type: object
@@ -9200,7 +10905,16 @@ components:
 
     CustomerFinancialSummary:
       type: object
-      required: [openBalance, lastPaymentDate, unbilledJobsValue, unbilledJobCount, totalSaldo, quotesOpen, quotesAccepted]
+      required:
+        [
+          openBalance,
+          lastPaymentDate,
+          unbilledJobsValue,
+          unbilledJobCount,
+          totalSaldo,
+          quotesOpen,
+          quotesAccepted,
+        ]
       properties:
         openBalance:
           type: string
@@ -9245,7 +10959,7 @@ components:
 
     RequestJobSignatureResult:
       type: object
-      required: [sent, to, signUrl]
+      required: [sent, to, signUrl, documentVersion, snapshotSha256]
       properties:
         sent:
           type: boolean
@@ -9253,7 +10967,215 @@ components:
           type: string
         signUrl:
           type: string
-          description: The full sign URL that was emailed (for reference/logging)
+          description: Sensitive one-time URL returned for immediate delivery; never log or persist it.
+        documentVersion:
+          type: integer
+          minimum: 1
+        snapshotSha256:
+          $ref: "#/components/schemas/Sha256Hex"
+
+    JobSignatureTokenResult:
+      type: object
+      required: [signUrl, expiresAt, documentVersion, snapshotSha256]
+      properties:
+        signUrl:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+        documentVersion:
+          type: integer
+          minimum: 1
+        snapshotSha256:
+          $ref: "#/components/schemas/Sha256Hex"
+
+    PublicJobDocument:
+      type: object
+      required:
+        [
+          jobId,
+          documentVersion,
+          snapshotSha256,
+          title,
+          date,
+          confirmationText,
+          alreadySigned,
+          expired,
+        ]
+      properties:
+        jobId:
+          type: integer
+        documentVersion:
+          type: integer
+          minimum: 1
+        snapshotSha256:
+          $ref: "#/components/schemas/Sha256Hex"
+        title:
+          type: string
+        date:
+          type: string
+        customerCompanyName:
+          type: ["string", "null"]
+        notes:
+          type: ["string", "null"]
+        confirmationText:
+          type: string
+        alreadySigned:
+          type: boolean
+        signedAt:
+          type: ["string", "null"]
+          format: date-time
+        expired:
+          type: boolean
+
+    PublicJobSignatureInput:
+      type: object
+      additionalProperties: false
+      required: [signatoryName, signatureDataUrl]
+      properties:
+        signatoryName:
+          type: string
+          minLength: 2
+          maxLength: 120
+          description: Self-declared identity of the person signing the immutable version
+        signatureDataUrl:
+          type: string
+          pattern: "^data:image/png;base64,"
+
+    PublicJobSignatureResult:
+      type: object
+      required: [signedAt, documentVersion, snapshotSha256, pdfSha256]
+      properties:
+        signedAt:
+          type: string
+          format: date-time
+        documentVersion:
+          type: integer
+          minimum: 1
+        snapshotSha256:
+          $ref: "#/components/schemas/Sha256Hex"
+        pdfSha256:
+          $ref: "#/components/schemas/Sha256Hex"
+
+    DocumentRevisionInput:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 500
+
+    DocumentRevisionResult:
+      type: object
+      required: [reopened, supersededVersion, snapshotSha256]
+      properties:
+        reopened:
+          type: boolean
+          const: true
+        supersededVersion:
+          type: integer
+          minimum: 1
+        snapshotSha256:
+          $ref: "#/components/schemas/Sha256Hex"
+
+    JobSignatureEvidence:
+      type: object
+      required: [versions, events]
+      properties:
+        versions:
+          type: array
+          items:
+            $ref: "#/components/schemas/JobDocumentVersionEvidence"
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/JobSignatureEventEvidence"
+
+    JobDocumentVersionEvidence:
+      type: object
+      required:
+        [
+          id,
+          jobId,
+          version,
+          status,
+          dataSnapshot,
+          snapshotSha256,
+          rendererVersion,
+          confirmationText,
+          createdAt,
+        ]
+      properties:
+        id: { type: integer }
+        jobId: { type: integer }
+        version: { type: integer }
+        status:
+          type: string
+          enum: [pending_signature, signed]
+        supersedesVersionId: { type: ["integer", "null"] }
+        dataSnapshot:
+          $ref: "#/components/schemas/JobDocumentSnapshot"
+        snapshotSha256:
+          $ref: "#/components/schemas/Sha256Hex"
+        rendererVersion: { type: string }
+        confirmationText: { type: string }
+        signatoryName: { type: ["string", "null"] }
+        identityAssurance: { type: ["string", "null"] }
+        signatureObjectPath: { type: ["string", "null"] }
+        signatureSha256:
+          oneOf:
+            - $ref: "#/components/schemas/Sha256Hex"
+            - type: "null"
+        pdfObjectPath: { type: ["string", "null"] }
+        pdfSha256:
+          oneOf:
+            - $ref: "#/components/schemas/Sha256Hex"
+            - type: "null"
+        signedAt: { type: ["string", "null"], format: date-time }
+        createdByUserId: { type: ["integer", "null"] }
+        createdAt: { type: string, format: date-time }
+
+    JobDocumentSnapshot:
+      type: object
+      required: [schemaVersion, job, confirmationText]
+      properties:
+        schemaVersion: { type: integer, const: 1 }
+        job:
+          type: object
+          required: [id, title, date]
+          properties:
+            id: { type: integer }
+            title: { type: string }
+            date: { type: string }
+            customerCompanyName: { type: ["string", "null"] }
+            notes: { type: ["string", "null"] }
+        confirmationText: { type: string }
+
+    JobSignatureEventEvidence:
+      type: object
+      required: [id, jobId, documentVersionId, eventType, actorType, createdAt]
+      properties:
+        id: { type: integer }
+        jobId: { type: integer }
+        documentVersionId: { type: integer }
+        eventType:
+          type: string
+          enum: [signed, superseded, cancelled]
+        actorType:
+          type: string
+          enum: [public_signer, admin, system]
+        actorUserId: { type: ["integer", "null"] }
+        actorName: { type: ["string", "null"] }
+        identityAssurance: { type: ["string", "null"] }
+        confirmationText: { type: ["string", "null"] }
+        reason: { type: ["string", "null"] }
+        userAgentSha256:
+          oneOf:
+            - $ref: "#/components/schemas/Sha256Hex"
+            - type: "null"
+        createdAt: { type: string, format: date-time }
 
     SendJobEmailInput:
       type: object
@@ -9279,7 +11201,8 @@ components:
           description: Base64-encoded PDF of the job sheet
         signed:
           type: ["boolean", "null"]
-          description: Whether the customer signature is included in the PDF
+          deprecated: true
+          description: Ignored legacy field; client-generated PDFs never constitute signature evidence
 
     SendCredentialsEmailInput:
       type: object
@@ -9395,7 +11318,23 @@ components:
 
     StatsOverview:
       type: object
-      required: [from, to, jobs, revenue, employees, materials, warehouse, billing, activities, readyToBill, comparison, trend, topCustomers, ppe]
+      required:
+        [
+          from,
+          to,
+          jobs,
+          revenue,
+          employees,
+          materials,
+          warehouse,
+          billing,
+          activities,
+          readyToBill,
+          comparison,
+          trend,
+          topCustomers,
+          ppe,
+        ]
       properties:
         from:
           type: string
@@ -9403,7 +11342,8 @@ components:
           type: string
         jobs:
           type: object
-          required: [total, planned, inProgress, done, cancelled, totalHours, byType]
+          required:
+            [total, planned, inProgress, done, cancelled, totalHours, byType]
           properties:
             total:
               type: integer
@@ -9453,7 +11393,19 @@ components:
                 $ref: "#/components/schemas/StatsMaterialRow"
         warehouse:
           type: object
-          required: [itemCount, stockValue, lowStockCount, materialSaleRevenue, materialPurchaseCost, materialGrossProfit, hasPartialCosts, topProfitItems, incompleteMovements, incompleteMovementsShare]
+          required:
+            [
+              itemCount,
+              stockValue,
+              lowStockCount,
+              materialSaleRevenue,
+              materialPurchaseCost,
+              materialGrossProfit,
+              hasPartialCosts,
+              topProfitItems,
+              incompleteMovements,
+              incompleteMovementsShare,
+            ]
           properties:
             itemCount:
               type: integer
@@ -9481,7 +11433,17 @@ components:
               description: Fraction of OUT movements missing a cost price (0–1)
         billing:
           type: object
-          required: [issuedCount, issuedWithVat, paidCount, paidAmount, toCollectCount, toCollectAmount, overdueCount, overdueAmount]
+          required:
+            [
+              issuedCount,
+              issuedWithVat,
+              paidCount,
+              paidAmount,
+              toCollectCount,
+              toCollectAmount,
+              overdueCount,
+              overdueAmount,
+            ]
           description: Invoice/billing statistics. Issued/paid are period-bound; toCollect/overdue are current snapshots.
           properties:
             issuedCount:
@@ -9510,7 +11472,8 @@ components:
               description: Current sum of overdue invoice totals
         comparison:
           type: object
-          required: [prevFrom, prevTo, revenueTotal, issuedWithVat, paid, doneJobsCount]
+          required:
+            [prevFrom, prevTo, revenueTotal, issuedWithVat, paid, doneJobsCount]
           description: Same metrics computed for the immediately preceding period of equal length (for KPI delta).
           properties:
             prevFrom:
@@ -10035,7 +11998,24 @@ components:
 
     Job:
       type: object
-      required: [id, jobNumber, title, type, date, status, sortOrder, createdAt, billingLinked, billingIntent, billingExclusionReason, billingIntentChangedAt, billingIntentChangedByUserId, assigneeIds, assigneeNames]
+      required:
+        [
+          id,
+          jobNumber,
+          title,
+          type,
+          date,
+          status,
+          sortOrder,
+          createdAt,
+          billingLinked,
+          billingIntent,
+          billingExclusionReason,
+          billingIntentChangedAt,
+          billingIntentChangedByUserId,
+          assigneeIds,
+          assigneeNames,
+        ]
       properties:
         id:
           type: integer
@@ -10503,7 +12483,16 @@ components:
 
     LinkableBillingDocumentLine:
       type: object
-      required: [id, documentId, description, unitPriceWithoutVat, totalWithoutVat, approved, sortOrder]
+      required:
+        [
+          id,
+          documentId,
+          description,
+          unitPriceWithoutVat,
+          totalWithoutVat,
+          approved,
+          sortOrder,
+        ]
       properties:
         id:
           type: integer
@@ -10571,7 +12560,19 @@ components:
 
     JobCompletionReadiness:
       type: object
-      required: [jobId, status, canComplete, blockers, warnings, activeSessions, unfinishedTaskCount, plannedMaterialCount, consumedMaterialCount, hoursSpent]
+      required:
+        [
+          jobId,
+          status,
+          canComplete,
+          blockers,
+          warnings,
+          activeSessions,
+          unfinishedTaskCount,
+          plannedMaterialCount,
+          consumedMaterialCount,
+          hoursSpent,
+        ]
       properties:
         jobId:
           type: integer
@@ -10738,7 +12739,19 @@ components:
 
     PersonHourlyRate:
       type: object
-      required: [id, personId, validFrom, validTo, costRate, saleRate, reason, createdAt, voidedAt, voidReason]
+      required:
+        [
+          id,
+          personId,
+          validFrom,
+          validTo,
+          costRate,
+          saleRate,
+          reason,
+          createdAt,
+          voidedAt,
+          voidReason,
+        ]
       properties:
         id: { type: integer }
         personId: { type: integer }
@@ -10774,7 +12787,17 @@ components:
 
     PersonStats:
       type: object
-      required: [personId, personName, todayJobsCount, weekHours, assignedMachinesCount, hasActiveTimer, assignedPpeCount, ppeAttentionCount]
+      required:
+        [
+          personId,
+          personName,
+          todayJobsCount,
+          weekHours,
+          assignedMachinesCount,
+          hasActiveTimer,
+          assignedPpeCount,
+          ppeAttentionCount,
+        ]
       properties:
         personId:
           type: integer
@@ -10797,7 +12820,8 @@ components:
 
     ActiveTimer:
       type: object
-      required: [id, personId, personName, kind, parentId, parentName, timerStartedAt]
+      required:
+        [id, personId, personName, kind, parentId, parentName, timerStartedAt]
       properties:
         id:
           type: integer
@@ -10828,7 +12852,20 @@ components:
 
     DashboardSummary:
       type: object
-      required: [todayCount, weekCount, plannedCount, inProgressCount, doneCount, totalHoursThisWeek, totalRevenueThisWeek, unbilledValue, hoursThisMonth, problematicJobsCount, overdueUnbilledCustomers]
+      required:
+        [
+          todayCount,
+          weekCount,
+          plannedCount,
+          inProgressCount,
+          doneCount,
+          totalHoursThisWeek,
+          totalRevenueThisWeek,
+          unbilledValue,
+          hoursThisMonth,
+          problematicJobsCount,
+          overdueUnbilledCustomers,
+        ]
       properties:
         todayCount:
           type: integer
@@ -10885,7 +12922,7 @@ components:
           type: string
           description: Normalized object path (e.g. `/objects/uploads/uuid`). Store this in your database.
         metadata:
-          $ref: '#/components/schemas/UploadUrlRequest'
+          $ref: "#/components/schemas/UploadUrlRequest"
     SessionEntry:
       type: object
       required: [sid, isCurrent, userAgentParsed]
@@ -10953,6 +12990,21 @@ components:
       properties:
         verified:
           type: boolean
+        method:
+          type: string
+          enum: [password, webauthn]
+        expiresAt:
+          type: string
+          format: date-time
+
+    VaultPasswordVerifyInput:
+      type: object
+      required: [password]
+      properties:
+        password:
+          type: string
+          minLength: 1
+          maxLength: 256
 
     WebAuthnCredentialItem:
       type: object
@@ -10969,7 +13021,19 @@ components:
 
     AuthUser:
       type: object
-      required: [id, username, name, personId, role, isActive, createdAt, permissions, permissionOverrides]
+      required:
+        [
+          id,
+          username,
+          name,
+          personId,
+          role,
+          accountType,
+          isActive,
+          createdAt,
+          permissions,
+          permissionOverrides,
+        ]
       properties:
         id:
           type: integer
@@ -10985,6 +13049,9 @@ components:
         role:
           type: string
           description: "guest | master | admin"
+        accountType:
+          type: string
+          enum: [internal, external]
         isActive:
           type: boolean
         createdAt:
@@ -10998,6 +13065,519 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/UserPermissionOverride"
+
+    UserOffboardingAccessInventory:
+      type: object
+      additionalProperties: false
+      required:
+        [sessions, webauthnCredentials, permissionOverrides, securityQuestions]
+      properties:
+        sessions:
+          type: integer
+          minimum: 0
+        webauthnCredentials:
+          type: integer
+          minimum: 0
+        permissionOverrides:
+          type: integer
+          minimum: 0
+        securityQuestions:
+          type: integer
+          minimum: 0
+
+    UserOffboardingHandoverInventory:
+      type: object
+      additionalProperties: false
+      required:
+        - custodiedExternalAccounts
+        - primaryJobs
+        - additionalJobs
+        - plannedJobVisits
+        - plannedActivityVisits
+        - machines
+        - issuedPpe
+        - switchboardAssignments
+        - openResponsibleSwitchboardDefects
+        - activeWorkSessions
+      properties:
+        custodiedExternalAccounts:
+          type: integer
+          minimum: 0
+        primaryJobs:
+          type: integer
+          minimum: 0
+        additionalJobs:
+          type: integer
+          minimum: 0
+        plannedJobVisits:
+          type: integer
+          minimum: 0
+        plannedActivityVisits:
+          type: integer
+          minimum: 0
+        machines:
+          type: integer
+          minimum: 0
+        issuedPpe:
+          type: integer
+          minimum: 0
+        switchboardAssignments:
+          type: integer
+          minimum: 0
+        openResponsibleSwitchboardDefects:
+          type: integer
+          minimum: 0
+        activeWorkSessions:
+          type: integer
+          minimum: 0
+
+    UserOffboardingPreview:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          userId,
+          username,
+          personId,
+          isActive,
+          sessionGeneration,
+          access,
+          handover,
+        ]
+      properties:
+        userId:
+          type: integer
+        username:
+          type: string
+        personId:
+          type: ["integer", "null"]
+        isActive:
+          type: boolean
+        sessionGeneration:
+          type: integer
+          minimum: 1
+        access:
+          $ref: "#/components/schemas/UserOffboardingAccessInventory"
+        handover:
+          $ref: "#/components/schemas/UserOffboardingHandoverInventory"
+
+    ExternalAccountScopeInput:
+      type: object
+      additionalProperties: false
+      required: [resourceType, resourceId, capability]
+      properties:
+        resourceType:
+          type: string
+          enum: [job, quote, switchboard]
+        resourceId:
+          type: integer
+          minimum: 1
+        capability:
+          type: string
+          enum: [read]
+
+    ExternalAccountScope:
+      allOf:
+        - $ref: "#/components/schemas/ExternalAccountScopeInput"
+        - type: object
+          required: [id, startsAt, expiresAt]
+          properties:
+            id: { type: integer, minimum: 1 }
+            startsAt: { type: string, format: date-time }
+            expiresAt: { type: string, format: date-time }
+
+    ExternalAccountSummary:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          userId,
+          username,
+          name,
+          email,
+          state,
+          status,
+          custodianUserId,
+          accessReviewedAt,
+          accessExpiresAt,
+          version,
+          isActive,
+          sessionGeneration,
+          activeScopeCount,
+          createdAt,
+          updatedAt,
+          revokedAt,
+          revokedByUserId,
+          revocationReason,
+        ]
+      properties:
+        userId: { type: integer, minimum: 1 }
+        username: { type: string }
+        name: { type: string }
+        email: { type: [string, "null"] }
+        state:
+          { type: string, enum: [draft, active, suspended, revoked, expired] }
+        status: { type: string, enum: [draft, active, suspended, revoked] }
+        custodianUserId: { type: integer, minimum: 1 }
+        accessReviewedAt: { type: string, format: date-time }
+        accessExpiresAt: { type: string, format: date-time }
+        version: { type: integer, minimum: 1 }
+        isActive: { type: boolean }
+        sessionGeneration: { type: integer, minimum: 1 }
+        activeScopeCount: { type: integer, minimum: 0 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        revokedAt: { type: [string, "null"], format: date-time }
+        revokedByUserId: { type: [integer, "null"] }
+        revocationReason: { type: [string, "null"] }
+
+    ExternalAccountDetail:
+      allOf:
+        - $ref: "#/components/schemas/ExternalAccountSummary"
+        - type: object
+          required: [scopes]
+          properties:
+            scopes:
+              type: array
+              items: { $ref: "#/components/schemas/ExternalAccountScope" }
+
+    ExternalAccountList:
+      type: object
+      additionalProperties: false
+      required: [runtimeEnabled, items, nextBeforeId]
+      properties:
+        runtimeEnabled: { type: boolean }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/ExternalAccountSummary" }
+        nextBeforeId: { type: [integer, "null"] }
+
+    ExternalAccountCreateInput:
+      type: object
+      additionalProperties: false
+      required: [username, password, name, custodianUserId, accessExpiresAt]
+      properties:
+        username: { type: string, minLength: 3, maxLength: 80 }
+        password:
+          { type: string, minLength: 12, maxLength: 200, writeOnly: true }
+        name: { type: string, minLength: 1, maxLength: 160 }
+        email: { type: [string, "null"], format: email }
+        custodianUserId: { type: integer, minimum: 1 }
+        accessExpiresAt: { type: string, format: date-time }
+
+    ExternalAccountVersionInput:
+      type: object
+      additionalProperties: false
+      required: [expectedVersion]
+      properties:
+        expectedVersion: { type: integer, minimum: 1 }
+
+    ExternalAccountScopesInput:
+      type: object
+      additionalProperties: false
+      required: [expectedVersion, scopes]
+      properties:
+        expectedVersion: { type: integer, minimum: 1 }
+        scopes:
+          type: array
+          maxItems: 200
+          items: { $ref: "#/components/schemas/ExternalAccountScopeInput" }
+
+    ExternalAccountExpiryInput:
+      type: object
+      additionalProperties: false
+      required: [expectedVersion, accessExpiresAt]
+      properties:
+        expectedVersion: { type: integer, minimum: 1 }
+        accessExpiresAt: { type: string, format: date-time }
+
+    ExternalAccountTransferInput:
+      type: object
+      additionalProperties: false
+      required: [expectedVersion, custodianUserId]
+      properties:
+        expectedVersion: { type: integer, minimum: 1 }
+        custodianUserId: { type: integer, minimum: 1 }
+
+    ExternalAccountRevokeInput:
+      type: object
+      additionalProperties: false
+      required: [expectedVersion, reason]
+      properties:
+        expectedVersion: { type: integer, minimum: 1 }
+        reason: { type: string, minLength: 3, maxLength: 300 }
+
+    ExternalPortalResourcePayload:
+      type: object
+      additionalProperties: false
+      required: [id, status]
+      properties:
+        id: { type: integer, minimum: 1 }
+        status: { type: string }
+        title: { type: string }
+        shortName: { type: [string, "null"] }
+        date: { type: string }
+        clientSite: { type: [string, "null"] }
+        address: { type: [string, "null"] }
+        quoteNumber: { type: [string, "null"] }
+        validUntil: { type: [string, "null"] }
+        designation: { type: string }
+        installationLocation: { type: [string, "null"] }
+        manufacturer: { type: string }
+
+    ExternalPortalResource:
+      type: object
+      additionalProperties: false
+      required: [scopeId, resourceType, capability, expiresAt, resource]
+      properties:
+        scopeId: { type: integer, minimum: 1 }
+        resourceType: { type: string, enum: [job, quote, switchboard] }
+        capability: { type: string, enum: [read] }
+        expiresAt: { type: string, format: date-time }
+        resource: { $ref: "#/components/schemas/ExternalPortalResourcePayload" }
+
+    ExternalPortalResourceList:
+      type: object
+      additionalProperties: false
+      required: [items, cacheMode]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/ExternalPortalResource" }
+        cacheMode: { type: string, enum: [network-only] }
+
+    ExternalPortalResourceResponse:
+      type: object
+      additionalProperties: false
+      required: [resource, cacheMode]
+      properties:
+        resource: { $ref: "#/components/schemas/ExternalPortalResource" }
+        cacheMode: { type: string, enum: [network-only] }
+
+    ExternalGrantSummary:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          id,
+          purpose,
+          resourceType,
+          resourceId,
+          artifactBindingStatus,
+          tokenPrefix,
+          state,
+          expiresAt,
+          createdAt,
+          createdByUserId,
+          ownerKind,
+          ownerUserId,
+          ownerAssignedAt,
+          ownerAssignmentSource,
+          revokedAt,
+          revokedByUserId,
+          revokeReason,
+          consumedAt,
+          consumeAction,
+        ]
+      properties:
+        id:
+          type: integer
+        purpose:
+          type: string
+          enum: [job_signature, ppe_signature, ppe_confirmation, quote_decision]
+        resourceType:
+          type: string
+          enum: [job, ppe_assignment, quote]
+        resourceId:
+          type: integer
+        artifactBindingStatus:
+          type: string
+        tokenPrefix:
+          type: string
+          minLength: 8
+          maxLength: 8
+        state:
+          type: string
+          enum: [active, expired, revoked, consumed]
+        expiresAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        createdByUserId:
+          type: ["integer", "null"]
+        ownerKind:
+          type: ["string", "null"]
+          enum: [organization, user, null]
+        ownerUserId:
+          type: ["integer", "null"]
+        ownerAssignedAt:
+          type: ["string", "null"]
+          format: date-time
+        ownerAssignmentSource:
+          type: ["string", "null"]
+        revokedAt:
+          type: ["string", "null"]
+          format: date-time
+        revokedByUserId:
+          type: ["integer", "null"]
+        revokeReason:
+          type: ["string", "null"]
+        consumedAt:
+          type: ["string", "null"]
+          format: date-time
+        consumeAction:
+          type: ["string", "null"]
+
+    ExternalGrantList:
+      type: object
+      additionalProperties: false
+      required: [items, nextBeforeId]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExternalGrantSummary"
+        nextBeforeId:
+          type: ["integer", "null"]
+
+    ExternalGrantRevokeInput:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 300
+
+    ExternalGrantRevokeResult:
+      type: object
+      additionalProperties: false
+      required: [id, state, revokedAt]
+      properties:
+        id:
+          type: integer
+        state:
+          type: string
+          enum: [revoked]
+        revokedAt:
+          type: string
+          format: date-time
+
+    SwitchboardQrGrantSummary:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          switchboardId,
+          designation,
+          tokenPrefix,
+          enabled,
+          state,
+          expiresAt,
+          ownerKind,
+          ownerUserId,
+          ownerAssignedAt,
+          ownerAssignmentSource,
+          archivedAt,
+        ]
+      properties:
+        switchboardId:
+          type: integer
+        designation:
+          type: string
+        tokenPrefix:
+          type: ["string", "null"]
+        enabled:
+          type: boolean
+        state:
+          type: string
+          enum: [active, expired, disabled]
+        expiresAt:
+          type: ["string", "null"]
+          format: date-time
+        ownerKind:
+          type: ["string", "null"]
+          enum: [resource, user, null]
+        ownerUserId:
+          type: ["integer", "null"]
+        ownerAssignedAt:
+          type: ["string", "null"]
+          format: date-time
+        ownerAssignmentSource:
+          type: ["string", "null"]
+        archivedAt:
+          type: ["string", "null"]
+          format: date-time
+
+    SwitchboardQrGrantList:
+      type: object
+      additionalProperties: false
+      required: [items, nextBeforeId]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SwitchboardQrGrantSummary"
+        nextBeforeId:
+          type: ["integer", "null"]
+
+    SwitchboardQrGrantDeactivateResult:
+      type: object
+      additionalProperties: false
+      required: [switchboardId, state]
+      properties:
+        switchboardId:
+          type: integer
+        state:
+          type: string
+          enum: [disabled]
+
+    UserOffboardingInput:
+      type: object
+      additionalProperties: false
+      required:
+        [expectedUsername, expectedSessionGeneration, reason, confirmation]
+      properties:
+        expectedUsername:
+          type: string
+          minLength: 1
+        expectedSessionGeneration:
+          type: integer
+          minimum: 1
+        reason:
+          type: string
+          enum:
+            [
+              employment_ended,
+              contract_ended,
+              access_no_longer_required,
+              security_response,
+            ]
+        confirmation:
+          type: string
+          enum: [offboard_user]
+
+    UserOffboardingResult:
+      type: object
+      additionalProperties: false
+      required:
+        [userId, isActive, newSessionGeneration, revokedAccess, handover]
+      properties:
+        userId:
+          type: integer
+        isActive:
+          type: boolean
+          enum: [false]
+        newSessionGeneration:
+          type: integer
+          minimum: 2
+        revokedAccess:
+          $ref: "#/components/schemas/UserOffboardingAccessInventory"
+        handover:
+          $ref: "#/components/schemas/UserOffboardingHandoverInventory"
 
     UserPermissionOverride:
       type: object
@@ -11031,15 +13611,22 @@ components:
 
     MeResponse:
       type: object
-      required: [authenticated, needsSetup]
+      required: [authenticated, needsSetup, cacheMode]
       properties:
         authenticated:
           type: boolean
         needsSetup:
           type: boolean
           description: True when no users exist yet — show setup screen
+        cacheMode:
+          type: string
+          enum: [none, network-only, offline-scoped]
         user:
           $ref: "#/components/schemas/AuthUser"
+        offlineScope:
+          type: string
+          pattern: "^[a-f0-9]{64}$"
+          description: Opaque user and authorization epoch used only to partition browser offline storage
 
     SetupInput:
       type: object
@@ -11050,101 +13637,12 @@ components:
           minLength: 3
         password:
           type: string
-          minLength: 6
+          minLength: 12
         name:
           type: string
           minLength: 1
         email:
           type: ["string", "null"]
-
-    SecurityQuestionsStatus:
-      type: object
-      required: [configured]
-      properties:
-        configured:
-          type: boolean
-          description: True when the current user has 3 security questions set
-
-    SecurityQuestionItem:
-      type: object
-      required: [position, question]
-      properties:
-        position:
-          type: integer
-          description: 1, 2 or 3
-        question:
-          type: string
-
-    SecurityQuestionAnswerInput:
-      type: object
-      required: [question, answer]
-      properties:
-        question:
-          type: string
-          minLength: 1
-        answer:
-          type: string
-          minLength: 1
-
-    SetSecurityQuestionsInput:
-      type: object
-      required: [currentPassword, questions]
-      properties:
-        currentPassword:
-          type: string
-          minLength: 1
-        questions:
-          type: array
-          minItems: 3
-          maxItems: 3
-          items:
-            $ref: "#/components/schemas/SecurityQuestionAnswerInput"
-
-    ForgotPasswordQuestionsInput:
-      type: object
-      required: [username]
-      properties:
-        username:
-          type: string
-          minLength: 1
-
-    ForgotPasswordQuestions:
-      type: object
-      required: [username, questions]
-      properties:
-        username:
-          type: string
-        questions:
-          type: array
-          items:
-            $ref: "#/components/schemas/SecurityQuestionItem"
-
-    ResetAnswerInput:
-      type: object
-      required: [position, answer]
-      properties:
-        position:
-          type: integer
-        answer:
-          type: string
-          minLength: 1
-
-    ResetPasswordWithAnswersInput:
-      type: object
-      required: [username, answers, newPassword]
-      properties:
-        username:
-          type: string
-          minLength: 1
-        answers:
-          type: array
-          minItems: 3
-          maxItems: 3
-          items:
-            $ref: "#/components/schemas/ResetAnswerInput"
-        newPassword:
-          type: string
-          minLength: 6
 
     UserInput:
       type: object
@@ -11155,7 +13653,7 @@ components:
           minLength: 3
         password:
           type: string
-          minLength: 6
+          minLength: 12
         name:
           type: string
           minLength: 1
@@ -11185,7 +13683,7 @@ components:
           type: boolean
         password:
           type: string
-          minLength: 6
+          minLength: 12
           description: Only set when changing the password
 
     UserPreferences:
@@ -11208,7 +13706,17 @@ components:
     EmailSettings:
       type: object
       required:
-        [enabled, host, port, secure, username, fromAddress, fromName, passwordSet, source]
+        [
+          enabled,
+          host,
+          port,
+          secure,
+          username,
+          fromAddress,
+          fromName,
+          passwordSet,
+          source,
+        ]
       properties:
         enabled:
           type: boolean
@@ -11330,7 +13838,8 @@ components:
 
     EmailImportSettingsInput:
       type: object
-      required: [enabled, host, port, secure, username, folder, markSeen, pollMinutes]
+      required:
+        [enabled, host, port, secure, username, folder, markSeen, pollMinutes]
       properties:
         enabled:
           type: boolean
@@ -11439,7 +13948,19 @@ components:
 
     Activity:
       type: object
-      required: [id, name, isArchived, materialsTotalCost, photosCount, attachmentsCount, extraWorksTotalAmount, extraWorksTotalHours, createdAt, updatedAt]
+      required:
+        [
+          id,
+          name,
+          isArchived,
+          materialsTotalCost,
+          photosCount,
+          attachmentsCount,
+          extraWorksTotalAmount,
+          extraWorksTotalHours,
+          createdAt,
+          updatedAt,
+        ]
       properties:
         id:
           type: integer
@@ -11767,7 +14288,8 @@ components:
 
     WorkSession:
       type: object
-      required: [id, personId, startedAt, status, source, reviewStatus, createdAt]
+      required:
+        [id, personId, startedAt, status, source, reviewStatus, createdAt]
       properties:
         id: { type: integer }
         personId: { type: integer }
@@ -11798,7 +14320,20 @@ components:
 
     WorkSummaryWorker:
       type: object
-      required: [personId, personName, completedSeconds, activeSeconds, totalSeconds, completedHours, activeHours, totalHours, needsReviewCount, activeSessionId, activeStartedAt]
+      required:
+        [
+          personId,
+          personName,
+          completedSeconds,
+          activeSeconds,
+          totalSeconds,
+          completedHours,
+          activeHours,
+          totalHours,
+          needsReviewCount,
+          activeSessionId,
+          activeStartedAt,
+        ]
       properties:
         personId: { type: integer }
         personName: { type: string }
@@ -11814,7 +14349,20 @@ components:
 
     WorkSummary:
       type: object
-      required: [completedSeconds, activeSeconds, totalSeconds, completedHours, activeHours, totalHours, workerCount, activeWorkerCount, needsReviewCount, workers, calculatedAt]
+      required:
+        [
+          completedSeconds,
+          activeSeconds,
+          totalSeconds,
+          completedHours,
+          activeHours,
+          totalHours,
+          workerCount,
+          activeWorkerCount,
+          needsReviewCount,
+          workers,
+          calculatedAt,
+        ]
       properties:
         completedSeconds: { type: integer }
         activeSeconds: { type: integer }
@@ -11855,7 +14403,17 @@ components:
 
     MyStats:
       type: object
-      required: [activityHoursWeek, activityHoursMonth, activityHoursAll, activitiesActiveCount, jobHoursWeek, jobHoursMonth, jobHoursAll, jobsDoneCount]
+      required:
+        [
+          activityHoursWeek,
+          activityHoursMonth,
+          activityHoursAll,
+          activitiesActiveCount,
+          jobHoursWeek,
+          jobHoursMonth,
+          jobHoursAll,
+          jobsDoneCount,
+        ]
       properties:
         activityHoursWeek:
           type: number
@@ -12259,7 +14817,17 @@ components:
 
     WarehouseSummary:
       type: object
-      required: [stockValue, itemCount, itemsBelowMin, itemsWithoutPrice, itemsWithNoPriceAtAll, movementsToday, waitingForInvoice, itemsMissingCostPrice]
+      required:
+        [
+          stockValue,
+          itemCount,
+          itemsBelowMin,
+          itemsWithoutPrice,
+          itemsWithNoPriceAtAll,
+          movementsToday,
+          waitingForInvoice,
+          itemsMissingCostPrice,
+        ]
       properties:
         stockValue:
           type: number
@@ -12288,7 +14856,15 @@ components:
 
     WarehouseJobMarginSummary:
       type: object
-      required: [jobId, totalQtyOut, totalSaleValue, totalCostValue, coveredQtyOut, coveredCostQtyOut]
+      required:
+        [
+          jobId,
+          totalQtyOut,
+          totalSaleValue,
+          totalCostValue,
+          coveredQtyOut,
+          coveredCostQtyOut,
+        ]
       properties:
         jobId:
           type: integer
@@ -12506,7 +15082,16 @@ components:
 
     WarehouseMovement:
       type: object
-      required: [id, warehouseItemId, direction, quantity, signedQuantity, sourceType, createdAt]
+      required:
+        [
+          id,
+          warehouseItemId,
+          direction,
+          quantity,
+          signedQuantity,
+          sourceType,
+          createdAt,
+        ]
       properties:
         id:
           type: integer
@@ -12597,7 +15182,22 @@ components:
 
     Backup:
       type: object
-      required: [id, filename, sizeBytes, status, trigger, error, createdBy, createdAt, restoreTestedAt, restoreStatus, restoreError, restoreDurationMs, restoreVerifiedTables]
+      required:
+        [
+          id,
+          filename,
+          sizeBytes,
+          status,
+          trigger,
+          error,
+          createdBy,
+          createdAt,
+          restoreTestedAt,
+          restoreStatus,
+          restoreError,
+          restoreDurationMs,
+          restoreVerifiedTables,
+        ]
       properties:
         id:
           type: integer
@@ -12649,7 +15249,16 @@ components:
 
     BackupStatus:
       type: object
-      required: [enabled, pgDumpAvailable, intervalHours, lastAttemptAt, lastAttemptStatus, lastVerifiedRestoreAt, nextScheduledAt]
+      required:
+        [
+          enabled,
+          pgDumpAvailable,
+          intervalHours,
+          lastAttemptAt,
+          lastAttemptStatus,
+          lastVerifiedRestoreAt,
+          nextScheduledAt,
+        ]
       properties:
         enabled:
           type: boolean
@@ -12749,7 +15358,15 @@ components:
 
     GdprEraseResult:
       type: object
-      required: [subjectType, subjectId, deletedFiles, failedFiles, allFilesRemoved, message]
+      required:
+        [
+          subjectType,
+          subjectId,
+          deletedFiles,
+          failedFiles,
+          allFilesRemoved,
+          message,
+        ]
       properties:
         subjectType:
           type: string
@@ -12769,6 +15386,10 @@ components:
       required: [error]
       properties:
         error:
+          type: string
+        code:
+          type: string
+        operation:
           type: string
 
     BillingSummary:
@@ -12827,12 +15448,30 @@ components:
 
     WorkFinancialBucket:
       type: object
-      required: [hours, cost, sale, margin, marginPercent, missingCostRateCount, missingSaleRateCount, sessionCount]
+      required:
+        [
+          hours,
+          cost,
+          sale,
+          margin,
+          marginPercent,
+          missingCostRateCount,
+          missingSaleRateCount,
+          sessionCount,
+        ]
       properties:
         hours: { type: number }
-        cost: { type: ["number", "null"], description: Null without rates.cost.view }
+        cost:
+          {
+            type: ["number", "null"],
+            description: Null without rates.cost.view,
+          }
         sale: { type: number }
-        margin: { type: ["number", "null"], description: Null without rates.cost.view }
+        margin:
+          {
+            type: ["number", "null"],
+            description: Null without rates.cost.view,
+          }
         marginPercent: { type: ["number", "null"] }
         missingCostRateCount: { type: integer }
         missingSaleRateCount: { type: integer }
@@ -12844,7 +15483,8 @@ components:
         - type: object
           required: [billingStatus]
           properties:
-            billingStatus: { type: string, enum: [unbilled, ready, billed, non_billable] }
+            billingStatus:
+              { type: string, enum: [unbilled, ready, billed, non_billable] }
 
     WorkFinancialPersonBucket:
       allOf:
@@ -13139,7 +15779,21 @@ components:
           type: integer
         sourceType:
           type: string
-          enum: [job, activity, activity_material, activity_work, material, billing_document_line, work_session, quote_item, transport, parking, fine, manual]
+          enum:
+            [
+              job,
+              activity,
+              activity_material,
+              activity_work,
+              material,
+              billing_document_line,
+              work_session,
+              quote_item,
+              transport,
+              parking,
+              fine,
+              manual,
+            ]
         sourceId:
           type: ["integer", "null"]
         jobId:
@@ -13294,7 +15948,21 @@ components:
       properties:
         sourceType:
           type: string
-          enum: [job, activity, activity_material, activity_work, material, billing_document_line, work_session, quote_item, transport, parking, fine, manual]
+          enum:
+            [
+              job,
+              activity,
+              activity_material,
+              activity_work,
+              material,
+              billing_document_line,
+              work_session,
+              quote_item,
+              transport,
+              parking,
+              fine,
+              manual,
+            ]
         sourceId:
           type: ["integer", "null"]
         jobId:
@@ -13612,7 +16280,17 @@ components:
 
     CancelInvoiceInput:
       type: object
+      required: [reasonCode]
       properties:
+        reasonCode:
+          type: string
+          enum:
+            - customer_complaint
+            - incorrect_job
+            - billing_error
+            - duplicate_invoice
+            - order_cancelled
+          description: Registered mandatory reason for the cancellation; arbitrary free text is not persisted
         returnJobsToDone:
           type: boolean
           description: If true, linked jobs are returned to "done"
@@ -13779,7 +16457,15 @@ components:
 
     UnbilledRecordedWork:
       type: object
-      required: [sessionCount, hours, amount, missingRateCount, needsReviewCount, workers]
+      required:
+        [
+          sessionCount,
+          hours,
+          amount,
+          missingRateCount,
+          needsReviewCount,
+          workers,
+        ]
       properties:
         sessionCount: { type: integer }
         hours: { type: number }
@@ -13917,7 +16603,16 @@ components:
           type: integer
         status:
           type: string
-          enum: [uploaded, needs_review, reviewed, approved, ignored, duplicate, merged]
+          enum:
+            [
+              uploaded,
+              needs_review,
+              reviewed,
+              approved,
+              ignored,
+              duplicate,
+              merged,
+            ]
         materialState:
           description: >-
             Derived, document-level material state aggregated from the
@@ -14050,7 +16745,12 @@ components:
     DeliveryNoteWorkflow:
       type: object
       required:
-        [state, referenceCount, approvedReferenceCount, unresolvedReferenceNumbers]
+        [
+          state,
+          referenceCount,
+          approvedReferenceCount,
+          unresolvedReferenceNumbers,
+        ]
       properties:
         state:
           type: string
@@ -14277,7 +16977,14 @@ components:
           type: array
           items:
             type: string
-            enum: [needs_review, low_confidence, missing_job, missing_warehouse_item, price_jump]
+            enum:
+              [
+                needs_review,
+                low_confidence,
+                missing_job,
+                missing_warehouse_item,
+                price_jump,
+              ]
         suggestedWarehouseItemId:
           type: ["integer", "null"]
         suggestedWarehouseItemName:
@@ -14317,7 +17024,18 @@ components:
 
     ReanalyzeJobAttachmentDocumentsResult:
       type: object
-      required: [jobsScanned, attachmentsScanned, created, skippedAttachments, queued, alreadyQueued, skippedTerminal, skippedLocked, totalJobDocuments]
+      required:
+        [
+          jobsScanned,
+          attachmentsScanned,
+          created,
+          skippedAttachments,
+          queued,
+          alreadyQueued,
+          skippedTerminal,
+          skippedLocked,
+          totalJobDocuments,
+        ]
       properties:
         jobsScanned:
           type: integer
@@ -14352,7 +17070,18 @@ components:
 
     BulkReviewDiff:
       type: object
-      required: [total, toConfirm, alreadyConfirmed, priceJumps, missingJobCount, missingWarehouseItemCount, stillUnresolved, withJobAssigned, affectedJobIds]
+      required:
+        [
+          total,
+          toConfirm,
+          alreadyConfirmed,
+          priceJumps,
+          missingJobCount,
+          missingWarehouseItemCount,
+          stillUnresolved,
+          withJobAssigned,
+          affectedJobIds,
+        ]
       properties:
         total:
           type: integer
@@ -14647,7 +17376,16 @@ components:
 
     CostDocumentDetail:
       type: object
-      required: [document, lines, duplicates, linkedDuplicates, duplicateOf, references, files]
+      required:
+        [
+          document,
+          lines,
+          duplicates,
+          linkedDuplicates,
+          duplicateOf,
+          references,
+          files,
+        ]
       properties:
         document:
           $ref: "#/components/schemas/CostDocument"
@@ -14928,6 +17666,50 @@ components:
         status:
           type: string
           enum: [needs_review, reviewed, ignored, duplicate]
+        reason:
+          description: Povinný důvod při řízeném vrácení schváleného dokladu ke kontrole.
+          type: string
+          minLength: 3
+          maxLength: 1000
+
+    CostDocumentDispositionInput:
+      oneOf:
+        - $ref: "#/components/schemas/CostDocumentEarlyDiscardInput"
+        - $ref: "#/components/schemas/CostDocumentReviewedRejectionInput"
+      discriminator:
+        propertyName: mode
+
+    CostDocumentEarlyDiscardInput:
+      type: object
+      additionalProperties: false
+      required: [mode, reasonCode, confirmed]
+      properties:
+        mode:
+          type: string
+          enum: [early_discard]
+        reasonCode:
+          type: string
+          enum: [invalid_upload, not_a_document]
+        confirmed:
+          type: boolean
+          enum: [true]
+
+    CostDocumentReviewedRejectionInput:
+      type: object
+      additionalProperties: false
+      required: [mode, reasonCode, reason]
+      properties:
+        mode:
+          type: string
+          enum: [reviewed_rejection]
+        reasonCode:
+          type: string
+          enum: [duplicate_document, invalid_document]
+        reason:
+          description: Bounded readable reason stored only in restricted immutable accounting evidence.
+          type: string
+          minLength: 3
+          maxLength: 1000
 
     MarkCostDocumentDuplicateInput:
       type: object
@@ -15009,7 +17791,8 @@ components:
 
     CostDocumentMatchResult:
       type: object
-      required: [document, lines, duplicates, references, files, candidatesByRef]
+      required:
+        [document, lines, duplicates, references, files, candidatesByRef]
       properties:
         document:
           $ref: "#/components/schemas/CostDocument"
@@ -15287,7 +18070,8 @@ components:
 
     EmailImportMessageDetail:
       type: object
-      required: [id, status, attachmentCount, importedCount, labeled, attachments]
+      required:
+        [id, status, attachmentCount, importedCount, labeled, attachments]
       properties:
         id:
           type: integer
@@ -15410,7 +18194,8 @@ components:
 
     EmployeeLeave:
       type: object
-      required: [id, personId, type, startDate, endDate, days, createdAt, updatedAt]
+      required:
+        [id, personId, type, startDate, endDate, days, createdAt, updatedAt]
       properties:
         id:
           type: integer
@@ -15458,7 +18243,22 @@ components:
 
     LeaveSummary:
       type: object
-      required: [personId, personName, year, vacationDays, sickDays, otherDays, totalDays, vacationYearlyCap, sickYearlyCap, otherYearlyCap, remainingVacationDays, remainingSickDays, remainingOtherDays]
+      required:
+        [
+          personId,
+          personName,
+          year,
+          vacationDays,
+          sickDays,
+          otherDays,
+          totalDays,
+          vacationYearlyCap,
+          sickYearlyCap,
+          otherYearlyCap,
+          remainingVacationDays,
+          remainingSickDays,
+          remainingOtherDays,
+        ]
       properties:
         personId:
           type: integer
@@ -15499,7 +18299,8 @@ components:
 
     LeaveSettings:
       type: object
-      required: [id, vacationYearlyCap, sickYearlyCap, otherYearlyCap, updatedAt]
+      required:
+        [id, vacationYearlyCap, sickYearlyCap, otherYearlyCap, updatedAt]
       properties:
         id:
           type: integer
@@ -15589,7 +18390,19 @@ components:
 
     PpeAssignment:
       type: object
-      required: [id, ppeItemId, personId, ppeNameSnapshot, personNameSnapshot, quantity, issuedAt, status, createdAt, hasConfirmToken]
+      required:
+        [
+          id,
+          ppeItemId,
+          personId,
+          ppeNameSnapshot,
+          personNameSnapshot,
+          quantity,
+          issuedAt,
+          status,
+          createdAt,
+          hasConfirmToken,
+        ]
       properties:
         id:
           type: integer
@@ -15648,23 +18461,124 @@ components:
 
     PpeConfirmLinkResponse:
       type: object
-      required: [confirmUrl, token, emailSent]
+      required: [confirmUrl, expiresAt, emailSent]
       properties:
         confirmUrl:
           type: string
           description: Full URL the employee opens to confirm receipt
-        token:
+        expiresAt:
           type: string
+          format: date-time
+          description: Expiration time of the newly issued one-time link
         emailSent:
           type: boolean
           description: True when the confirmation link was successfully emailed to the employee
 
+    PpeSignLinkResponse:
+      type: object
+      required: [signUrl, expiresAt]
+      properties:
+        signUrl:
+          type: string
+          description: Full URL for the newly issued one-time signature credential
+        expiresAt:
+          type: string
+          format: date-time
+
+    PublicPpeEvidence:
+      type: object
+      required:
+        [
+          id,
+          ppeNameSnapshot,
+          personNameSnapshot,
+          ppeCategorySnapshot,
+          ppeStandardSnapshot,
+          ppeProtectionClassSnapshot,
+          ppeRiskDescriptionSnapshot,
+          quantity,
+          size,
+          serialNumber,
+          issuedAt,
+          replaceBy,
+          nextInspectionAt,
+          confirmationText,
+          status,
+          closed,
+          alreadySigned,
+          employeeConfirmedAt,
+        ]
+      properties:
+        id:
+          type: integer
+        ppeNameSnapshot:
+          type: string
+        personNameSnapshot:
+          type: string
+        ppeCategorySnapshot:
+          type: ["string", "null"]
+        ppeStandardSnapshot:
+          type: ["string", "null"]
+        ppeProtectionClassSnapshot:
+          type: ["string", "null"]
+        ppeRiskDescriptionSnapshot:
+          type: ["string", "null"]
+        quantity:
+          type: integer
+        size:
+          type: ["string", "null"]
+        serialNumber:
+          type: ["string", "null"]
+        issuedAt:
+          type: string
+        replaceBy:
+          type: ["string", "null"]
+        nextInspectionAt:
+          type: ["string", "null"]
+        confirmationText:
+          type: string
+        status:
+          type: string
+          enum: [issued]
+        closed:
+          type: boolean
+        alreadySigned:
+          type: boolean
+        employeeConfirmedAt:
+          type: ["string", "null"]
+          format: date-time
+
+    PublicPpeSignatureInput:
+      type: object
+      additionalProperties: false
+      required: [signatureDataUrl]
+      properties:
+        signatureDataUrl:
+          type: string
+          pattern: "^data:image/png;base64,"
+
+    PublicPpeSignatureResult:
+      type: object
+      required: [ok, employeeConfirmedAt, personNameSnapshot, ppeNameSnapshot]
+      properties:
+        ok:
+          type: boolean
+        employeeConfirmedAt:
+          type: string
+          format: date-time
+        personNameSnapshot:
+          type: string
+        ppeNameSnapshot:
+          type: string
+
     PpeConfirmInput:
       type: object
-      required: [token]
+      additionalProperties: false
       properties:
         token:
           type: string
+          deprecated: true
+          description: Deprecated body credential. Use Authorization Bearer instead.
 
     PpeConfirmResult:
       type: object
@@ -15674,7 +18588,7 @@ components:
           type: boolean
           description: True if the assignment was already confirmed before this request
         assignment:
-          $ref: "#/components/schemas/PpeAssignment"
+          $ref: "#/components/schemas/PublicPpeEvidence"
 
     PpeAssignmentInput:
       type: object
@@ -15724,7 +18638,13 @@ components:
 
     PpeSignHandoverInput:
       type: object
-      required: [signatureDataUrl, signatoryName, confirmationText, confirmationAccepted]
+      required:
+        [
+          signatureDataUrl,
+          signatoryName,
+          confirmationText,
+          confirmationAccepted,
+        ]
       properties:
         signatureDataUrl:
           type: string
@@ -15742,7 +18662,22 @@ components:
 
     PpeHandoverDocument:
       type: object
-      required: [id, assignmentId, version, documentNumber, signatoryName, signedAt, confirmationText, pngObjectPath, pngSha256, pdfObjectPath, pdfSha256, issuerSnapshot, createdAt]
+      required:
+        [
+          id,
+          assignmentId,
+          version,
+          documentNumber,
+          signatoryName,
+          signedAt,
+          confirmationText,
+          pngObjectPath,
+          pngSha256,
+          pdfObjectPath,
+          pdfSha256,
+          issuerSnapshot,
+          createdAt,
+        ]
       properties:
         id:
           type: integer
@@ -15875,7 +18810,8 @@ components:
 
     CreateRecurringTemplateInput:
       type: object
-      required: [customerId, name, items, interval, dayOfMonth, nextGenerationDate]
+      required:
+        [customerId, name, items, interval, dayOfMonth, nextGenerationDate]
       properties:
         customerId:
           type: integer
@@ -15966,7 +18902,18 @@ components:
 
     MyPpeAssignment:
       type: object
-      required: [id, ppeItemId, personId, ppeNameSnapshot, personNameSnapshot, quantity, issuedAt, status, createdAt]
+      required:
+        [
+          id,
+          ppeItemId,
+          personId,
+          ppeNameSnapshot,
+          personNameSnapshot,
+          quantity,
+          issuedAt,
+          status,
+          createdAt,
+        ]
       properties:
         id:
           type: integer
@@ -16025,7 +18972,8 @@ components:
 
     QuoteItem:
       type: object
-      required: [id, quoteId, position, rowType, description, quantity, unitPrice]
+      required:
+        [id, quoteId, position, rowType, description, quantity, unitPrice]
       properties:
         id:
           type: integer
@@ -16075,7 +19023,8 @@ components:
 
     Quote:
       type: object
-      required: [id, title, status, itemCount, totalWithVat, createdAt, updatedAt]
+      required:
+        [id, title, status, itemCount, totalWithVat, createdAt, updatedAt]
       properties:
         id:
           type: integer
@@ -16098,8 +19047,6 @@ components:
           type: ["string", "null"]
         pdfObjectPath:
           type: ["string", "null"]
-        shareToken:
-          type: ["string", "null"]
         convertedToJobId:
           type: ["integer", "null"]
         convertedToJobGroupId:
@@ -16117,7 +19064,19 @@ components:
 
     QuoteDetail:
       type: object
-      required: [id, title, status, items, totalPurchaseCost, financialItemCount, costedItemCount, marginComplete, createdAt, updatedAt]
+      required:
+        [
+          id,
+          title,
+          status,
+          items,
+          totalPurchaseCost,
+          financialItemCount,
+          costedItemCount,
+          marginComplete,
+          createdAt,
+          updatedAt,
+        ]
       properties:
         id:
           type: integer
@@ -16145,8 +19104,6 @@ components:
         notes:
           type: ["string", "null"]
         pdfObjectPath:
-          type: ["string", "null"]
-        shareToken:
           type: ["string", "null"]
         convertedToJobId:
           type: ["integer", "null"]
@@ -16177,10 +19134,33 @@ components:
 
     PublicQuoteDetail:
       type: object
-      required: [title, status, items, subtotalWithoutVat, totalVat, totalWithVat, vatPayer, createdAt]
+      required:
+        [
+          quoteVersion,
+          snapshotSha256,
+          pdfSha256,
+          confirmationText,
+          title,
+          status,
+          items,
+          subtotalWithoutVat,
+          totalVat,
+          totalWithVat,
+          vatPayer,
+          createdAt,
+        ]
       properties:
         quoteNumber:
           type: ["string", "null"]
+        quoteVersion:
+          type: integer
+          minimum: 1
+        snapshotSha256:
+          $ref: "#/components/schemas/Sha256Hex"
+        pdfSha256:
+          $ref: "#/components/schemas/Sha256Hex"
+        confirmationText:
+          type: string
         title:
           type: string
         status:
@@ -16215,9 +19195,80 @@ components:
         createdAt:
           type: string
 
+    PublicSwitchboardDocument:
+      type: object
+      required: [sha256, documentType, version, originalFileName, uploadedAt]
+      properties:
+        sha256:
+          $ref: "#/components/schemas/Sha256Hex"
+        documentType:
+          type: string
+        version:
+          type: integer
+          minimum: 1
+        originalFileName:
+          type: string
+        uploadedAt:
+          type: string
+          format: date-time
+
+    PublicSwitchboardContact:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        address:
+          type: ["string", "null"]
+        phone:
+          type: ["string", "null"]
+        email:
+          type: ["string", "null"]
+
+    PublicSwitchboard:
+      type: object
+      required:
+        [
+          designation,
+          serialNumber,
+          manufacturer,
+          productionDate,
+          documentationStatus,
+          contact,
+          publicDocuments,
+        ]
+      properties:
+        designation:
+          type: string
+        serialNumber:
+          type: ["string", "null"]
+        manufacturer:
+          type: string
+        productionDate:
+          type: ["string", "null"]
+        documentationStatus:
+          type: string
+        contact:
+          $ref: "#/components/schemas/PublicSwitchboardContact"
+        publicDocuments:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublicSwitchboardDocument"
+
     PublicQuoteItem:
       type: object
-      required: [id, position, rowType, description, quantity, unitPrice, totalWithoutVat, totalVat, totalWithVat]
+      required:
+        [
+          id,
+          position,
+          rowType,
+          description,
+          quantity,
+          unitPrice,
+          totalWithoutVat,
+          totalVat,
+          totalWithVat,
+        ]
       properties:
         id:
           type: integer
@@ -16245,11 +19296,28 @@ components:
 
     QuotePublicActionResult:
       type: object
+      required: [quoteVersion, snapshotSha256]
       properties:
         accepted:
           type: boolean
         rejected:
           type: boolean
+        quoteVersion:
+          type: integer
+          minimum: 1
+        snapshotSha256:
+          $ref: "#/components/schemas/Sha256Hex"
+
+    PublicQuoteDecisionInput:
+      type: object
+      additionalProperties: false
+      required: [respondentName]
+      properties:
+        respondentName:
+          type: string
+          minLength: 2
+          maxLength: 120
+          description: Self-declared identity of the person accepting or rejecting this exact version
 
     CreateQuoteInput:
       type: object
@@ -16294,6 +19362,93 @@ components:
           type: ["string", "null"]
         message:
           type: ["string", "null"]
+
+    SendQuoteEmailResult:
+      type: object
+      required: [sent, to, expiresAt, quoteVersion, snapshotSha256, pdfSha256]
+      properties:
+        sent: { type: boolean }
+        to: { type: string }
+        expiresAt: { type: string, format: date-time }
+        quoteVersion:
+          type: integer
+          minimum: 1
+        snapshotSha256:
+          $ref: "#/components/schemas/Sha256Hex"
+        pdfSha256:
+          $ref: "#/components/schemas/Sha256Hex"
+
+    QuoteEvidence:
+      type: object
+      required: [versions, events]
+      properties:
+        versions:
+          type: array
+          items:
+            $ref: "#/components/schemas/QuoteVersionEvidence"
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/QuoteDecisionEventEvidence"
+
+    QuoteVersionEvidence:
+      type: object
+      required:
+        [
+          id,
+          quoteId,
+          version,
+          dataSnapshot,
+          snapshotSha256,
+          pdfObjectPath,
+          pdfSha256,
+          rendererVersion,
+          createdAt,
+        ]
+      properties:
+        id: { type: integer }
+        quoteId: { type: integer }
+        version: { type: integer }
+        supersedesVersionId: { type: ["integer", "null"] }
+        dataSnapshot:
+          type: object
+          description: Canonical immutable quote, parties, line items, totals, terms, and confirmation text
+        snapshotSha256:
+          $ref: "#/components/schemas/Sha256Hex"
+        pdfObjectPath: { type: string }
+        pdfSha256:
+          $ref: "#/components/schemas/Sha256Hex"
+        rendererVersion: { type: string }
+        createdByUserId: { type: ["integer", "null"] }
+        createdAt: { type: string, format: date-time }
+
+    QuoteDecisionEventEvidence:
+      type: object
+      required: [id, quoteId, quoteVersionId, action, actorType, createdAt]
+      properties:
+        id: { type: integer }
+        quoteId: { type: integer }
+        quoteVersionId: { type: integer }
+        action:
+          type: string
+          enum: [accepted, rejected, expired, superseded]
+        actorType:
+          type: string
+          enum: [public_recipient, admin, system]
+        actorUserId: { type: ["integer", "null"] }
+        actorName: { type: ["string", "null"] }
+        identityAssurance: { type: ["string", "null"] }
+        confirmationText: { type: ["string", "null"] }
+        reason: { type: ["string", "null"] }
+        userAgentSha256:
+          oneOf:
+            - $ref: "#/components/schemas/Sha256Hex"
+            - type: "null"
+        createdAt: { type: string, format: date-time }
+
+    Sha256Hex:
+      type: string
+      pattern: "^[0-9a-f]{64}$"
 
     ConvertQuoteToJobInput:
       type: object

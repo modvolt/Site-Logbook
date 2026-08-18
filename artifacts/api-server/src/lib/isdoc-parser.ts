@@ -15,8 +15,9 @@
  *      parser also never resolves SYSTEM/external DTDs or makes any I/O.
  */
 import { XMLParser } from "fast-xml-parser";
-import { unzipSync, strFromU8 } from "fflate";
+import { strFromU8 } from "fflate";
 import { round2 } from "./invoice-calc";
+import { unzipWithBudget } from "./fileSignature";
 
 export interface ParsedLine {
   description: string;
@@ -322,12 +323,19 @@ export function parseIsdocBuffer(buffer: Buffer, fileName = ""): ParsedDocument 
     buffer.length >= 2 && buffer[0] === 0x50 && buffer[1] === 0x4b; // "PK"
   if (fn.endsWith(".isdocx") || looksZip) {
     // ISDOCX is a ZIP; the invoice XML is the single .isdoc/.xml entry inside.
-    let entries: Record<string, Uint8Array>;
-    try {
-      entries = unzipSync(new Uint8Array(buffer));
-    } catch {
-      throw new IsdocParseError("Soubor ISDOCX se nepodařilo rozbalit.");
+    const extraction = unzipWithBudget(buffer, {
+      maxInputBytes: 10 * 1024 * 1024,
+      maxEntries: 10,
+      maxEntryUncompressedBytes: 20 * 1024 * 1024,
+      maxTotalUncompressedBytes: 20 * 1024 * 1024,
+      maxCompressionRatio: 100,
+    });
+    if (!extraction.ok || !extraction.entries) {
+      throw new IsdocParseError(
+        extraction.reason ?? "Soubor ISDOCX se nepodařilo bezpečně rozbalit.",
+      );
     }
+    const entries = extraction.entries;
     const key = Object.keys(entries).find(
       (k) => k.toLowerCase().endsWith(".isdoc") || k.toLowerCase().endsWith(".xml"),
     );

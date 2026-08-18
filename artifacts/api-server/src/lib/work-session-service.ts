@@ -1,10 +1,11 @@
-import { and, desc, eq, inArray, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
 import {
   db,
   timeEntriesTable,
   workSessionsTable,
   workSessionBreaksTable,
   workSessionEventsTable,
+  workSessionBillingLinksTable,
   peopleTable,
   jobsTable,
   activitiesTable,
@@ -45,6 +46,16 @@ export class WorkSessionIdempotencyConflict extends Error {
   statusCode = 409;
   constructor() {
     super("Idempotency-Key už byl použit pro jiný pracovní interval.");
+  }
+}
+
+export class WorkSessionBillingLockedError extends Error {
+  statusCode = 409;
+  code = "work_session_billing_locked";
+  constructor(public readonly sessionId: number) {
+    super(
+      `Časovou session #${sessionId} nelze zneplatnit, protože je rezervovaná nebo fakturovaná. Nejprve použijte storno či navázanou účetní korekci.`,
+    );
   }
 }
 
@@ -176,6 +187,31 @@ async function addEvent(
     actorUserId,
     data: data ?? null,
   });
+}
+
+async function assertSessionsCanBeVoided(
+  tx: Tx,
+  sessions: (typeof workSessionsTable.$inferSelect)[],
+) {
+  const statusLocked = sessions.find(
+    (session) => session.billingStatus === "ready" || session.billingStatus === "billed",
+  );
+  if (statusLocked) throw new WorkSessionBillingLockedError(statusLocked.id);
+  if (!sessions.length) return;
+  const [activeLink] = await tx
+    .select({ sessionId: workSessionBillingLinksTable.sessionId })
+    .from(workSessionBillingLinksTable)
+    .where(
+      and(
+        inArray(
+          workSessionBillingLinksTable.sessionId,
+          sessions.map((session) => session.id),
+        ),
+        inArray(workSessionBillingLinksTable.status, ["reserved", "billed"]),
+      ),
+    )
+    .limit(1);
+  if (activeLink) throw new WorkSessionBillingLockedError(activeLink.sessionId);
 }
 
 async function breakSeconds(tx: Tx, sessionId: number, endedAt: Date) {
@@ -471,7 +507,10 @@ export async function addManualWorkSession(input: {
           ne(workSessionsTable.status, "voided"),
           ne(workSessionsTable.source, "correction"),
           lt(workSessionsTable.startedAt, input.endedAt),
-          sql`coalesce(${workSessionsTable.endedAt}, 'infinity'::timestamp) > ${input.startedAt}`,
+          or(
+            isNull(workSessionsTable.endedAt),
+            gt(workSessionsTable.endedAt, input.startedAt),
+          ),
         ),
       );
     if (overlap) throw new WorkSessionOverlapError();
@@ -527,7 +566,10 @@ export async function removeTimeTracking(
           parentCondition(kind, parentId),
           ne(workSessionsTable.status, "voided"),
         ),
-      );
+      )
+      .orderBy(workSessionsTable.id)
+      .for("update");
+    await assertSessionsCanBeVoided(tx, sessions);
     const now = new Date();
     for (const session of sessions) {
       if (session.status === "active") await breakSeconds(tx, session.id, now);
@@ -649,6 +691,7 @@ export async function voidWorkSession(
       .where(and(eq(workSessionsTable.id, sessionId), parentCondition(kind, parentId)))
       .for("update");
     if (!session || session.status === "voided") return false;
+    await assertSessionsCanBeVoided(tx, [session]);
     const now = new Date();
     if (session.status === "active") await breakSeconds(tx, session.id, now);
     await tx

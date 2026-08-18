@@ -680,6 +680,69 @@
       "when": 1786383352759,
       "tag": "0096_far_smiling_tiger",
       "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1786383360000,
+      "tag": "0097_session_and_api_idempotency",
+      "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1786383361000,
+      "tag": "0098_object-upload-ledger",
+      "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1786383362000,
+      "tag": "0099_secret_envelope_encryption",
+      "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1786383363000,
+      "tag": "0101_public_access_token_lifecycle",
+      "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1786383364000,
+      "tag": "0102_immutable_job_quote_versions",
+      "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1786383365000,
+      "tag": "0103_durable_operational_incident_outbox",
+      "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1786383366000,
+      "tag": "0104_thin_sheva_callister",
+      "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1786383367000,
+      "tag": "0105_smooth_nitro",
+      "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1786459128910,
+      "tag": "0106_graceful_frog_thor",
+      "breakpoints": true
     }
   ]
 }

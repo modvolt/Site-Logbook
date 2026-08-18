@@ -1,4 +1,9 @@
-import express, { type Express, type Request, type Response, type NextFunction } from "express";
+import express, {
+  type Express,
+  type Request,
+  type Response,
+  type NextFunction,
+} from "express";
 import cors from "cors";
 import helmet from "helmet";
 import session from "express-session";
@@ -12,14 +17,34 @@ import { auditMutations } from "./middlewares/audit";
 import { rejectArchivedJobMutations } from "./middlewares/archived-job";
 import { broadcastMutations } from "./middlewares/live-updates";
 import { trackSessionActivity } from "./middlewares/session-activity";
+import {
+  attachOfflineResponseScope,
+  enforceOfflineReplayScope,
+} from "./middlewares/offline-replay-scope";
+import { enforceDurableIdempotency } from "./middlewares/offline-idempotency";
+import { requireOnlineIdempotencyStepUp } from "./middlewares/online-idempotency-step-up";
 import { record5xxError } from "./lib/server-errors";
+import { isPublicApiRequest } from "./lib/public-api-policy";
+import { SecretEncryptionError } from "./lib/secret-envelope";
+import { PublicOriginConfigError, publicAppOrigin } from "./lib/public-origin";
+import {
+  redactPublicBearerPath,
+  serializeRequestForLog,
+} from "./lib/request-log-redaction";
+import { PublicAccessTokenIssuanceError } from "./lib/public-access-token";
+import {
+  isRequestBodyTooLarge,
+  parseApiRequestBody,
+} from "./middlewares/request-body";
+import { limitPublicBearerRequests } from "./middlewares/public-bearer-rate-limit";
+import { trustedProxyRanges } from "./lib/trusted-proxy";
 
 const app: Express = express();
 
-// In production the app sits behind a TLS-terminating reverse proxy (Coolify /
-// Traefik, nginx). Trust the first proxy hop so secure cookies are set and the
-// client IP (for rate limiting) is read from X-Forwarded-For.
-app.set("trust proxy", 1);
+// A fixed hop count is unsafe because production and local ingress paths differ.
+// Production must declare the exact proxy addresses/CIDRs; tests and local
+// direct runs trust loopback only.
+app.set("trust proxy", trustedProxyRanges());
 
 const PgStore = connectPgSimple(session);
 const sessionSecret = process.env.SESSION_SECRET;
@@ -29,18 +54,17 @@ if (!sessionSecret) {
 if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL env var is required");
 }
+if (process.env.NODE_ENV === "production") {
+  // A production process must never become healthy while external bearer URLs
+  // would be derived from an absent or insecure origin.
+  publicAppOrigin();
+}
 
 app.use(
   pinoHttp({
     logger,
     serializers: {
-      req(req) {
-        return {
-          id: req.id,
-          method: req.method,
-          url: req.url?.split("?")[0],
-        };
-      },
+      req: serializeRequestForLog,
       res(res) {
         return {
           statusCode: res.statusCode,
@@ -59,7 +83,7 @@ app.use((_req: Request, res: Response, next: NextFunction) => {
     if (res.statusCode >= 500) {
       record5xxError({
         timestamp: new Date().toISOString(),
-        route: _req.path,
+        route: redactPublicBearerPath(_req.path) ?? _req.path,
         method: _req.method,
         requestId: String((_req as any).id ?? ""),
         statusCode: res.statusCode,
@@ -68,12 +92,19 @@ app.use((_req: Request, res: Response, next: NextFunction) => {
   });
   next();
 });
-// Security headers. CSP is left off because this service only serves JSON and
-// proxied object streams (the SPA is served by nginx, which owns its own CSP);
-// CORP is relaxed so the browser can load object/image streams from /api.
+// API responses are JSON or object streams, so their own CSP can deny every
+// active-content source. The SPA receives its more specific CSP from nginx.
+// CORP stays relaxed so explicitly public object/image streams remain usable.
 app.use(
   helmet({
-    contentSecurityPolicy: false,
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'none'"],
+        baseUri: ["'none'"],
+        formAction: ["'none'"],
+        frameAncestors: ["'none'"],
+      },
+    },
     crossOriginResourcePolicy: { policy: "cross-origin" },
     crossOriginEmbedderPolicy: false,
   }),
@@ -92,19 +123,8 @@ app.use(
     credentials: true,
   }),
 );
-// Request body size cap for JSON / form payloads — this is what gates CSV bulk
-// imports and base64 uploads. Tunable via MAX_REQUEST_BODY_MB (default 50). Keep
-// nginx's client_max_body_size (artifacts/stavba/nginx.conf) at/above this.
-// Binary file uploads (photos/documents) have their own, higher cap in
-// storage.ts / billing-documents.ts and do not go through this parser.
-const maxBodyMb = (() => {
-  const n = Number(process.env.MAX_REQUEST_BODY_MB);
-  return Number.isFinite(n) && n > 0 ? n : 50;
-})();
-const bodyLimit = `${maxBodyMb}mb`;
-app.use(express.json({ limit: bodyLimit }));
-app.use(express.urlencoded({ extended: true, limit: bodyLimit }));
-
+// Session/authentication is deliberately installed before structured parsers;
+// route-specific JSON/form limits are applied below after permission checks.
 app.use(
   session({
     store: new PgStore({
@@ -135,31 +155,46 @@ app.use(
   }),
 );
 
+// API responses contain user- and permission-scoped data. Browser HTTP caches
+// must never retain them implicitly; the service worker may persist only its
+// explicit offline allowlist in a separate identity-partitioned Cache Storage
+// namespace.
+app.use("/api", (_req: Request, res: Response, next: NextFunction) => {
+  res.setHeader("Cache-Control", "private, no-store");
+  next();
+});
+
 app.use("/api", attachAuth);
+app.use("/api", attachOfflineResponseScope);
 app.use("/api", trackSessionActivity);
 
-// Public endpoints must bypass both authentication and permission enforcement.
-// Keep this list centralized so a route cannot pass one guard and fail the next.
-const PUBLIC_PREFIXES = ["/api/healthz", "/api/auth/", "/api/storage/public-objects/", "/api/ppe/sign/", "/api/sign/", "/api/quotes/public/", "/api/q/board/", "/api/internal/"];
-
-function isPublicApiRequest(req: Request): boolean {
-  const url = req.originalUrl.split("?")[0];
-  return PUBLIC_PREFIXES.some((prefix) => url === prefix || url.startsWith(prefix));
-}
+app.use("/api", (req: Request, res: Response, next: NextFunction) => {
+  if (isPublicApiRequest(req.method, req.originalUrl)) return next();
+  return requireAuth(req, res, next);
+});
 
 app.use("/api", (req: Request, res: Response, next: NextFunction) => {
-  if (isPublicApiRequest(req)) return next();
-  return requireAuth(req, res, next);
+  if (isPublicApiRequest(req.method, req.originalUrl)) return next();
+  return enforceOfflineReplayScope(req, res, next);
 });
 
 // Enforce module permissions on the backend. Role defaults are resolved with
 // per-user allow/deny overrides before this middleware runs.
 app.use("/api", (req: Request, res: Response, next: NextFunction) => {
-  if (isPublicApiRequest(req)) return next();
-  const url = req.originalUrl.split("?")[0];
-  if (url.startsWith("/api/preferences")) return next();
+  if (isPublicApiRequest(req.method, req.originalUrl)) return next();
   return enforceApiPermission(req, res, next);
 });
+
+// Authentication and permission checks run before any structured body is
+// buffered. Only named base64 workflows receive the larger authenticated cap.
+// Registered privileged online mutations additionally prove session step-up
+// before their encrypted durable ledger is touched. Route-local guards remain
+// in place as defense in depth.
+app.use("/api", requireOnlineIdempotencyStepUp);
+app.use("/api", limitPublicBearerRequests);
+app.use("/api", parseApiRequestBody);
+
+app.use("/api", enforceDurableIdempotency);
 
 // Record successful data mutations to the audit log (after auth so the actor is known)
 app.use("/api", auditMutations);
@@ -184,12 +219,77 @@ app.use("/api", (_req: Request, res: Response) => {
 app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
   const requestId = (req as any).id ?? "unknown";
   const method = req.method;
-  const path = req.path;
+  const path = redactPublicBearerPath(req.path) ?? req.path;
+
+  if (isRequestBodyTooLarge(err)) {
+    req.log?.warn({ requestId, method, path }, "Request body limit exceeded");
+    if (!res.headersSent) {
+      res.status(413).json({
+        error: "Požadavek je příliš velký pro tuto operaci.",
+        code: "request_body_too_large",
+        requestId,
+      });
+    }
+    return;
+  }
+
+  if (err instanceof SecretEncryptionError) {
+    req.log?.error(
+      { requestId, method, path, code: err.code },
+      "Secret encryption operation failed",
+    );
+    if (!res.headersSent) {
+      res.status(503).json({
+        error:
+          "Šifrování citlivých údajů není dostupné. Kontaktujte správce systému.",
+        code: "secret_encryption_unavailable",
+        requestId,
+      });
+    }
+    return;
+  }
+
+  if (err instanceof PublicOriginConfigError) {
+    req.log?.error(
+      { requestId, method, path, code: err.code },
+      "Trusted public application origin is unavailable",
+    );
+    if (!res.headersSent) {
+      res.status(503).json({
+        error:
+          "Veřejný odkaz nyní nelze bezpečně vytvořit. Kontaktujte správce systému.",
+        code: "public_origin_unavailable",
+        requestId,
+      });
+    }
+    return;
+  }
+
+  if (err instanceof PublicAccessTokenIssuanceError) {
+    req.log?.warn(
+      { requestId, method, path, code: err.code },
+      "Public token issuance rejected for inactive issuer",
+    );
+    if (!res.headersSent) {
+      res.status(409).json({
+        error: "Váš přístup byl mezitím ukončen. Přihlaste se znovu.",
+        code: err.code,
+        requestId,
+      });
+    }
+    return;
+  }
 
   if (err instanceof Error) {
-    req.log?.error({ requestId, method, path, stack: err.stack }, "Unhandled error");
+    req.log?.error(
+      { requestId, method, path, stack: err.stack },
+      "Unhandled error",
+    );
   } else {
-    req.log?.error({ requestId, method, path, err }, "Unhandled error (non-Error)");
+    req.log?.error(
+      { requestId, method, path, err },
+      "Unhandled error (non-Error)",
+    );
   }
 
   if (res.headersSent) return;

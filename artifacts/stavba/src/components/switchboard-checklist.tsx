@@ -8,7 +8,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
 import { useOfflineQueue } from "@/hooks/use-offline-queue";
 import { useToast } from "@/hooks/use-toast";
-import { saveBlob } from "@/lib/offline-queue";
 import {
   switchboardFetch, uploadSwitchboardPhoto, type SwitchboardChecklist as ChecklistPayload,
   type SwitchboardChecklistItem, type SwitchboardChecklistResponse, type SwitchboardOperations,
@@ -144,7 +143,7 @@ function ChecklistItemRow({ item, saving, canFill, onSave, onMeasurement, onPhot
 
 export function SwitchboardChecklist({ switchboardId, jobId }: { switchboardId: number; jobId: number }) {
   const { can, user } = useAuth();
-  const { isOnline, enqueue, pendingOps, failedOps } = useOfflineQueue();
+  const { isOnline, enqueue, saveBlob, pendingOps, failedOps } = useOfflineQueue();
   const { toast } = useToast();
   const qc = useQueryClient();
   const queryKey = ["switchboard-checklist", switchboardId];

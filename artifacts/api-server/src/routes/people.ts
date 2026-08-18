@@ -7,6 +7,7 @@ import {
   UpdatePersonBody,
   DeletePersonParams,
 } from "@workspace/api-zod";
+import { blockDirectPrivacyDeletion } from "../middlewares/privacy-case-required";
 import { z } from "zod/v4";
 import { createHourlyRate, listHourlyRates, voidHourlyRate } from "../lib/hourly-rate-service";
 
@@ -283,7 +284,10 @@ router.patch("/people/:id", async (req, res): Promise<void> => {
   res.json(serializePerson(person));
 });
 
-router.delete("/people/:id", async (req, res): Promise<void> => {
+router.delete(
+  "/people/:id",
+  blockDirectPrivacyDeletion("person_hard_delete"),
+  async (req, res): Promise<void> => {
   const params = DeletePersonParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -322,6 +326,7 @@ router.delete("/people/:id", async (req, res): Promise<void> => {
   }
 
   res.sendStatus(204);
-});
+  },
+);
 
 export default router;

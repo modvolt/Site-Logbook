@@ -1,13 +1,16 @@
 import { eq } from "drizzle-orm";
 import {
   db,
+  externalAccountsTable,
   usersTable,
   userPermissionOverridesTable,
-  resolvePermissions,
+  resolveAccountPermissions,
   type Permission,
   type PermissionEffect,
   type UserRole,
+  type UserAccountType,
 } from "@workspace/db";
+import { externalAccountsEnabled } from "./external-accounts-feature";
 
 export async function getUserAuthorization(userId: number) {
   const rows = await db
@@ -30,10 +33,33 @@ export async function getUserAuthorization(userId: number) {
       ? [{ permission: row.permission, effect: row.effect as PermissionEffect }]
       : [],
   );
+  let externalAccount = null;
+  if (user.accountType === "external") {
+    if (!externalAccountsEnabled()) return null;
+    const [profile] = await db
+      .select()
+      .from(externalAccountsTable)
+      .where(eq(externalAccountsTable.userId, user.id));
+    if (
+      !profile ||
+      profile.status !== "active" ||
+      profile.revokedAt ||
+      profile.accessExpiresAt.getTime() <= Date.now()
+    ) {
+      return null;
+    }
+    externalAccount = profile;
+  }
+
   return {
     user,
+    externalAccount,
     overrides: validOverrides,
-    permissions: resolvePermissions(user.role as UserRole, validOverrides),
+    permissions: resolveAccountPermissions(
+      user.accountType as UserAccountType,
+      user.role as UserRole,
+      validOverrides,
+    ),
   };
 }
 

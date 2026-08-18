@@ -1,9 +1,9 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { desc, eq, lt, and, inArray, isNotNull } from "drizzle-orm";
+import { desc, eq, lt, lte, and, inArray, isNotNull } from "drizzle-orm";
 import pg from "pg";
 import {
   db,
@@ -17,7 +17,19 @@ import { logger } from "./logger";
 import { ObjectStorageService } from "./objectStorage";
 import { resolveEmailConfig } from "./email";
 import nodemailer from "nodemailer";
-import { withSchedulerLock, SCHEDULER_LOCK_KEYS } from "./scheduler-lock";
+import {
+  tryAcquireSchedulerLock,
+  withSchedulerLock,
+  SCHEDULER_LOCK_KEYS,
+  type SchedulerLockLease,
+} from "./scheduler-lock";
+import {
+  decryptBackupPayload,
+  encryptBackupPayload,
+  encryptionStatus,
+  BACKUP_ACTIVE_KEY_ENV,
+  BACKUP_KEYRING_ENV,
+} from "./secret-envelope";
 
 const objectStorage = new ObjectStorageService();
 
@@ -38,9 +50,13 @@ let pgDumpVersion: string | null = null;
 export async function checkPgDumpAvailability(): Promise<void> {
   try {
     const version = await new Promise<string>((resolve, reject) => {
-      const child = spawn(PG_DUMP, ["--version"], { stdio: ["ignore", "pipe", "pipe"] });
+      const child = spawn(PG_DUMP, ["--version"], {
+        stdio: ["ignore", "pipe", "pipe"],
+      });
       let out = "";
-      child.stdout.on("data", (d: Buffer) => { out += d.toString(); });
+      child.stdout.on("data", (d: Buffer) => {
+        out += d.toString();
+      });
       child.on("error", reject);
       child.on("close", (code) => {
         if (code === 0) resolve(out.trim());
@@ -81,8 +97,8 @@ export function backupsEnabled(): boolean {
   if (process.env.BACKUP_ENABLED === "false") return false;
   const hasS3 = Boolean(
     process.env.S3_BUCKET &&
-      process.env.S3_ACCESS_KEY_ID &&
-      process.env.S3_SECRET_ACCESS_KEY,
+    process.env.S3_ACCESS_KEY_ID &&
+    process.env.S3_SECRET_ACCESS_KEY,
   );
   const hasReplit = Boolean(process.env.PRIVATE_OBJECT_DIR);
   return hasS3 || hasReplit;
@@ -104,7 +120,10 @@ function timestampName(): string {
 }
 
 /** Run pg_dump (custom format) into a temp file and return its bytes. */
-async function runPgDump(databaseUrl: string): Promise<Buffer> {
+async function runPgDump(
+  databaseUrl: string,
+  maxPayloadBytes?: number,
+): Promise<Buffer> {
   const dir = await mkdtemp(join(tmpdir(), "stavba-backup-"));
   const filePath = join(dir, "dump.pgcustom");
   try {
@@ -115,13 +134,24 @@ async function runPgDump(databaseUrl: string): Promise<Buffer> {
         { stdio: ["ignore", "ignore", "pipe"] },
       );
       let stderr = "";
-      child.stderr.on("data", (d: Buffer) => { stderr += d.toString(); });
+      child.stderr.on("data", (d: Buffer) => {
+        stderr += d.toString();
+      });
       child.on("error", reject);
       child.on("close", (code) => {
         if (code === 0) resolve();
-        else reject(new Error(`pg_dump exited with code ${code}: ${stderr.trim()}`));
+        else
+          reject(
+            new Error(`pg_dump exited with code ${code}: ${stderr.trim()}`),
+          );
       });
     });
+    const dumpStat = await stat(filePath);
+    if (maxPayloadBytes !== undefined && dumpStat.size > maxPayloadBytes) {
+      throw new Error(
+        `Database dump exceeds the approved ${maxPayloadBytes}-byte payload ceiling.`,
+      );
+    }
     return await readFile(filePath);
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -150,9 +180,7 @@ async function pruneOldBackups(): Promise<void> {
 
   // Also drop very old failed/running rows so the log doesn't grow unbounded.
   const cutoff = new Date(Date.now() - 1000 * 60 * 60 * 24 * 30);
-  await db
-    .delete(backupLogTable)
-    .where(lt(backupLogTable.createdAt, cutoff));
+  await db.delete(backupLogTable).where(lt(backupLogTable.createdAt, cutoff));
 }
 
 // ─── Failure notification hysteresis ─────────────────────────────────────────
@@ -190,7 +218,10 @@ async function sendFailureEmail(opts: {
   try {
     cfg = await resolveEmailConfig();
   } catch (err) {
-    logger.warn({ err }, "Failure notification email skipped — email not configured");
+    logger.warn(
+      { err },
+      "Failure notification email skipped — email not configured",
+    );
     return;
   }
 
@@ -199,7 +230,10 @@ async function sendFailureEmail(opts: {
     : await collectAdminEmails();
 
   if (recipients.length === 0) {
-    logger.warn({ backupId: opts.backupId }, "Failure notification: no recipient configured");
+    logger.warn(
+      { backupId: opts.backupId },
+      "Failure notification: no recipient configured",
+    );
     return;
   }
 
@@ -222,7 +256,10 @@ async function sendFailureEmail(opts: {
       "Backup failure notification email sent",
     );
   } catch (err) {
-    logger.error({ err, backupId: opts.backupId }, "Failed to send backup failure email");
+    logger.error(
+      { err, backupId: opts.backupId },
+      "Failed to send backup failure email",
+    );
   }
 }
 
@@ -277,10 +314,111 @@ async function notifyAutoBackupFailed(opts: {
  * Create a database backup: dump → object storage → recorded in backup_log.
  * A "running" row is inserted first so a crash mid-dump is still visible.
  */
-export async function createBackup(opts: {
+type CreateBackupOptions = {
   trigger: "manual" | "auto";
   actor?: string | null;
-}): Promise<BackupLog> {
+  /**
+   * The isolated exact-0104 recovery point must never delete older evidence as
+   * a side effect. Routine API and scheduler callers retain the current prune
+   * behaviour by leaving this unset.
+   */
+  skipRetentionPrune?: boolean;
+  /** Optional hard ceiling for isolated one-shot recovery work. */
+  maxPayloadBytes?: number;
+};
+
+interface ReservedBackupAttempt {
+  row: BackupLog;
+  databaseUrl: string;
+  filename: string;
+  objectPath: string;
+  trigger: "manual" | "auto";
+  skipRetentionPrune: boolean;
+  maxPayloadBytes?: number;
+}
+
+export class BackupAlreadyRunningError extends Error {
+  constructor() {
+    super("A database backup is already running.");
+    this.name = "BackupAlreadyRunningError";
+  }
+}
+
+class BackupExecutionLeaseLostError extends Error {
+  constructor() {
+    super("Database backup execution lease was lost.");
+    this.name = "BackupExecutionLeaseLostError";
+  }
+}
+
+async function currentRunningBackup(): Promise<BackupLog | undefined> {
+  const [running] = await db
+    .select()
+    .from(backupLogTable)
+    .where(eq(backupLogTable.status, "running"))
+    .orderBy(desc(backupLogTable.createdAt))
+    .limit(1);
+  return running;
+}
+
+const DEFAULT_STALE_RUNNING_BACKUP_HOURS = 24;
+const MIN_STALE_RUNNING_BACKUP_HOURS = 1;
+const MAX_STALE_RUNNING_BACKUP_HOURS = 7 * 24;
+
+function staleRunningBackupHours(): number {
+  const configured = Number(process.env.BACKUP_STALE_RUNNING_HOURS);
+  if (!Number.isFinite(configured)) return DEFAULT_STALE_RUNNING_BACKUP_HOURS;
+  return Math.min(
+    MAX_STALE_RUNNING_BACKUP_HOURS,
+    Math.max(MIN_STALE_RUNNING_BACKUP_HOURS, configured),
+  );
+}
+
+/**
+ * Close attempts left behind by a crashed process, but only while this caller
+ * owns the cross-replica execution lease and after a conservative age fence.
+ * The age fence also protects rolling deployments where an older application
+ * version reserved under the lock but released it before pg_dump completed.
+ */
+async function reconcileAbandonedRunningBackups(): Promise<
+  BackupLog | undefined
+> {
+  const running = await currentRunningBackup();
+  if (!running) return undefined;
+
+  const staleAfterMs = staleRunningBackupHours() * 60 * 60 * 1_000;
+  const ageMs = Date.now() - running.createdAt.getTime();
+  if (ageMs < staleAfterMs) return running;
+
+  const cutoff = new Date(Date.now() - staleAfterMs);
+  const reconciled = await db
+    .update(backupLogTable)
+    .set({
+      status: "failed",
+      error:
+        "Backup process ended before completion; stale attempt reconciled.",
+    })
+    .where(
+      and(
+        eq(backupLogTable.status, "running"),
+        lte(backupLogTable.createdAt, cutoff),
+      ),
+    )
+    .returning({ id: backupLogTable.id });
+
+  logger.warn(
+    {
+      reconciledBackupIds: reconciled.map((row) => row.id),
+      staleAfterHours: staleRunningBackupHours(),
+    },
+    "Reconciled abandoned database backup attempts",
+  );
+  return currentRunningBackup();
+}
+
+async function reserveBackupAttempt(
+  opts: CreateBackupOptions,
+): Promise<ReservedBackupAttempt> {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) throw new Error("DATABASE_URL not set");
   if (!backupsEnabled()) {
@@ -288,9 +426,20 @@ export async function createBackup(opts: {
       "Object storage is not configured; cannot store backups. Configure the S3_* variables.",
     );
   }
+  if (!encryptionStatus(BACKUP_KEYRING_ENV, BACKUP_ACTIVE_KEY_ENV).configured) {
+    throw new Error("Backup encryption keyring is not configured.");
+  }
+  if (
+    opts.maxPayloadBytes !== undefined &&
+    (!Number.isSafeInteger(opts.maxPayloadBytes) || opts.maxPayloadBytes < 1)
+  ) {
+    throw new Error("Backup payload ceiling must be a positive safe integer.");
+  }
 
-  const filename = `stavba-${timestampName()}.pgcustom`;
-  const objectPath = `/objects/backups/${filename}`;
+  // A UUID prevents two same-millisecond attempts from ever sharing an object
+  // key, even if a future caller accidentally bypasses reservation locking.
+  const filename = `stavba-${timestampName()}-${randomUUID()}.pgcustom`;
+  const objectPath = `/objects/backups/${filename}.enc`;
 
   const [row] = await db
     .insert(backupLogTable)
@@ -302,40 +451,127 @@ export async function createBackup(opts: {
     })
     .returning();
 
+  return {
+    row,
+    databaseUrl,
+    filename,
+    objectPath,
+    trigger: opts.trigger,
+    skipRetentionPrune: opts.skipRetentionPrune === true,
+    maxPayloadBytes: opts.maxPayloadBytes,
+  };
+}
+
+async function executeReservedBackup(
+  attempt: ReservedBackupAttempt,
+  lease: SchedulerLockLease,
+): Promise<BackupLog> {
+  const {
+    row,
+    databaseUrl,
+    filename,
+    objectPath,
+    trigger,
+    skipRetentionPrune,
+    maxPayloadBytes,
+  } = attempt;
+
   try {
-    const buffer = await runPgDump(databaseUrl);
-    await objectStorage.putPrivateObject(objectPath, buffer, "application/octet-stream");
-
-    const sha256 = createHash("sha256").update(buffer).digest("hex");
-    const [updated] = await db
-      .update(backupLogTable)
-      .set({
-        status: "success",
+    if (!lease.isValid()) throw new BackupExecutionLeaseLostError();
+    const dump = await runPgDump(databaseUrl, maxPayloadBytes);
+    if (!lease.isValid()) throw new BackupExecutionLeaseLostError();
+    let encrypted: ReturnType<typeof encryptBackupPayload>;
+    try {
+      encrypted = encryptBackupPayload(dump, filename);
+    } finally {
+      dump.fill(0);
+    }
+    const storedPayload = encrypted.payload;
+    const storedSize = storedPayload.length;
+    try {
+      if (maxPayloadBytes !== undefined && storedSize > maxPayloadBytes) {
+        throw new Error(
+          `Encrypted backup exceeds the approved ${maxPayloadBytes}-byte payload ceiling.`,
+        );
+      }
+      await objectStorage.putPrivateObject(
         objectPath,
-        sizeBytes: buffer.length,
-        sha256,
-      })
-      .where(eq(backupLogTable.id, row.id))
-      .returning();
+        storedPayload,
+        "application/octet-stream",
+      );
+      if (!lease.isValid()) throw new BackupExecutionLeaseLostError();
 
-    logger.info(
-      { backupId: row.id, sizeBytes: buffer.length, sha256, trigger: opts.trigger },
-      "Database backup completed",
-    );
+      const sha256 = createHash("sha256").update(storedPayload).digest("hex");
+      const [updated] = await db
+        .update(backupLogTable)
+        .set({
+          status: "success",
+          objectPath,
+          sizeBytes: storedSize,
+          sha256,
+          encryptionFormat: encrypted.format,
+          encryptionKeyId: encrypted.keyId,
+        })
+        .where(
+          and(
+            eq(backupLogTable.id, row.id),
+            eq(backupLogTable.status, "running"),
+          ),
+        )
+        .returning();
+      if (!updated) throw new BackupExecutionLeaseLostError();
 
-    pruneOldBackups().catch((err) =>
-      logger.warn({ err }, "Backup pruning failed"),
-    );
+      logger.info(
+        {
+          backupId: row.id,
+          sizeBytes: storedSize,
+          sha256,
+          encryptionFormat: encrypted.format,
+          encryptionKeyId: encrypted.keyId,
+          trigger,
+        },
+        "Database backup completed",
+      );
 
-    return updated;
+      if (!skipRetentionPrune) {
+        pruneOldBackups().catch((err) =>
+          logger.warn({ err }, "Backup pruning failed"),
+        );
+      }
+
+      return updated;
+    } finally {
+      storedPayload.fill(0);
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await db
       .update(backupLogTable)
       .set({ status: "failed", error: message })
-      .where(eq(backupLogTable.id, row.id));
+      .where(
+        and(
+          eq(backupLogTable.id, row.id),
+          eq(backupLogTable.status, "running"),
+        ),
+      );
     logger.error({ err, backupId: row.id }, "Database backup failed");
     throw err;
+  }
+}
+
+export async function createBackup(
+  opts: CreateBackupOptions,
+): Promise<BackupLog> {
+  const lease = await tryAcquireSchedulerLock(SCHEDULER_LOCK_KEYS.backupAuto);
+  if (!lease) throw new BackupAlreadyRunningError();
+  try {
+    if (await reconcileAbandonedRunningBackups()) {
+      throw new BackupAlreadyRunningError();
+    }
+    const attempt = await reserveBackupAttempt(opts);
+    return await executeReservedBackup(attempt, lease);
+  } finally {
+    await lease.release();
   }
 }
 
@@ -349,6 +585,34 @@ export async function createBackup(opts: {
  * logged out afterwards). Uses --single-transaction for atomicity.
  */
 let restoreInProgress = false;
+
+/**
+ * Load and authenticate a backup. Legacy rows without encryption metadata stay
+ * readable during the rollout; an encrypted row never falls back to raw bytes.
+ */
+export async function readBackupDump(
+  row: BackupLog,
+  options: { maxPayloadBytes?: number } = {},
+): Promise<Buffer> {
+  if (!row.objectPath) throw new Error("Backup object path is missing.");
+  const stored = await objectStorage.getPrivateObjectBuffer(row.objectPath, {
+    maxBytes: options.maxPayloadBytes,
+  });
+  if (row.sha256) {
+    const actual = createHash("sha256").update(stored).digest("hex");
+    if (actual !== row.sha256)
+      throw new Error("Backup integrity verification failed.");
+  }
+  if (!row.encryptionFormat) return stored;
+  if (row.encryptionFormat !== "mve1" || !row.encryptionKeyId) {
+    throw new Error("Backup encryption metadata is invalid.");
+  }
+  try {
+    return decryptBackupPayload(stored, row.filename);
+  } finally {
+    stored.fill(0);
+  }
+}
 
 export async function restoreBackup(id: number): Promise<void> {
   const databaseUrl = process.env.DATABASE_URL;
@@ -367,7 +631,7 @@ export async function restoreBackup(id: number): Promise<void> {
   const dir = await mkdtemp(join(tmpdir(), "stavba-restore-"));
   const filePath = join(dir, "dump.pgcustom");
   try {
-    const buffer = await objectStorage.getPrivateObjectBuffer(row.objectPath);
+    const buffer = await readBackupDump(row);
     await writeFile(filePath, buffer);
 
     await new Promise<void>((resolve, reject) => {
@@ -386,11 +650,16 @@ export async function restoreBackup(id: number): Promise<void> {
         { stdio: ["ignore", "ignore", "pipe"] },
       );
       let stderr = "";
-      child.stderr.on("data", (d: Buffer) => { stderr += d.toString(); });
+      child.stderr.on("data", (d: Buffer) => {
+        stderr += d.toString();
+      });
       child.on("error", reject);
       child.on("close", (code) => {
         if (code === 0) resolve();
-        else reject(new Error(`pg_restore exited with code ${code}: ${stderr.trim()}`));
+        else
+          reject(
+            new Error(`pg_restore exited with code ${code}: ${stderr.trim()}`),
+          );
       });
     });
 
@@ -419,7 +688,8 @@ const VERIFY_TABLES = [
 ] as const;
 
 /** Default timeout for the whole restore-test operation (10 minutes). */
-const RESTORE_TEST_TIMEOUT_MS = Number(process.env.BACKUP_RESTORE_TEST_TIMEOUT_MS) || 10 * 60 * 1000;
+const RESTORE_TEST_TIMEOUT_MS =
+  Number(process.env.BACKUP_RESTORE_TEST_TIMEOUT_MS) || 10 * 60 * 1000;
 
 /** In-process guard: only one restore-test at a time. */
 let restoreTestInProgress = false;
@@ -452,7 +722,10 @@ function tempDbUrl(databaseUrl: string, dbName: string): string {
  * Has a configurable timeout (default 10 minutes).
  * Updates the backup_log row atomically with the test result.
  */
-export async function testBackupRestore(id: number): Promise<BackupLog> {
+export async function testBackupRestore(
+  id: number,
+  options: { maxPayloadBytes?: number } = {},
+): Promise<BackupLog> {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) throw new Error("DATABASE_URL not set");
 
@@ -464,11 +737,30 @@ export async function testBackupRestore(id: number): Promise<BackupLog> {
   if (!row || row.status !== "success" || !row.objectPath) {
     throw new Error("Záloha nenalezena nebo není dokončená.");
   }
+  if (
+    options.maxPayloadBytes !== undefined &&
+    (!Number.isSafeInteger(options.maxPayloadBytes) ||
+      options.maxPayloadBytes < 1)
+  ) {
+    throw new Error("Backup payload ceiling must be a positive safe integer.");
+  }
+  if (
+    options.maxPayloadBytes !== undefined &&
+    (row.sizeBytes === null || row.sizeBytes > options.maxPayloadBytes)
+  ) {
+    throw new Error(
+      `Stored backup exceeds the approved ${options.maxPayloadBytes}-byte payload ceiling.`,
+    );
+  }
 
   // Mark as pending so the UI can show a spinner immediately.
   const [pending] = await db
     .update(backupLogTable)
-    .set({ restoreStatus: "pending", restoreTestedAt: null, restoreError: null })
+    .set({
+      restoreStatus: "pending",
+      restoreTestedAt: null,
+      restoreError: null,
+    })
     .where(eq(backupLogTable.id, id))
     .returning();
 
@@ -481,25 +773,65 @@ export async function testBackupRestore(id: number): Promise<BackupLog> {
 
   let tempDbCreated = false;
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  let restoreTimedOut = false;
+  let activeRestoreChild: ReturnType<typeof spawn> | null = null;
+  let activeRestoreClosed: Promise<void> | null = null;
+  let activeRestoreStop: Promise<void> | null = null;
+
+  const stopActiveRestoreProcess = (): Promise<void> => {
+    if (activeRestoreStop) return activeRestoreStop;
+    if (!activeRestoreChild || !activeRestoreClosed) return Promise.resolve();
+    const child = activeRestoreChild;
+    const closed = activeRestoreClosed;
+    activeRestoreStop = (async () => {
+      child.kill("SIGTERM");
+      const forceKill = setTimeout(() => {
+        if (activeRestoreChild === child) child.kill("SIGKILL");
+      }, 5_000);
+      forceKill.unref();
+      try {
+        await closed;
+      } finally {
+        clearTimeout(forceKill);
+      }
+    })();
+    return activeRestoreStop;
+  };
+
+  const throwIfRestoreTimedOut = (): void => {
+    if (restoreTimedOut) {
+      throw new Error(
+        `Restore test překročil časový limit ${RESTORE_TEST_TIMEOUT_MS / 1000}s`,
+      );
+    }
+  };
 
   // Wrap the entire operation in a timeout.
   const timeoutPromise = new Promise<never>((_, reject) => {
-    timeoutHandle = setTimeout(
-      () => reject(new Error(`Restore test překročil časový limit ${RESTORE_TEST_TIMEOUT_MS / 1000}s`)),
-      RESTORE_TEST_TIMEOUT_MS,
-    );
+    timeoutHandle = setTimeout(() => {
+      restoreTimedOut = true;
+      void stopActiveRestoreProcess();
+      reject(
+        new Error(
+          `Restore test překročil časový limit ${RESTORE_TEST_TIMEOUT_MS / 1000}s`,
+        ),
+      );
+    }, RESTORE_TEST_TIMEOUT_MS);
   });
 
   const doTest = async (): Promise<BackupLog> => {
     // 1. Download the dump from object storage.
-    const buffer = await objectStorage.getPrivateObjectBuffer(row.objectPath!);
+    const buffer = await readBackupDump(row, options);
+    throwIfRestoreTimedOut();
     await writeFile(filePath, buffer);
+    throwIfRestoreTimedOut();
 
     // 2. Create the ephemeral database.
     const adminPool = new pg.Pool({ connectionString: adminUrl, max: 1 });
     try {
       await adminPool.query(`CREATE DATABASE "${tempDbName}"`);
       tempDbCreated = true;
+      throwIfRestoreTimedOut();
     } finally {
       await adminPool.end();
     }
@@ -519,34 +851,68 @@ export async function testBackupRestore(id: number): Promise<BackupLog> {
         ],
         { stdio: ["ignore", "ignore", "pipe"] },
       );
+      activeRestoreChild = child;
+      activeRestoreClosed = new Promise<void>((closeResolve) => {
+        child.once("close", () => closeResolve());
+      });
       let stderr = "";
-      child.stderr.on("data", (d: Buffer) => { stderr += d.toString(); });
+      child.stderr.on("data", (d: Buffer) => {
+        stderr += d.toString();
+      });
       child.on("error", reject);
       child.on("close", (code) => {
-        // pg_restore exits 1 for warnings (e.g. role does not exist); 0 = clean.
-        if (code === 0 || code === 1) resolve();
-        else reject(new Error(`pg_restore exited with code ${code}: ${stderr.trim()}`));
+        if (code === 0) resolve();
+        else
+          reject(
+            new Error(`pg_restore exited with code ${code}: ${stderr.trim()}`),
+          );
       });
     });
+    activeRestoreChild = null;
+    activeRestoreClosed = null;
+    activeRestoreStop = null;
+    throwIfRestoreTimedOut();
 
     // 4. Verify key tables have rows.
     const testPool = new pg.Pool({ connectionString: targetUrl, max: 1 });
     const verifiedTables: Record<string, number> = {};
     try {
       for (const table of VERIFY_TABLES) {
-        try {
-          const result = await testPool.query(`SELECT COUNT(*)::integer AS c FROM "${table}"`);
-          verifiedTables[table] = result.rows[0]?.c ?? 0;
-        } catch {
-          verifiedTables[table] = 0;
+        const result = await testPool.query(
+          `SELECT COUNT(*)::integer AS c FROM "${table}"`,
+        );
+        const count = result.rows[0]?.c;
+        if (!Number.isInteger(count) || count < 0) {
+          throw new Error(
+            `Restore verification returned an invalid row count for ${table}.`,
+          );
         }
+        verifiedTables[table] = count;
+        throwIfRestoreTimedOut();
       }
+
+      const invalidConstraints = await testPool.query<{ count: number }>(
+        "SELECT COUNT(*)::integer AS count FROM pg_constraint WHERE NOT convalidated",
+      );
+      const invalidIndexes = await testPool.query<{ count: number }>(
+        "SELECT COUNT(*)::integer AS count FROM pg_index WHERE NOT indisvalid OR NOT indisready",
+      );
+      if ((invalidConstraints.rows[0]?.count ?? 0) !== 0) {
+        throw new Error(
+          "Restore verification found unvalidated database constraints.",
+        );
+      }
+      if ((invalidIndexes.rows[0]?.count ?? 0) !== 0) {
+        throw new Error("Restore verification found invalid database indexes.");
+      }
+      throwIfRestoreTimedOut();
     } finally {
       await testPool.end();
     }
 
     const durationMs = Date.now() - startedAt;
 
+    throwIfRestoreTimedOut();
     const [updated] = await db
       .update(backupLogTable)
       .set({
@@ -567,10 +933,17 @@ export async function testBackupRestore(id: number): Promise<BackupLog> {
     return updated;
   };
 
+  const restoreOperation = doTest();
   try {
-    const result = await Promise.race([doTest(), timeoutPromise]);
+    const result = await Promise.race([restoreOperation, timeoutPromise]);
     return result;
   } catch (err) {
+    if (restoreTimedOut) {
+      await stopActiveRestoreProcess();
+      // Do not race cleanup against an operation that has just been aborted.
+      // Each stage checks the deadline before advancing to the next mutation.
+      await restoreOperation.catch(() => undefined);
+    }
     const message = err instanceof Error ? err.message : String(err);
     const durationMs = Date.now() - startedAt;
 
@@ -586,7 +959,10 @@ export async function testBackupRestore(id: number): Promise<BackupLog> {
       .where(eq(backupLogTable.id, id))
       .returning();
 
-    logger.error({ err, backupId: id, durationMs }, "Backup restore test failed");
+    logger.error(
+      { err, backupId: id, durationMs },
+      "Backup restore test failed",
+    );
 
     return updated ?? pending;
   } finally {
@@ -598,9 +974,14 @@ export async function testBackupRestore(id: number): Promise<BackupLog> {
     if (tempDbCreated) {
       const adminPool = new pg.Pool({ connectionString: adminUrl, max: 1 });
       try {
-        await adminPool.query(`DROP DATABASE IF EXISTS "${tempDbName}"`);
+        await adminPool.query(
+          `DROP DATABASE IF EXISTS "${tempDbName}" WITH (FORCE)`,
+        );
       } catch (dropErr) {
-        logger.warn({ dropErr, tempDbName }, "Failed to drop temp restore-test database");
+        logger.warn(
+          { dropErr, tempDbName },
+          "Failed to drop temp restore-test database",
+        );
       } finally {
         await adminPool.end();
       }
@@ -650,7 +1031,10 @@ export async function listBackups(limit = 50): Promise<Array<BackupLog>> {
 }
 
 export async function getBackup(id: number): Promise<BackupLog | undefined> {
-  const [row] = await db.select().from(backupLogTable).where(eq(backupLogTable.id, id));
+  const [row] = await db
+    .select()
+    .from(backupLogTable)
+    .where(eq(backupLogTable.id, id));
   return row;
 }
 
@@ -689,7 +1073,12 @@ export async function getBackupStatus(): Promise<BackupStatusInfo> {
   const [lastVerified] = await db
     .select()
     .from(backupLogTable)
-    .where(and(eq(backupLogTable.restoreStatus, "ok"), isNotNull(backupLogTable.restoreTestedAt)))
+    .where(
+      and(
+        eq(backupLogTable.restoreStatus, "ok"),
+        isNotNull(backupLogTable.restoreTestedAt),
+      ),
+    )
     .orderBy(desc(backupLogTable.restoreTestedAt))
     .limit(1);
 
@@ -724,11 +1113,9 @@ export async function getBackupStatus(): Promise<BackupStatusInfo> {
  * Returns { triggered: true } when a backup is started, or
  *         { triggered: false, reason } when skipped.
  */
-export async function triggerAutoBackupIfDue(): Promise<{ triggered: boolean; reason: string }> {
-  if (!backupsEnabled()) {
-    return { triggered: false, reason: "Object storage not configured" };
-  }
-
+async function reserveAutoBackupIfDue(
+  lease: SchedulerLockLease,
+): Promise<{ triggered: boolean; reason: string }> {
   const intervalHours = backupIntervalHours();
   const intervalMs = intervalHours * 60 * 60 * 1000;
 
@@ -751,38 +1138,71 @@ export async function triggerAutoBackupIfDue(): Promise<{ triggered: boolean; re
     }
   }
 
-  // Also skip if a backup is currently running (status=running and recent).
-  const [running] = await db
-    .select()
-    .from(backupLogTable)
-    .where(eq(backupLogTable.status, "running"))
-    .orderBy(desc(backupLogTable.createdAt))
-    .limit(1);
-  if (running) {
-    const ageMs = Date.now() - running.createdAt.getTime();
-    if (ageMs < 30 * 60 * 1000) {
-      return { triggered: false, reason: "A backup is already running" };
-    }
+  // The execution lease is held through the complete dump/upload. A recent
+  // running row still blocks for rolling-upgrade compatibility; an old row is
+  // reconciled only after the conservative age fence above.
+  if (await reconcileAbandonedRunningBackups()) {
+    return { triggered: false, reason: "A backup is already running" };
   }
 
-  // Fire the backup asynchronously so the HTTP response is immediate.
+  // The running row is reserved synchronously while the caller still holds the
+  // advisory lock. A second replica can therefore observe the reservation
+  // before the expensive dump is scheduled.
   const settings = await getBackupSettings();
-  const notifyEmail = settings?.restoreNotifyEmail ?? process.env.BACKUP_RESTORE_NOTIFY_EMAIL ?? null;
+  const notifyEmail =
+    settings?.restoreNotifyEmail ??
+    process.env.BACKUP_RESTORE_NOTIFY_EMAIL ??
+    null;
+  const attempt = await reserveBackupAttempt({ trigger: "auto" });
 
   setImmediate(() => {
-    createBackup({ trigger: "auto" })
-      .then(() => {
+    void (async () => {
+      try {
+        await executeReservedBackup(attempt, lease);
         lastAutoBackupCompletedAt = new Date();
-      })
-      .catch(async (err) => {
+      } catch (err) {
         lastAutoBackupCompletedAt = new Date();
         logger.error({ err }, "Triggered auto-backup failed");
         const msg = err instanceof Error ? err.message : String(err);
-        await notifyAutoBackupFailed({ errorMessage: msg, notifyEmail }).catch(() => {});
-      });
+        await notifyAutoBackupFailed({ errorMessage: msg, notifyEmail }).catch(
+          () => {},
+        );
+      } finally {
+        await lease
+          .release()
+          .catch((err) =>
+            logger.error({ err }, "Backup execution lock release failed"),
+          );
+      }
+    })();
   });
 
   return { triggered: true, reason: "Backup started" };
+}
+
+export async function triggerAutoBackupIfDue(): Promise<{
+  triggered: boolean;
+  reason: string;
+}> {
+  if (!backupsEnabled()) {
+    return { triggered: false, reason: "Object storage not configured" };
+  }
+
+  const lease = await tryAcquireSchedulerLock(SCHEDULER_LOCK_KEYS.backupAuto);
+  if (!lease) {
+    return {
+      triggered: false,
+      reason: "Another backup trigger is already active",
+    };
+  }
+  try {
+    const result = await reserveAutoBackupIfDue(lease);
+    if (!result.triggered) await lease.release();
+    return result;
+  } catch (error) {
+    await lease.release();
+    throw error;
+  }
 }
 
 // ─── Restore-test failure notification ───────────────────────────────────────
@@ -849,9 +1269,7 @@ export function startBackupScheduler(): void {
   const intervalMs = backupIntervalHours() * 60 * 60 * 1000;
 
   const tick = () => {
-    withSchedulerLock(SCHEDULER_LOCK_KEYS.backupAuto, async () => {
-      await triggerAutoBackupIfDue();
-    }).catch((err) =>
+    triggerAutoBackupIfDue().catch((err) =>
       logger.error({ err }, "Scheduled backup tick failed"),
     );
   };
@@ -893,7 +1311,10 @@ export function startRestoreTestScheduler(): void {
       let targetDay: number | null = settings?.restoreTestDayOfWeek ?? null;
       if (targetDay === null) {
         const envDay = Number(process.env.BACKUP_RESTORE_TEST_DAY_OF_WEEK);
-        targetDay = Number.isInteger(envDay) && envDay >= 0 && envDay <= 6 ? envDay : null;
+        targetDay =
+          Number.isInteger(envDay) && envDay >= 0 && envDay <= 6
+            ? envDay
+            : null;
       }
 
       if (targetDay === null) return;
@@ -919,7 +1340,10 @@ export function startRestoreTestScheduler(): void {
       const result = await testBackupRestore(latest.id);
 
       if (result.restoreStatus === "failed") {
-        const notifyEmail = settings?.restoreNotifyEmail ?? process.env.BACKUP_RESTORE_NOTIFY_EMAIL ?? null;
+        const notifyEmail =
+          settings?.restoreNotifyEmail ??
+          process.env.BACKUP_RESTORE_NOTIFY_EMAIL ??
+          null;
         await sendRestoreTestFailureEmail({
           backupId: latest.id,
           backupCreatedAt: latest.createdAt,
@@ -933,8 +1357,8 @@ export function startRestoreTestScheduler(): void {
   };
 
   const wrappedTick = () =>
-    withSchedulerLock(SCHEDULER_LOCK_KEYS.backupRestoreTest, tick).catch((err) =>
-      logger.error({ err }, "Restore-test scheduler tick failed"),
+    withSchedulerLock(SCHEDULER_LOCK_KEYS.backupRestoreTest, tick).catch(
+      (err) => logger.error({ err }, "Restore-test scheduler tick failed"),
     );
 
   const timer = setInterval(wrappedTick, CHECK_INTERVAL_MS);

@@ -12,21 +12,25 @@ import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { warehouseItemsTable } from "./warehouse-items";
-import { billingDocumentsTable, billingDocumentLinesTable } from "./billing-documents";
+import {
+  billingDocumentsTable,
+  billingDocumentLinesTable,
+} from "./billing-documents";
 import { usersTable } from "./users";
 
 /**
- * Historie nákupních cen skladu — append-only purchase-price history.
+ * Legacy mutable purchase-price projection.
  *
- * One row per supplier price observation pushed onto a warehouse item from an
- * approved cost document. Unlike the price ON the warehouse item (which is just
- * the latest), this keeps every historical purchase price with its source
- * document, supplier and date so the buyer can see how an item's cost moved.
+ * One row per cost-document line records the latest supplier price pushed onto
+ * a warehouse item. The current service may update or remove these rows while
+ * reconciling a document, so this table must not be described or consumed as an
+ * append-only accounting history. R13 correction flows fail closed when such a
+ * row exists until a separate immutable, version-bound observation ledger is
+ * available.
  *
- * Idempotence: a given cost-document LINE produces at most one history row
- * (partial unique index on `billing_document_line_id`). Re-approving the same
- * document does an ON CONFLICT DO UPDATE, never a duplicate insert. Manually
- * recorded prices leave `billing_document_line_id` null and are unconstrained.
+ * Idempotence: a given cost-document line has at most one projection row via a
+ * partial unique index. Manually recorded prices leave the line ID null and are
+ * unconstrained.
  */
 export const warehousePriceHistoryTable = pgTable(
   "warehouse_price_history",
@@ -43,7 +47,10 @@ export const warehousePriceHistoryTable = pgTable(
       () => billingDocumentLinesTable.id,
       { onDelete: "set null" },
     ),
-    purchasePrice: numeric("purchase_price", { precision: 12, scale: 2 }).notNull(),
+    purchasePrice: numeric("purchase_price", {
+      precision: 12,
+      scale: 2,
+    }).notNull(),
     currency: text("currency").notNull().default("CZK"),
     supplierName: text("supplier_name"),
     supplierIc: text("supplier_ic"),
@@ -61,7 +68,9 @@ export const warehousePriceHistoryTable = pgTable(
   },
   (t) => [
     index("warehouse_price_history_item_id_idx").on(t.warehouseItemId),
-    index("warehouse_price_history_billing_document_id_idx").on(t.billingDocumentId),
+    index("warehouse_price_history_billing_document_id_idx").on(
+      t.billingDocumentId,
+    ),
     // Idempotence key: one history row per cost-document line. Partial so manual
     // entries (null line) are unconstrained.
     uniqueIndex("warehouse_price_history_line_uq")

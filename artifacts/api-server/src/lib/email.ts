@@ -1,6 +1,8 @@
 import nodemailer, { type Transporter } from "nodemailer";
 import { eq } from "drizzle-orm";
 import { db, emailSettingsTable } from "@workspace/db";
+import { readStoredSecret } from "./stored-secret";
+import { buildSmtpTransportOptions } from "./mail-transport-security";
 
 export type SendEmailParams = {
   to: string | string[];
@@ -52,12 +54,21 @@ export async function resolveEmailConfig(): Promise<ResolvedEmailConfig> {
       );
     }
     const user = row.username?.trim() || undefined;
+    const password = readStoredSecret(
+      {
+        plaintext: row.password,
+        ciphertext: row.passwordCiphertext,
+        keyId: row.passwordKeyId,
+        encryptedAt: row.passwordEncryptedAt,
+      },
+      "email_settings:1:password",
+    );
     return {
       host: row.host,
       port: row.port ?? 587,
       secure: row.secure ?? row.port === 465,
       user,
-      pass: user ? row.password ?? undefined : undefined,
+      pass: user ? password ?? undefined : undefined,
       from: formatFrom(address, row.fromName),
     };
   }
@@ -96,12 +107,7 @@ export async function resolveEmailConfig(): Promise<ResolvedEmailConfig> {
 function getTransporter(cfg: ResolvedEmailConfig): Transporter {
   const sig = JSON.stringify([cfg.host, cfg.port, cfg.secure, cfg.user, cfg.pass]);
   if (cached && cached.sig === sig) return cached.transporter;
-  const transporter = nodemailer.createTransport({
-    host: cfg.host,
-    port: cfg.port,
-    secure: cfg.secure,
-    auth: cfg.user ? { user: cfg.user, pass: cfg.pass } : undefined,
-  });
+  const transporter = nodemailer.createTransport(buildSmtpTransportOptions(cfg));
   cached = { sig, transporter };
   return transporter;
 }

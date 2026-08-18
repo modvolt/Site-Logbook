@@ -1,5 +1,14 @@
 import { Router, type IRouter } from "express";
-import { HealthCheckResponse, GetAdminHealthResponse } from "@workspace/api-zod";
+import {
+  HealthCheckResponse,
+  GetAdminHealthResponse,
+  GetAdminOperationalSnapshotResponse,
+  GetWatchdogStatusResponse,
+  ListOperationalAlertDeadLettersResponse,
+  RequeueOperationalAlertDeadLetterBody,
+  RequeueOperationalAlertDeadLetterParams,
+  RequeueOperationalAlertDeadLetterResponse,
+} from "@workspace/api-zod";
 import { requireAuth } from "../middlewares/auth";
 import { requirePermission } from "../middlewares/permissions";
 import {
@@ -20,8 +29,34 @@ import { resolveEmailConfig } from "../lib/email";
 import { resolveOpenAiConfig } from "../lib/openai-extraction";
 import { resolveImapConfig } from "../lib/email-import";
 import { countServerErrors, getRecentServerErrors } from "../lib/server-errors";
+import { probeDatabaseReadiness } from "../lib/db-health-probe";
+import {
+  collectOperationalSnapshot,
+  unavailableOperationalSnapshot,
+} from "../lib/operational-signals";
+import {
+  getOperationalAlertDeliverySummary,
+  listOperationalAlertDeadLetters,
+  requeueOperationalAlertDeadLetter,
+} from "../lib/operational-incident-store";
 
 const WINDOW_24H = 24 * 60 * 60 * 1000;
+const DEAD_LETTER_REQUEUE_BODY_KEYS = new Set([
+  "expectedAttemptCount",
+  "expectedDeadLetteredAt",
+  "reason",
+]);
+
+function hasExactRequeueBodyKeys(value: unknown): boolean {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const keys = Object.keys(value);
+  return (
+    keys.length === DEAD_LETTER_REQUEUE_BODY_KEYS.size &&
+    keys.every((key) => DEAD_LETTER_REQUEUE_BODY_KEYS.has(key))
+  );
+}
 
 interface JournalEntry {
   idx: number;
@@ -129,10 +164,9 @@ async function getCachedMigrationParity(): Promise<ParityCache> {
 }
 
 async function checkDbLatency(): Promise<{ status: "ok" | "error"; latencyMs: number | null }> {
-  const t0 = Date.now();
   try {
-    await db.execute(sql`SELECT 1`);
-    return { status: "ok", latencyMs: Date.now() - t0 };
+    const latencyMs = await probeDatabaseReadiness();
+    return { status: "ok", latencyMs };
   } catch {
     return { status: "error", latencyMs: null };
   }
@@ -343,8 +377,25 @@ router.get("/healthz", async (_req, res) => {
   const apiVersion = resolveApiVersion();
   const uptimeSeconds = process.uptime();
 
-  const [dbPing, smtp, migration] = await Promise.all([
-    checkDbLatency(),
+  // The DB probe is a prerequisite for every DB-backed secondary diagnostic.
+  // Short-circuiting here prevents an expired migration cache or DB-backed
+  // SMTP settings lookup from outliving the platform's five-second probe.
+  const dbPing = await checkDbLatency();
+  if (dbPing.status === "error") {
+    const data = HealthCheckResponse.parse({
+      status: "degraded",
+      version: apiVersion,
+      uptimeSeconds,
+      dbStatus: dbPing.status,
+      dbLatencyMs: dbPing.latencyMs,
+      storageStatus: "ok",
+      migrationParity: null,
+    });
+    res.status(503).json(data);
+    return;
+  }
+
+  const [smtp, migration] = await Promise.all([
     checkSmtp(),
     getCachedMigrationParity(),
   ]);
@@ -440,11 +491,122 @@ router.get(
 );
 
 router.get(
+  "/admin/health/operational",
+  requireAuth,
+  requirePermission("diagnostics.view"),
+  async (req, res) => {
+    const dbPing = await checkDbLatency();
+    const providers = [
+      {
+        id: "database" as const,
+        state: dbPing.status === "ok" ? ("ok" as const) : ("error" as const),
+        required: true,
+      },
+    ];
+    let snapshot = unavailableOperationalSnapshot({ providers });
+    if (dbPing.status === "ok") {
+      try {
+        snapshot = await collectOperationalSnapshot({ providers });
+      } catch (err) {
+        req.log.warn(
+          { errorName: err instanceof Error ? err.name : "unknown" },
+          "Operational snapshot DB aggregates unavailable",
+        );
+      }
+    }
+
+    const payload = GetAdminOperationalSnapshotResponse.parse(snapshot);
+    req.log.info(
+      {
+        status: payload.status,
+        alertCount: payload.activeAlerts.length,
+        queueCount: payload.queues.length,
+        alertTransport: payload.alertTransport,
+      },
+      "admin operational snapshot",
+    );
+    res.json(payload);
+  },
+);
+
+router.get(
   "/admin/health/watchdog",
   requireAuth,
   requirePermission("diagnostics.view"),
-  (_req, res) => {
-    res.json(getWatchdogState());
+  async (_req, res) => {
+    const payload = GetWatchdogStatusResponse.parse({
+      ...getWatchdogState(),
+      delivery: await getOperationalAlertDeliverySummary(),
+    });
+    res.json(payload);
+  },
+);
+
+router.get(
+  "/admin/health/operational-alert-outbox/dead-letters",
+  requireAuth,
+  requirePermission("diagnostics.manage"),
+  async (_req, res) => {
+    const payload = ListOperationalAlertDeadLettersResponse.parse({
+      items: await listOperationalAlertDeadLetters(),
+    });
+    res.json(payload);
+  },
+);
+
+router.post(
+  "/admin/health/operational-alert-outbox/:id/requeue",
+  requireAuth,
+  requirePermission("diagnostics.manage"),
+  async (req, res) => {
+    const params = RequeueOperationalAlertDeadLetterParams.safeParse(
+      req.params,
+    );
+    const body = RequeueOperationalAlertDeadLetterBody.safeParse(req.body);
+    if (
+      !params.success ||
+      !body.success ||
+      !Number.isSafeInteger(params.data.id) ||
+      !Number.isSafeInteger(body.data.expectedAttemptCount) ||
+      !hasExactRequeueBodyKeys(req.body)
+    ) {
+      res.status(400).json({
+        error: "Invalid operational alert requeue request",
+        code: "invalid_operational_alert_requeue_request",
+      });
+      return;
+    }
+
+    const result = await requeueOperationalAlertDeadLetter({
+      outboxId: params.data.id,
+      expectedAttemptCount: body.data.expectedAttemptCount,
+      expectedDeadLetteredAt: body.data.expectedDeadLetteredAt.toISOString(),
+      reason: body.data.reason,
+      actor: {
+        userId: req.auth!.userId,
+        name: req.auth!.name,
+      },
+    });
+
+    if (result.status === "not_found") {
+      res.status(404).json({
+        error: "Operational alert outbox row not found",
+        code: "operational_alert_outbox_not_found",
+      });
+      return;
+    }
+    if (result.status === "conflict") {
+      res.status(409).json({
+        error: "Operational alert requeue precondition failed",
+        code:
+          result.reason === "not_dead_letter"
+            ? "operational_alert_not_dead_letter"
+            : "operational_alert_requeue_precondition_failed",
+      });
+      return;
+    }
+
+    res.json(RequeueOperationalAlertDeadLetterResponse.parse(result.value));
   },
 );
 

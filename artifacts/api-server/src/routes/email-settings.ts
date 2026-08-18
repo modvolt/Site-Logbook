@@ -4,6 +4,7 @@ import { db, emailSettingsTable, type EmailSettings } from "@workspace/db";
 import { UpdateEmailSettingsBody, SendTestEmailBody } from "@workspace/api-zod";
 import { requireRole } from "../middlewares/auth";
 import { sendTestEmail } from "../lib/email";
+import { hasStoredSecret, writeStoredSecret } from "../lib/stored-secret";
 
 const router: IRouter = Router();
 
@@ -27,7 +28,9 @@ function serialize(row: EmailSettings | undefined) {
     username: row?.username ?? null,
     fromAddress: row?.fromAddress ?? null,
     fromName: row?.fromName ?? null,
-    passwordSet: Boolean(row?.password),
+    passwordSet: row
+      ? hasStoredSecret({ plaintext: row.password, ciphertext: row.passwordCiphertext })
+      : false,
     source: computeSource(row),
   };
 }
@@ -59,8 +62,18 @@ router.put("/email-settings", async (req, res): Promise<void> => {
     .where(eq(emailSettingsTable.id, SINGLETON_ID));
 
   // Password is write-only: a string (incl. empty) sets/clears it; null/omitted keeps it.
-  const password =
-    typeof d.password === "string" ? d.password : existing?.password ?? null;
+  const password = writeStoredSecret(
+    d.password,
+    existing
+      ? {
+          plaintext: existing.password,
+          ciphertext: existing.passwordCiphertext,
+          keyId: existing.passwordKeyId,
+          encryptedAt: existing.passwordEncryptedAt,
+        }
+      : undefined,
+    "email_settings:1:password",
+  );
 
   const values = {
     id: SINGLETON_ID,
@@ -69,7 +82,10 @@ router.put("/email-settings", async (req, res): Promise<void> => {
     port: d.port,
     secure: d.secure,
     username: d.username?.trim() || null,
-    password,
+    password: password.plaintext,
+    passwordCiphertext: password.ciphertext,
+    passwordKeyId: password.keyId,
+    passwordEncryptedAt: password.encryptedAt,
     fromAddress: d.fromAddress?.trim() || null,
     fromName: d.fromName?.trim() || null,
     updatedAt: new Date(),

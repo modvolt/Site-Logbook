@@ -15,9 +15,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
-import { useLogout } from "@workspace/api-client-react";
-import { clearApiCache } from "@/lib/pwa";
-import { useQueryClient } from "@tanstack/react-query";
+import { useSecureLogout } from "@/hooks/use-secure-logout";
 import { WebAuthnDeviceManager } from "@/components/webauthn-device-manager";
 
 function todayYmd() {
@@ -52,14 +50,8 @@ function StatCard({ label, value, sub, icon: Icon, color }: {
 }
 
 export default function MyOverview() {
-  const { user, role, can, refresh } = useAuth();
-  const queryClient = useQueryClient();
-  const logout = useLogout();
-  const handleLogout = () => {
-    logout.mutate(undefined, {
-      onSuccess: () => { queryClient.clear(); void clearApiCache(); refresh(); },
-    });
-  };
+  const { user, role, can } = useAuth();
+  const { requestLogout } = useSecureLogout();
 
   const [showPastVisits, setShowPastVisits] = useState(false);
   const visitsParams = showPastVisits ? {} : { from: todayYmd() };
@@ -324,7 +316,7 @@ export default function MyOverview() {
             <Settings className="h-5 w-5" /> <span className="text-sm">Nastavení</span>
             <ChevronRight className="ml-auto h-4 w-4 text-muted-foreground" />
           </Link>
-          <button onClick={handleLogout} className="w-full flex items-center gap-3 px-3 py-3 rounded hover:bg-muted text-left">
+          <button onClick={requestLogout} className="w-full flex items-center gap-3 px-3 py-3 rounded hover:bg-muted text-left">
             <LogOut className="h-5 w-5" /> <span className="text-sm">Odhlásit se</span>
           </button>
         </CardContent>

@@ -528,6 +528,22 @@ export default function PristupoveUdaje() {
     (credsError as any)?.status === 403 &&
     ((credsError as any)?.data as any)?.code === "biometric_required";
 
+  const handleVaultMutationError = (error: any, title: string) => {
+    if (
+      error?.status === 403 &&
+      (error?.data as any)?.code === "biometric_required"
+    ) {
+      void refetchCreds();
+      toast({
+        title: "Ověření trezoru vypršelo",
+        description: "Ověřte se znovu a akci opakujte.",
+        variant: "destructive",
+      });
+      return;
+    }
+    toast({ title, variant: "destructive" });
+  };
+
   const createCred = useCreateDeviceCredential();
   const updateCred = useUpdateDeviceCredential();
   const deleteCred = useDeleteDeviceCredential();
@@ -572,8 +588,8 @@ export default function PristupoveUdaje() {
           setShowAdd(false);
           toast({ title: "Přístup přidán" });
         },
-        onError: () =>
-          toast({ title: "Nepodařilo se přidat přístup", variant: "destructive" }),
+        onError: (error) =>
+          handleVaultMutationError(error, "Nepodařilo se přidat přístup"),
       },
     );
   };
@@ -615,8 +631,8 @@ export default function PristupoveUdaje() {
           setEditingId(null);
           toast({ title: "Přístup upraven" });
         },
-        onError: () =>
-          toast({ title: "Nepodařilo se upravit přístup", variant: "destructive" }),
+        onError: (error) =>
+          handleVaultMutationError(error, "Nepodařilo se upravit přístup"),
       },
     );
   };
@@ -630,8 +646,8 @@ export default function PristupoveUdaje() {
           invalidate();
           toast({ title: "Přístup smazán" });
         },
-        onError: () =>
-          toast({ title: "Nepodařilo se smazat přístup", variant: "destructive" }),
+        onError: (error) =>
+          handleVaultMutationError(error, "Nepodařilo se smazat přístup"),
       },
     );
     });

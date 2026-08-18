@@ -1,4 +1,10 @@
-import { useState, useCallback, useRef, forwardRef, useImperativeHandle } from "react";
+import {
+  useState,
+  useCallback,
+  useRef,
+  forwardRef,
+  useImperativeHandle,
+} from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useConfirmDialog } from "@/hooks/use-confirm-dialog";
 import { useLocation, useRoute } from "wouter";
@@ -68,7 +74,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { AttachmentViewer } from "@/components/attachment-viewer";
-import { DecimalInput, parseDecimal, decimalError } from "@/components/decimal-input";
+import {
+  DecimalInput,
+  parseDecimal,
+  decimalError,
+} from "@/components/decimal-input";
 import { useToast } from "@/hooks/use-toast";
 import { fmtKc, fmtDate } from "@/lib/billing-format";
 import {
@@ -106,7 +116,10 @@ import {
   ShieldCheck,
   X,
 } from "lucide-react";
-import { confirmCostDocumentType, revertCostDocumentMerge } from "@/lib/cost-document-upload";
+import {
+  confirmCostDocumentType,
+  revertCostDocumentMerge,
+} from "@/lib/cost-document-upload";
 import {
   Collapsible,
   CollapsibleContent,
@@ -114,6 +127,10 @@ import {
 } from "@/components/ui/collapsible";
 import { useBillingReturnNavigation } from "@/hooks/use-billing-navigation";
 import { markCurrentDocumentAsDuplicate } from "@/lib/billing-document-actions";
+import {
+  buildReturnCostDocumentToReviewInput,
+  COST_DOCUMENT_CORRECTION_REASON_MAX_LENGTH,
+} from "@/lib/cost-document-correction";
 
 const DOC_TYPE_OPTIONS = ["receipt", "delivery_note", "invoice", "credit_note"];
 const LINE_TYPE_OPTIONS = ["material", "work", "transport", "other"];
@@ -132,10 +149,16 @@ type ExtendedCostDocument = CostDocument & {
 type DocumentPageMerge = {
   id: number;
   status: string;
-  members: Array<{ documentId: number; pageOrder: number; fileName: string | null }>;
+  members: Array<{
+    documentId: number;
+    pageOrder: number;
+    fileName: string | null;
+  }>;
 };
 
-function attachmentUrl(objectPath: string | null | undefined): string | undefined {
+function attachmentUrl(
+  objectPath: string | null | undefined,
+): string | undefined {
   if (!objectPath) return undefined;
   if (objectPath.startsWith("data:")) return objectPath;
   return `/api/storage${objectPath}`;
@@ -176,7 +199,13 @@ export default function BillingDocumentDetail() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const { data, isLoading, isRefetching, isError: docError, refetch } = useGetCostDocument(id, {
+  const {
+    data,
+    isLoading,
+    isRefetching,
+    isError: docError,
+    refetch,
+  } = useGetCostDocument(id, {
     query: { queryKey: getGetCostDocumentQueryKey(id), enabled: !!id },
   });
   const { data: customers } = useListCustomers({
@@ -197,17 +226,19 @@ export default function BillingDocumentDetail() {
   const markDuplicate = useMarkCostDocumentDuplicate();
   const unmarkDuplicate = useUnmarkCostDocumentDuplicate();
   const requeue = useRequeueCostDocumentExtraction();
-  const setDeliveryNoteResolution =
-    useSetCostDocumentDeliveryNoteResolution();
+  const setDeliveryNoteResolution = useSetCostDocumentDeliveryNoteResolution();
 
-  const [viewerFile, setViewerFile] = useState<{ url: string; name?: string | null } | null>(
-    null,
-  );
+  const [viewerFile, setViewerFile] = useState<{
+    url: string;
+    name?: string | null;
+  } | null>(null);
   const [splitLine, setSplitLine] = useState<CostDocumentLine | null>(null);
   const [linkedDuplicatesOpen, setLinkedDuplicatesOpen] = useState(true);
   const [isConfirmingType, setIsConfirmingType] = useState(false);
   const [isRevertingMerge, setIsRevertingMerge] = useState(false);
   const [isDocumentActionPending, setIsDocumentActionPending] = useState(false);
+  const [returnToReviewOpen, setReturnToReviewOpen] = useState(false);
+  const [returnToReviewReason, setReturnToReviewReason] = useState("");
   const [deliveryNoteExceptionOpen, setDeliveryNoteExceptionOpen] =
     useState(false);
   const [deliveryNoteExceptionReason, setDeliveryNoteExceptionReason] =
@@ -268,7 +299,12 @@ export default function BillingDocumentDetail() {
 
   const doc = data?.document;
   const extendedDoc = doc as ExtendedCostDocument | undefined;
-  const pageMerge = (data as (CostDocumentDetail & { pageMerge?: DocumentPageMerge | null }) | undefined)?.pageMerge ?? null;
+  const pageMerge =
+    (
+      data as
+        | (CostDocumentDetail & { pageMerge?: DocumentPageMerge | null })
+        | undefined
+    )?.pageMerge ?? null;
 
   if (isLoading) {
     return (
@@ -329,20 +365,20 @@ export default function BillingDocumentDetail() {
   };
 
   const handleReturnToReview = () => {
-    openConfirm(
-      {
-        title: "Vrátit doklad ke kontrole?",
-        description:
-          "Schválení se zruší a doklad bude znovu možné upravit. Nevyfakturované materiály, skladové pohyby a převzaté ceny se bezpečně vrátí zpět.",
-        confirmLabel: "Vrátit ke kontrole",
-        destructive: false,
-      },
-      () =>
-        handleStatus(
-          "needs_review",
-          "Doklad byl vrácen ke kontrole",
-        ),
-    );
+    setReturnToReviewReason("");
+    setReturnToReviewOpen(true);
+  };
+
+  const submitReturnToReview = () => {
+    const data = buildReturnCostDocumentToReviewInput(returnToReviewReason);
+    if (!data) return;
+    void runDocumentAction(async () => {
+      await setStatus.mutateAsync({ id, data });
+      setReturnToReviewOpen(false);
+      setReturnToReviewReason("");
+      invalidate();
+      toast({ title: "Doklad byl vrácen ke kontrole" });
+    }, "Vrácení dokladu ke kontrole selhalo");
   };
 
   const handleMarkDuplicate = (
@@ -415,7 +451,11 @@ export default function BillingDocumentDetail() {
       await refetch();
       toast({ title: "Typ dokladu byl potvrzen" });
     } catch (error) {
-      toast({ title: "Typ se nepodařilo potvrdit", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
+      toast({
+        title: "Typ se nepodařilo potvrdit",
+        description: error instanceof Error ? error.message : undefined,
+        variant: "destructive",
+      });
     } finally {
       setIsConfirmingType(false);
     }
@@ -440,39 +480,46 @@ export default function BillingDocumentDetail() {
 
   const handleRevertMerge = () => {
     if (!pageMerge) return;
-    openConfirm("Rozdělit tento doklad zpět na původní samostatné strany? Originální soubory zůstanou zachované.", async () => {
-      setIsRevertingMerge(true);
-      try {
-        await revertCostDocumentMerge(pageMerge.id);
-        invalidate();
-        toast({ title: "Sloučení bylo rozděleno zpět" });
-        goBack();
-      } catch (error) {
-        toast({ title: "Sloučení nelze rozdělit", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
-      } finally {
-        setIsRevertingMerge(false);
-      }
-    });
+    openConfirm(
+      "Rozdělit tento doklad zpět na původní samostatné strany? Originální soubory zůstanou zachované.",
+      async () => {
+        setIsRevertingMerge(true);
+        try {
+          await revertCostDocumentMerge(pageMerge.id);
+          invalidate();
+          toast({ title: "Sloučení bylo rozděleno zpět" });
+          goBack();
+        } catch (error) {
+          toast({
+            title: "Sloučení nelze rozdělit",
+            description: error instanceof Error ? error.message : undefined,
+            variant: "destructive",
+          });
+        } finally {
+          setIsRevertingMerge(false);
+        }
+      },
+    );
   };
 
   const handleDelete = () => {
     openConfirm("Opravdu smazat tento doklad? Tuto akci nelze vrátit.", () => {
       deleteDoc.mutate(
-      { id },
-      {
-        onSuccess: () => {
-          invalidate();
-          toast({ title: "Doklad smazán" });
-          goBack();
+        { id },
+        {
+          onSuccess: () => {
+            invalidate();
+            toast({ title: "Doklad smazán" });
+            goBack();
+          },
+          onError: (err) =>
+            toast({
+              title: "Smazání selhalo",
+              description: err instanceof Error ? err.message : undefined,
+              variant: "destructive",
+            }),
         },
-        onError: (err) =>
-          toast({
-            title: "Smazání selhalo",
-            description: err instanceof Error ? err.message : undefined,
-            variant: "destructive",
-          }),
-      },
-    );
+      );
     });
   };
 
@@ -526,8 +573,8 @@ export default function BillingDocumentDetail() {
                     className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline font-medium"
                   >
                     <Link2 className="h-3.5 w-3.5" />
-                    {customers?.find((c) => c.id === doc.customerId)?.companyName ??
-                      `Zákazník #${doc.customerId}`}
+                    {customers?.find((c) => c.id === doc.customerId)
+                      ?.companyName ?? `Zákazník #${doc.customerId}`}
                   </button>
                 )}
                 {doc.customerId != null && doc.jobId != null && (
@@ -558,7 +605,9 @@ export default function BillingDocumentDetail() {
                   key={f.id}
                   variant="outline"
                   size="sm"
-                  onClick={() => setViewerFile({ url, name: f.originalFileName })}
+                  onClick={() =>
+                    setViewerFile({ url, name: f.originalFileName })
+                  }
                 >
                   <FileText className="h-4 w-4 mr-1" />
                   Strana {idx + 1}/{attachedFiles.length}
@@ -569,7 +618,9 @@ export default function BillingDocumentDetail() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setViewerFile({ url: fileHref, name: doc.fileName })}
+              onClick={() =>
+                setViewerFile({ url: fileHref, name: doc.fileName })
+              }
             >
               <FileText className="h-4 w-4 mr-1" /> Zobrazit soubor
             </Button>
@@ -583,7 +634,12 @@ export default function BillingDocumentDetail() {
             <RefreshCw className="h-4 w-4 mr-1" /> Zpracovat
           </Button>
           {pageMerge && doc.status === "needs_review" && (
-            <Button variant="outline" size="sm" onClick={handleRevertMerge} disabled={isRevertingMerge}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleRevertMerge}
+              disabled={isRevertingMerge}
+            >
               <Scissors className="h-4 w-4 mr-1" /> Rozdělit zpět
             </Button>
           )}
@@ -658,20 +714,47 @@ export default function BillingDocumentDetail() {
               <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
               <div>
                 <p className="font-semibold">Typ dokladu vyžaduje rozhodnutí</p>
-                <p className="text-sm text-muted-foreground">Uživatel a AI určili jiný typ. Doklad nelze schválit, dokud administrátor nepotvrdí správnou možnost.</p>
+                <p className="text-sm text-muted-foreground">
+                  Uživatel a AI určili jiný typ. Doklad nelze schválit, dokud
+                  administrátor nepotvrdí správnou možnost.
+                </p>
               </div>
             </div>
             <div className="grid gap-2 sm:grid-cols-2">
               {extendedDoc.declaredDocType && (
-                <Button variant="outline" disabled={isConfirmingType} onClick={() => handleConfirmType(extendedDoc.declaredDocType!)}>
-                  Potvrdit: {COST_DOC_TYPE_LABELS[extendedDoc.declaredDocType] ?? extendedDoc.declaredDocType}
-                  <span className="ml-1 text-xs text-muted-foreground">(uživatel)</span>
+                <Button
+                  variant="outline"
+                  disabled={isConfirmingType}
+                  onClick={() =>
+                    handleConfirmType(extendedDoc.declaredDocType!)
+                  }
+                >
+                  Potvrdit:{" "}
+                  {COST_DOC_TYPE_LABELS[extendedDoc.declaredDocType] ??
+                    extendedDoc.declaredDocType}
+                  <span className="ml-1 text-xs text-muted-foreground">
+                    (uživatel)
+                  </span>
                 </Button>
               )}
               {extendedDoc.detectedDocType && (
-                <Button variant="outline" disabled={isConfirmingType} onClick={() => handleConfirmType(extendedDoc.detectedDocType!)}>
-                  Potvrdit: {COST_DOC_TYPE_LABELS[extendedDoc.detectedDocType] ?? extendedDoc.detectedDocType}
-                  <span className="ml-1 text-xs text-muted-foreground">(AI{extendedDoc.detectedDocTypeConfidence != null ? ` ${Math.round(extendedDoc.detectedDocTypeConfidence * 100)} %` : ""})</span>
+                <Button
+                  variant="outline"
+                  disabled={isConfirmingType}
+                  onClick={() =>
+                    handleConfirmType(extendedDoc.detectedDocType!)
+                  }
+                >
+                  Potvrdit:{" "}
+                  {COST_DOC_TYPE_LABELS[extendedDoc.detectedDocType] ??
+                    extendedDoc.detectedDocType}
+                  <span className="ml-1 text-xs text-muted-foreground">
+                    (AI
+                    {extendedDoc.detectedDocTypeConfidence != null
+                      ? ` ${Math.round(extendedDoc.detectedDocTypeConfidence * 100)} %`
+                      : ""}
+                    )
+                  </span>
                 </Button>
               )}
             </div>
@@ -684,8 +767,7 @@ export default function BillingDocumentDetail() {
           className={`mb-4 ${
             doc.deliveryNoteWorkflow.state === "ready"
               ? "border-emerald-300 bg-emerald-50 dark:bg-emerald-950/20"
-              : doc.deliveryNoteWorkflow.state ===
-                  "ready_without_delivery_note"
+              : doc.deliveryNoteWorkflow.state === "ready_without_delivery_note"
                 ? "border-blue-300 bg-blue-50 dark:bg-blue-950/20"
                 : "border-amber-300 bg-amber-50 dark:bg-amber-950/20"
           }`}
@@ -758,9 +840,7 @@ export default function BillingDocumentDetail() {
                     size="sm"
                     variant="outline"
                     disabled={isDocumentActionPending}
-                    onClick={() =>
-                      handleDeliveryNoteResolution("required")
-                    }
+                    onClick={() => handleDeliveryNoteResolution("required")}
                   >
                     <Truck className="mr-1 h-4 w-4" /> Čekám na dodací list
                   </Button>
@@ -783,9 +863,7 @@ export default function BillingDocumentDetail() {
                     size="sm"
                     variant="ghost"
                     disabled={isDocumentActionPending}
-                    onClick={() =>
-                      handleDeliveryNoteResolution("unknown")
-                    }
+                    onClick={() => handleDeliveryNoteResolution("unknown")}
                   >
                     Obnovit kontrolu dodacího listu
                   </Button>
@@ -869,14 +947,22 @@ export default function BillingDocumentDetail() {
                   Toto je duplicita dokladu{" "}
                   <button
                     className="underline hover:no-underline"
-                    onClick={() => setLocation(childLocation(`/billing/documents/${data.duplicateOf!.id}`))}
+                    onClick={() =>
+                      setLocation(
+                        childLocation(
+                          `/billing/documents/${data.duplicateOf!.id}`,
+                        ),
+                      )
+                    }
                   >
                     #{data.duplicateOf.id}
                   </button>
                 </p>
                 <p className="text-red-700/80 dark:text-red-300/80">
                   {data.duplicateOf.supplierName || "Neznámý dodavatel"}
-                  {data.duplicateOf.documentNumber ? ` · ${data.duplicateOf.documentNumber}` : ""}
+                  {data.duplicateOf.documentNumber
+                    ? ` · ${data.duplicateOf.documentNumber}`
+                    : ""}
                 </p>
                 {(data.duplicateOf.files ?? []).length > 0 && (
                   <div className="flex flex-wrap gap-2 mt-1">
@@ -918,7 +1004,9 @@ export default function BillingDocumentDetail() {
             <div className="flex items-start gap-2 text-red-800 dark:text-red-200">
               <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
               <div>
-                <p className="font-medium">Doklad je oznacen jako duplicita bez hlavniho dokladu</p>
+                <p className="font-medium">
+                  Doklad je oznacen jako duplicita bez hlavniho dokladu
+                </p>
                 <p className="text-red-700/80 dark:text-red-300/80">
                   Vratte ho ke kontrole. Doklad ani soubor se nesmazou.
                 </p>
@@ -950,7 +1038,9 @@ export default function BillingDocumentDetail() {
                 >
                   <button
                     className="text-left hover:underline"
-                    onClick={() => setLocation(childLocation(`/billing/documents/${d.id}`))}
+                    onClick={() =>
+                      setLocation(childLocation(`/billing/documents/${d.id}`))
+                    }
                   >
                     {d.supplierName || "Neznámý dodavatel"}
                     {d.documentNumber ? ` · ${d.documentNumber}` : ""} —{" "}
@@ -969,7 +1059,8 @@ export default function BillingDocumentDetail() {
                     }
                     disabled={markDuplicate.isPending}
                   >
-                    <Link2 className="h-3.5 w-3.5 mr-1" /> Tento doklad je duplicita
+                    <Link2 className="h-3.5 w-3.5 mr-1" /> Tento doklad je
+                    duplicita
                   </Button>
                 </div>
               ))}
@@ -980,7 +1071,10 @@ export default function BillingDocumentDetail() {
 
       {data.linkedDuplicates.length > 0 && (
         <Card className="mb-4">
-          <Collapsible open={linkedDuplicatesOpen} onOpenChange={setLinkedDuplicatesOpen}>
+          <Collapsible
+            open={linkedDuplicatesOpen}
+            onOpenChange={setLinkedDuplicatesOpen}
+          >
             <CollapsibleTrigger asChild>
               <button
                 type="button"
@@ -1001,11 +1095,15 @@ export default function BillingDocumentDetail() {
                   <div key={d.id} className="rounded border p-3 space-y-2">
                     <button
                       className="block text-left hover:underline text-muted-foreground"
-                      onClick={() => setLocation(childLocation(`/billing/documents/${d.id}`))}
+                      onClick={() =>
+                        setLocation(childLocation(`/billing/documents/${d.id}`))
+                      }
                     >
                       #{d.id} — {d.supplierName || "Neznámý dodavatel"}
                       {d.documentNumber ? ` · ${d.documentNumber}` : ""}
-                      {d.totalWithVat ? ` · ${fmtKc(Number(d.totalWithVat))}` : ""}
+                      {d.totalWithVat
+                        ? ` · ${fmtKc(Number(d.totalWithVat))}`
+                        : ""}
                     </button>
                     {(d.files ?? []).length > 0 ? (
                       <div className="flex flex-wrap gap-2">
@@ -1143,6 +1241,81 @@ export default function BillingDocumentDetail() {
       )}
 
       <Dialog
+        open={returnToReviewOpen}
+        onOpenChange={(open) => {
+          if (isDocumentActionPending) return;
+          setReturnToReviewOpen(open);
+          if (!open) setReturnToReviewReason("");
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Vrátit doklad ke kontrole</DialogTitle>
+            <DialogDescription>
+              Původní schválená účetní verze zůstane beze změny. Doklad se
+              otevře jako pracovní oprava; nové schválení vytvoří navázanou
+              účetní verzi.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="return-to-review-reason">Důvod opravy</Label>
+            <Textarea
+              id="return-to-review-reason"
+              value={returnToReviewReason}
+              onChange={(event) => setReturnToReviewReason(event.target.value)}
+              placeholder="Např. doklad je přiřazený k nesprávné zakázce"
+              minLength={3}
+              maxLength={COST_DOCUMENT_CORRECTION_REASON_MAX_LENGTH}
+              aria-describedby="return-to-review-reason-help"
+              aria-invalid={
+                returnToReviewReason.length > 0 &&
+                buildReturnCostDocumentToReviewInput(returnToReviewReason) ===
+                  null
+              }
+              autoFocus
+            />
+            <div
+              id="return-to-review-reason-help"
+              className="flex flex-wrap justify-between gap-x-3 gap-y-1 text-xs text-muted-foreground"
+            >
+              <span>
+                Důvod je povinný a kryptograficky se sváže s neměnnou událostí.
+              </span>
+              <span aria-live="polite">
+                {returnToReviewReason.length}/
+                {COST_DOCUMENT_CORRECTION_REASON_MAX_LENGTH}
+              </span>
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              disabled={isDocumentActionPending}
+              onClick={() => {
+                setReturnToReviewOpen(false);
+                setReturnToReviewReason("");
+              }}
+            >
+              Zrušit
+            </Button>
+            <Button
+              disabled={
+                isDocumentActionPending ||
+                setStatus.isPending ||
+                buildReturnCostDocumentToReviewInput(returnToReviewReason) ===
+                  null
+              }
+              onClick={submitReturnToReview}
+            >
+              {isDocumentActionPending || setStatus.isPending
+                ? "Vracím ke kontrole…"
+                : "Vrátit ke kontrole"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
         open={deliveryNoteExceptionOpen}
         onOpenChange={(open) => {
           if (!isDocumentActionPending) setDeliveryNoteExceptionOpen(open);
@@ -1231,10 +1404,14 @@ function DocumentHeaderForm({
     taxableSupplyDate: dateValue(document.taxableSupplyDate),
     dueDate: dateValue(document.dueDate),
     subtotalWithoutVat:
-      document.subtotalWithoutVat != null ? String(document.subtotalWithoutVat) : "",
+      document.subtotalWithoutVat != null
+        ? String(document.subtotalWithoutVat)
+        : "",
     totalVat: document.totalVat != null ? String(document.totalVat) : "",
-    totalWithVat: document.totalWithVat != null ? String(document.totalWithVat) : "",
-    customerId: document.customerId != null ? String(document.customerId) : NONE,
+    totalWithVat:
+      document.totalWithVat != null ? String(document.totalWithVat) : "",
+    customerId:
+      document.customerId != null ? String(document.customerId) : NONE,
     jobId: document.jobId != null ? String(document.jobId) : NONE,
     notes: document.notes ?? "",
   });
@@ -1250,7 +1427,11 @@ function DocumentHeaderForm({
   const subtotalError = decimalError(form.subtotalWithoutVat);
   const totalVatError = decimalError(form.totalVat);
   const totalWithVatError = decimalError(form.totalWithVat);
-  const headerHasErrors = !!(subtotalError || totalVatError || totalWithVatError);
+  const headerHasErrors = !!(
+    subtotalError ||
+    totalVatError ||
+    totalWithVatError
+  );
 
   const handleSave = () => {
     if (headerHasErrors) return;
@@ -1279,7 +1460,10 @@ function DocumentHeaderForm({
       <CardContent className="p-4 space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="Typ dokladu">
-            <Select value={form.docType} onValueChange={(v) => set("docType", v)}>
+            <Select
+              value={form.docType}
+              onValueChange={(v) => set("docType", v)}
+            >
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -1446,25 +1630,31 @@ export interface LineCardRef {
   save: (options?: { silent?: boolean }) => Promise<void>;
 }
 
-const LineCard = forwardRef<LineCardRef, {
-  documentId: number;
-  line: CostDocumentLine;
-  jobs: Job[];
-  activities: Activity[];
-  documentApproved: boolean;
-  documentActionPending: boolean;
-  onChanged: () => void;
-  onSplit: () => void;
-}>(function LineCard({
-  documentId,
-  line,
-  jobs,
-  activities,
-  documentApproved,
-  documentActionPending,
-  onChanged,
-  onSplit,
-}, ref) {
+const LineCard = forwardRef<
+  LineCardRef,
+  {
+    documentId: number;
+    line: CostDocumentLine;
+    jobs: Job[];
+    activities: Activity[];
+    documentApproved: boolean;
+    documentActionPending: boolean;
+    onChanged: () => void;
+    onSplit: () => void;
+  }
+>(function LineCard(
+  {
+    documentId,
+    line,
+    jobs,
+    activities,
+    documentApproved,
+    documentActionPending,
+    onChanged,
+    onSplit,
+  },
+  ref,
+) {
   const { toast } = useToast();
   const updateLine = useUpdateCostDocumentLine();
 
@@ -1485,9 +1675,17 @@ const LineCard = forwardRef<LineCardRef, {
 
   // Mutual exclusion helpers
   const setJob = (v: string) =>
-    setForm((p) => ({ ...p, jobId: v, activityId: v !== NONE ? NONE : p.activityId }));
+    setForm((p) => ({
+      ...p,
+      jobId: v,
+      activityId: v !== NONE ? NONE : p.activityId,
+    }));
   const setActivity = (v: string) =>
-    setForm((p) => ({ ...p, activityId: v, jobId: v !== NONE ? NONE : p.jobId }));
+    setForm((p) => ({
+      ...p,
+      activityId: v,
+      jobId: v !== NONE ? NONE : p.jobId,
+    }));
 
   const qtyError = decimalError(form.quantity);
   const priceError = decimalError(form.unitPriceWithoutVat);
@@ -1500,9 +1698,9 @@ const LineCard = forwardRef<LineCardRef, {
       }
       const f = form;
       const lastSaved = lastSavedFormRef.current;
-      const isUnchanged = (
-        Object.keys(f) as Array<keyof typeof f>
-      ).every((key) => f[key] === lastSaved[key]);
+      const isUnchanged = (Object.keys(f) as Array<keyof typeof f>).every(
+        (key) => f[key] === lastSaved[key],
+      );
       if (isUnchanged) return;
 
       const data: CostDocumentLineUpdateInput = {
@@ -1541,7 +1739,9 @@ const LineCard = forwardRef<LineCardRef, {
   useImperativeHandle(ref, () => ({ save }), [save]);
 
   const confidencePct =
-    line.matchConfidence != null ? Math.round(line.matchConfidence * 100) : null;
+    line.matchConfidence != null
+      ? Math.round(line.matchConfidence * 100)
+      : null;
 
   return (
     <Card>
@@ -1564,10 +1764,15 @@ const LineCard = forwardRef<LineCardRef, {
           </div>
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">MJ</Label>
-            <Input value={form.unit} onChange={(e) => set("unit", e.target.value)} />
+            <Input
+              value={form.unit}
+              onChange={(e) => set("unit", e.target.value)}
+            />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">Cena/MJ bez DPH</Label>
+            <Label className="text-xs text-muted-foreground">
+              Cena/MJ bez DPH
+            </Label>
             <DecimalInput
               value={form.unitPriceWithoutVat}
               onChange={(v) => set("unitPriceWithoutVat", v)}
@@ -1579,7 +1784,10 @@ const LineCard = forwardRef<LineCardRef, {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">Typ položky</Label>
-            <Select value={form.lineType} onValueChange={(v) => set("lineType", v)}>
+            <Select
+              value={form.lineType}
+              onValueChange={(v) => set("lineType", v)}
+            >
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -1641,7 +1849,9 @@ const LineCard = forwardRef<LineCardRef, {
             </Select>
           </div>
           <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">Dlouhodobá akce</Label>
+            <Label className="text-xs text-muted-foreground">
+              Dlouhodobá akce
+            </Label>
             <Select value={form.activityId} onValueChange={setActivity}>
               <SelectTrigger>
                 <SelectValue placeholder="Žádná" />
@@ -1730,12 +1940,30 @@ function SplitDialog({
 
   const half = line.quantity / 2;
   const inheritedAssignment = {
-    jobId: line.activityId != null ? NONE : line.jobId != null ? String(line.jobId) : NONE,
-    activityId: line.jobId != null ? NONE : line.activityId != null ? String(line.activityId) : NONE,
+    jobId:
+      line.activityId != null
+        ? NONE
+        : line.jobId != null
+          ? String(line.jobId)
+          : NONE,
+    activityId:
+      line.jobId != null
+        ? NONE
+        : line.activityId != null
+          ? String(line.activityId)
+          : NONE,
   };
   const [parts, setParts] = useState<SplitPart[]>([
-    { quantity: String(half), ...inheritedAssignment, allocationType: line.allocationType },
-    { quantity: String(line.quantity - half), ...inheritedAssignment, allocationType: line.allocationType },
+    {
+      quantity: String(half),
+      ...inheritedAssignment,
+      allocationType: line.allocationType,
+    },
+    {
+      quantity: String(line.quantity - half),
+      ...inheritedAssignment,
+      allocationType: line.allocationType,
+    },
   ]);
 
   const partErrors = parts.map((p) => {
@@ -1754,7 +1982,11 @@ function SplitDialog({
   const addPart = () =>
     setParts((p) => [
       ...p,
-      { quantity: "0", ...inheritedAssignment, allocationType: line.allocationType },
+      {
+        quantity: "0",
+        ...inheritedAssignment,
+        allocationType: line.allocationType,
+      },
     ]);
 
   const removePart = (i: number) =>
@@ -1798,11 +2030,15 @@ function SplitDialog({
         </DialogHeader>
         <p className="text-sm text-muted-foreground">
           „{line.description}" — celkové množství {line.quantity}
-          {line.unit ? ` ${line.unit}` : ""}. Rozdělte množství mezi zakázky nebo akce.
+          {line.unit ? ` ${line.unit}` : ""}. Rozdělte množství mezi zakázky
+          nebo akce.
         </p>
         <div className="space-y-3 max-h-[50vh] overflow-y-auto">
           {parts.map((part, i) => (
-            <div key={i} className="border rounded-lg p-3 space-y-2 bg-muted/30">
+            <div
+              key={i}
+              className="border rounded-lg p-3 space-y-2 bg-muted/30"
+            >
               <div className="flex items-center justify-between">
                 <span className="text-xs font-medium text-muted-foreground">
                   Část {i + 1}
@@ -1820,7 +2056,9 @@ function SplitDialog({
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1">
-                  <Label className="text-xs text-muted-foreground">Množství</Label>
+                  <Label className="text-xs text-muted-foreground">
+                    Množství
+                  </Label>
                   <DecimalInput
                     value={part.quantity}
                     onChange={(v) => setPart(i, { quantity: v })}
@@ -1851,7 +2089,10 @@ function SplitDialog({
                 <Select
                   value={part.jobId}
                   onValueChange={(v) =>
-                    setPart(i, { jobId: v, activityId: v !== NONE ? NONE : part.activityId })
+                    setPart(i, {
+                      jobId: v,
+                      activityId: v !== NONE ? NONE : part.activityId,
+                    })
                   }
                 >
                   <SelectTrigger>
@@ -1868,11 +2109,16 @@ function SplitDialog({
                 </Select>
               </div>
               <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">Dlouhodobá akce</Label>
+                <Label className="text-xs text-muted-foreground">
+                  Dlouhodobá akce
+                </Label>
                 <Select
                   value={part.activityId}
                   onValueChange={(v) =>
-                    setPart(i, { activityId: v, jobId: v !== NONE ? NONE : part.jobId })
+                    setPart(i, {
+                      activityId: v,
+                      jobId: v !== NONE ? NONE : part.jobId,
+                    })
                   }
                 >
                   <SelectTrigger>
@@ -1904,7 +2150,10 @@ function SplitDialog({
           <Button variant="outline" onClick={onClose}>
             Zrušit
           </Button>
-          <Button onClick={submit} disabled={hasErrors || !balanced || splitMutation.isPending}>
+          <Button
+            onClick={submit}
+            disabled={hasErrors || !balanced || splitMutation.isPending}
+          >
             Rozdělit
           </Button>
         </DialogFooter>
@@ -1966,8 +2215,12 @@ function AutoLinksSection({
                   )}
                   <div className="text-[11px] text-muted-foreground">
                     Zakázka #{m.jobId}
-                    {m.quantity != null ? ` • ${m.quantity} ${m.unit ?? ""}`.trimEnd() : ""}
-                    {m.priceConfidence != null ? ` • spolehlivost ${Math.round(m.priceConfidence * 100)} %` : ""}
+                    {m.quantity != null
+                      ? ` • ${m.quantity} ${m.unit ?? ""}`.trimEnd()
+                      : ""}
+                    {m.priceConfidence != null
+                      ? ` • spolehlivost ${Math.round(m.priceConfidence * 100)} %`
+                      : ""}
                   </div>
                 </div>
                 {m.pricePerUnit != null && (
@@ -2035,7 +2288,9 @@ function ReferencesSection({
     });
 
   const jobTitle = (jobId: number | null) =>
-    jobId == null ? null : (jobs.find((j) => j.id === jobId)?.title ?? `#${jobId}`);
+    jobId == null
+      ? null
+      : (jobs.find((j) => j.id === jobId)?.title ?? `#${jobId}`);
   const relatedInvoices =
     docType === "delivery_note"
       ? (siblingMatches ?? [])
@@ -2050,7 +2305,10 @@ function ReferencesSection({
     addRef.mutate(
       {
         id: documentId,
-        data: { referenceType: newType as never, referenceNumber: newNumber.trim() },
+        data: {
+          referenceType: newType as never,
+          referenceNumber: newNumber.trim(),
+        },
       },
       {
         onSuccess: () => {
@@ -2060,7 +2318,10 @@ function ReferencesSection({
           toast({ title: "Reference přidána" });
         },
         onError: () =>
-          toast({ title: "Referenci se nepodařilo přidat", variant: "destructive" }),
+          toast({
+            title: "Referenci se nepodařilo přidat",
+            variant: "destructive",
+          }),
       },
     );
   };
@@ -2102,7 +2363,11 @@ function ReferencesSection({
           >
             <Wand2 className="h-4 w-4 mr-1" /> Navrhnout vazby
           </Button>
-          <Button variant="outline" size="sm" onClick={() => setAdding((v) => !v)}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setAdding((v) => !v)}
+          >
             <Plus className="h-4 w-4 mr-1" /> Přidat
           </Button>
         </div>
@@ -2134,7 +2399,10 @@ function ReferencesSection({
                 placeholder="např. DL2024001"
               />
             </div>
-            <Button onClick={handleAdd} disabled={addRef.isPending || !newNumber.trim()}>
+            <Button
+              onClick={handleAdd}
+              disabled={addRef.isPending || !newNumber.trim()}
+            >
               Uložit
             </Button>
           </CardContent>
@@ -2173,7 +2441,11 @@ function ReferencesSection({
                     size="sm"
                     className="h-8 shrink-0"
                     onClick={() =>
-                      navigate(childLocation(`/billing/documents/${candidate.documentId}`))
+                      navigate(
+                        childLocation(
+                          `/billing/documents/${candidate.documentId}`,
+                        ),
+                      )
                     }
                   >
                     Otevřít fakturu
@@ -2296,11 +2568,7 @@ function ReferenceCard({
   return (
     <Card
       className={
-        rejected
-          ? "opacity-60"
-          : confirmed
-            ? "border-emerald-400/50"
-            : ""
+        rejected ? "opacity-60" : confirmed ? "border-emerald-400/50" : ""
       }
     >
       <CardContent className="p-3 space-y-2">
@@ -2375,7 +2643,11 @@ function ReferenceCard({
         {/* Manual job link */}
         <div className="flex items-center gap-2">
           <Select
-            value={reference.matchedJobId != null ? String(reference.matchedJobId) : NONE}
+            value={
+              reference.matchedJobId != null
+                ? String(reference.matchedJobId)
+                : NONE
+            }
             onValueChange={(v) => {
               const matchedJobId = v === NONE ? null : Number(v);
               patch(
@@ -2463,9 +2735,7 @@ function ReferenceCard({
                       size="sm"
                       className="h-7"
                       onClick={() =>
-                        navigate(
-                          `/billing/documents/${candidate.documentId}`,
-                        )
+                        navigate(`/billing/documents/${candidate.documentId}`)
                       }
                     >
                       Otevřít
@@ -2549,28 +2819,30 @@ function WarehousePricesCard({
     openConfirm(
       {
         title: "Přenést nákupní ceny do skladu?",
-        description: "Aktualizují se ceny odpovídajících skladových karet a chybějící se automaticky založí.",
+        description:
+          "Aktualizují se ceny odpovídajících skladových karet a chybějící se automaticky založí.",
         confirmLabel: "Přenést",
       },
-      () => apply.mutate(
-      { id: documentId },
-      {
-        onSuccess: (res) => {
-          onApplied();
-          toast({
-            title: "Ceny přeneseny do skladu",
-            description: `Aktualizováno ${res.updated.length - res.created} položek, nově založeno ${res.created}, přeskočeno ${res.skipped}.`,
-          });
-        },
-        onError: (err) =>
-          toast({
-            title: "Přenos cen selhal",
-            description: err instanceof Error ? err.message : undefined,
-            variant: "destructive",
-          }),
-      },
-    ),
-  );
+      () =>
+        apply.mutate(
+          { id: documentId },
+          {
+            onSuccess: (res) => {
+              onApplied();
+              toast({
+                title: "Ceny přeneseny do skladu",
+                description: `Aktualizováno ${res.updated.length - res.created} položek, nově založeno ${res.created}, přeskočeno ${res.skipped}.`,
+              });
+            },
+            onError: (err) =>
+              toast({
+                title: "Přenos cen selhal",
+                description: err instanceof Error ? err.message : undefined,
+                variant: "destructive",
+              }),
+          },
+        ),
+    );
   };
 
   return (
@@ -2585,7 +2857,11 @@ function WarehousePricesCard({
             chybějící karty se automaticky založí.
           </p>
         </div>
-        <Button variant="outline" onClick={handleApply} disabled={apply.isPending}>
+        <Button
+          variant="outline"
+          onClick={handleApply}
+          disabled={apply.isPending}
+        >
           Aktualizovat ceny
         </Button>
       </CardContent>

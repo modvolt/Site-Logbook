@@ -9,6 +9,7 @@ import {
   useAcceptQuote,
   useRejectQuote,
   useExpireQuote,
+  useReopenQuoteRevision,
   useConvertQuoteToJob,
   useListCustomers,
   getGetQuoteQueryKey,
@@ -90,6 +91,7 @@ import {
   Building2,
   Download,
   Briefcase,
+  RotateCcw,
   Copy,
   Link,
   ChevronDown,
@@ -170,8 +172,14 @@ function QuoteTotalsSummary({ totals }: { totals: QuoteFormTotals }) {
           </p>
           {totals.marginComplete ? (
             <>
-              <p className={`mt-0.5 text-lg font-semibold ${marginTone(totals.marginAmount)}`}>
-                {fmtKc(totals.marginAmount ?? 0)} · {totals.marginPercent?.toLocaleString("cs-CZ", { maximumFractionDigits: 2 }) ?? "—"} %
+              <p
+                className={`mt-0.5 text-lg font-semibold ${marginTone(totals.marginAmount)}`}
+              >
+                {fmtKc(totals.marginAmount ?? 0)} ·{" "}
+                {totals.marginPercent?.toLocaleString("cs-CZ", {
+                  maximumFractionDigits: 2,
+                }) ?? "—"}{" "}
+                %
               </p>
               <p className="text-xs text-muted-foreground">
                 Nákup celkem {fmtKc(totals.totalPurchaseCost)} bez DPH
@@ -181,23 +189,33 @@ function QuoteTotalsSummary({ totals }: { totals: QuoteFormTotals }) {
             <>
               <p className="mt-0.5 text-sm font-medium">Doplňte nákupní ceny</p>
               <p className="text-xs text-muted-foreground">
-                Vyplněno {totals.costedItemCount} z {totals.financialItemCount} cenových položek. Chybějící cena se nepočítá jako nula.
+                Vyplněno {totals.costedItemCount} z {totals.financialItemCount}{" "}
+                cenových položek. Chybějící cena se nepočítá jako nula.
               </p>
             </>
           )}
         </div>
       </div>
       <div className="space-y-1 text-right text-sm sm:border-l sm:pl-6">
-        <div className="text-muted-foreground">Celkem bez DPH: {fmtKc(totals.subtotalWithoutVat)}</div>
-        <div className="text-muted-foreground">DPH: {fmtKc(totals.totalVat)}</div>
-        <div className="text-lg font-bold">Celkem: {fmtKc(totals.totalWithVat)}</div>
+        <div className="text-muted-foreground">
+          Celkem bez DPH: {fmtKc(totals.subtotalWithoutVat)}
+        </div>
+        <div className="text-muted-foreground">
+          DPH: {fmtKc(totals.totalVat)}
+        </div>
+        <div className="text-lg font-bold">
+          Celkem: {fmtKc(totals.totalWithVat)}
+        </div>
       </div>
     </div>
   );
 }
 
 function extractError(err: unknown): string {
-  const msg = (err as any)?.response?.data?.error ?? (err as any)?.data?.error ?? (err as any)?.message;
+  const msg =
+    (err as any)?.response?.data?.error ??
+    (err as any)?.data?.error ??
+    (err as any)?.message;
   return typeof msg === "string" ? msg : "Neočekávaná chyba.";
 }
 
@@ -212,7 +230,10 @@ export default function QuoteDetail() {
   const [matchDetail, paramsDetail] = useRoute<{ id: string }>("/quotes/:id");
   const isNew = !matchDetail || paramsDetail?.id === "new";
   const id = isNew ? null : parseInt(paramsDetail?.id ?? "0", 10);
-  const searchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+  const searchParams =
+    typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search)
+      : null;
   const customerIdFromUrl = searchParams?.get("customerId") ?? "";
 
   const queryClient = useQueryClient();
@@ -232,6 +253,8 @@ export default function QuoteDetail() {
   const [sendMessage, setSendMessage] = useState("");
   const [convertDialogOpen, setConvertDialogOpen] = useState(false);
   const [plannedDate, setPlannedDate] = useState(todayLocalIso);
+  const [revisionDialogOpen, setRevisionDialogOpen] = useState(false);
+  const [revisionReason, setRevisionReason] = useState("");
 
   const {
     data: quote,
@@ -241,7 +264,10 @@ export default function QuoteDetail() {
     refetch: refetchQuote,
     isFetching: refreshingQuote,
   } = useGetQuote(id!, {
-    query: { queryKey: getGetQuoteQueryKey(id!), enabled: id != null && id > 0 },
+    query: {
+      queryKey: getGetQuoteQueryKey(id!),
+      enabled: id != null && id > 0,
+    },
   });
 
   const { data: customers } = useListCustomers();
@@ -253,6 +279,7 @@ export default function QuoteDetail() {
   const acceptQuote = useAcceptQuote();
   const rejectQuote = useRejectQuote();
   const expireQuote = useExpireQuote();
+  const reopenRevision = useReopenQuoteRevision();
   const convertToJob = useConvertQuoteToJob();
 
   useEffect(() => {
@@ -261,31 +288,38 @@ export default function QuoteDetail() {
       setCustomerId(quote.customerId ? String(quote.customerId) : "");
       setValidUntil(quote.validUntil ?? "");
       setNotes(quote.notes ?? "");
-      setItems(quote.items.length > 0 ? quote.items.map((i) => {
-        const rowType = (i.rowType ?? "item") as QuoteRowType;
-        const purchaseUnitPrice = i.purchaseUnitPrice != null
-          ? String(i.purchaseUnitPrice)
-          : "";
-        const unitPrice = String(i.unitPrice);
-        const purchase = parseQuoteNumber(purchaseUnitPrice);
-        const sale = parseQuoteNumber(unitPrice);
-        const margin = purchase != null && sale != null
-          ? marginPercentFromPrices(purchase, sale)
-          : null;
-        return {
-          clientId: `quote-item-${i.id}`,
-          rowType,
-          description: i.description,
-          quantity: rowType === "item" ? String(i.quantity) : "",
-          unit: rowType === "item" ? (i.unit ?? "") : "",
-          unitPrice: rowType === "item" ? unitPrice : "",
-          purchaseUnitPrice: rowType === "item" ? purchaseUnitPrice : "",
-          marginPercent: margin != null ? formatQuoteInput(margin) : "",
-          vatRate: rowType === "item"
-            ? (i.vatRate != null ? String(i.vatRate) : "21")
-            : "",
-        };
-      }) : [createQuoteFormRow()]);
+      setItems(
+        quote.items.length > 0
+          ? quote.items.map((i) => {
+              const rowType = (i.rowType ?? "item") as QuoteRowType;
+              const purchaseUnitPrice =
+                i.purchaseUnitPrice != null ? String(i.purchaseUnitPrice) : "";
+              const unitPrice = String(i.unitPrice);
+              const purchase = parseQuoteNumber(purchaseUnitPrice);
+              const sale = parseQuoteNumber(unitPrice);
+              const margin =
+                purchase != null && sale != null
+                  ? marginPercentFromPrices(purchase, sale)
+                  : null;
+              return {
+                clientId: `quote-item-${i.id}`,
+                rowType,
+                description: i.description,
+                quantity: rowType === "item" ? String(i.quantity) : "",
+                unit: rowType === "item" ? (i.unit ?? "") : "",
+                unitPrice: rowType === "item" ? unitPrice : "",
+                purchaseUnitPrice: rowType === "item" ? purchaseUnitPrice : "",
+                marginPercent: margin != null ? formatQuoteInput(margin) : "",
+                vatRate:
+                  rowType === "item"
+                    ? i.vatRate != null
+                      ? String(i.vatRate)
+                      : "21"
+                    : "",
+              };
+            })
+          : [createQuoteFormRow()],
+      );
     }
   }, [quote, isNew]);
 
@@ -294,27 +328,30 @@ export default function QuoteDetail() {
     customerId: customerId ? parseInt(customerId, 10) : null,
     validUntil: validUntil || null,
     notes: notes.trim() || null,
-    items: items.map((i, idx) => i.rowType === "item"
-      ? {
-          rowType: i.rowType,
-          description: i.description.trim(),
-          quantity: parseQuoteNumber(i.quantity) ?? 1,
-          unit: i.unit.trim() || null,
-          unitPrice: parseQuoteNumber(i.unitPrice) ?? 0,
-          purchaseUnitPrice: parseQuoteNumber(i.purchaseUnitPrice),
-          vatRate: i.vatRate === "pdp" ? 0 : parseQuoteNumber(i.vatRate),
-          position: idx,
-        }
-      : {
-          rowType: i.rowType,
-          description: i.rowType === "spacer" ? "" : i.description.trim(),
-          position: idx,
-        }),
+    items: items.map((i, idx) =>
+      i.rowType === "item"
+        ? {
+            rowType: i.rowType,
+            description: i.description.trim(),
+            quantity: parseQuoteNumber(i.quantity) ?? 1,
+            unit: i.unit.trim() || null,
+            unitPrice: parseQuoteNumber(i.unitPrice) ?? 0,
+            purchaseUnitPrice: parseQuoteNumber(i.purchaseUnitPrice),
+            vatRate: i.vatRate === "pdp" ? 0 : parseQuoteNumber(i.vatRate),
+            position: idx,
+          }
+        : {
+            rowType: i.rowType,
+            description: i.rowType === "spacer" ? "" : i.description.trim(),
+            position: idx,
+          },
+    ),
   });
 
   const invalidate = () => {
     invalidateData(queryClient, "quotes");
-    if (id) queryClient.invalidateQueries({ queryKey: getGetQuoteQueryKey(id) });
+    if (id)
+      queryClient.invalidateQueries({ queryKey: getGetQuoteQueryKey(id) });
   };
 
   const handleSave = () => {
@@ -337,7 +374,8 @@ export default function QuoteDetail() {
             toast({ title: "Nabídka vytvořena." });
             setLocation(`/quotes/${created.id}`);
           },
-          onError: (err) => toast({ title: extractError(err), variant: "destructive" }),
+          onError: (err) =>
+            toast({ title: extractError(err), variant: "destructive" }),
         },
       );
     } else {
@@ -349,7 +387,8 @@ export default function QuoteDetail() {
             setEditing(false);
             toast({ title: "Nabídka uložena." });
           },
-          onError: (err) => toast({ title: extractError(err), variant: "destructive" }),
+          onError: (err) =>
+            toast({ title: extractError(err), variant: "destructive" }),
         },
       );
     }
@@ -364,7 +403,8 @@ export default function QuoteDetail() {
           toast({ title: "Nabídka smazána." });
           setLocation("/quotes");
         },
-        onError: (err) => toast({ title: extractError(err), variant: "destructive" }),
+        onError: (err) =>
+          toast({ title: extractError(err), variant: "destructive" }),
       },
     );
   };
@@ -385,7 +425,8 @@ export default function QuoteDetail() {
           invalidate();
           toast({ title: `Nabídka odeslána na ${r.to}` });
         },
-        onError: (err) => toast({ title: extractError(err), variant: "destructive" }),
+        onError: (err) =>
+          toast({ title: extractError(err), variant: "destructive" }),
       },
     );
   };
@@ -394,8 +435,12 @@ export default function QuoteDetail() {
     acceptQuote.mutate(
       { id: id! },
       {
-        onSuccess: () => { invalidate(); toast({ title: "Nabídka přijata." }); },
-        onError: (err) => toast({ title: extractError(err), variant: "destructive" }),
+        onSuccess: () => {
+          invalidate();
+          toast({ title: "Nabídka přijata." });
+        },
+        onError: (err) =>
+          toast({ title: extractError(err), variant: "destructive" }),
       },
     );
 
@@ -403,8 +448,12 @@ export default function QuoteDetail() {
     rejectQuote.mutate(
       { id: id! },
       {
-        onSuccess: () => { invalidate(); toast({ title: "Nabídka odmítnuta." }); },
-        onError: (err) => toast({ title: extractError(err), variant: "destructive" }),
+        onSuccess: () => {
+          invalidate();
+          toast({ title: "Nabídka odmítnuta." });
+        },
+        onError: (err) =>
+          toast({ title: extractError(err), variant: "destructive" }),
       },
     );
 
@@ -412,10 +461,43 @@ export default function QuoteDetail() {
     expireQuote.mutate(
       { id: id! },
       {
-        onSuccess: () => { invalidate(); toast({ title: "Nabídka označena jako expirovaná." }); },
-        onError: (err) => toast({ title: extractError(err), variant: "destructive" }),
+        onSuccess: () => {
+          invalidate();
+          toast({ title: "Nabídka označena jako expirovaná." });
+        },
+        onError: (err) =>
+          toast({ title: extractError(err), variant: "destructive" }),
       },
     );
+
+  const handleReopenRevision = () => {
+    const reason = revisionReason.trim();
+    if (reason.length < 3) {
+      toast({
+        title: "Uveďte důvod opravy (alespoň 3 znaky).",
+        variant: "destructive",
+      });
+      return;
+    }
+    reopenRevision.mutate(
+      { id: id!, data: { reason } },
+      {
+        onSuccess: (result) => {
+          setRevisionDialogOpen(false);
+          setRevisionReason("");
+          setEditing(true);
+          invalidate();
+          toast({
+            title: `Původní verze ${result.supersededVersion} byla zachována.`,
+            description:
+              "Nabídka je znovu koncept a lze vytvořit opravenou verzi.",
+          });
+        },
+        onError: (err) =>
+          toast({ title: extractError(err), variant: "destructive" }),
+      },
+    );
+  };
 
   const handleConvertToJob = () =>
     convertToJob.mutate(
@@ -432,7 +514,8 @@ export default function QuoteDetail() {
           });
           setLocation(`/job-groups/${result.jobGroupId}`);
         },
-        onError: (err) => toast({ title: extractError(err), variant: "destructive" }),
+        onError: (err) =>
+          toast({ title: extractError(err), variant: "destructive" }),
       },
     );
 
@@ -442,70 +525,87 @@ export default function QuoteDetail() {
 
   const addItem = (rowType: QuoteRowType = "item") =>
     setItems((prev) => [...prev, createQuoteFormRow(rowType)]);
-  const removeItem = (i: number) => setItems((prev) => prev.filter((_, idx) => idx !== i));
+  const removeItem = (i: number) =>
+    setItems((prev) => prev.filter((_, idx) => idx !== i));
   const updateItem = (i: number, field: keyof QuoteFormRow, value: string) =>
-    setItems((prev) => prev.map((item, idx) => idx === i ? { ...item, [field]: value } : item));
-  const moveItem = (from: number, to: number) => setItems((prev) => {
-    if (to < 0 || to >= prev.length) return prev;
-    const next = [...prev];
-    const [moved] = next.splice(from, 1);
-    next.splice(to, 0, moved);
-    return next;
-  });
-  const updatePurchaseUnitPrice = (i: number, value: string) => setItems((prev) =>
-    prev.map((item, idx) => {
-      if (idx !== i) return item;
-      const purchase = parseQuoteNumber(value);
-      if (purchase == null) return { ...item, purchaseUnitPrice: value, marginPercent: "" };
-      const currentMargin = parseQuoteNumber(item.marginPercent);
-      const currentSale = parseQuoteNumber(item.unitPrice);
-      if (item.purchaseUnitPrice.trim() !== "" && currentMargin != null && currentMargin >= -100) {
-        const sale = unitPriceFromMargin(purchase, currentMargin);
+    setItems((prev) =>
+      prev.map((item, idx) => (idx === i ? { ...item, [field]: value } : item)),
+    );
+  const moveItem = (from: number, to: number) =>
+    setItems((prev) => {
+      if (to < 0 || to >= prev.length) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      return next;
+    });
+  const updatePurchaseUnitPrice = (i: number, value: string) =>
+    setItems((prev) =>
+      prev.map((item, idx) => {
+        if (idx !== i) return item;
+        const purchase = parseQuoteNumber(value);
+        if (purchase == null)
+          return { ...item, purchaseUnitPrice: value, marginPercent: "" };
+        const currentMargin = parseQuoteNumber(item.marginPercent);
+        const currentSale = parseQuoteNumber(item.unitPrice);
+        if (
+          item.purchaseUnitPrice.trim() !== "" &&
+          currentMargin != null &&
+          currentMargin >= -100
+        ) {
+          const sale = unitPriceFromMargin(purchase, currentMargin);
+          return {
+            ...item,
+            purchaseUnitPrice: value,
+            unitPrice: sale != null ? formatQuoteInput(sale) : item.unitPrice,
+          };
+        }
+        const margin =
+          currentSale != null
+            ? marginPercentFromPrices(purchase, currentSale)
+            : null;
         return {
           ...item,
           purchaseUnitPrice: value,
-          unitPrice: sale != null ? formatQuoteInput(sale) : item.unitPrice,
+          marginPercent: margin != null ? formatQuoteInput(margin) : "",
         };
-      }
-      const margin = currentSale != null ? marginPercentFromPrices(purchase, currentSale) : null;
-      return {
-        ...item,
-        purchaseUnitPrice: value,
-        marginPercent: margin != null ? formatQuoteInput(margin) : "",
-      };
-    }),
-  );
-  const updateMarginPercent = (i: number, value: string) => setItems((prev) =>
-    prev.map((item, idx) => {
-      if (idx !== i) return item;
-      const purchase = parseQuoteNumber(item.purchaseUnitPrice);
-      const margin = parseQuoteNumber(value);
-      const sale = purchase != null && margin != null
-        ? unitPriceFromMargin(purchase, margin)
-        : null;
-      return {
-        ...item,
-        marginPercent: value,
-        // Never leave a stale selling price beside an impossible margin.
-        unitPrice: sale != null ? formatQuoteInput(sale) : "",
-      };
-    }),
-  );
-  const updateUnitPrice = (i: number, value: string) => setItems((prev) =>
-    prev.map((item, idx) => {
-      if (idx !== i) return item;
-      const purchase = parseQuoteNumber(item.purchaseUnitPrice);
-      const sale = parseQuoteNumber(value);
-      const margin = purchase != null && sale != null
-        ? marginPercentFromPrices(purchase, sale)
-        : null;
-      return {
-        ...item,
-        unitPrice: value,
-        marginPercent: margin != null ? formatQuoteInput(margin) : "",
-      };
-    }),
-  );
+      }),
+    );
+  const updateMarginPercent = (i: number, value: string) =>
+    setItems((prev) =>
+      prev.map((item, idx) => {
+        if (idx !== i) return item;
+        const purchase = parseQuoteNumber(item.purchaseUnitPrice);
+        const margin = parseQuoteNumber(value);
+        const sale =
+          purchase != null && margin != null
+            ? unitPriceFromMargin(purchase, margin)
+            : null;
+        return {
+          ...item,
+          marginPercent: value,
+          // Never leave a stale selling price beside an impossible margin.
+          unitPrice: sale != null ? formatQuoteInput(sale) : "",
+        };
+      }),
+    );
+  const updateUnitPrice = (i: number, value: string) =>
+    setItems((prev) =>
+      prev.map((item, idx) => {
+        if (idx !== i) return item;
+        const purchase = parseQuoteNumber(item.purchaseUnitPrice);
+        const sale = parseQuoteNumber(value);
+        const margin =
+          purchase != null && sale != null
+            ? marginPercentFromPrices(purchase, sale)
+            : null;
+        return {
+          ...item,
+          unitPrice: value,
+          marginPercent: margin != null ? formatQuoteInput(margin) : "",
+        };
+      }),
+    );
 
   const totals = computeQuoteFormTotals(items);
 
@@ -525,7 +625,9 @@ export default function QuoteDetail() {
         <Card>
           <CardContent className="flex flex-col items-center px-6 py-10 text-center">
             <AlertCircle className="h-10 w-10 text-destructive" />
-            <h1 className="mt-4 text-lg font-semibold">Nabídku se nepodařilo načíst</h1>
+            <h1 className="mt-4 text-lg font-semibold">
+              Nabídku se nepodařilo načíst
+            </h1>
             <p className="mt-1 max-w-md text-sm text-muted-foreground">
               {quoteFailed
                 ? extractError(quoteError)
@@ -536,7 +638,10 @@ export default function QuoteDetail() {
                 <ArrowLeft className="mr-2 h-4 w-4" /> Zpět na nabídky
               </Button>
               {id != null && id > 0 && (
-                <Button onClick={() => void refetchQuote()} disabled={refreshingQuote}>
+                <Button
+                  onClick={() => void refetchQuote()}
+                  disabled={refreshingQuote}
+                >
                   Zkusit znovu
                 </Button>
               )}
@@ -549,11 +654,20 @@ export default function QuoteDetail() {
 
   const isDraft = !quote || quote.status === "draft";
   const canSend = quote && ["draft", "sent"].includes(quote.status);
-  const canAccept = quote && ["sent", "draft"].includes(quote.status);
-  const canReject = quote && ["sent", "draft"].includes(quote.status);
-  const canExpire = quote && ["sent", "draft"].includes(quote.status);
-  const canConvert = quote && quote.status === "accepted" && !quote.convertedToJobId && !quote.convertedToJobGroupId;
-  const canDelete = quote && ["draft", "rejected", "expired"].includes(quote.status);
+  const canAccept = quote?.status === "sent";
+  const canReject = quote?.status === "sent";
+  const canExpire = quote?.status === "sent";
+  const canReopenRevision =
+    quote &&
+    quote.status !== "draft" &&
+    !quote.convertedToJobId &&
+    !quote.convertedToInvoiceId;
+  const canConvert =
+    quote &&
+    quote.status === "accepted" &&
+    !quote.convertedToJobId &&
+    !quote.convertedToJobGroupId;
+  const canDelete = quote?.status === "draft";
   const canEdit = !quote || quote.status === "draft";
 
   return (
@@ -561,7 +675,11 @@ export default function QuoteDetail() {
       {/* Header */}
       <div className="flex items-start justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" onClick={() => setLocation("/quotes")}>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setLocation("/quotes")}
+          >
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
@@ -572,33 +690,25 @@ export default function QuoteDetail() {
               {quote && <QuoteStatusBadge status={quote.status} />}
             </div>
             {quote?.quoteNumber && (
-              <p className="text-sm text-muted-foreground font-mono">{quote.quoteNumber}</p>
+              <p className="text-sm text-muted-foreground font-mono">
+                {quote.quoteNumber}
+              </p>
             )}
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {!isNew && canEdit && !editing && (
-            <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setEditing(true)}
+            >
               <Pencil className="h-4 w-4 mr-1" /> Upravit
             </Button>
           )}
           {!isNew && quote?.pdfObjectPath && (
             <Button variant="outline" size="sm" onClick={handleDownloadPdf}>
               <Download className="h-4 w-4 mr-1" /> PDF
-            </Button>
-          )}
-          {!isNew && quote?.shareToken && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                const url = `${window.location.origin}/quote-share/${quote.shareToken}`;
-                navigator.clipboard.writeText(url).then(() =>
-                  toast({ title: "Odkaz zkopírován do schránky." }),
-                );
-              }}
-            >
-              <Copy className="h-4 w-4 mr-1" /> Kopírovat odkaz
             </Button>
           )}
           {!isNew && canSend && (
@@ -636,8 +746,26 @@ export default function QuoteDetail() {
             </Button>
           )}
           {!isNew && canExpire && (
-            <Button variant="ghost" size="sm" onClick={handleExpire} disabled={expireQuote.isPending}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleExpire}
+              disabled={expireQuote.isPending}
+            >
               <AlertCircle className="h-4 w-4 mr-1" /> Expirovat
+            </Button>
+          )}
+          {!isNew && canReopenRevision && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setRevisionReason("");
+                setRevisionDialogOpen(true);
+              }}
+              disabled={reopenRevision.isPending}
+            >
+              <RotateCcw className="h-4 w-4 mr-1" /> Opravit verzí
             </Button>
           )}
           {!isNew && canConvert && (
@@ -674,7 +802,9 @@ export default function QuoteDetail() {
             {quote.convertedToJobGroupId && (
               <button
                 className="underline font-medium"
-                onClick={() => setLocation(`/job-groups/${quote.convertedToJobGroupId}`)}
+                onClick={() =>
+                  setLocation(`/job-groups/${quote.convertedToJobGroupId}`)
+                }
               >
                 akce #{quote.convertedToJobGroupId}
               </button>
@@ -691,7 +821,7 @@ export default function QuoteDetail() {
       )}
 
       {/* Form / View */}
-      {(editing || isNew) ? (
+      {editing || isNew ? (
         <div className="space-y-4">
           <Card>
             <CardHeader className="pb-3">
@@ -711,7 +841,9 @@ export default function QuoteDetail() {
                 <Label>Zákazník</Label>
                 <Select
                   value={customerId === "" ? "__none__" : customerId}
-                  onValueChange={(v) => setCustomerId(v === "__none__" ? "" : v)}
+                  onValueChange={(v) =>
+                    setCustomerId(v === "__none__" ? "" : v)
+                  }
                 >
                   <SelectTrigger className="mt-1">
                     <SelectValue placeholder="Vyberte zákazníka" />
@@ -753,14 +885,22 @@ export default function QuoteDetail() {
             <CardHeader className="pb-3">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
-                  <CardTitle className="text-base">Položky a členění nabídky</CardTitle>
+                  <CardTitle className="text-base">
+                    Položky a členění nabídky
+                  </CardTitle>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Nákupní ceny a marže jsou interní. Zákazník je neuvidí v odkazu ani v PDF.
+                    Nákupní ceny a marže jsou interní. Zákazník je neuvidí v
+                    odkazu ani v PDF.
                   </p>
                 </div>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button type="button" size="sm" variant="outline" className="self-start shrink-0">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="self-start shrink-0"
+                    >
                       <Plus className="mr-1 h-4 w-4" /> Přidat
                       <ChevronDown className="ml-1 h-3.5 w-3.5" />
                     </Button>
@@ -770,7 +910,8 @@ export default function QuoteDetail() {
                       <PackagePlus className="mr-2 h-4 w-4" /> Cenová položka
                     </DropdownMenuItem>
                     <DropdownMenuItem onSelect={() => addItem("section")}>
-                      <Heading2 className="mr-2 h-4 w-4" /> Nadpis systému / sekce
+                      <Heading2 className="mr-2 h-4 w-4" /> Nadpis systému /
+                      sekce
                     </DropdownMenuItem>
                     <DropdownMenuItem onSelect={() => addItem("spacer")}>
                       <Minus className="mr-2 h-4 w-4" /> Prázdná mezera
@@ -783,110 +924,188 @@ export default function QuoteDetail() {
               <div className="space-y-3">
                 {items.length === 0 && (
                   <div className="rounded-md border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
-                    Nabídka zatím nemá žádné řádky. Přidejte cenovou položku nebo nadpis sekce.
+                    Nabídka zatím nemá žádné řádky. Přidejte cenovou položku
+                    nebo nadpis sekce.
                   </div>
                 )}
-                {items.map((item, idx) => item.rowType === "item" ? (
-                  <div key={item.clientId} className="rounded-md border p-3 space-y-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-medium text-muted-foreground">Cenová položka</span>
-                      <QuoteRowActions
-                        index={idx}
-                        count={items.length}
-                        onMove={(to) => moveItem(idx, to)}
-                        onRemove={() => removeItem(idx)}
-                      />
-                    </div>
-                    <div>
-                      <Label className="text-xs">Popis položky *</Label>
-                      <Input
-                        value={item.description}
-                        onChange={(e) => updateItem(idx, "description", e.target.value)}
-                        placeholder="Např. střídač, montáž nebo revize"
-                        className="mt-0.5 h-9 text-sm"
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-                      <div>
-                        <Label className="text-xs">Množ.</Label>
-                        <Input
-                          inputMode="decimal"
-                          value={item.quantity}
-                          onChange={(e) => updateItem(idx, "quantity", e.target.value)}
-                          className="mt-0.5 h-9 text-sm"
+                {items.map((item, idx) =>
+                  item.rowType === "item" ? (
+                    <div
+                      key={item.clientId}
+                      className="rounded-md border p-3 space-y-3"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-medium text-muted-foreground">
+                          Cenová položka
+                        </span>
+                        <QuoteRowActions
+                          index={idx}
+                          count={items.length}
+                          onMove={(to) => moveItem(idx, to)}
+                          onRemove={() => removeItem(idx)}
                         />
                       </div>
                       <div>
-                        <Label className="text-xs">MJ</Label>
+                        <Label className="text-xs">Popis položky *</Label>
                         <Input
-                          value={item.unit}
-                          onChange={(e) => updateItem(idx, "unit", e.target.value)}
-                          placeholder="ks"
+                          value={item.description}
+                          onChange={(e) =>
+                            updateItem(idx, "description", e.target.value)
+                          }
+                          placeholder="Např. střídač, montáž nebo revize"
                           className="mt-0.5 h-9 text-sm"
                         />
                       </div>
-                      <div>
-                        <Label className="flex items-center gap-1 text-xs">
-                          Nákup/MJ <LockKeyhole className="h-3 w-3 text-muted-foreground" />
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+                        <div>
+                          <Label className="text-xs">Množ.</Label>
+                          <Input
+                            inputMode="decimal"
+                            value={item.quantity}
+                            onChange={(e) =>
+                              updateItem(idx, "quantity", e.target.value)
+                            }
+                            className="mt-0.5 h-9 text-sm"
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-xs">MJ</Label>
+                          <Input
+                            value={item.unit}
+                            onChange={(e) =>
+                              updateItem(idx, "unit", e.target.value)
+                            }
+                            placeholder="ks"
+                            className="mt-0.5 h-9 text-sm"
+                          />
+                        </div>
+                        <div>
+                          <Label className="flex items-center gap-1 text-xs">
+                            Nákup/MJ{" "}
+                            <LockKeyhole className="h-3 w-3 text-muted-foreground" />
+                          </Label>
+                          <Input
+                            inputMode="decimal"
+                            value={item.purchaseUnitPrice}
+                            onChange={(e) =>
+                              updatePurchaseUnitPrice(idx, e.target.value)
+                            }
+                            placeholder="Nevyplněno"
+                            className="mt-0.5 h-9 text-sm"
+                          />
+                        </div>
+                        <div>
+                          <Label className="flex items-center gap-1 text-xs">
+                            Marže %{" "}
+                            <LockKeyhole className="h-3 w-3 text-muted-foreground" />
+                          </Label>
+                          <Input
+                            inputMode="decimal"
+                            value={item.marginPercent}
+                            onChange={(e) =>
+                              updateMarginPercent(idx, e.target.value)
+                            }
+                            placeholder={
+                              item.purchaseUnitPrice.trim() === ""
+                                ? "Nejprve nákup"
+                                : "—"
+                            }
+                            disabled={
+                              parseQuoteNumber(item.purchaseUnitPrice) == null
+                            }
+                            aria-invalid={hasInvalidQuoteMargin(item)}
+                            className="mt-0.5 h-9 text-sm"
+                          />
+                          {hasInvalidQuoteMargin(item) && (
+                            <p className="mt-1 text-xs text-destructive">
+                              Marže musí být alespoň −100 %.
+                            </p>
+                          )}
+                        </div>
+                        <div>
+                          <Label className="text-xs">Prodej/MJ</Label>
+                          <Input
+                            inputMode="decimal"
+                            value={item.unitPrice}
+                            onChange={(e) =>
+                              updateUnitPrice(idx, e.target.value)
+                            }
+                            className="mt-0.5 h-9 text-sm"
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-xs">Sazba DPH</Label>
+                          <Select
+                            value={
+                              item.vatRate === "pdp" || item.vatRate === "0"
+                                ? "pdp"
+                                : item.vatRate === "12"
+                                  ? "12"
+                                  : "21"
+                            }
+                            onValueChange={(v) => updateItem(idx, "vatRate", v)}
+                          >
+                            <SelectTrigger className="mt-0.5 h-9 text-sm">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {VAT_RATE_OPTIONS.map((opt) => {
+                                const val =
+                                  opt.vatMode === "reverse_charge"
+                                    ? "pdp"
+                                    : String(opt.vatRate);
+                                return (
+                                  <SelectItem key={val} value={val}>
+                                    {opt.label}
+                                  </SelectItem>
+                                );
+                              })}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                    </div>
+                  ) : item.rowType === "section" ? (
+                    <div
+                      key={item.clientId}
+                      className="rounded-md bg-muted/70 p-3"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                          <Heading2 className="h-4 w-4" /> Nadpis sekce
+                        </span>
+                        <QuoteRowActions
+                          index={idx}
+                          count={items.length}
+                          onMove={(to) => moveItem(idx, to)}
+                          onRemove={() => removeItem(idx)}
+                        />
+                      </div>
+                      <div className="mt-2">
+                        <Label className="text-xs">
+                          Nadpis systému / sekce *
                         </Label>
                         <Input
-                          inputMode="decimal"
-                          value={item.purchaseUnitPrice}
-                          onChange={(e) => updatePurchaseUnitPrice(idx, e.target.value)}
-                          placeholder="Nevyplněno"
-                          className="mt-0.5 h-9 text-sm"
+                          value={item.description}
+                          onChange={(e) =>
+                            updateItem(idx, "description", e.target.value)
+                          }
+                          placeholder="Např. Fotovoltaický systém 10 kWp"
+                          className="mt-0.5 h-9 bg-background text-sm font-medium"
                         />
-                      </div>
-                      <div>
-                        <Label className="flex items-center gap-1 text-xs">
-                          Marže % <LockKeyhole className="h-3 w-3 text-muted-foreground" />
-                        </Label>
-                        <Input
-                          inputMode="decimal"
-                          value={item.marginPercent}
-                          onChange={(e) => updateMarginPercent(idx, e.target.value)}
-                          placeholder={item.purchaseUnitPrice.trim() === "" ? "Nejprve nákup" : "—"}
-                          disabled={parseQuoteNumber(item.purchaseUnitPrice) == null}
-                          aria-invalid={hasInvalidQuoteMargin(item)}
-                          className="mt-0.5 h-9 text-sm"
-                        />
-                        {hasInvalidQuoteMargin(item) && (
-                          <p className="mt-1 text-xs text-destructive">Marže musí být alespoň −100 %.</p>
-                        )}
-                      </div>
-                      <div>
-                        <Label className="text-xs">Prodej/MJ</Label>
-                        <Input
-                          inputMode="decimal"
-                          value={item.unitPrice}
-                          onChange={(e) => updateUnitPrice(idx, e.target.value)}
-                          className="mt-0.5 h-9 text-sm"
-                        />
-                      </div>
-                      <div>
-                        <Label className="text-xs">Sazba DPH</Label>
-                        <Select
-                          value={item.vatRate === "pdp" || item.vatRate === "0" ? "pdp" : (item.vatRate === "12" ? "12" : "21")}
-                          onValueChange={(v) => updateItem(idx, "vatRate", v)}
-                        >
-                          <SelectTrigger className="mt-0.5 h-9 text-sm">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {VAT_RATE_OPTIONS.map((opt) => {
-                              const val = opt.vatMode === "reverse_charge" ? "pdp" : String(opt.vatRate);
-                              return <SelectItem key={val} value={val}>{opt.label}</SelectItem>;
-                            })}
-                          </SelectContent>
-                        </Select>
                       </div>
                     </div>
-                  </div>
-                ) : item.rowType === "section" ? (
-                  <div key={item.clientId} className="rounded-md bg-muted/70 p-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                        <Heading2 className="h-4 w-4" /> Nadpis sekce
+                  ) : (
+                    <div
+                      key={item.clientId}
+                      className="flex min-h-12 items-center gap-2 rounded-md border border-dashed px-3"
+                    >
+                      <Minus className="h-4 w-4 text-muted-foreground" />
+                      <span className="min-w-0 flex-1 text-sm text-muted-foreground">
+                        <span className="sm:hidden">Prázdná mezera</span>
+                        <span className="hidden sm:inline">
+                          Prázdná mezera v zákaznické nabídce
+                        </span>
                       </span>
                       <QuoteRowActions
                         index={idx}
@@ -895,31 +1114,8 @@ export default function QuoteDetail() {
                         onRemove={() => removeItem(idx)}
                       />
                     </div>
-                    <div className="mt-2">
-                      <Label className="text-xs">Nadpis systému / sekce *</Label>
-                      <Input
-                        value={item.description}
-                        onChange={(e) => updateItem(idx, "description", e.target.value)}
-                        placeholder="Např. Fotovoltaický systém 10 kWp"
-                        className="mt-0.5 h-9 bg-background text-sm font-medium"
-                      />
-                    </div>
-                  </div>
-                ) : (
-                  <div key={item.clientId} className="flex min-h-12 items-center gap-2 rounded-md border border-dashed px-3">
-                    <Minus className="h-4 w-4 text-muted-foreground" />
-                    <span className="min-w-0 flex-1 text-sm text-muted-foreground">
-                      <span className="sm:hidden">Prázdná mezera</span>
-                      <span className="hidden sm:inline">Prázdná mezera v zákaznické nabídce</span>
-                    </span>
-                    <QuoteRowActions
-                      index={idx}
-                      count={items.length}
-                      onMove={(to) => moveItem(idx, to)}
-                      onRemove={() => removeItem(idx)}
-                    />
-                  </div>
-                ))}
+                  ),
+                )}
               </div>
 
               {/* Totals preview */}
@@ -929,7 +1125,12 @@ export default function QuoteDetail() {
 
           <div className="flex gap-2 justify-end">
             {!isNew && (
-              <Button variant="outline" onClick={() => { setEditing(false); }}>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setEditing(false);
+                }}
+              >
                 Zrušit
               </Button>
             )}
@@ -953,7 +1154,9 @@ export default function QuoteDetail() {
                     <Building2 className="h-4 w-4 text-muted-foreground" />
                     <button
                       className="font-medium underline text-foreground"
-                      onClick={() => setLocation(`/customers/${quote.customerId}`)}
+                      onClick={() =>
+                        setLocation(`/customers/${quote.customerId}`)
+                      }
                     >
                       {quote.customerCompanyName}
                     </button>
@@ -961,32 +1164,16 @@ export default function QuoteDetail() {
                 )}
                 {quote.validUntil && (
                   <div className="text-sm text-muted-foreground">
-                    Platná do: <span className="text-foreground font-medium">{fmtDate(quote.validUntil)}</span>
+                    Platná do:{" "}
+                    <span className="text-foreground font-medium">
+                      {fmtDate(quote.validUntil)}
+                    </span>
                   </div>
                 )}
                 {quote.notes && (
-                  <p className="text-sm text-muted-foreground whitespace-pre-line">{quote.notes}</p>
-                )}
-                {quote.shareToken && (
-                  <div className="flex items-center gap-2 text-sm pt-1 border-t">
-                    <Link className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <span className="text-muted-foreground shrink-0">Odkaz pro zákazníka:</span>
-                    <span className="font-mono text-xs truncate flex-1 text-foreground">
-                      {`${window.location.origin}/quote-share/${quote.shareToken}`}
-                    </span>
-                    <button
-                      className="text-muted-foreground hover:text-foreground shrink-0"
-                      title="Kopírovat odkaz"
-                      onClick={() => {
-                        const url = `${window.location.origin}/quote-share/${quote.shareToken}`;
-                        navigator.clipboard.writeText(url).then(() =>
-                          toast({ title: "Odkaz zkopírován do schránky." }),
-                        );
-                      }}
-                    >
-                      <Copy className="h-4 w-4" />
-                    </button>
-                  </div>
+                  <p className="text-sm text-muted-foreground whitespace-pre-line">
+                    {quote.notes}
+                  </p>
                 )}
               </CardContent>
             </Card>
@@ -996,7 +1183,8 @@ export default function QuoteDetail() {
                 <div className="flex items-center justify-between gap-3">
                   <CardTitle className="text-base">Položky</CardTitle>
                   <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <LockKeyhole className="h-3.5 w-3.5" /> Nákup a marže jsou interní
+                    <LockKeyhole className="h-3.5 w-3.5" /> Nákup a marže jsou
+                    interní
                   </span>
                 </div>
               </CardHeader>
@@ -1008,11 +1196,17 @@ export default function QuoteDetail() {
                         <TableHead>Popis</TableHead>
                         <TableHead className="w-16 text-right">Množ.</TableHead>
                         <TableHead className="w-12">MJ</TableHead>
-                        <TableHead className="w-24 text-right">Nákup/MJ</TableHead>
-                        <TableHead className="w-24 text-right">Prodej/MJ</TableHead>
+                        <TableHead className="w-24 text-right">
+                          Nákup/MJ
+                        </TableHead>
+                        <TableHead className="w-24 text-right">
+                          Prodej/MJ
+                        </TableHead>
                         <TableHead className="w-20 text-right">Marže</TableHead>
                         <TableHead className="w-16 text-right">DPH</TableHead>
-                        <TableHead className="w-28 text-right">Celkem</TableHead>
+                        <TableHead className="w-28 text-right">
+                          Celkem
+                        </TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1020,8 +1214,14 @@ export default function QuoteDetail() {
                         const rowType = item.rowType ?? "item";
                         if (rowType === "section") {
                           return (
-                            <TableRow key={item.id} className="bg-muted/70 hover:bg-muted/70">
-                              <TableCell colSpan={8} className="py-3 font-semibold">
+                            <TableRow
+                              key={item.id}
+                              className="bg-muted/70 hover:bg-muted/70"
+                            >
+                              <TableCell
+                                colSpan={8}
+                                className="py-3 font-semibold"
+                              >
                                 {item.description}
                               </TableCell>
                             </TableRow>
@@ -1029,38 +1229,67 @@ export default function QuoteDetail() {
                         }
                         if (rowType === "spacer") {
                           return (
-                            <TableRow key={item.id} className="h-7 border-0 hover:bg-transparent">
+                            <TableRow
+                              key={item.id}
+                              className="h-7 border-0 hover:bg-transparent"
+                            >
                               <TableCell colSpan={8} className="p-0" />
                             </TableRow>
                           );
                         }
                         const quantity = Number(item.quantity);
                         const unitPrice = Number(item.unitPrice);
-                        const purchaseUnitPrice = item.purchaseUnitPrice != null
-                          ? Number(item.purchaseUnitPrice)
-                          : null;
-                        const margin = purchaseUnitPrice != null
-                          ? marginPercentFromPrices(purchaseUnitPrice, unitPrice)
-                          : null;
-                        const vatRate = item.vatRate != null ? Number(item.vatRate) : 0;
-                        const base = Math.round(quantity * unitPrice * 100) / 100;
-                        const vat = Math.round(base * (vatRate / 100) * 100) / 100;
+                        const purchaseUnitPrice =
+                          item.purchaseUnitPrice != null
+                            ? Number(item.purchaseUnitPrice)
+                            : null;
+                        const margin =
+                          purchaseUnitPrice != null
+                            ? marginPercentFromPrices(
+                                purchaseUnitPrice,
+                                unitPrice,
+                              )
+                            : null;
+                        const vatRate =
+                          item.vatRate != null ? Number(item.vatRate) : 0;
+                        const base =
+                          Math.round(quantity * unitPrice * 100) / 100;
+                        const vat =
+                          Math.round(base * (vatRate / 100) * 100) / 100;
                         return (
                           <TableRow key={item.id}>
-                            <TableCell className="font-medium">{item.description}</TableCell>
-                            <TableCell className="text-right">{quantity}</TableCell>
-                            <TableCell>{item.unit ?? ""}</TableCell>
-                            <TableCell className="text-right text-muted-foreground">
-                              {purchaseUnitPrice != null ? fmtKc(purchaseUnitPrice) : "—"}
-                            </TableCell>
-                            <TableCell className="text-right">{fmtKc(unitPrice)}</TableCell>
-                            <TableCell className={`text-right font-medium ${marginTone(margin)}`}>
-                              {margin != null ? `${margin.toLocaleString("cs-CZ", { maximumFractionDigits: 2 })} %` : "—"}
+                            <TableCell className="font-medium">
+                              {item.description}
                             </TableCell>
                             <TableCell className="text-right">
-                              {vatRate === 0 ? "PDP" : item.vatRate != null ? `${vatRate} %` : "—"}
+                              {quantity}
                             </TableCell>
-                            <TableCell className="text-right font-medium">{fmtKc(base + vat)}</TableCell>
+                            <TableCell>{item.unit ?? ""}</TableCell>
+                            <TableCell className="text-right text-muted-foreground">
+                              {purchaseUnitPrice != null
+                                ? fmtKc(purchaseUnitPrice)
+                                : "—"}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {fmtKc(unitPrice)}
+                            </TableCell>
+                            <TableCell
+                              className={`text-right font-medium ${marginTone(margin)}`}
+                            >
+                              {margin != null
+                                ? `${margin.toLocaleString("cs-CZ", { maximumFractionDigits: 2 })} %`
+                                : "—"}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {vatRate === 0
+                                ? "PDP"
+                                : item.vatRate != null
+                                  ? `${vatRate} %`
+                                  : "—"}
+                            </TableCell>
+                            <TableCell className="text-right font-medium">
+                              {fmtKc(base + vat)}
+                            </TableCell>
                           </TableRow>
                         );
                       })}
@@ -1073,39 +1302,68 @@ export default function QuoteDetail() {
                     const rowType = item.rowType ?? "item";
                     if (rowType === "section") {
                       return (
-                        <div key={item.id} className="border-t bg-muted/70 px-4 py-3 font-semibold">
+                        <div
+                          key={item.id}
+                          className="border-t bg-muted/70 px-4 py-3 font-semibold"
+                        >
                           {item.description}
                         </div>
                       );
                     }
                     if (rowType === "spacer") {
-                      return <div key={item.id} className="h-6 border-t" aria-hidden="true" />;
+                      return (
+                        <div
+                          key={item.id}
+                          className="h-6 border-t"
+                          aria-hidden="true"
+                        />
+                      );
                     }
                     const quantity = Number(item.quantity);
                     const unitPrice = Number(item.unitPrice);
-                    const purchaseUnitPrice = item.purchaseUnitPrice != null
-                      ? Number(item.purchaseUnitPrice)
-                      : null;
-                    const margin = purchaseUnitPrice != null
-                      ? marginPercentFromPrices(purchaseUnitPrice, unitPrice)
-                      : null;
-                    const vatRate = item.vatRate != null ? Number(item.vatRate) : 0;
+                    const purchaseUnitPrice =
+                      item.purchaseUnitPrice != null
+                        ? Number(item.purchaseUnitPrice)
+                        : null;
+                    const margin =
+                      purchaseUnitPrice != null
+                        ? marginPercentFromPrices(purchaseUnitPrice, unitPrice)
+                        : null;
+                    const vatRate =
+                      item.vatRate != null ? Number(item.vatRate) : 0;
                     const base = Math.round(quantity * unitPrice * 100) / 100;
                     const vat = Math.round(base * (vatRate / 100) * 100) / 100;
                     return (
-                      <div key={item.id} className="space-y-2 border-t px-4 py-3">
+                      <div
+                        key={item.id}
+                        className="space-y-2 border-t px-4 py-3"
+                      >
                         <div className="flex items-start justify-between gap-3">
                           <p className="font-medium">{item.description}</p>
-                          <p className="shrink-0 font-semibold">{fmtKc(base + vat)}</p>
+                          <p className="shrink-0 font-semibold">
+                            {fmtKc(base + vat)}
+                          </p>
                         </div>
                         <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-                          <span className="text-muted-foreground">{quantity} {item.unit ?? ""} × {fmtKc(unitPrice)}</span>
-                          <span className="text-right text-muted-foreground">DPH {vatRate === 0 ? "PDP" : `${vatRate} %`}</span>
-                          <span className="flex items-center gap-1 text-muted-foreground">
-                            <LockKeyhole className="h-3 w-3" /> Nákup {purchaseUnitPrice != null ? fmtKc(purchaseUnitPrice) : "—"}
+                          <span className="text-muted-foreground">
+                            {quantity} {item.unit ?? ""} × {fmtKc(unitPrice)}
                           </span>
-                          <span className={`text-right font-medium ${marginTone(margin)}`}>
-                            Marže {margin != null ? `${margin.toLocaleString("cs-CZ", { maximumFractionDigits: 2 })} %` : "—"}
+                          <span className="text-right text-muted-foreground">
+                            DPH {vatRate === 0 ? "PDP" : `${vatRate} %`}
+                          </span>
+                          <span className="flex items-center gap-1 text-muted-foreground">
+                            <LockKeyhole className="h-3 w-3" /> Nákup{" "}
+                            {purchaseUnitPrice != null
+                              ? fmtKc(purchaseUnitPrice)
+                              : "—"}
+                          </span>
+                          <span
+                            className={`text-right font-medium ${marginTone(margin)}`}
+                          >
+                            Marže{" "}
+                            {margin != null
+                              ? `${margin.toLocaleString("cs-CZ", { maximumFractionDigits: 2 })} %`
+                              : "—"}
                           </span>
                         </div>
                       </div>
@@ -1149,7 +1407,8 @@ export default function QuoteDetail() {
           <DialogHeader>
             <DialogTitle>Zahájit realizaci nabídky</DialogTitle>
             <DialogDescription>
-              Vznikne akce zakázek a její první pracovní termín. Když se práce protáhne, přidáte další výjezd nebo zakázku do stejné akce.
+              Vznikne akce zakázek a její první pracovní termín. Když se práce
+              protáhne, přidáte další výjezd nebo zakázku do stejné akce.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
@@ -1162,7 +1421,10 @@ export default function QuoteDetail() {
             />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setConvertDialogOpen(false)}>
+            <Button
+              variant="outline"
+              onClick={() => setConvertDialogOpen(false)}
+            >
               Zrušit
             </Button>
             <Button
@@ -1176,13 +1438,56 @@ export default function QuoteDetail() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={revisionDialogOpen} onOpenChange={setRevisionDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Vytvořit opravenou verzi</DialogTitle>
+            <DialogDescription>
+              Odeslaná verze, její PDF, otisky a historie rozhodnutí zůstanou
+              beze změny. Nabídka se otevře jako nový koncept.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="quote-revision-reason">Důvod opravy *</Label>
+            <Textarea
+              id="quote-revision-reason"
+              value={revisionReason}
+              onChange={(event) => setRevisionReason(event.target.value)}
+              maxLength={500}
+              rows={3}
+              placeholder="Např. změna rozsahu prací po dohodě se zákazníkem"
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setRevisionDialogOpen(false)}
+            >
+              Zrušit
+            </Button>
+            <Button
+              onClick={handleReopenRevision}
+              disabled={
+                reopenRevision.isPending || revisionReason.trim().length < 3
+              }
+            >
+              <RotateCcw className="h-4 w-4 mr-1" />
+              {reopenRevision.isPending
+                ? "Otevírám…"
+                : "Zachovat a otevřít opravu"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Send email dialog */}
       <Dialog open={sendDialogOpen} onOpenChange={setSendDialogOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Odeslat nabídku e-mailem</DialogTitle>
             <DialogDescription>
-              PDF nabídky bude vygenerováno a odesláno zákazníkovi. Stav nabídky se změní na „Odeslaná".
+              PDF nabídky bude vygenerováno a odesláno zákazníkovi. Stav nabídky
+              se změní na „Odeslaná".
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -1219,7 +1524,10 @@ export default function QuoteDetail() {
             <Button variant="outline" onClick={() => setSendDialogOpen(false)}>
               Zrušit
             </Button>
-            <Button onClick={handleSend} disabled={sendEmail.isPending || !sendTo.trim()}>
+            <Button
+              onClick={handleSend}
+              disabled={sendEmail.isPending || !sendTo.trim()}
+            >
               <Send className="h-4 w-4 mr-1" />
               {sendEmail.isPending ? "Odesílám…" : "Odeslat"}
             </Button>

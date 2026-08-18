@@ -17,9 +17,7 @@ describe("billing document action sequencing contract", () => {
     expect(start).toBeGreaterThanOrEqual(0);
     expect(end).toBeGreaterThan(start);
     expect(saveAllLines).toContain("await Promise.all(");
-    expect(saveAllLines).toContain(
-      "cardRef.save({ silent: true })",
-    );
+    expect(saveAllLines).toContain("cardRef.save({ silent: true })");
     expect(source).not.toContain("lineCardsRef.current.forEach");
     expect(source).toContain("await updateLine.mutateAsync");
     expect(source).toMatch(
@@ -51,10 +49,7 @@ describe("billing document action sequencing contract", () => {
   it("saves current line forms only as part of final approval", () => {
     const statusStart = source.indexOf("const handleStatus =");
     const statusEnd = source.indexOf("const handleApprove =", statusStart);
-    const approveEnd = source.indexOf(
-      "const handleMarkDuplicate =",
-      statusEnd,
-    );
+    const approveEnd = source.indexOf("const handleMarkDuplicate =", statusEnd);
     const statusHandler = source.slice(statusStart, statusEnd);
     const approveHandler = source.slice(statusEnd, approveEnd);
 
@@ -72,9 +67,17 @@ describe("billing document action sequencing contract", () => {
 
   it("separates reopening an approved document from ignoring it", () => {
     expect(source).toContain("const handleReturnToReview =");
-    expect(source).toContain('title: "Vrátit doklad ke kontrole?"');
+    expect(source).toContain("const submitReturnToReview =");
     expect(source).toMatch(
-      /handleReturnToReview[\s\S]*handleStatus\([\s\S]*"needs_review"[\s\S]*"Doklad byl vrácen ke kontrole"/,
+      /submitReturnToReview[\s\S]*buildReturnCostDocumentToReviewInput\(returnToReviewReason\)[\s\S]*setStatus\.mutateAsync\(\{ id, data \}\)/,
+    );
+    expect(source).toContain(
+      "<DialogTitle>Vrátit doklad ke kontrole</DialogTitle>",
+    );
+    expect(source).toContain(">Důvod opravy</Label>");
+    expect(source).toContain("minLength={3}");
+    expect(source).toContain(
+      "maxLength={COST_DOCUMENT_CORRECTION_REASON_MAX_LENGTH}",
     );
     expect(source).toContain('{doc.status === "approved" && (');
     expect(source).toContain("Vrátit ke kontrole");

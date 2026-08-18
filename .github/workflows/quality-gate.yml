@@ -1,0 +1,106 @@
+name: Quality gate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  hermetic-release-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      BASE_PATH: /
+    services:
+      postgres:
+        image: postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
+        env:
+          POSTGRES_DB: site_logbook_ci_test
+          POSTGRES_PASSWORD: site-logbook-ci-only
+          POSTGRES_USER: site_logbook_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U site_logbook_ci -d site_logbook_ci_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 11.9.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm gate:quality
+      - run: pnpm gate:release
+      - name: Validate immutable staging runtime contract
+        run: pnpm gate:staging-runtime
+      - name: Prepare pinned staging workflow execution harness
+        run: pnpm prepare:staging-workflow-harness
+      - name: Test staging guard, evidence, and runtime contracts
+        run: pnpm test:staging-contract
+      - name: Test fail-closed external schema preflight
+        run: pnpm --filter @workspace/db test:external-schema-preflight
+      - name: Isolated API database suites
+        run: pnpm --filter @workspace/api-server test:db
+        env:
+          TEST_DATABASE_URL: postgresql://site_logbook_ci:site-logbook-ci-only@127.0.0.1:5432/site_logbook_ci_test
+      - name: Start isolated MinIO recovery target
+        run: >-
+          docker run --rm -d --name modvolt-phase12-minio
+          -p 127.0.0.1:19000:9000
+          -e MINIO_ROOT_USER=phase12-ci-access
+          -e MINIO_ROOT_PASSWORD=phase12-ci-secret-only
+          minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+          server /data
+      - name: Wait for isolated MinIO
+        run: |
+          for _ in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:19000/minio/health/ready > /dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs modvolt-phase12-minio
+          exit 1
+      - name: Isolated encrypted backup restore and concurrency gate
+        run: pnpm --filter @workspace/api-server test:backup-restore:isolated
+        env:
+          TEST_DATABASE_URL: postgresql://site_logbook_ci:site-logbook-ci-only@127.0.0.1:5432/site_logbook_ci_test
+          BACKUP_RESTORE_TEST_ENABLED: "true"
+          BACKUP_RESTORE_TEST_CONFIRM_ISOLATED: "true"
+          BACKUP_RESTORE_TEST_TIMEOUT_MS: "180000"
+          FULL_OBJECT_RESTORE_TEST_ENABLED: "false"
+          S3_ENDPOINT: http://127.0.0.1:19000
+          S3_REGION: us-east-1
+          S3_BUCKET: site-logbook-ci-backup-test
+          S3_ACCESS_KEY_ID: phase12-ci-access
+          S3_SECRET_ACCESS_KEY: phase12-ci-secret-only
+          S3_FORCE_PATH_STYLE: "true"
+          BACKUP_ENCRYPTION_KEYRING: '{"ci-backup":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}'
+          BACKUP_ENCRYPTION_ACTIVE_KEY_ID: ci-backup
+      - name: Encrypted streaming object recovery drill
+        run: pnpm --filter @workspace/api-server objects:recovery:drill
+        env:
+          NODE_ENV: test
+          OBJECT_RECOVERY_DRILL_CONFIRM_ISOLATED: "true"
+          OBJECT_RECOVERY_DRILL_ENDPOINT: http://127.0.0.1:19000
+          OBJECT_RECOVERY_DRILL_ACCESS_KEY: phase12-ci-access
+          OBJECT_RECOVERY_DRILL_SECRET_KEY: phase12-ci-secret-only
+      - name: Stop isolated MinIO
+        if: always()
+        continue-on-error: true
+        run: docker rm --force modvolt-phase12-minio
+      - name: R14 isolated full-stack and fault gate
+        run: pnpm test:e2e:r14-full-stack
+        env:
+          R14_SOURCE_SHA: ${{ github.sha }}

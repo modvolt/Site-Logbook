@@ -1,14 +1,20 @@
 import { useEffect, useRef, useState } from "react";
-import { useLocation } from "wouter";
 import { CheckCircle2, PenLine, RotateCcw, Clock, AlertCircle, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { clearPublicGrant, publicGrantToken } from "@/lib/public-grant-bootstrap";
+import { publicGrantFetch } from "@/lib/public-grant-fetch";
 
 interface JobSignInfo {
   jobId: number;
+  documentVersion: number;
+  snapshotSha256: string;
   title: string;
   date: string;
   customerCompanyName: string | null;
   notes: string | null;
+  confirmationText: string;
   alreadySigned: boolean;
   signedAt: string | null;
   expired: boolean;
@@ -113,24 +119,22 @@ function SignatureCanvas({ onCapture }: { onCapture: (dataUrl: string | null) =>
   );
 }
 
-const SIGN_PREFIX = "/sign/";
-
 export default function JobSign() {
-  const [path] = useLocation();
-  const token = path.startsWith(SIGN_PREFIX) ? path.slice(SIGN_PREFIX.length) : "";
+  const hasGrant = useRef(publicGrantToken("job_signature") !== null).current;
 
   const [info, setInfo] = useState<JobSignInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [signatureDataUrl, setSignatureDataUrl] = useState<string | null>(null);
+  const [signatoryName, setSignatoryName] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
   const [signedAt, setSignedAt] = useState<string | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
 
   useEffect(() => {
-    if (!token) {
-      setError("Neplatný odkaz k podpisu.");
+    if (!hasGrant) {
+      setError("Otevřete původní odkaz k podpisu znovu.");
       setLoading(false);
       return;
     }
@@ -144,7 +148,7 @@ export default function JobSign() {
 
     void (async () => {
       try {
-        const response = await fetch(`/api/sign/${encodeURIComponent(token)}`, {
+        const response = await publicGrantFetch("job_signature", "/api/sign", {
           signal: controller.signal,
           cache: "no-store",
           headers: { Accept: "application/json" },
@@ -157,6 +161,7 @@ export default function JobSign() {
         if (data.alreadySigned) {
           setDone(true);
           setSignedAt(data.signedAt);
+          clearPublicGrant("job_signature");
         }
       } catch (err) {
         if (!active) return;
@@ -176,16 +181,16 @@ export default function JobSign() {
       window.clearTimeout(timeout);
       controller.abort();
     };
-  }, [token, loadAttempt]);
+  }, [hasGrant, loadAttempt]);
 
   async function handleSign() {
-    if (!signatureDataUrl || !token) return;
+    if (!signatureDataUrl || !hasGrant || signatoryName.trim().length < 2) return;
     setSubmitting(true);
     try {
-      const res = await fetch(`/api/sign/${token}`, {
+      const res = await publicGrantFetch("job_signature", "/api/sign", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ signatureDataUrl }),
+        body: JSON.stringify({ signatoryName: signatoryName.trim(), signatureDataUrl }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -194,6 +199,7 @@ export default function JobSign() {
       }
       setDone(true);
       setSignedAt(data.signedAt);
+      clearPublicGrant("job_signature");
     } catch {
       setError("Nepodařilo se odeslat podpis. Zkuste to prosím znovu.");
     } finally {
@@ -270,6 +276,9 @@ export default function JobSign() {
           <div className="space-y-6 mt-4">
             <div className="rounded-xl border bg-white p-4 shadow-sm space-y-2">
               <h2 className="font-semibold text-base">Shrnutí zakázky</h2>
+              <p className="text-xs text-muted-foreground">
+                Verze {info.documentVersion} · kontrolní otisk {info.snapshotSha256.slice(0, 12)}
+              </p>
               <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
                 <span className="text-muted-foreground">Název</span>
                 <span className="font-medium">{info.title}</span>
@@ -298,16 +307,27 @@ export default function JobSign() {
               <p className="text-xs text-muted-foreground">
                 Nakreslete podpis prstem nebo myší do pole níže. Podpisem potvrzujete převzetí a souhlas s výše uvedenými údaji.
               </p>
+              <div className="space-y-2">
+                <Label htmlFor="job-signatory-name">Jméno podepisující osoby</Label>
+                <Input
+                  id="job-signatory-name"
+                  value={signatoryName}
+                  onChange={(event) => setSignatoryName(event.target.value)}
+                  maxLength={120}
+                  autoComplete="name"
+                  placeholder="Jméno a příjmení"
+                />
+              </div>
               <SignatureCanvas onCapture={setSignatureDataUrl} />
             </div>
 
             <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-              Podepsáním tohoto formuláře potvrzuji, že jsem byl/a seznámen/a s předávacím protokolem výše uvedené zakázky a souhlasím s jeho obsahem.
+              {info.confirmationText}
             </div>
 
             <Button
               className="w-full h-12 text-base"
-              disabled={!signatureDataUrl || submitting}
+              disabled={!signatureDataUrl || signatoryName.trim().length < 2 || submitting}
               onClick={handleSign}
             >
               {submitting ? "Odesílám…" : "Podepsat a potvrdit"}

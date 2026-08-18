@@ -12,37 +12,42 @@
  * round-trip is exercised. No mocking of DB internals.
  */
 import { describe, it, expect } from "vitest";
-import { withSchedulerLock, SCHEDULER_LOCK_KEYS } from "../src/lib/scheduler-lock";
+import {
+  tryAcquireSchedulerLock,
+  withSchedulerLock,
+  SCHEDULER_LOCK_KEYS,
+} from "../src/lib/scheduler-lock";
 
 // Use an arbitrary lock key that doesn't collide with real schedulers.
 // We pick one beyond the defined keys to avoid any real scheduler interference.
 const TEST_LOCK_KEY = 9_999;
 
 describe("withSchedulerLock – concurrent-instance protection", () => {
-  it("runs fn() exactly once when two callers race for the same lock", async () => {
+  it("skips a second caller while the first caller holds the lock", async () => {
     const callCount = { value: 0 };
-    const log: string[] = [];
+    let enteredResolve!: () => void;
+    let releaseResolve!: () => void;
+    const entered = new Promise<void>((resolve) => { enteredResolve = resolve; });
+    const release = new Promise<void>((resolve) => { releaseResolve = resolve; });
 
-    // Both callers start at the same time. The winner increments the counter
-    // inside a slow async operation; the loser must skip entirely.
-    const slow = async () => {
-      log.push("start");
-      // Yield control so both "instances" can race
-      await new Promise<void>((r) => setImmediate(r));
+    const first = withSchedulerLock(TEST_LOCK_KEY, async () => {
       callCount.value += 1;
-      log.push("end");
-    };
+      enteredResolve();
+      await release;
+    });
 
-    const [ran1, ran2] = await Promise.all([
-      withSchedulerLock(TEST_LOCK_KEY, slow),
-      withSchedulerLock(TEST_LOCK_KEY, slow),
-    ]);
+    // Do not rely on scheduler timing: prove the first callback is inside the
+    // critical section before the second acquisition is attempted.
+    await entered;
+    const secondRan = await withSchedulerLock(TEST_LOCK_KEY, async () => {
+      callCount.value += 1;
+    });
+    releaseResolve();
+    const firstRan = await first;
 
-    // Exactly one instance won the lock and ran fn().
     expect(callCount.value).toBe(1);
-    // One returned true (ran), the other returned false (skipped).
-    const trueCount = [ran1, ran2].filter(Boolean).length;
-    expect(trueCount).toBe(1);
+    expect(firstRan).toBe(true);
+    expect(secondRan).toBe(false);
   });
 
   it("runs fn() for each sequential caller (lock is released after fn)", async () => {
@@ -56,6 +61,23 @@ describe("withSchedulerLock – concurrent-instance protection", () => {
     });
 
     expect(results).toEqual([1, 2]);
+  });
+
+  it("keeps an explicit lease locked until its idempotent release", async () => {
+    const lease = await tryAcquireSchedulerLock(TEST_LOCK_KEY);
+    expect(lease).not.toBeNull();
+    expect(lease!.isValid()).toBe(true);
+
+    const whileHeld = await tryAcquireSchedulerLock(TEST_LOCK_KEY);
+    expect(whileHeld).toBeNull();
+
+    await lease!.release();
+    await lease!.release();
+    expect(lease!.isValid()).toBe(false);
+
+    const afterRelease = await tryAcquireSchedulerLock(TEST_LOCK_KEY);
+    expect(afterRelease).not.toBeNull();
+    await afterRelease!.release();
   });
 
   it("releases the lock even when fn() throws", async () => {
@@ -81,21 +103,25 @@ describe("withSchedulerLock – concurrent-instance protection", () => {
   });
 
   it("concurrent ticks for recurring invoice scheduler do not duplicate invoices", async () => {
-    // Simulate two concurrent instances racing to run the same scheduler work.
-    // Both call withSchedulerLock with the real recurring-invoices key —
-    // only one should execute fn(), proving at-most-once execution.
     const executed: number[] = [];
+    let enteredResolve!: () => void;
+    let releaseResolve!: () => void;
+    const entered = new Promise<void>((resolve) => { enteredResolve = resolve; });
+    const release = new Promise<void>((resolve) => { releaseResolve = resolve; });
+    const first = withSchedulerLock(SCHEDULER_LOCK_KEYS.recurringInvoices, async () => {
+      executed.push(Date.now());
+      enteredResolve();
+      await release;
+    });
 
-    const task = () =>
-      withSchedulerLock(SCHEDULER_LOCK_KEYS.recurringInvoices, async () => {
-        executed.push(Date.now());
-        // Simulate the time a real tick takes (DB queries, etc.)
-        await new Promise<void>((r) => setTimeout(r, 10));
-      });
+    await entered;
+    const second = await withSchedulerLock(SCHEDULER_LOCK_KEYS.recurringInvoices, async () => {
+      executed.push(Date.now());
+    });
+    releaseResolve();
 
-    await Promise.all([task(), task()]);
-
-    // Only one instance should have run the fn().
-    expect(executed.length).toBe(1);
+    expect(await first).toBe(true);
+    expect(second).toBe(false);
+    expect(executed).toHaveLength(1);
   });
 });

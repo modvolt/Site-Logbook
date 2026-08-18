@@ -14,6 +14,10 @@ import { requirePermission } from "../middlewares/permissions";
 import { ObjectNotFoundError, ObjectStorageService } from "../lib/objectStorage";
 import { checklistDefinitionSchema, itemIsRelevant } from "../lib/switchboard-checklist";
 import { decryptQrToken, publicQrUrl } from "../lib/switchboard-qr";
+import {
+  PublicOriginConfigError,
+  publicAppOrigin,
+} from "../lib/public-origin";
 import { summarizeLatestMeasurements } from "../lib/switchboard-operation-rules";
 import {
   evaluateProtocolReadiness, generateSwitchboardProtocolPdf,
@@ -141,6 +145,7 @@ router.post("/switchboards/:id/protocols/generate", requirePermission("switchboa
   if (!boardId.success || !body.success) { res.status(400).json({ error: "Neplatné zdůvodnění administrátorské výjimky." }); return; }
   let created: { protocol: typeof switchboardProtocolVersionsTable.$inferSelect; snapshot: SwitchboardProtocolSnapshot; qrTokenCiphertext: string | null; checklistInstanceId: number | null } | null = null;
   try {
+    publicAppOrigin();
     created = await db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(${boardId.data}, 8412)`);
       const source = await loadProtocolSource(tx, boardId.data); if (!source) throw Object.assign(new Error("Rozvaděč nebyl nalezen."), { statusCode: 404 });
@@ -158,7 +163,7 @@ router.post("/switchboards/:id/protocols/generate", requirePermission("switchboa
       return { protocol, snapshot, qrTokenCiphertext: source.qrTokenCiphertext, checklistInstanceId: source.checklistInstanceId };
     });
     let qrUrl: string | null = null;
-    if (created.qrTokenCiphertext) qrUrl = publicQrUrl(decryptQrToken(created.qrTokenCiphertext), `${req.protocol}://${req.get("host")}`);
+    if (created.qrTokenCiphertext) qrUrl = publicQrUrl(decryptQrToken(created.qrTokenCiphertext, boardId.data));
     const pdf = await generateSwitchboardProtocolPdf(created.snapshot, qrUrl);
     await storage.putPrivateObject(created.protocol.pdfStoragePath, pdf, "application/pdf");
     const final = await db.transaction(async (tx) => {
@@ -180,6 +185,10 @@ router.post("/switchboards/:id/protocols/generate", requirePermission("switchboa
         await tx.update(switchboardProtocolVersionsTable).set({ status: "failed" }).where(and(eq(switchboardProtocolVersionsTable.id, created!.protocol.id), eq(switchboardProtocolVersionsTable.status, "generating")));
         await tx.insert(switchboardEventsTable).values({ switchboardId: boardId.data, eventType: "protocol_generation_failed", entityType: "switchboard_protocol_version", entityId: created!.protocol.id, payload: { version: created!.protocol.version, error: failure.message }, actorUserId: req.auth?.userId ?? null, actorName: req.auth?.name ?? req.auth?.username ?? null });
       }).catch(() => undefined);
+    }
+    if (error instanceof PublicOriginConfigError) {
+      res.status(503).json({ error: "Protokol nyní nelze bezpečně vytvořit.", code: "public_origin_unavailable" });
+      return;
     }
     res.status(failure.statusCode ?? 500).json({ error: failure.statusCode ? failure.message : `Generování protokolu selhalo: ${failure.message}`, ...(failure.blockers ? { blockers: failure.blockers } : {}) });
   }

@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import request, { type Agent } from "supertest";
 import { db, usersTable, peopleTable, employeeLeavesTable } from "@workspace/db";
 import app from "../src/app";
+import { bindAuthenticatedAgent } from "./scoped-test-agent";
 
 /**
  * CRUD endpoint tests for /api/leaves.
@@ -106,12 +107,14 @@ beforeAll(async () => {
     .post("/api/auth/login")
     .send({ username: `${TAG}-admin`, password: PASSWORD });
   expect(adminLogin.status).toBe(200);
+  await bindAuthenticatedAgent(adminAgent);
 
   guestAgent = request.agent(app);
   const guestLogin = await guestAgent
     .post("/api/auth/login")
     .send({ username: `${TAG}-guest`, password: PASSWORD });
   expect(guestLogin.status).toBe(200);
+  await bindAuthenticatedAgent(guestAgent);
 });
 
 afterAll(async () => {

@@ -39,15 +39,19 @@ import {
   encryptToken,
   decryptToken,
 } from "./token-crypto";
+import { envelopeKeyId } from "./secret-envelope";
 import {
-  createDocumentSafe,
+  ingestFile,
   sha256Of,
   type Actor,
 } from "./cost-document-service";
-import { ObjectStorageService } from "./objectStorage";
-import { randomUUID } from "node:crypto";
-
-const objectStorage = new ObjectStorageService();
+import {
+  MAX_IMPORTED_ATTACHMENTS_PER_MESSAGE,
+  MAX_IMPORTED_ATTACHMENT_BYTES,
+  decodeBase64UrlWithLimit,
+  inspectImportedFile,
+  resolveImportedContentType,
+} from "./imported-file-safety";
 
 // ---------------------------------------------------------------------------
 // Configuration (environment only; never throws)
@@ -98,7 +102,9 @@ export function getGmailConfig(): GmailConfig {
   if (!clientId) missing.push("GOOGLE_CLIENT_ID");
   if (!clientSecret) missing.push("GOOGLE_CLIENT_SECRET");
   if (!redirectUri) missing.push("GOOGLE_REDIRECT_URI");
-  if (!hasKey) missing.push("TOKEN_ENCRYPTION_KEY");
+  if (!hasKey) {
+    missing.push("SECRET_ENCRYPTION_KEYRING/SECRET_ENCRYPTION_ACTIVE_KEY_ID");
+  }
 
   const configured = missing.length === 0;
   const labelAfterImport = process.env.GMAIL_LABEL_AFTER_IMPORT === "true";
@@ -226,7 +232,6 @@ export async function completeConnect(
     logger.warn({ err: sanitizeErr(err) }, "Gmail userinfo lookup failed");
   }
 
-  const encrypted = encryptToken(tokens.refresh_token);
   const now = new Date();
 
   const account = await db.transaction(async (tx) => {
@@ -236,19 +241,30 @@ export async function completeConnect(
       .set({ status: "disconnected", disconnectedAt: now, updatedAt: now })
       .where(eq(emailImportAccountsTable.status, "connected"));
 
-    const [row] = await tx
+    const [inserted] = await tx
       .insert(emailImportAccountsTable)
       .values({
         provider: "gmail",
         status: "connected",
         emailAddress: email,
-        refreshTokenEncrypted: encrypted,
+        refreshTokenEncrypted: null,
         scope: (tokens.scope ?? requiredScopes(cfg).join(" ")) || null,
         labelFilter: cfg.labelFilter,
         labelAfterImport: cfg.labelAfterImport ? 1 : 0,
         connectedByUserId: actor.userId,
         connectedAt: now,
       })
+      .returning();
+
+    const encrypted = encryptToken(tokens.refresh_token!, inserted.id);
+    const [row] = await tx
+      .update(emailImportAccountsTable)
+      .set({
+        refreshTokenEncrypted: encrypted,
+        refreshTokenKeyId: envelopeKeyId(encrypted),
+        refreshTokenEncryptedAt: now,
+      })
+      .where(eq(emailImportAccountsTable.id, inserted.id))
       .returning();
 
     await tx.insert(auditLogTable).values({
@@ -279,7 +295,7 @@ export async function disconnect(actor: Actor): Promise<void> {
       const cfg = getGmailConfig();
       if (cfg.configured) {
         const client = newOAuthClient(cfg);
-        await client.revokeToken(decryptToken(account.refreshTokenEncrypted));
+        await client.revokeToken(decryptToken(account.refreshTokenEncrypted, account.id));
       }
     } catch (err) {
       logger.warn({ err: sanitizeErr(err) }, "Gmail token revoke failed (continuing)");
@@ -293,6 +309,8 @@ export async function disconnect(actor: Actor): Promise<void> {
       .set({
         status: "disconnected",
         refreshTokenEncrypted: null,
+        refreshTokenKeyId: null,
+        refreshTokenEncryptedAt: null,
         disconnectedAt: now,
         updatedAt: now,
       })
@@ -332,7 +350,7 @@ async function authorizedClient(account: EmailImportAccount): Promise<OAuth2Clie
   }
   const client = newOAuthClient(cfg);
   client.setCredentials({
-    refresh_token: decryptToken(account.refreshTokenEncrypted),
+    refresh_token: decryptToken(account.refreshTokenEncrypted, account.id),
   });
   return client;
 }
@@ -796,10 +814,6 @@ function parseFrom(raw: string): { name: string | null; address: string | null }
 // Import a message's attachments → billing_documents
 // ---------------------------------------------------------------------------
 
-function base64UrlToBuffer(data: string): Buffer {
-  return Buffer.from(data.replace(/-/g, "+").replace(/_/g, "/"), "base64");
-}
-
 export interface ImportResult {
   imported: number;
   skipped: number;
@@ -838,7 +852,7 @@ export async function importMessage(
   let skipped = 0;
   let duplicates = 0;
 
-  for (const att of attachments) {
+  for (const [attachmentIndex, att] of attachments.entries()) {
     if (att.skipped) {
       skipped += 1;
       continue;
@@ -849,6 +863,19 @@ export async function importMessage(
     }
     if (!att.providerAttachmentId) {
       skipped += 1;
+      continue;
+    }
+    if (attachmentIndex >= MAX_IMPORTED_ATTACHMENTS_PER_MESSAGE) {
+      skipped += 1;
+      await markAttachmentSkipped(
+        att.id,
+        `Zpráva obsahuje více než ${MAX_IMPORTED_ATTACHMENTS_PER_MESSAGE} podporovaných příloh`,
+      );
+      continue;
+    }
+    if (att.size != null && att.size > MAX_IMPORTED_ATTACHMENT_BYTES) {
+      skipped += 1;
+      await markAttachmentSkipped(att.id, "Příloha překračuje povolenou velikost 25 MB");
       continue;
     }
 
@@ -863,7 +890,7 @@ export async function importMessage(
         await markAttachmentSkipped(att.id, "Přílohu se nepodařilo stáhnout");
         continue;
       }
-      buffer = base64UrlToBuffer(data.data);
+      buffer = decodeBase64UrlWithLimit(data.data, data.size);
     } catch (err) {
       logger.warn({ err: sanitizeErr(err), attachmentId: att.id }, "Gmail attachment download failed");
       skipped += 1;
@@ -871,11 +898,27 @@ export async function importMessage(
       continue;
     }
 
+    const contentType = resolveImportedContentType(att.contentType, att.fileName ?? "priloha");
+    if (!contentType) {
+      skipped += 1;
+      await markAttachmentSkipped(att.id, "Nepodporovaný typ přílohy");
+      continue;
+    }
+    const inspection = await inspectImportedFile(buffer, contentType, att.fileName ?? "priloha");
+    if (!inspection.ok) {
+      if (inspection.kind === "scanner_unavailable") {
+        throw appError(503, inspection.reason);
+      }
+      skipped += 1;
+      await markAttachmentSkipped(att.id, inspection.reason);
+      continue;
+    }
+
     const hash = sha256Of(buffer);
 
     // Fast-path dedup against previously-imported attachments + existing
     // billing documents. The DB-level sha256 unique constraint (enforced via
-    // createDocumentSafe below) is what actually guarantees no duplicate row
+    // ingestFile below) is what actually guarantees no duplicate row
     // is ever created, even if this pre-check races with another ingest path.
     const [dupDoc] = await db
       .select({ id: billingDocumentsTable.id })
@@ -896,20 +939,13 @@ export async function importMessage(
       continue;
     }
 
-    const objectPath = `/objects/cost-documents/${randomUUID()}`;
-    const contentType = att.contentType ?? "application/octet-stream";
-    await objectStorage.putPrivateObject(objectPath, buffer, contentType);
-
-    const result = await createDocumentSafe(
+    const result = await ingestFile(
+      buffer,
       {
-        objectPath,
         fileName: att.fileName ?? "priloha",
         contentType,
-        fileSize: buffer.length,
-        sha256: hash,
         source: "email",
       },
-      buffer,
       actor,
     );
 
@@ -932,7 +968,7 @@ export async function importMessage(
       .update(emailImportAttachmentsTable)
       .set({
         sha256: hash,
-        objectPath,
+        objectPath: result.document.objectPath,
         billingDocumentId: result.document.id,
         updatedAt: new Date(),
       })

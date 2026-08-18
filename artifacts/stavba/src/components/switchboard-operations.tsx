@@ -11,7 +11,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
 import { useOfflineQueue } from "@/hooks/use-offline-queue";
 import { useToast } from "@/hooks/use-toast";
-import { saveBlob } from "@/lib/offline-queue";
 import {
   switchboardFetch, uploadSwitchboardPhoto, type SwitchboardDefect, type SwitchboardOperations,
 } from "@/lib/switchboards-api";
@@ -27,7 +26,7 @@ const MEASUREMENT_LABELS: Record<string, string> = { protective_continuity: "Spo
 function PhotoUploadButton({ switchboardId, jobId, metadata, label = "Foto", onUploaded }: {
   switchboardId: number; jobId: number; metadata: Record<string, string>; label?: string; onUploaded: (operations?: SwitchboardOperations) => void;
 }) {
-  const inputId = useId(); const { isOnline, enqueue } = useOfflineQueue(); const { toast } = useToast();
+  const inputId = useId(); const { isOnline, enqueue, saveBlob } = useOfflineQueue(); const { toast } = useToast();
   const upload = useMutation({
     mutationFn: async (file: File) => {
       if (file.size > 20 * 1024 * 1024) throw new Error("Fotografie je příliš velká (max. 20 MB).");

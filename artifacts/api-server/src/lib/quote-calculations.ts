@@ -27,7 +27,9 @@ export function round2(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
-export function normalizeQuoteRowType(value: string | null | undefined): QuoteRowType {
+export function normalizeQuoteRowType(
+  value: string | null | undefined,
+): QuoteRowType {
   return value === "section" || value === "spacer" ? value : "item";
 }
 
@@ -44,7 +46,11 @@ export function computeQuoteItemTotals(
     return { totalWithoutVat: base, totalVat: 0, totalWithVat: base };
   }
   const vat = round2(base * (item.vatRate / 100));
-  return { totalWithoutVat: base, totalVat: vat, totalWithVat: round2(base + vat) };
+  return {
+    totalWithoutVat: base,
+    totalVat: vat,
+    totalWithVat: round2(base + vat),
+  };
 }
 
 export function computeQuoteTotals(

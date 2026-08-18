@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/use-auth";
 import { SWITCHBOARD_STATUS_LABELS, switchboardFetch, type Switchboard } from "@/lib/switchboards-api";
+import { encodeCsvCell } from "@/lib/csv-security";
 
 const PHASES = [
   { key: "assemblyStatus", label: "Sestavení" },
@@ -16,16 +17,10 @@ const PHASES = [
 ] as const;
 const PHASE_STYLE: Record<string, string> = { completed: "bg-emerald-500", in_progress: "bg-amber-500", not_started: "bg-muted-foreground/30" };
 
-function csvValue(value: unknown): string {
-  const text = value == null ? "" : String(value);
-  const safeText = /^[=+\-@]/.test(text) ? `'${text}` : text;
-  return `"${safeText.replace(/"/g, '""')}"`;
-}
-
 function exportBoards(boards: Switchboard[]) {
   const header = ["Rozvaděč", "Interní název", "Výrobní číslo", "Zakázka", "Pracovníci", "Stav", "Sestavení", "Kontrola", "Měření", "Otevřené závady", "Kritické závady"];
   const rows = boards.map((board) => [board.designation, board.internalName, board.serialNumber, board.job ? `${board.job.jobNumber ?? board.job.id} - ${board.job.title}` : board.jobId, board.assignees.map((item) => item.personName).join(", "), SWITCHBOARD_STATUS_LABELS[board.status] ?? board.status, board.assemblyStatus, board.inspectionStatus, board.measurementStatus, board.openDefectCount, board.criticalOpenDefectCount]);
-  const blob = new Blob(["\uFEFF", [header, ...rows].map((row) => row.map(csvValue).join(";")).join("\r\n")], { type: "text/csv;charset=utf-8" });
+  const blob = new Blob(["\uFEFF", [header, ...rows].map((row) => row.map((value) => encodeCsvCell(value, { delimiter: ";", alwaysQuote: true })).join(";")).join("\r\n")], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = `rozvadece-${new Date().toISOString().slice(0, 10)}.csv`; anchor.click(); URL.revokeObjectURL(url);
 }
 

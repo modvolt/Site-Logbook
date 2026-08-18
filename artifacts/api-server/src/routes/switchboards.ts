@@ -102,7 +102,13 @@ async function serializeBoards(boards: Array<typeof switchboardsTable.$inferSele
   }
   const defectCountsByBoardId = new Map(defectCounts.map((counts) => [counts.switchboardId, counts]));
   return boards.map((board) => {
-    const { qrTokenHash: _qrTokenHash, qrTokenCiphertext: _qrTokenCiphertext, ...publicBoard } = board;
+    const {
+      qrTokenHash: _qrTokenHash,
+      qrTokenCiphertext: _qrTokenCiphertext,
+      qrTokenKeyId: _qrTokenKeyId,
+      qrTokenEncryptedAt: _qrTokenEncryptedAt,
+      ...publicBoard
+    } = board;
     const counts = defectCountsByBoardId.get(board.id);
     return {
       ...publicBoard,

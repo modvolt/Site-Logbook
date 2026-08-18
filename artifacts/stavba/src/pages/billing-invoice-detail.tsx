@@ -15,6 +15,7 @@ import {
   getListInvoicesQueryKey,
   getGetBillingSummaryQueryKey,
   getListUnbilledCustomersQueryKey,
+  type CancelInvoiceInput,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { invalidateData } from "@/lib/query-invalidation";
@@ -55,6 +56,10 @@ import { InvoiceStatusBadge, OverdueBadge } from "@/components/badges";
 import { fmtKc, fmtDate, vatModeLabel, overdueDays } from "@/lib/billing-format";
 import { useToast } from "@/hooks/use-toast";
 import { useBillingReturnNavigation } from "@/hooks/use-billing-navigation";
+import {
+  canDirectlyCancelInvoiceStatus,
+  INVOICE_CANCELLATION_REASONS,
+} from "@/lib/invoice-cancellation";
 import {
   ArrowLeft,
   ExternalLink,
@@ -109,6 +114,9 @@ export default function BillingInvoiceDetail() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [returnJobs, setReturnJobs] = useState(true);
+  const [cancelReasonCode, setCancelReasonCode] = useState<
+    CancelInvoiceInput["reasonCode"] | ""
+  >("");
   const [emailOpen, setEmailOpen] = useState(false);
   const [emailTo, setEmailTo] = useState("");
   const [emailSubject, setEmailSubject] = useState("");
@@ -130,7 +138,12 @@ export default function BillingInvoiceDetail() {
   const [reminderError, setReminderError] = useState<string | null>(null);
 
   useEffect(() => { if (!confirmIssue) setIssueError(null); }, [confirmIssue]);
-  useEffect(() => { if (!confirmCancel) setCancelError(null); }, [confirmCancel]);
+  useEffect(() => {
+    if (!confirmCancel) {
+      setCancelError(null);
+      setCancelReasonCode("");
+    }
+  }, [confirmCancel]);
   useEffect(() => { if (!paidOpen) setPaidError(null); }, [paidOpen]);
   useEffect(() => { if (!emailOpen) setEmailError(null); }, [emailOpen]);
   useEffect(() => { if (!reminderOpen) setReminderError(null); }, [reminderOpen]);
@@ -185,9 +198,13 @@ export default function BillingInvoiceDetail() {
       },
     );
 
-  const handleCancel = () =>
+  const handleCancel = () => {
+    if (!cancelReasonCode) {
+      setCancelError("Vyberte povinný důvod storna.");
+      return;
+    }
     cancel.mutate(
-      { id, data: { returnJobsToDone: returnJobs } },
+      { id, data: { returnJobsToDone: returnJobs, reasonCode: cancelReasonCode } },
       {
         onSuccess: () => {
           invalidateAll();
@@ -202,6 +219,7 @@ export default function BillingInvoiceDetail() {
         },
       },
     );
+  };
 
   const handleStatus = (status: "sent" | "paid") =>
     updateStatus.mutate(
@@ -497,17 +515,21 @@ export default function BillingInvoiceDetail() {
                 <Send className="h-4 w-4 mr-2" /> Označit jako odesláno
               </Button>
             )}
-            <Button variant="outline" onClick={openPaid} disabled={updateStatus.isPending} className="h-10">
-              <CircleDollarSign className="h-4 w-4 mr-2" />
-              {inv.status === "paid" ? "Upravit úhradu" : "Označit jako zaplaceno"}
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() => setConfirmCancel(true)}
-              className="h-10 text-destructive hover:bg-destructive/10"
-            >
-              <Ban className="h-4 w-4 mr-2" /> Stornovat
-            </Button>
+            {inv.status !== "paid" && (
+              <Button variant="outline" onClick={openPaid} disabled={updateStatus.isPending} className="h-10">
+                <CircleDollarSign className="h-4 w-4 mr-2" />
+                Označit jako zaplaceno
+              </Button>
+            )}
+            {canDirectlyCancelInvoiceStatus(inv.status) && (
+              <Button
+                variant="ghost"
+                onClick={() => setConfirmCancel(true)}
+                className="h-10 text-destructive hover:bg-destructive/10"
+              >
+                <Ban className="h-4 w-4 mr-2" /> Stornovat
+              </Button>
+            )}
           </>
         )}
       </div>
@@ -761,9 +783,31 @@ export default function BillingInvoiceDetail() {
           <AlertDialogHeader>
             <AlertDialogTitle>Stornovat fakturu?</AlertDialogTitle>
             <AlertDialogDescription>
-              Faktura bude označena jako stornovaná. Tuto akci nelze vrátit.
+              Nezaplacená faktura bude označena jako stornovaná. Zaznamenanou
+              platbu nelze touto cestou odstranit ani změnit.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <div className="space-y-1.5">
+            <Label htmlFor="invoice-cancel-reason">Důvod storna</Label>
+            <select
+              id="invoice-cancel-reason"
+              value={cancelReasonCode}
+              onChange={(event) =>
+                setCancelReasonCode(
+                  event.target.value as CancelInvoiceInput["reasonCode"] | "",
+                )
+              }
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              required
+            >
+              <option value="">Vyberte důvod…</option>
+              {INVOICE_CANCELLATION_REASONS.map((reason) => (
+                <option key={reason.value} value={reason.value}>
+                  {reason.label}
+                </option>
+              ))}
+            </select>
+          </div>
           <label className="flex items-center gap-2 text-sm cursor-pointer py-1">
             <Checkbox checked={returnJobs} onCheckedChange={(v) => setReturnJobs(v === true)} />
             Vrátit navázané zakázky zpět do stavu „Hotovo"
@@ -778,7 +822,7 @@ export default function BillingInvoiceDetail() {
             <AlertDialogCancel>Zrušit</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleCancel}
-              disabled={cancel.isPending}
+              disabled={cancel.isPending || !cancelReasonCode}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {cancel.isPending ? "Stornuji…" : "Stornovat"}

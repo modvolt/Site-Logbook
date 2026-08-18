@@ -30,6 +30,7 @@ import {
   updateLine,
   splitLine,
   approveDocument,
+  disposeCostDocument,
   setDocumentStatus,
   markDocumentAsDuplicate,
   unmarkDocumentDuplicate,
@@ -65,6 +66,7 @@ import {
   testConfiguration as testAiConfiguration,
   DEFAULT_SYSTEM_PROMPT,
 } from "../lib/openai-extraction";
+import { writeStoredSecret } from "../lib/stored-secret";
 import {
   db,
   openaiSettingsTable,
@@ -84,6 +86,7 @@ import {
   resolveDocumentLinkingConfig,
   DOCUMENT_LINKING_SETTINGS_ID,
 } from "../lib/document-linking-config";
+import { CostDocumentDispositionInputSchema } from "../lib/cost-document-disposition-policy";
 
 const router: IRouter = Router();
 
@@ -156,8 +159,18 @@ router.put("/billing/ai-extraction", async (req, res): Promise<void> => {
     .from(openaiSettingsTable)
     .where(eq(openaiSettingsTable.id, OPENAI_SETTINGS_ID));
 
-  const apiKey =
-    typeof d.apiKey === "string" ? d.apiKey.trim() || null : existing?.apiKey ?? null;
+  const apiKey = writeStoredSecret(
+    typeof d.apiKey === "string" ? d.apiKey.trim() : d.apiKey,
+    existing
+      ? {
+          plaintext: existing.apiKey,
+          ciphertext: existing.apiKeyCiphertext,
+          keyId: existing.apiKeyKeyId,
+          encryptedAt: existing.apiKeyEncryptedAt,
+        }
+      : undefined,
+    "openai_settings:1:api_key",
+  );
 
   const toIntOrNull = (v: number | null | undefined): number | null =>
     typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.round(v) : null;
@@ -165,7 +178,10 @@ router.put("/billing/ai-extraction", async (req, res): Promise<void> => {
   const values: typeof openaiSettingsTable.$inferInsert = {
     id: OPENAI_SETTINGS_ID,
     enabled: d.enabled,
-    apiKey,
+    apiKey: apiKey.plaintext,
+    apiKeyCiphertext: apiKey.ciphertext,
+    apiKeyKeyId: apiKey.keyId,
+    apiKeyEncryptedAt: apiKey.encryptedAt,
     model: d.model?.trim() || null,
     systemPrompt: d.systemPrompt?.trim() || null,
     maxFileMb: toIntOrNull(d.maxFileMb),
@@ -195,7 +211,8 @@ router.post("/billing/ai-extraction/test", async (req, res): Promise<void> => {
   } catch (err) {
     req.log.error({ err }, "OpenAI configuration test failed");
     res.status(502).json({
-      error: err instanceof Error ? err.message : "Test konfigurace OpenAI selhal.",
+      error:
+        err instanceof Error ? err.message : "Test konfigurace OpenAI selhal.",
     });
   }
 });
@@ -231,7 +248,9 @@ router.put("/billing/document-linking", async (req, res): Promise<void> => {
   const d = parsed.data;
 
   const toScoreOrNull = (v: number | null | undefined): number | null =>
-    typeof v === "number" && Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : null;
+    typeof v === "number" && Number.isFinite(v)
+      ? Math.min(1, Math.max(0, v))
+      : null;
 
   const values: typeof documentLinkingSettingsTable.$inferInsert = {
     id: DOCUMENT_LINKING_SETTINGS_ID,
@@ -245,7 +264,10 @@ router.put("/billing/document-linking", async (req, res): Promise<void> => {
   await db
     .insert(documentLinkingSettingsTable)
     .values(values)
-    .onConflictDoUpdate({ target: documentLinkingSettingsTable.id, set: values });
+    .onConflictDoUpdate({
+      target: documentLinkingSettingsTable.id,
+      set: values,
+    });
 
   const cfg = await resolveDocumentLinkingConfig();
   res.json({
@@ -259,7 +281,7 @@ router.put("/billing/document-linking", async (req, res): Promise<void> => {
 
 // Same hard cap as the generic upload route (see routes/storage.ts). Keep nginx's
 // client_max_body_size at/above this or large files are rejected at the proxy.
-const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 
 // The accepted MIME types are defined in fileSignature.ts so that the allowlist
 // and the magic-byte validators share a single source of truth.
@@ -277,7 +299,9 @@ function handleError(err: unknown, fallback: string, res: Response): void {
     res.status(err.statusCode).json({ error: err.message });
     return;
   }
-  res.status(500).json({ error: err instanceof Error ? err.message : fallback });
+  res
+    .status(500)
+    .json({ error: err instanceof Error ? err.message : fallback });
 }
 
 function actorOf(req: Request): Actor {
@@ -308,7 +332,8 @@ function optNonNegativeInt(raw: unknown): number | undefined {
 // ---------------------------------------------------------------------------
 
 router.get("/billing/documents", async (req, res): Promise<void> => {
-  const status = typeof req.query.status === "string" ? req.query.status : undefined;
+  const status =
+    typeof req.query.status === "string" ? req.query.status : undefined;
   const docType =
     typeof req.query.docType === "string" &&
     ["unknown", "receipt", "delivery_note", "invoice", "credit_note"].includes(
@@ -340,23 +365,37 @@ router.post(
   "/jobs/:id/documents/upload",
   requireAssignedJobWork,
   (req: Request, res: Response, next: NextFunction) => {
-    express.raw({ type: () => true, limit: MAX_UPLOAD_BYTES })(req, res, (error) => {
-      const bodyError = error as { type?: string; status?: number } | undefined;
-      if (bodyError?.type === "entity.too.large" || bodyError?.status === 413) {
-        res.status(413).json({ error: `Soubor je prilis velky (max ${Math.floor(MAX_UPLOAD_BYTES / (1024 * 1024))} MB).` });
-        return;
-      }
-      if (error) next(error);
-      else next();
-    });
+    express.raw({ type: () => true, limit: MAX_UPLOAD_BYTES })(
+      req,
+      res,
+      (error) => {
+        const bodyError = error as
+          | { type?: string; status?: number }
+          | undefined;
+        if (
+          bodyError?.type === "entity.too.large" ||
+          bodyError?.status === 413
+        ) {
+          res.status(413).json({
+            error: `Soubor je prilis velky (max ${Math.floor(MAX_UPLOAD_BYTES / (1024 * 1024))} MB).`,
+          });
+          return;
+        }
+        if (error) next(error);
+        else next();
+      },
+    );
   },
   async (req: Request, res: Response): Promise<void> => {
     const jobId = parseId(req.params.id);
     const name = typeof req.query.name === "string" ? req.query.name : "doklad";
-    const contentType = typeof req.query.contentType === "string" ? req.query.contentType : "";
+    const contentType =
+      typeof req.query.contentType === "string" ? req.query.contentType : "";
     const declaredDocType =
       typeof req.query.docType === "string" &&
-      ["receipt", "delivery_note", "invoice", "credit_note"].includes(req.query.docType)
+      ["receipt", "delivery_note", "invoice", "credit_note"].includes(
+        req.query.docType,
+      )
         ? req.query.docType
         : undefined;
     const groupToken =
@@ -367,10 +406,18 @@ router.post(
     const pageCount = optInt(req.query.pageCount);
     const groupComplete = req.query.groupComplete === "true";
     if (
-      jobId == null || !groupToken || groupToken.length > 100 ||
-      pageIndex == null || pageCount == null || pageIndex < 0 || pageIndex >= pageCount || pageCount > 50
+      jobId == null ||
+      !groupToken ||
+      groupToken.length > 100 ||
+      pageIndex == null ||
+      pageCount == null ||
+      pageIndex < 0 ||
+      pageIndex >= pageCount ||
+      pageCount > 50
     ) {
-      res.status(400).json({ error: "Chybí platná zakázka, skupina nebo pořadí stránky." });
+      res
+        .status(400)
+        .json({ error: "Chybí platná zakázka, skupina nebo pořadí stránky." });
       return;
     }
     if (!contentType || !ALLOWED_UPLOAD_TYPES.has(contentType)) {
@@ -378,12 +425,30 @@ router.post(
       return;
     }
     const body = req.body;
-    if (!Buffer.isBuffer(body) || body.length === 0 || !contentMatchesType(contentType, body)) {
-      res.status(415).json({ error: "Obsah souboru neodpovídá podporovanému typu." });
+    if (
+      !Buffer.isBuffer(body) ||
+      body.length === 0 ||
+      !contentMatchesType(contentType, body)
+    ) {
+      res
+        .status(415)
+        .json({ error: "Obsah souboru neodpovídá podporovanému typu." });
       return;
     }
+    if (contentType === "application/zip") {
+      const zipCheck = validateZipContents(body);
+      if (!zipCheck.ok) {
+        res
+          .status(415)
+          .json({ error: zipCheck.reason ?? "Obsah archivu není podporován." });
+        return;
+      }
+    }
     try {
-      const [job] = await db.select().from(jobsTable).where(eq(jobsTable.id, jobId));
+      const [job] = await db
+        .select()
+        .from(jobsTable)
+        .where(eq(jobsTable.id, jobId));
       if (!job) {
         res.status(404).json({ error: "Zakázka nebyla nalezena." });
         return;
@@ -405,25 +470,33 @@ router.post(
         actorOf(req),
       );
       if (result.status === "duplicate") {
-        res.status(409).json({ error: "Tato stránka už byla nahrána.", duplicates: result.duplicates });
+        res.status(409).json({
+          error: "Tato stránka už byla nahrána.",
+          duplicates: result.duplicates,
+        });
         return;
       }
       const [file] = await db
         .select()
         .from(billingDocumentFilesTable)
-        .where(and(
-          eq(billingDocumentFilesTable.documentId, result.document.id),
-          eq(billingDocumentFilesTable.pageIndex, pageIndex),
-        ));
-      if (!file?.objectPath) throw new Error("Uložená stránka nemá objektovou cestu.");
+        .where(
+          and(
+            eq(billingDocumentFilesTable.documentId, result.document.id),
+            eq(billingDocumentFilesTable.pageIndex, pageIndex),
+          ),
+        );
+      if (!file?.objectPath)
+        throw new Error("Uložená stránka nemá objektovou cestu.");
       let [attachment] = await db
         .select()
         .from(attachmentsTable)
-        .where(and(
-          eq(attachmentsTable.jobId, jobId),
-          eq(attachmentsTable.billingDocumentId, result.document.id),
-          eq(attachmentsTable.pageIndex, pageIndex),
-        ));
+        .where(
+          and(
+            eq(attachmentsTable.jobId, jobId),
+            eq(attachmentsTable.billingDocumentId, result.document.id),
+            eq(attachmentsTable.pageIndex, pageIndex),
+          ),
+        );
       if (!attachment) {
         [attachment] = await db
           .insert(attachmentsTable)
@@ -444,7 +517,11 @@ router.post(
         pageIndex,
         pageCount,
         groupComplete,
-        attachment: { id: attachment.id, fileName: attachment.fileName, url: attachment.url },
+        attachment: {
+          id: attachment.id,
+          fileName: attachment.fileName,
+          url: attachment.url,
+        },
       });
     } catch (error) {
       handleError(error, "Stránku dokladu se nepodařilo nahrát.", res);
@@ -463,9 +540,19 @@ router.post(
       return;
     }
     try {
-      res.json(await mergeJobDocumentPages(jobId, parsed.data.orderedAttachmentIds, actorOf(req)));
+      res.json(
+        await mergeJobDocumentPages(
+          jobId,
+          parsed.data.orderedAttachmentIds,
+          actorOf(req),
+        ),
+      );
     } catch (error) {
-      handleError(error, "Stránky zakázkového dokladu se nepodařilo sloučit.", res);
+      handleError(
+        error,
+        "Stránky zakázkového dokladu se nepodařilo sloučit.",
+        res,
+      );
     }
   },
 );
@@ -473,20 +560,24 @@ router.post(
 router.post(
   "/billing/documents/upload",
   (req: Request, res: Response, next: NextFunction) => {
-    express.raw({ type: () => true, limit: MAX_UPLOAD_BYTES })(req, res, (err) => {
-      if (err) {
-        const e = err as { type?: string; status?: number };
-        if (e.type === "entity.too.large" || e.status === 413) {
-          res.status(413).json({
-            error: `Soubor je příliš velký (max ${Math.floor(MAX_UPLOAD_BYTES / (1024 * 1024))} MB).`,
-          });
+    express.raw({ type: () => true, limit: MAX_UPLOAD_BYTES })(
+      req,
+      res,
+      (err) => {
+        if (err) {
+          const e = err as { type?: string; status?: number };
+          if (e.type === "entity.too.large" || e.status === 413) {
+            res.status(413).json({
+              error: `Soubor je příliš velký (max ${Math.floor(MAX_UPLOAD_BYTES / (1024 * 1024))} MB).`,
+            });
+            return;
+          }
+          next(err);
           return;
         }
-        next(err);
-        return;
-      }
-      next();
-    });
+        next();
+      },
+    );
   },
   async (req: Request, res: Response): Promise<void> => {
     const name = typeof req.query.name === "string" ? req.query.name : "";
@@ -508,15 +599,23 @@ router.post(
     const pageIndex = optNonNegativeInt(req.query.pageIndex);
     const pageCount = optInt(req.query.pageCount);
     if (groupToken && groupToken.length > 100) {
-      res.status(400).json({ error: "Neplatný identifikátor skupiny stránek." });
+      res
+        .status(400)
+        .json({ error: "Neplatný identifikátor skupiny stránek." });
       return;
     }
     if (
       groupToken &&
-      (pageIndex == null || pageIndex < 0 || pageIndex >= 50 ||
-        pageCount == null || pageCount < 1 || pageCount > 50)
+      (pageIndex == null ||
+        pageIndex < 0 ||
+        pageIndex >= 50 ||
+        pageCount == null ||
+        pageCount < 1 ||
+        pageCount > 50)
     ) {
-      res.status(400).json({ error: "Chybí platné pořadí nebo počet stránek dokladu." });
+      res
+        .status(400)
+        .json({ error: "Chybí platné pořadí nebo počet stránek dokladu." });
       return;
     }
 
@@ -607,59 +706,79 @@ router.post(
 // Detail / update / delete
 // ---------------------------------------------------------------------------
 
-router.post("/billing/documents/merge-pages", async (req, res): Promise<void> => {
-  const parsed = MergeDocumentPagesBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
-    return;
-  }
-  try {
-    res.json(await mergeDocumentPages(parsed.data, actorOf(req)));
-  } catch (error) {
-    handleError(error, "Doklady se nepodařilo sloučit.", res);
-  }
-});
+router.post(
+  "/billing/documents/merge-pages",
+  async (req, res): Promise<void> => {
+    const parsed = MergeDocumentPagesBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.message });
+      return;
+    }
+    try {
+      res.json(await mergeDocumentPages(parsed.data, actorOf(req)));
+    } catch (error) {
+      handleError(error, "Doklady se nepodařilo sloučit.", res);
+    }
+  },
+);
 
-router.post("/billing/document-merges/:mergeId/order", async (req, res): Promise<void> => {
-  const mergeId = parseId(req.params.mergeId);
-  const parsed = ReorderDocumentMergeBody.safeParse(req.body);
-  if (mergeId == null || !parsed.success) {
-    res.status(400).json({ error: "Neplatné sloučení nebo pořadí stran." });
-    return;
-  }
-  try {
-    res.json(await reorderDocumentMerge(mergeId, parsed.data.orderedDocumentIds, actorOf(req)));
-  } catch (error) {
-    handleError(error, "Pořadí stran se nepodařilo změnit.", res);
-  }
-});
+router.post(
+  "/billing/document-merges/:mergeId/order",
+  async (req, res): Promise<void> => {
+    const mergeId = parseId(req.params.mergeId);
+    const parsed = ReorderDocumentMergeBody.safeParse(req.body);
+    if (mergeId == null || !parsed.success) {
+      res.status(400).json({ error: "Neplatné sloučení nebo pořadí stran." });
+      return;
+    }
+    try {
+      res.json(
+        await reorderDocumentMerge(
+          mergeId,
+          parsed.data.orderedDocumentIds,
+          actorOf(req),
+        ),
+      );
+    } catch (error) {
+      handleError(error, "Pořadí stran se nepodařilo změnit.", res);
+    }
+  },
+);
 
-router.post("/billing/document-merges/:mergeId/revert", async (req, res): Promise<void> => {
-  const mergeId = parseId(req.params.mergeId);
-  if (mergeId == null) {
-    res.status(400).json({ error: "Neplatné sloučení." });
-    return;
-  }
-  try {
-    res.json(await revertDocumentMerge(mergeId, actorOf(req)));
-  } catch (error) {
-    handleError(error, "Sloučení se nepodařilo rozdělit.", res);
-  }
-});
+router.post(
+  "/billing/document-merges/:mergeId/revert",
+  async (req, res): Promise<void> => {
+    const mergeId = parseId(req.params.mergeId);
+    if (mergeId == null) {
+      res.status(400).json({ error: "Neplatné sloučení." });
+      return;
+    }
+    try {
+      res.json(await revertDocumentMerge(mergeId, actorOf(req)));
+    } catch (error) {
+      handleError(error, "Sloučení se nepodařilo rozdělit.", res);
+    }
+  },
+);
 
-router.post("/billing/documents/:id/confirm-type", async (req, res): Promise<void> => {
-  const id = parseId(req.params.id);
-  const parsed = ConfirmDocumentTypeBody.safeParse(req.body);
-  if (id == null || !parsed.success) {
-    res.status(400).json({ error: "Neplatný doklad nebo typ." });
-    return;
-  }
-  try {
-    res.json(await confirmDocumentType(id, parsed.data.docType, actorOf(req)));
-  } catch (error) {
-    handleError(error, "Typ dokladu se nepodařilo potvrdit.", res);
-  }
-});
+router.post(
+  "/billing/documents/:id/confirm-type",
+  async (req, res): Promise<void> => {
+    const id = parseId(req.params.id);
+    const parsed = ConfirmDocumentTypeBody.safeParse(req.body);
+    if (id == null || !parsed.success) {
+      res.status(400).json({ error: "Neplatný doklad nebo typ." });
+      return;
+    }
+    try {
+      res.json(
+        await confirmDocumentType(id, parsed.data.docType, actorOf(req)),
+      );
+    } catch (error) {
+      handleError(error, "Typ dokladu se nepodařilo potvrdit.", res);
+    }
+  },
+);
 
 router.post(
   "/billing/documents/:id/delivery-note-resolution",
@@ -681,7 +800,11 @@ router.post(
         await setDocumentDeliveryNoteResolution(id, parsed.data, actorOf(req)),
       );
     } catch (error) {
-      handleError(error, "Rozhodnutí o dodacím listu se nepodařilo uložit.", res);
+      handleError(
+        error,
+        "Rozhodnutí o dodacím listu se nepodařilo uložit.",
+        res,
+      );
     }
   },
 );
@@ -713,25 +836,29 @@ router.patch("/billing/documents/:id", async (req, res): Promise<void> => {
   }
   const d = parsed.data;
   try {
-    const detail = await updateDocument(id, {
-      docType: d.docType,
-      supplierName: d.supplierName,
-      supplierIc: d.supplierIc,
-      supplierDic: d.supplierDic,
-      supplierAddress: d.supplierAddress,
-      documentNumber: d.documentNumber,
-      variableSymbol: d.variableSymbol,
-      issueDate: d.issueDate,
-      taxableSupplyDate: d.taxableSupplyDate,
-      dueDate: d.dueDate,
-      currency: d.currency,
-      subtotalWithoutVat: d.subtotalWithoutVat,
-      totalVat: d.totalVat,
-      totalWithVat: d.totalWithVat,
-      customerId: d.customerId,
-      jobId: d.jobId,
-      notes: d.notes,
-    }, actorOf(req));
+    const detail = await updateDocument(
+      id,
+      {
+        docType: d.docType,
+        supplierName: d.supplierName,
+        supplierIc: d.supplierIc,
+        supplierDic: d.supplierDic,
+        supplierAddress: d.supplierAddress,
+        documentNumber: d.documentNumber,
+        variableSymbol: d.variableSymbol,
+        issueDate: d.issueDate,
+        taxableSupplyDate: d.taxableSupplyDate,
+        dueDate: d.dueDate,
+        currency: d.currency,
+        subtotalWithoutVat: d.subtotalWithoutVat,
+        totalVat: d.totalVat,
+        totalWithVat: d.totalWithVat,
+        customerId: d.customerId,
+        jobId: d.jobId,
+        notes: d.notes,
+      },
+      actorOf(req),
+    );
     res.json(detail);
   } catch (error) {
     handleError(error, "Doklad se nepodařilo upravit.", res);
@@ -756,111 +883,163 @@ router.delete("/billing/documents/:id", async (req, res): Promise<void> => {
 // Lifecycle: approve / status / requeue
 // ---------------------------------------------------------------------------
 
-router.post("/billing/documents/:id/approve", async (req, res): Promise<void> => {
-  const id = parseId(req.params.id);
-  if (id == null) {
-    res.status(404).json({ error: "Doklad nenalezen." });
-    return;
-  }
-  try {
-    const detail = await approveDocument(id, actorOf(req));
-    res.json(detail);
-  } catch (error) {
-    handleError(error, "Doklad se nepodařilo schválit.", res);
-  }
-});
+router.post(
+  "/billing/documents/:id/approve",
+  async (req, res): Promise<void> => {
+    const id = parseId(req.params.id);
+    if (id == null) {
+      res.status(404).json({ error: "Doklad nenalezen." });
+      return;
+    }
+    try {
+      const detail = await approveDocument(id, actorOf(req));
+      res.json(detail);
+    } catch (error) {
+      handleError(error, "Doklad se nepodařilo schválit.", res);
+    }
+  },
+);
 
-router.post("/billing/documents/:id/status", async (req, res): Promise<void> => {
-  const id = parseId(req.params.id);
-  if (id == null) {
-    res.status(404).json({ error: "Doklad nenalezen." });
-    return;
-  }
-  const parsed = SetCostDocumentStatusBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
-    return;
-  }
-  try {
-    const detail = await setDocumentStatus(
-      id,
-      parsed.data.status as "needs_review" | "reviewed" | "ignored" | "duplicate",
-      actorOf(req),
-    );
-    res.json(detail);
-  } catch (error) {
-    handleError(error, "Stav dokladu se nepodařilo změnit.", res);
-  }
-});
+router.post(
+  "/billing/documents/:id/status",
+  async (req, res): Promise<void> => {
+    const id = parseId(req.params.id);
+    if (id == null) {
+      res.status(404).json({ error: "Doklad nenalezen." });
+      return;
+    }
+    const parsed = SetCostDocumentStatusBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.message });
+      return;
+    }
+    try {
+      const detail = await setDocumentStatus(
+        id,
+        parsed.data.status as
+          | "needs_review"
+          | "reviewed"
+          | "ignored"
+          | "duplicate",
+        actorOf(req),
+        parsed.data.reason ?? null,
+      );
+      res.json(detail);
+    } catch (error) {
+      handleError(error, "Stav dokladu se nepodařilo změnit.", res);
+    }
+  },
+);
 
-router.post("/billing/documents/:id/mark-duplicate", async (req, res): Promise<void> => {
-  const id = parseId(req.params.id);
-  if (id == null) {
-    res.status(404).json({ error: "Doklad nenalezen." });
-    return;
-  }
-  const parsed = MarkCostDocumentDuplicateBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
-    return;
-  }
-  try {
-    const detail = await markDocumentAsDuplicate(
-      id,
-      parsed.data.primaryDocumentId,
-      actorOf(req),
-    );
-    res.json(detail);
-  } catch (error) {
-    handleError(error, "Doklad se nepodařilo spárovat jako duplicitu.", res);
-  }
-});
+router.post(
+  "/billing/documents/:id/disposition",
+  async (req, res): Promise<void> => {
+    const id = parseId(req.params.id);
+    if (id == null) {
+      res.status(404).json({ error: "Doklad nenalezen." });
+      return;
+    }
+    const parsed = CostDocumentDispositionInputSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.message });
+      return;
+    }
+    try {
+      const detail = await disposeCostDocument(id, parsed.data, actorOf(req));
+      res.json(detail);
+    } catch (error) {
+      handleError(error, "Doklad se nepodařilo bezpečně vyřadit.", res);
+    }
+  },
+);
 
-router.post("/billing/documents/:id/unmark-duplicate", async (req, res): Promise<void> => {
-  const id = parseId(req.params.id);
-  if (id == null) {
-    res.status(404).json({ error: "Doklad nenalezen." });
-    return;
-  }
-  try {
-    const detail = await unmarkDocumentDuplicate(id, actorOf(req));
-    res.json(detail);
-  } catch (error) {
-    handleError(error, "Zrušení párování se nezdařilo.", res);
-  }
-});
+router.post(
+  "/billing/documents/:id/mark-duplicate",
+  async (req, res): Promise<void> => {
+    const id = parseId(req.params.id);
+    if (id == null) {
+      res.status(404).json({ error: "Doklad nenalezen." });
+      return;
+    }
+    const parsed = MarkCostDocumentDuplicateBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.message });
+      return;
+    }
+    try {
+      const detail = await markDocumentAsDuplicate(
+        id,
+        parsed.data.primaryDocumentId,
+        actorOf(req),
+      );
+      res.json(detail);
+    } catch (error) {
+      handleError(error, "Doklad se nepodařilo spárovat jako duplicitu.", res);
+    }
+  },
+);
 
-router.post("/billing/documents/:id/extract", async (req, res): Promise<void> => {
-  const id = parseId(req.params.id);
-  if (id == null) {
-    res.status(404).json({ error: "Doklad nenalezen." });
-    return;
-  }
-  try {
-    const detail = await requeueExtraction(id);
-    res.json(detail);
-  } catch (error) {
-    handleError(error, "Zpracování se nepodařilo zařadit.", res);
-  }
-});
+router.post(
+  "/billing/documents/:id/unmark-duplicate",
+  async (req, res): Promise<void> => {
+    const id = parseId(req.params.id);
+    if (id == null) {
+      res.status(404).json({ error: "Doklad nenalezen." });
+      return;
+    }
+    try {
+      const detail = await unmarkDocumentDuplicate(id, actorOf(req));
+      res.json(detail);
+    } catch (error) {
+      handleError(error, "Zrušení párování se nezdařilo.", res);
+    }
+  },
+);
 
-router.post("/billing/documents/extract-all", async (req, res): Promise<void> => {
-  try {
-    const result = await requeueAllExtractions(actorOf(req));
-    res.json(result);
-  } catch (error) {
-    handleError(error, "Hromadnou AI analýzu se nepodařilo zařadit.", res);
-  }
-});
+router.post(
+  "/billing/documents/:id/extract",
+  async (req, res): Promise<void> => {
+    const id = parseId(req.params.id);
+    if (id == null) {
+      res.status(404).json({ error: "Doklad nenalezen." });
+      return;
+    }
+    try {
+      const detail = await requeueExtraction(id);
+      res.json(detail);
+    } catch (error) {
+      handleError(error, "Zpracování se nepodařilo zařadit.", res);
+    }
+  },
+);
 
-router.post("/billing/documents/reanalyze-job-attachments", async (req, res): Promise<void> => {
-  try {
-    const result = await reanalyzeJobAttachmentDocuments(actorOf(req));
-    res.json(result);
-  } catch (error) {
-    handleError(error, "Zakázkové doklady se nepodařilo znovu analyzovat.", res);
-  }
-});
+router.post(
+  "/billing/documents/extract-all",
+  async (req, res): Promise<void> => {
+    try {
+      const result = await requeueAllExtractions(actorOf(req));
+      res.json(result);
+    } catch (error) {
+      handleError(error, "Hromadnou AI analýzu se nepodařilo zařadit.", res);
+    }
+  },
+);
+
+router.post(
+  "/billing/documents/reanalyze-job-attachments",
+  async (req, res): Promise<void> => {
+    try {
+      const result = await reanalyzeJobAttachmentDocuments(actorOf(req));
+      res.json(result);
+    } catch (error) {
+      handleError(
+        error,
+        "Zakázkové doklady se nepodařilo znovu analyzovat.",
+        res,
+      );
+    }
+  },
+);
 
 // ---------------------------------------------------------------------------
 // Line operations (matching / splitting)
@@ -972,12 +1151,16 @@ router.post(
       return;
     }
     try {
-      const detail = await addReference(id, {
-        referenceType: parsed.data.referenceType,
-        referenceNumber: parsed.data.referenceNumber,
-        source: parsed.data.source ?? undefined,
-        confidence: parsed.data.confidence,
-      }, actorOf(req));
+      const detail = await addReference(
+        id,
+        {
+          referenceType: parsed.data.referenceType,
+          referenceNumber: parsed.data.referenceNumber,
+          source: parsed.data.source ?? undefined,
+          confidence: parsed.data.confidence,
+        },
+        actorOf(req),
+      );
       res.json(detail);
     } catch (error) {
       handleError(error, "Referenci se nepodařilo přidat.", res);
@@ -1104,9 +1287,10 @@ router.get("/billing/approved-lines", async (req, res): Promise<void> => {
 router.get("/billing/review-queue", async (req, res): Promise<void> => {
   const page = optInt(req.query.page) ?? 1;
   const pageSize = optInt(req.query.pageSize) ?? 50;
-  const reason = typeof req.query.reason === "string" && req.query.reason.length > 0
-    ? req.query.reason
-    : undefined;
+  const reason =
+    typeof req.query.reason === "string" && req.query.reason.length > 0
+      ? req.query.reason
+      : undefined;
   try {
     const result = await listReviewQueue({ page, pageSize, reason });
     res.json(result);
@@ -1115,35 +1299,58 @@ router.get("/billing/review-queue", async (req, res): Promise<void> => {
   }
 });
 
-router.post("/billing/review-queue/bulk-confirm", async (req, res): Promise<void> => {
-  const body = req.body;
-  const lineIds: unknown = body?.lineIds;
-  if (!Array.isArray(lineIds) || lineIds.some((id) => typeof id !== "number" || !Number.isInteger(id) || id <= 0)) {
-    res.status(400).json({ error: "Neplatný seznam ID řádků." });
-    return;
-  }
-  const dryRun = body?.dryRun === true;
-  try {
-    const diff = await bulkConfirmReviewLines(lineIds as number[], actorOf(req), dryRun);
-    res.json(diff);
-  } catch (err) {
-    handleError(err, "Hromadné potvrzení selhalo.", res);
-  }
-});
+router.post(
+  "/billing/review-queue/bulk-confirm",
+  async (req, res): Promise<void> => {
+    const body = req.body;
+    const lineIds: unknown = body?.lineIds;
+    if (
+      !Array.isArray(lineIds) ||
+      lineIds.some(
+        (id) => typeof id !== "number" || !Number.isInteger(id) || id <= 0,
+      )
+    ) {
+      res.status(400).json({ error: "Neplatný seznam ID řádků." });
+      return;
+    }
+    const dryRun = body?.dryRun === true;
+    try {
+      const diff = await bulkConfirmReviewLines(
+        lineIds as number[],
+        actorOf(req),
+        dryRun,
+      );
+      res.json(diff);
+    } catch (err) {
+      handleError(err, "Hromadné potvrzení selhalo.", res);
+    }
+  },
+);
 
 router.post("/billing/review-queue/skip", async (req, res): Promise<void> => {
   const body = req.body;
   const lineIds: unknown = body?.lineIds;
-  if (!Array.isArray(lineIds) || lineIds.some((id) => typeof id !== "number" || !Number.isInteger(id) || id <= 0)) {
+  if (
+    !Array.isArray(lineIds) ||
+    lineIds.some(
+      (id) => typeof id !== "number" || !Number.isInteger(id) || id <= 0,
+    )
+  ) {
     res.status(400).json({ error: "Neplatný seznam ID řádků." });
     return;
   }
-  const reason = typeof body?.reason === "string" && body.reason.trim().length > 0
-    ? body.reason.trim()
-    : "bez důvodu";
+  const reason =
+    typeof body?.reason === "string" && body.reason.trim().length > 0
+      ? body.reason.trim()
+      : "bez důvodu";
   const dryRun = body?.dryRun === true;
   try {
-    const result = await skipReviewLines(lineIds as number[], reason, actorOf(req), dryRun);
+    const result = await skipReviewLines(
+      lineIds as number[],
+      reason,
+      actorOf(req),
+      dryRun,
+    );
     res.json(result);
   } catch (err) {
     handleError(err, "Přeskočení řádků selhalo.", res);
@@ -1153,7 +1360,12 @@ router.post("/billing/review-queue/skip", async (req, res): Promise<void> => {
 router.post("/billing/review-queue/return", async (req, res): Promise<void> => {
   const body = req.body;
   const lineIds: unknown = body?.lineIds;
-  if (!Array.isArray(lineIds) || lineIds.some((id) => typeof id !== "number" || !Number.isInteger(id) || id <= 0)) {
+  if (
+    !Array.isArray(lineIds) ||
+    lineIds.some(
+      (id) => typeof id !== "number" || !Number.isInteger(id) || id <= 0,
+    )
+  ) {
     res.status(400).json({ error: "Neplatný seznam ID řádků." });
     return;
   }
@@ -1165,24 +1377,38 @@ router.post("/billing/review-queue/return", async (req, res): Promise<void> => {
   }
 });
 
-router.post("/billing/review-queue/:lineId/assign-warehouse", async (req, res): Promise<void> => {
-  const lineId = parseId(req.params.lineId);
-  if (lineId == null) {
-    res.status(400).json({ error: "Neplatné ID řádku." });
-    return;
-  }
-  const warehouseItemId = typeof req.body?.warehouseItemId === "number" ? req.body.warehouseItemId : null;
-  if (!warehouseItemId || !Number.isInteger(warehouseItemId) || warehouseItemId <= 0) {
-    res.status(400).json({ error: "Chybí warehouseItemId." });
-    return;
-  }
-  try {
-    const result = await assignWarehouseItemToLine(lineId, warehouseItemId, actorOf(req));
-    res.json(result);
-  } catch (err) {
-    handleError(err, "Přiřazení skladové položky selhalo.", res);
-  }
-});
+router.post(
+  "/billing/review-queue/:lineId/assign-warehouse",
+  async (req, res): Promise<void> => {
+    const lineId = parseId(req.params.lineId);
+    if (lineId == null) {
+      res.status(400).json({ error: "Neplatné ID řádku." });
+      return;
+    }
+    const warehouseItemId =
+      typeof req.body?.warehouseItemId === "number"
+        ? req.body.warehouseItemId
+        : null;
+    if (
+      !warehouseItemId ||
+      !Number.isInteger(warehouseItemId) ||
+      warehouseItemId <= 0
+    ) {
+      res.status(400).json({ error: "Chybí warehouseItemId." });
+      return;
+    }
+    try {
+      const result = await assignWarehouseItemToLine(
+        lineId,
+        warehouseItemId,
+        actorOf(req),
+      );
+      res.json(result);
+    } catch (err) {
+      handleError(err, "Přiřazení skladové položky selhalo.", res);
+    }
+  },
+);
 
 // ---------------------------------------------------------------------------
 // Analyze a job's doklady attachments → cost documents

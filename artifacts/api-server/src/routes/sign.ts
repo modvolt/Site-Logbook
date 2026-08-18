@@ -1,14 +1,29 @@
-import { Router, type IRouter } from "express";
-import { and, eq, isNull, gt } from "drizzle-orm";
+import { Router, type IRouter, type Request, type Response } from "express";
 import { randomUUID } from "crypto";
 import { z } from "zod/v4";
-import { db, jobsTable, customersTable } from "@workspace/db";
 import { ObjectStorageService } from "../lib/objectStorage";
+import { decodeSignatureImage } from "../lib/signature-image";
+import { normalizedUserAgentSha256, sha256Hex } from "../lib/evidence-hash";
+import { generateJobHandoverPdf } from "../lib/job-handover-pdf";
+import {
+  completeJobSignature,
+  JobDocumentStateError,
+  loadBoundJobDocumentVersion,
+} from "../lib/job-document-service";
+import {
+  consumePublicAccessToken,
+  PublicAccessTokenError,
+  publicAccessTokenHttpStatus,
+  resolvePublicAccessToken,
+} from "../lib/public-access-token";
+import {
+  assertNoAuthorizationCredential,
+  readPublicBearerToken,
+  sendPublicBearerCredentialError,
+} from "../lib/public-bearer-auth";
 
 const router: IRouter = Router();
 const objectStorage = new ObjectStorageService();
-
-const TOKEN_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function fmtDate(iso: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
@@ -16,57 +31,93 @@ function fmtDate(iso: string): string {
   return `${m[3]}.${m[2]}.${m[1]}`;
 }
 
-router.get("/sign/:token", async (req, res): Promise<void> => {
-  const { token } = req.params;
-  if (!token || !TOKEN_RE.test(token)) {
-    res.status(400).json({ error: "Neplatný token" });
-    return;
+function sendTokenError(
+  res: Response,
+  error: PublicAccessTokenError,
+): void {
+  const status = publicAccessTokenHttpStatus(error);
+  const message = error.code === "expired"
+    ? "Platnost odkazu k podpisu vypršela. Požádejte o zaslání nového odkazu."
+    : error.code === "consumed"
+      ? "Tento odkaz k podpisu již byl použit."
+      : "Odkaz k podpisu nebyl nalezen, byl zrušen nebo již není platný.";
+  res.status(status).json({ error: message, code: `public_token_${error.code}` });
+}
+
+function jobSignatureToken(
+  req: Request,
+  res: Response,
+  legacyToken?: string,
+): string | null {
+  try {
+    if (legacyToken !== undefined) {
+      assertNoAuthorizationCredential(req);
+      return legacyToken;
+    }
+    return readPublicBearerToken(req);
+  } catch (error) {
+    if (sendPublicBearerCredentialError(res, error)) return null;
+    throw error;
   }
+}
 
-  const [job] = await db
-    .select()
-    .from(jobsTable)
-    .where(eq(jobsTable.signatureToken, token));
+async function getPublicJobSignature(
+  req: Request,
+  res: Response,
+  token: string,
+): Promise<void> {
 
-  if (!job) {
-    res.status(404).json({ error: "Odkaz k podpisu nebyl nalezen. Možná byl zrušen nebo jste použili neplatný odkaz." });
-    return;
+  let tokenRecord;
+  try {
+    tokenRecord = await resolvePublicAccessToken("job_signature", token);
+  } catch (error) {
+    if (error instanceof PublicAccessTokenError) {
+      sendTokenError(res, error);
+      return;
+    }
+    throw error;
   }
-
-  const expired =
-    job.signatureTokenExpiresAt != null &&
-    job.signatureTokenExpiresAt < new Date();
-
-  let customerCompanyName: string | null = null;
-  if (job.customerId) {
-    const [customer] = await db
-      .select({ companyName: customersTable.companyName })
-      .from(customersTable)
-      .where(eq(customersTable.id, job.customerId));
-    customerCompanyName = customer?.companyName ?? null;
+  let version;
+  try {
+    version = await loadBoundJobDocumentVersion(tokenRecord);
+  } catch (error) {
+    if (error instanceof JobDocumentStateError) {
+      res.status(error.code === "job_archived" ? 410 : 404).json({
+        error: error.code === "job_archived"
+          ? "Zakázka byla archivována a odkaz již není platný."
+          : "Verze předávacího protokolu nebyla nalezena.",
+      });
+      return;
+    }
+    throw error;
   }
+  const snapshot = version.dataSnapshot;
 
   res.json({
-    jobId: job.id,
-    title: job.title,
-    date: fmtDate(job.date),
-    customerCompanyName,
-    notes: job.notes,
-    alreadySigned: !!job.signedAt,
-    signedAt: job.signedAt ? job.signedAt.toISOString() : null,
-    expired,
+    jobId: snapshot.job.id,
+    documentVersion: version.version,
+    snapshotSha256: version.snapshotSha256,
+    title: snapshot.job.title,
+    date: fmtDate(snapshot.job.date),
+    customerCompanyName: snapshot.job.customerCompanyName,
+    notes: snapshot.job.notes,
+    confirmationText: version.confirmationText,
+    alreadySigned: version.status === "signed",
+    signedAt: version.signedAt ? version.signedAt.toISOString() : null,
+    expired: false,
   });
-});
+}
 
-router.post("/sign/:token", async (req, res): Promise<void> => {
-  const { token } = req.params;
-  if (!token || !TOKEN_RE.test(token)) {
-    res.status(400).json({ error: "Neplatný token" });
-    return;
-  }
-
+async function postPublicJobSignature(
+  req: Request,
+  res: Response,
+  token: string,
+): Promise<void> {
   const body = z
-    .object({ signatureDataUrl: z.string().startsWith("data:image/png;base64,") })
+    .object({
+      signatoryName: z.string().trim().min(2).max(120),
+      signatureDataUrl: z.string().startsWith("data:image/png;base64,"),
+    })
     .safeParse(req.body);
 
   if (!body.success) {
@@ -74,64 +125,147 @@ router.post("/sign/:token", async (req, res): Promise<void> => {
     return;
   }
 
-  const [job] = await db
-    .select()
-    .from(jobsTable)
-    .where(eq(jobsTable.signatureToken, token));
+  let tokenRecord;
+  try {
+    tokenRecord = await resolvePublicAccessToken("job_signature", token);
+  } catch (error) {
+    if (error instanceof PublicAccessTokenError) {
+      sendTokenError(res, error);
+      return;
+    }
+    throw error;
+  }
 
-  if (!job) {
-    res.status(404).json({ error: "Odkaz k podpisu nebyl nalezen" });
+  let version;
+  try {
+    version = await loadBoundJobDocumentVersion(tokenRecord);
+  } catch (error) {
+    if (error instanceof JobDocumentStateError) {
+      res.status(error.code === "job_archived" ? 410 : 404).json({
+        error: error.code === "job_archived"
+          ? "Zakázka byla archivována a odkaz již není platný."
+          : "Verze předávacího protokolu nebyla nalezena.",
+      });
+      return;
+    }
+    throw error;
+  }
+  if (version.status !== "pending_signature") {
+    res.status(409).json({ error: "Tato verze již byla podepsána." });
     return;
   }
 
-  if (job.signatureTokenExpiresAt != null && job.signatureTokenExpiresAt < new Date()) {
-    res.status(410).json({ error: "Platnost odkazu k podpisu vypršela. Požádejte o zaslání nového odkazu." });
+  let pngBuffer: Buffer;
+  try {
+    ({ pngBuffer } = await decodeSignatureImage(body.data.signatureDataUrl));
+  } catch (error) {
+    res.status(400).json({
+      error: error instanceof Error ? error.message : "Podpis není platný PNG obrázek.",
+    });
     return;
   }
-
-  if (job.signedAt) {
-    res.status(409).json({ error: "Zakázka již byla podepsána" });
-    return;
-  }
-
-  const base64Data = body.data.signatureDataUrl.replace(/^data:image\/png;base64,/, "");
-  const pngBuffer = Buffer.from(base64Data, "base64");
 
   // Use a unique key per attempt so concurrent submissions never overwrite each other.
   // The conditional DB update decides the winner; the loser's object is cleaned up.
   const attemptId = randomUUID();
-  const objectPath = `/objects/job-signatures/${job.id}-${attemptId}.png`;
-  try {
-    await objectStorage.putPrivateObject(objectPath, pngBuffer, "image/png");
-  } catch (err) {
-    req.log?.error({ err }, "Job signature upload failed");
-    res.status(500).json({ error: "Nepodařilo se uložit podpis. Zkuste to prosím znovu." });
-    return;
-  }
-
+  const signatureObjectPath = `/objects/job-signatures/${tokenRecord.resourceId}-${attemptId}.png`;
+  const pdfObjectPath = `/objects/job-signed-documents/${tokenRecord.resourceId}-v${version.version}-${attemptId}.pdf`;
+  const signatureSha256 = sha256Hex(pngBuffer);
   const signedAt = new Date();
-  const updated = await db
-    .update(jobsTable)
-    .set({ signedAt, signatureObjectPath: objectPath })
-    .where(
-      and(
-        eq(jobsTable.signatureToken, token),
-        isNull(jobsTable.signedAt),
-        gt(jobsTable.signatureTokenExpiresAt, new Date()),
-      )
-    )
-    .returning({ id: jobsTable.id });
-
-  if (!updated.length) {
-    // Another request won the race — clean up the orphan object we just uploaded.
-    objectStorage.deletePrivateObject(objectPath).catch((err: unknown) => {
-      req.log?.warn({ err, objectPath }, "Failed to clean up orphan signature object after lost race");
-    });
-    res.status(409).json({ error: "Zakázka již byla podepsána nebo platnost odkazu vypršela." });
+  const signatureDataUrl = `data:image/png;base64,${pngBuffer.toString("base64")}`;
+  const pdfBuffer = generateJobHandoverPdf({
+    snapshot: version.dataSnapshot,
+    version: version.version,
+    snapshotSha256: version.snapshotSha256,
+    signatoryName: body.data.signatoryName,
+    signedAt,
+    signatureDataUrl,
+    signatureSha256,
+  });
+  const pdfSha256 = sha256Hex(pdfBuffer);
+  try {
+    await objectStorage.putPrivateObject(signatureObjectPath, pngBuffer, "image/png");
+    await objectStorage.putPrivateObject(pdfObjectPath, pdfBuffer, "application/pdf");
+  } catch (err) {
+    await Promise.all([
+      objectStorage.deletePrivateObject(signatureObjectPath).catch(() => false),
+      objectStorage.deletePrivateObject(pdfObjectPath).catch(() => false),
+    ]);
+    req.log?.error({ err }, "Job signature upload failed");
+    res.status(500).json({ error: "Nepodařilo se uložit podepsaný protokol. Zkuste to prosím znovu." });
     return;
   }
 
-  res.json({ signedAt: signedAt.toISOString() });
+  try {
+    const signedVersion = await consumePublicAccessToken({
+      purpose: "job_signature",
+      token,
+      action: "signed",
+      transition: (tx, record) => completeJobSignature(tx, {
+        record,
+        signatoryName: body.data.signatoryName,
+        signedAt,
+        signatureObjectPath,
+        signatureSha256,
+        pdfObjectPath,
+        pdfSha256,
+        userAgentSha256: normalizedUserAgentSha256(req.get("user-agent")),
+      }),
+    });
+    res.json({
+      signedAt: signedAt.toISOString(),
+      documentVersion: signedVersion.version,
+      snapshotSha256: signedVersion.snapshotSha256,
+      pdfSha256: signedVersion.pdfSha256,
+    });
+  } catch (error) {
+    await Promise.all([
+      objectStorage.deletePrivateObject(signatureObjectPath).catch((cleanupError: unknown) => {
+        req.log?.warn({ err: cleanupError, objectPath: signatureObjectPath }, "Failed to clean up orphan signature object after lost race");
+        return false;
+      }),
+      objectStorage.deletePrivateObject(pdfObjectPath).catch((cleanupError: unknown) => {
+        req.log?.warn({ err: cleanupError, objectPath: pdfObjectPath }, "Failed to clean up orphan signed PDF after lost race");
+        return false;
+      }),
+    ]);
+    if (error instanceof PublicAccessTokenError) {
+      sendTokenError(res, error);
+      return;
+    }
+    if (error instanceof JobDocumentStateError) {
+      res.status(error.code === "job_archived" ? 410 : error.code === "job_not_found" || error.code === "version_not_found" ? 404 : 409).json({
+        error: error.code === "job_archived"
+          ? "Zakázka byla archivována a odkaz již není platný."
+          : error.code === "job_not_found" || error.code === "version_not_found"
+          ? "Zakázka nebo její verze nebyla nalezena."
+          : "Tato verze již byla podepsána.",
+      });
+      return;
+    }
+    req.log?.error({ err: error }, "Job signature save failed");
+    res.status(500).json({ error: "Nepodařilo se uložit podpis. Zkuste to prosím znovu." });
+  }
+}
+
+router.get("/sign", async (req, res): Promise<void> => {
+  const token = jobSignatureToken(req, res);
+  if (token) await getPublicJobSignature(req, res, token);
+});
+
+router.get("/sign/:token", async (req, res): Promise<void> => {
+  const token = jobSignatureToken(req, res, req.params.token);
+  if (token) await getPublicJobSignature(req, res, token);
+});
+
+router.post("/sign", async (req, res): Promise<void> => {
+  const token = jobSignatureToken(req, res);
+  if (token) await postPublicJobSignature(req, res, token);
+});
+
+router.post("/sign/:token", async (req, res): Promise<void> => {
+  const token = jobSignatureToken(req, res, req.params.token);
+  if (token) await postPublicJobSignature(req, res, token);
 });
 
 export default router;

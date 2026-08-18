@@ -5,9 +5,9 @@ import { useParams, useLocation } from "wouter";
 import { format } from "date-fns";
 import { cs } from "date-fns/locale";
 import {
-  useListCustomers, useListJobs, useUpdateCustomer, useDeleteCustomer,
-  useListCustomerContacts, useCreateCustomerContact, useUpdateCustomerContact, useDeleteCustomerContact,
-  useListCustomerSites, useCreateCustomerSite, useUpdateCustomerSite, useDeleteCustomerSite,
+  useListCustomers, useListJobs, useUpdateCustomer,
+  useListCustomerContacts, useCreateCustomerContact, useUpdateCustomerContact,
+  useListCustomerSites, useCreateCustomerSite, useUpdateCustomerSite,
   useGetCustomerFinancialSummary, getGetCustomerFinancialSummaryQueryKey,
   getListCustomersQueryKey, getListJobsQueryKey,
   getListCustomerContactsQueryKey, getListCustomerSitesQueryKey,
@@ -91,13 +91,10 @@ export default function CustomerDetail() {
   });
 
   const updateCustomer = useUpdateCustomer();
-  const deleteCustomer = useDeleteCustomer();
   const createContact = useCreateCustomerContact();
   const updateContact = useUpdateCustomerContact();
-  const deleteContact = useDeleteCustomerContact();
   const createSite = useCreateCustomerSite();
   const updateSite = useUpdateCustomerSite();
-  const deleteSite = useDeleteCustomerSite();
   const createDoc = useCreateCustomerDocument();
   const archiveDoc = useArchiveCustomerDocument();
   const deleteDoc = useDeleteCustomerDocument();
@@ -190,22 +187,6 @@ export default function CustomerDetail() {
     );
   };
 
-  const handleDelete = () => {
-    openConfirm("Opravdu smazat zákazníka?", () => {
-      deleteCustomer.mutate(
-      { id },
-      {
-        onSuccess: () => {
-          invalidateData(queryClient, "customers");
-          toast({ title: "Zákazník smazán" });
-          setLocation("/customers");
-        },
-        onError: () => toast({ title: "Nepodařilo se smazat", variant: "destructive" }),
-      }
-    );
-    });
-  };
-
   const handleAddContact = () => {
     if (!newContact.name.trim()) {
       setNewContactErrors({ name: "Jméno kontaktu je povinné" });
@@ -281,18 +262,6 @@ export default function CustomerDetail() {
         },
       }
     );
-  };
-
-  const handleDeleteContact = (contactId: number) => {
-    openConfirm("Opravdu smazat kontakt?", () => {
-      deleteContact.mutate(
-      { id: contactId },
-      {
-        onSuccess: () => { invalidateContacts(); toast({ title: "Kontakt smazán" }); },
-        onError: () => toast({ title: "Nepodařilo se smazat kontakt", variant: "destructive" }),
-      }
-    );
-    });
   };
 
   const handleAddSite = () => {
@@ -378,18 +347,6 @@ export default function CustomerDetail() {
         },
       }
     );
-  };
-
-  const handleDeleteSite = (siteId: number) => {
-    openConfirm("Opravdu smazat stavbu?", () => {
-      deleteSite.mutate(
-      { id: siteId },
-      {
-        onSuccess: () => { invalidateSites(); toast({ title: "Stavba smazána" }); },
-        onError: () => toast({ title: "Nepodařilo se smazat stavbu", variant: "destructive" }),
-      }
-    );
-    });
   };
 
   const handleAddDoc = async () => {
@@ -531,9 +488,6 @@ export default function CustomerDetail() {
           <div className="flex gap-1 shrink-0">
             <Button variant="ghost" size="icon" onClick={startEdit}>
               <Edit3 className="h-5 w-5" />
-            </Button>
-            <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10" onClick={handleDelete}>
-              <Trash2 className="h-5 w-5" />
             </Button>
           </div>
         )}
@@ -1046,9 +1000,6 @@ export default function CustomerDetail() {
                         <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" onClick={() => startEditContact(c)}>
                           <Edit3 className="h-4 w-4" />
                         </Button>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:bg-destructive/10" onClick={() => handleDeleteContact(c.id)}>
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
                       </div>
                     </div>
                   )}
@@ -1228,9 +1179,6 @@ export default function CustomerDetail() {
                       <div className="flex gap-1 shrink-0">
                         <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" onClick={(e) => { e.stopPropagation(); startEditSite(s); }}>
                           <Edit3 className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:bg-destructive/10" onClick={(e) => { e.stopPropagation(); handleDeleteSite(s.id); }}>
-                          <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
                       <ChevronRight className="h-5 w-5 text-muted-foreground shrink-0 self-center" />

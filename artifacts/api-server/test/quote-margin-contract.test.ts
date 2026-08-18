@@ -10,8 +10,12 @@ describe("quote margin and structural-row contract", () => {
   it("keeps migration 0096 additive and defaults legacy rows to financial items", () => {
     const migration = read("lib/db/migrations/0096_far_smiling_tiger.sql");
 
-    expect(migration).toContain('ADD COLUMN "row_type" text DEFAULT \'item\' NOT NULL');
-    expect(migration).toContain('ADD COLUMN "purchase_unit_price" numeric(12, 2)');
+    expect(migration).toContain(
+      "ADD COLUMN \"row_type\" text DEFAULT 'item' NOT NULL",
+    );
+    expect(migration).toContain(
+      'ADD COLUMN "purchase_unit_price" numeric(12, 2)',
+    );
     expect(migration).not.toMatch(/\bDROP\s+(TABLE|COLUMN)\b/i);
     expect(migration).not.toMatch(/\bDELETE\s+FROM\b/i);
   });
@@ -48,8 +52,16 @@ describe("quote margin and structural-row contract", () => {
 
   it("never exposes internal purchase prices in public JSON or customer PDF", () => {
     const service = read("artifacts/api-server/src/lib/quote-service.ts");
-    const publicStart = service.indexOf("export async function getQuoteByShareToken");
-    const publicEnd = service.indexOf("export async function acceptQuoteByToken");
+    const versionService = read(
+      "artifacts/api-server/src/lib/quote-version-service.ts",
+    );
+    const versionSchema = read("lib/db/src/schema/document-versions.ts");
+    const publicStart = service.indexOf(
+      "export async function getQuoteByShareToken",
+    );
+    const publicEnd = service.indexOf(
+      "export async function acceptQuoteByToken",
+    );
     const publicBlock = service.slice(publicStart, publicEnd);
     const pdf = read("artifacts/api-server/src/lib/quote-pdf.ts");
     const spec = read("lib/api-spec/openapi.yaml");
@@ -57,10 +69,19 @@ describe("quote margin and structural-row contract", () => {
     const publicSchemaEnd = spec.indexOf("    QuotePublicActionResult:");
     const publicSchema = spec.slice(publicSchemaStart, publicSchemaEnd);
 
-    expect(publicBlock).toContain("rowType: serialized.rowType");
+    expect(publicBlock).toContain("snapshot.items.map");
+    expect(versionService).toContain("const rowType = normalizeQuoteRowType");
+    expect(versionService).toContain("rowType: item.rowType");
+    expect(versionSchema).toContain('rowType: "item" | "section" | "spacer"');
+    expect(versionSchema).toContain("schemaVersion: 2");
     expect(publicBlock).not.toContain("purchaseUnitPrice:");
-    expect(pdf.slice(pdf.indexOf("export interface QuotePdfItem"), pdf.indexOf("export interface QuotePdfData")))
-      .not.toContain("purchaseUnitPrice");
+    expect(versionService).not.toContain("purchaseUnitPrice:");
+    expect(
+      pdf.slice(
+        pdf.indexOf("export interface QuotePdfItem"),
+        pdf.indexOf("export interface QuotePdfData"),
+      ),
+    ).not.toContain("purchaseUnitPrice");
     expect(publicSchema).not.toContain("purchaseUnitPrice");
   });
 });

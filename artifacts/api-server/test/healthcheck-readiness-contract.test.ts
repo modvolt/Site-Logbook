@@ -22,5 +22,14 @@ describe("container healthcheck contract", () => {
     expect(handler).toContain("getCachedMigrationParity()");
     expect(handler).not.toContain("checkStorage()");
     expect(handler).not.toContain("diagnoseS3()");
+
+    const dbProbe = handler.indexOf("await checkDbLatency()");
+    const dbShortCircuit = handler.indexOf(
+      'if (dbPing.status === "error")',
+    );
+    const secondaryDiagnostics = handler.indexOf("await Promise.all([");
+    expect(dbProbe).toBeGreaterThanOrEqual(0);
+    expect(dbShortCircuit).toBeGreaterThan(dbProbe);
+    expect(secondaryDiagnostics).toBeGreaterThan(dbShortCircuit);
   });
 });

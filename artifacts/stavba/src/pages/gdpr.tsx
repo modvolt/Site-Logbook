@@ -1,18 +1,13 @@
 import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { ConfirmDialog } from "@/components/confirm-dialog";
-import { useConfirmDialog } from "@/hooks/use-confirm-dialog";
-import { invalidateData } from "@/lib/query-invalidation";
 import {
   useListCustomers, getListCustomersQueryKey,
   useListPeople, getListPeopleQueryKey,
   useListCustomerContacts, getListCustomerContactsQueryKey,
-  exportSubjectData, useEraseSubjectData,
-  getListAuditLogsQueryKey,
+  exportSubjectData,
 } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ShieldCheck, Download, Trash2, AlertTriangle, Info } from "lucide-react";
+import { ShieldCheck, Download, AlertTriangle, Info } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 type SubjectType = "customer" | "contact" | "person";
@@ -25,8 +20,6 @@ const SUBJECT_LABELS: Record<SubjectType, string> = {
 
 export default function Gdpr() {
   const { toast } = useToast();
-  const queryClient = useQueryClient();
-  const { openConfirm, dialogProps } = useConfirmDialog();
 
   const [subjectType, setSubjectType] = useState<SubjectType>("customer");
   const [customerId, setCustomerId] = useState<number | null>(null);
@@ -40,18 +33,10 @@ export default function Gdpr() {
     query: { queryKey: getListCustomerContactsQueryKey(customerId ?? 0), enabled: subjectType === "contact" && customerId != null },
   });
 
-  const erase = useEraseSubjectData();
-
   const subjectId =
     subjectType === "customer" ? customerId :
     subjectType === "contact" ? contactId :
     personId;
-
-  const subjectLabel = (): string => {
-    if (subjectType === "customer") return customers?.find((c) => c.id === customerId)?.companyName ?? `#${customerId}`;
-    if (subjectType === "contact") return contacts?.find((c) => c.id === contactId)?.name ?? `#${contactId}`;
-    return people?.find((p) => p.id === personId)?.name ?? `#${personId}`;
-  };
 
   const resetSelection = () => {
     setCustomerId(null);
@@ -84,30 +69,6 @@ export default function Gdpr() {
     }
   };
 
-  const handleErase = () => {
-    if (subjectId == null) {
-      toast({ title: "Vyberte subjekt", variant: "destructive" });
-      return;
-    }
-    const name = subjectLabel();
-    openConfirm(
-      {
-        title: `Trvale vymazat osobní údaje subjektu „${name}"?`,
-        description: "Tato akce je NEVRATNÁ. Související soubory v úložišti budou odstraněny. Doporučujeme nejprve provést export.",
-        confirmLabel: "Vymazat",
-      },
-      () => erase.mutate({ data: { subjectType, subjectId } }, {
-      onSuccess: (res) => {
-        toast({ title: "Údaje vymazány", description: res.message });
-        invalidateData(queryClient, "customers", "people");
-        queryClient.invalidateQueries({ queryKey: getListAuditLogsQueryKey() });
-        resetSelection();
-      },
-      onError: (err: any) => toast({ title: "Výmaz selhal", description: err?.message, variant: "destructive" }),
-    }),
-    );
-  };
-
   return (
     <div className="p-4 md:p-6 w-full">
       <div className="max-w-[900px] mx-auto">
@@ -116,7 +77,7 @@ export default function Gdpr() {
           <h1 className="text-2xl font-bold">GDPR — osobní údaje</h1>
         </div>
         <p className="text-sm text-muted-foreground mb-6">
-          Exportujte nebo trvale vymažte osobní údaje konkrétního subjektu (právo na přístup a právo být zapomenut).
+          Export osobních údajů zůstává dostupný. Přímý výmaz je do dokončení ověřeného privacy-case procesu vypnutý.
         </p>
 
         {/* Selection */}
@@ -191,9 +152,6 @@ export default function Gdpr() {
             <Button onClick={handleExport} disabled={subjectId == null || exporting} variant="outline">
               <Download className="w-4 h-4 mr-1.5" /> Exportovat údaje
             </Button>
-            <Button onClick={handleErase} disabled={subjectId == null || erase.isPending} variant="destructive">
-              <Trash2 className="w-4 h-4 mr-1.5" /> Trvale vymazat
-            </Button>
           </div>
         </div>
 
@@ -201,11 +159,10 @@ export default function Gdpr() {
         <div className="bg-rose-50 border border-rose-200 dark:bg-rose-950/30 dark:border-rose-900 rounded-xl px-4 py-3 mb-4 flex items-start gap-2 text-sm">
           <AlertTriangle className="w-4 h-4 text-rose-600 mt-0.5 shrink-0" />
           <div>
-            <p className="font-medium text-rose-800 dark:text-rose-200">Výmaz je nevratný</p>
+            <p className="font-medium text-rose-800 dark:text-rose-200">Přímý výmaz je bezpečnostně zablokovaný</p>
             <p className="text-rose-700 dark:text-rose-300 text-xs mt-0.5">
-              U zákazníka se odstraní jeho kontaktní údaje, kontakty a stavby včetně nahraných souborů.
-              Zakázky zůstanou zachovány jako anonymizovaná obchodní historie (vazba na zákazníka se zruší).
-              Každý výmaz je zaznamenán v záznamu změn.
+              Žádost o výmaz musí nejprve projít ověřeným privacy case, kontrolou zákonné retence a legal hold.
+              Teprve samostatný auditovatelný proces smí provést databázové a objektové změny a ověřit jejich úplnost.
             </p>
           </div>
         </div>
@@ -218,13 +175,12 @@ export default function Gdpr() {
             <p>
               Stavba uchovává osobní údaje zákazníků, jejich kontaktů a zaměstnanců pouze po dobu nezbytnou pro
               evidenci zakázek a plnění zákonných povinností. Subjekt údajů má právo na přístup ke svým údajům
-              (export) a právo na výmaz. Žádosti vyřizujte prostřednictvím této stránky a uchovávejte exportovaný
-              soubor jako doklad o vyřízení.
+              (export) a právo požádat o výmaz. Export není důkazem provedeného výmazu; žádost musí být posouzena
+              v evidovaném privacy case a výsledek musí mít samostatný auditovatelný doklad.
             </p>
           </div>
         </div>
       </div>
-      <ConfirmDialog {...dialogProps} />
     </div>
   );
 }

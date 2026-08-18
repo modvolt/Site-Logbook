@@ -2,6 +2,7 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import robotoRegular from "../assets/fonts/Roboto-Regular.ttf";
 import robotoBold from "../assets/fonts/Roboto-Bold.ttf";
+import { encodeCsvCell } from "./csv-security";
 
 const PDF_FONT = "Roboto";
 
@@ -214,14 +215,7 @@ export function generatePpeCsv(rows: PpeExportRow[]): string {
     "Potvrzeno zaměstnancem",
   ];
 
-  function escapeCsv(val: string): string {
-    if (val.includes(",") || val.includes('"') || val.includes("\n")) {
-      return `"${val.replace(/"/g, '""')}"`;
-    }
-    return val;
-  }
-
-  const lines: string[] = [headers.map(escapeCsv).join(",")];
+  const lines: string[] = [headers.map((value) => encodeCsvCell(value)).join(",")];
   for (const r of rows) {
     lines.push(
       [
@@ -237,7 +231,7 @@ export function generatePpeCsv(rows: PpeExportRow[]): string {
         STATUS_LABELS[r.status] ?? r.status,
         r.employeeConfirmedAt ? fmtDate(r.employeeConfirmedAt) : "",
       ]
-        .map(escapeCsv)
+        .map((value) => encodeCsvCell(value))
         .join(","),
     );
   }

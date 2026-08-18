@@ -1,22 +1,22 @@
 import { describe, it, expect } from "vitest";
-import { PROTECTED_OBJECT_PREFIXES } from "../src/routes/storage";
+import { TYPED_ONLY_PRIVATE_OBJECT_PREFIXES } from "../src/lib/private-object-policy";
 
-describe("PROTECTED_OBJECT_PREFIXES", () => {
+describe("TYPED_ONLY_PRIVATE_OBJECT_PREFIXES", () => {
   it("contains ppe-handovers to guard signed documents and signature images", () => {
-    expect(PROTECTED_OBJECT_PREFIXES).toContain("ppe-handovers");
+    expect(TYPED_ONLY_PRIVATE_OBJECT_PREFIXES).toContain("ppe-handovers");
   });
 
   it("contains backups to guard database dump files", () => {
-    expect(PROTECTED_OBJECT_PREFIXES).toContain("backups");
+    expect(TYPED_ONLY_PRIVATE_OBJECT_PREFIXES).toContain("backups");
   });
 
   it("contains invoices to guard issued invoice PDFs", () => {
-    expect(PROTECTED_OBJECT_PREFIXES).toContain("invoices");
+    expect(TYPED_ONLY_PRIVATE_OBJECT_PREFIXES).toContain("invoices");
   });
 
   it("has no duplicates", () => {
-    const unique = new Set(PROTECTED_OBJECT_PREFIXES);
-    expect(unique.size).toBe(PROTECTED_OBJECT_PREFIXES.length);
+    const unique = new Set(TYPED_ONLY_PRIVATE_OBJECT_PREFIXES);
+    expect(unique.size).toBe(TYPED_ONLY_PRIVATE_OBJECT_PREFIXES.length);
   });
 });
 
