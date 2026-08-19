@@ -1022,7 +1022,8 @@ jobs:
             || fail "preflight receipt and artifact are not one bounded snapshot."
 
           safe_extract_oci() {
-            local archive="$1" root="$2" listing="${archive}.listing"
+            local archive="$1" root="$2"
+            local listing="${archive}.listing"
             tar -tf "$archive" >"$listing" \
               || fail "${archive} inventory cannot be read."
             : >"${listing}.normalized"
