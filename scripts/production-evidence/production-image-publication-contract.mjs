@@ -1457,11 +1457,86 @@ export async function verifyReviewedOciLayout({
       `${imageKey} has an unexpected OCI layout marker.`,
     );
   }
-  const indexPath = resolveInside(root, "index.json");
+  const layoutIndexPath = resolveInside(root, "index.json");
+  const layoutIndex = jsonFile(layoutIndexPath, `${imageKey}.layoutIndex`);
+  requireEqual(
+    layoutIndex.schemaVersion,
+    2,
+    `${imageKey}.layoutIndex.schemaVersion`,
+  );
+  requireEqual(
+    layoutIndex.mediaType,
+    "application/vnd.oci.image.index.v1+json",
+    `${imageKey}.layoutIndex.mediaType`,
+  );
+  if (
+    !Array.isArray(layoutIndex.manifests) ||
+    layoutIndex.manifests.length !== 1
+  ) {
+    fail(
+      "PRODUCTION_IMAGE_OCI_LAYOUT_INVALID",
+      `${imageKey} layout must contain one root descriptor.`,
+    );
+  }
+  const layoutRootDescriptor = layoutIndex.manifests[0];
+  requireEqual(
+    layoutRootDescriptor?.mediaType,
+    "application/vnd.oci.image.index.v1+json",
+    `${imageKey}.layoutRoot.mediaType`,
+  );
+  requireEqual(
+    exactDigest(layoutRootDescriptor?.digest, `${imageKey}.layoutRoot.digest`),
+    image.digest,
+    `${imageKey}.layoutRoot.digest`,
+  );
+  if (
+    !Number.isSafeInteger(layoutRootDescriptor?.size) ||
+    layoutRootDescriptor.size <= 0
+  ) {
+    fail(
+      "PRODUCTION_IMAGE_OCI_LAYOUT_INVALID",
+      `${imageKey} layout root descriptor size is invalid.`,
+    );
+  }
+  requireEqual(
+    exactString(
+      layoutRootDescriptor?.annotations?.["io.containerd.image.name"],
+      `${imageKey}.layoutRoot.imageName`,
+    ),
+    `${image.repository}:${image.sourceSha}`,
+    `${imageKey}.layoutRoot.imageName`,
+  );
+  requireEqual(
+    exactString(
+      layoutRootDescriptor?.annotations?.["org.opencontainers.image.ref.name"],
+      `${imageKey}.layoutRoot.refName`,
+    ),
+    image.sourceSha,
+    `${imageKey}.layoutRoot.refName`,
+  );
+  let indexPath;
+  try {
+    indexPath = blobPath(
+      root,
+      layoutRootDescriptor.digest,
+      `${imageKey}.layoutRoot.digest`,
+    );
+  } catch (error) {
+    if (error instanceof ProductionImagePublicationError) throw error;
+    fail(
+      "PRODUCTION_IMAGE_OCI_LAYOUT_INVALID",
+      `${imageKey} root image index blob is missing or invalid.`,
+    );
+  }
   requireEqual(
     await sha256File(indexPath),
     image.digest,
     `${imageKey}.indexDigest`,
+  );
+  requireEqual(
+    statSync(indexPath).size,
+    layoutRootDescriptor.size,
+    `${imageKey}.layoutRoot.size`,
   );
   const index = jsonFile(indexPath, `${imageKey}.index`);
   requireEqual(index.schemaVersion, 2, `${imageKey}.index.schemaVersion`);
@@ -1513,6 +1588,16 @@ export async function verifyReviewedOciLayout({
   }
   const runnableDescriptor = runnableDescriptors[0];
   const attestationDescriptor = attestationDescriptors[0];
+  requireEqual(
+    canonicalJson(runnableDescriptor.platform),
+    canonicalJson({ architecture: "amd64", os: "linux" }),
+    `${imageKey}.runnableDescriptor.platform`,
+  );
+  requireEqual(
+    canonicalJson(attestationDescriptor.platform),
+    canonicalJson({ architecture: "unknown", os: "unknown" }),
+    `${imageKey}.attestationDescriptor.platform`,
+  );
   requireEqual(
     runnableDescriptor.digest,
     image.runnableManifestDigest,
@@ -1791,6 +1876,7 @@ export async function verifyReviewedOciLayout({
 
   const blobDirectory = resolveInside(root, "blobs", "sha256");
   const reachableDigests = new Set([
+    layoutRootDescriptor.digest,
     runnableDescriptor.digest,
     attestationDescriptor.digest,
     runnable.config.digest,
@@ -1833,6 +1919,9 @@ export async function verifyReviewedOciLayout({
   );
   return Object.freeze({
     root,
+    layoutIndexPath,
+    layoutIndex,
+    layoutRootDescriptor,
     indexPath,
     index,
     runnableDescriptor,

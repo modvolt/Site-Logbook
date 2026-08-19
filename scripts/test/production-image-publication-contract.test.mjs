@@ -430,29 +430,83 @@ function ociLayoutFixture(options = {}) {
     ],
   };
   const attestation = writeBlob(attestationValue);
+  const runnableDescriptor = {
+    mediaType: "application/vnd.oci.image.manifest.v1+json",
+    platform: options.runnablePlatform ?? {
+      os: "linux",
+      architecture: "amd64",
+    },
+    ...runnable,
+  };
+  const attestationDescriptor = {
+    mediaType: "application/vnd.oci.image.manifest.v1+json",
+    platform: options.attestationPlatform ?? {
+      os: "unknown",
+      architecture: "unknown",
+    },
+    annotations: {
+      "vnd.docker.reference.type": "attestation-manifest",
+      "vnd.docker.reference.digest":
+        options.attestationReferenceDigest ?? runnable.digest,
+    },
+    ...attestation,
+  };
   const indexValue = {
     schemaVersion: 2,
     mediaType: "application/vnd.oci.image.index.v1+json",
     manifests: [
-      {
-        mediaType: "application/vnd.oci.image.manifest.v1+json",
-        platform: { os: "linux", architecture: "amd64" },
-        ...runnable,
-      },
-      {
-        mediaType: "application/vnd.oci.image.manifest.v1+json",
-        platform: { os: "unknown", architecture: "unknown" },
-        annotations: {
-          "vnd.docker.reference.type": "attestation-manifest",
-          "vnd.docker.reference.digest": runnable.digest,
-        },
-        ...attestation,
-      },
+      runnableDescriptor,
+      attestationDescriptor,
+      ...(options.extraRunnableDescriptor ? [runnableDescriptor] : []),
+      ...(options.extraAttestationDescriptor ? [attestationDescriptor] : []),
     ],
   };
-  const indexBytes = Buffer.from(`${JSON.stringify(indexValue)}\n`, "utf8");
-  const indexDigest = sha256(indexBytes);
-  writeFileSync(join(root, "index.json"), indexBytes);
+  const index = writeBlob(indexValue);
+  const indexDigest = index.digest;
+  const layoutRootDescriptor = {
+    mediaType:
+      options.layoutRootMediaType ?? "application/vnd.oci.image.index.v1+json",
+    digest: options.layoutRootDigest ?? index.digest,
+    size: index.size + (options.layoutRootSizeDelta ?? 0),
+    annotations: {
+      "io.containerd.image.name":
+        options.layoutRootImageName ?? `${spec.repository}:${SOURCE_SHA}`,
+      "org.opencontainers.image.ref.name":
+        options.layoutRootRefName ?? SOURCE_SHA,
+    },
+  };
+  const layoutIndexValue = {
+    schemaVersion: 2,
+    mediaType: "application/vnd.oci.image.index.v1+json",
+    manifests: [
+      ...(options.omitLayoutRoot ? [] : [layoutRootDescriptor]),
+      ...(options.extraLayoutRoot ? [layoutRootDescriptor] : []),
+    ],
+    ...(options.layoutSecretValue
+      ? { annotations: { reviewNote: options.layoutSecretValue } }
+      : {}),
+  };
+  let layoutIndexText = JSON.stringify(
+    options.legacyFlatLayout ? indexValue : layoutIndexValue,
+  );
+  if (options.duplicateLayoutKey) {
+    layoutIndexText = layoutIndexText.replace(
+      '"schemaVersion":2',
+      '"schemaVersion":2,"schema\\u0056ersion":2',
+    );
+  }
+  writeFileSync(
+    join(root, "index.json"),
+    Buffer.from(`${layoutIndexText}\n`, "utf8"),
+  );
+  if (options.missingRootIndexBlob) {
+    rmSync(join(blobRoot, index.digest.slice(7)));
+  } else if (options.corruptRootIndexBlob) {
+    writeFileSync(
+      join(blobRoot, index.digest.slice(7)),
+      Buffer.from("corrupt-root-index", "utf8"),
+    );
+  }
   writeFileSync(join(root, "oci-layout"), '{"imageLayoutVersion":"1.0.0"}\n');
   const archivePath = join(fixtureRoot, "reviewed.oci.tar");
   const archiveBytes = Buffer.from("exact-reviewed-archive", "utf8");
@@ -519,7 +573,9 @@ function registryFixture(
   const remoteBlobs = new Map();
   const remoteManifests = new Map();
   const blobRoot = join(layout.root, "blobs", "sha256");
-  const indexBytes = readFileSync(join(layout.root, "index.json"));
+  const indexBytes = readFileSync(
+    join(blobRoot, layout.image.digest.slice("sha256:".length)),
+  );
   const index = JSON.parse(indexBytes);
   if (digestStatus === 200) {
     for (const name of Object.values(index.manifests).map((entry) =>
@@ -577,7 +633,10 @@ function registryFixture(
       }
     }
   };
-  if (digestStatus === 200) populateBlobs();
+  if (digestStatus === 200) {
+    remoteBlobs.set(layout.image.digest, indexBytes);
+    populateBlobs();
+  }
   remoteManifests.set(
     layout.image.digest,
     corruptExistingRoot
@@ -966,6 +1025,16 @@ test("verifies exact offline OCI graph and raw target/build-arg provenance", asy
       graph.runnableDescriptor.digest,
       accepted.image.runnableManifestDigest,
     );
+    assert.equal(
+      graph.indexPath,
+      join(
+        accepted.root,
+        "blobs",
+        "sha256",
+        accepted.image.digest.slice("sha256:".length),
+      ),
+    );
+    assert.equal(graph.layoutIndexPath, join(accepted.root, "index.json"));
   } finally {
     rmSync(accepted.fixtureRoot, { recursive: true, force: true });
   }
@@ -991,6 +1060,74 @@ test("verifies exact offline OCI graph and raw target/build-arg provenance", asy
       );
     } finally {
       rmSync(drifted.fixtureRoot, { recursive: true, force: true });
+    }
+  }
+});
+
+test("requires one exact named OCI layout root and its bound inner image index", async () => {
+  const layoutInvalid = "PRODUCTION_IMAGE_OCI_LAYOUT_INVALID";
+  const bindingInvalid = "PRODUCTION_IMAGE_BINDING_INVALID";
+  for (const [options, expectedCode] of [
+    [{ duplicateLayoutKey: true }, layoutInvalid],
+    [
+      { layoutSecretValue: "github_pat_redacted_layout_fixture" },
+      "PRODUCTION_IMAGE_SECRET_MATERIAL",
+    ],
+    [{ omitLayoutRoot: true }, layoutInvalid],
+    [{ extraLayoutRoot: true }, layoutInvalid],
+    [
+      {
+        layoutRootMediaType: "application/vnd.oci.image.manifest.v1+json",
+      },
+      bindingInvalid,
+    ],
+    [{ layoutRootDigest: digest("foreign-layout-root") }, bindingInvalid],
+    [{ layoutRootSizeDelta: 1 }, bindingInvalid],
+    [
+      {
+        layoutRootImageName: `ghcr.io/modvolt/unreviewed:${SOURCE_SHA}`,
+      },
+      bindingInvalid,
+    ],
+    [{ layoutRootRefName: `foreign-${SOURCE_SHA}` }, bindingInvalid],
+    [{ missingRootIndexBlob: true }, layoutInvalid],
+    [{ corruptRootIndexBlob: true }, bindingInvalid],
+    [{ legacyFlatLayout: true }, layoutInvalid],
+    [{ extraRunnableDescriptor: true }, layoutInvalid],
+    [{ extraAttestationDescriptor: true }, layoutInvalid],
+    [
+      {
+        runnablePlatform: { architecture: "amd64", os: "linux", variant: "v3" },
+      },
+      bindingInvalid,
+    ],
+    [
+      { attestationPlatform: { architecture: "amd64", os: "linux" } },
+      bindingInvalid,
+    ],
+    [
+      {
+        attestationReferenceDigest: digest("foreign-runnable-reference"),
+      },
+      bindingInvalid,
+    ],
+  ]) {
+    const layout = ociLayoutFixture(options);
+    try {
+      await assert.rejects(
+        () =>
+          verifyReviewedOciLayout({
+            layoutDirectory: layout.root,
+            archivePath: layout.archivePath,
+            image: layout.image,
+            imageKey: "api",
+          }),
+        (error) =>
+          error instanceof ProductionImagePublicationError &&
+          error.code === expectedCode,
+      );
+    } finally {
+      rmSync(layout.fixtureRoot, { recursive: true, force: true });
     }
   }
 });
@@ -1528,6 +1665,10 @@ test("workflow is reusable, two-stage, digest-only and never rebuilds reviewed b
     contents: "read",
   });
   assert.equal(
+    workflow.jobs["build-preflight"].env.DOCKER_BUILD_RECORD_UPLOAD,
+    "false",
+  );
+  assert.equal(
     workflow.jobs["publish-reviewed-complete"].permissions.packages,
     "write",
   );
@@ -1557,6 +1698,7 @@ test("workflow is reusable, two-stage, digest-only and never rebuilds reviewed b
   assert.equal((raw.match(/push: false/gu) ?? []).length, 4);
   assert.equal((raw.match(/push: true/gu) ?? []).length, 0);
   assert.equal((raw.match(/docker\/build-push-action@/gu) ?? []).length, 4);
+  assert.equal((raw.match(/oci-artifact=false/gu) ?? []).length, 4);
   for (const [archive, repository] of [
     ["production-api.oci.tar", "site-logbook-production-api"],
     ["control-plane.oci.tar", "site-logbook-control-plane"],
@@ -1566,11 +1708,20 @@ test("workflow is reusable, two-stage, digest-only and never rebuilds reviewed b
     assert.match(
       raw,
       new RegExp(
-        `outputs: type=oci,dest=${archive.replaceAll(".", "\\.")},name=ghcr\\.io/modvolt/${repository}:\\$\\{\\{ inputs\\.source_sha \\}\\}`,
+        `outputs: type=oci,dest=${archive.replaceAll(".", "\\.")},name=ghcr\\.io/modvolt/${repository}:\\$\\{\\{ inputs\\.source_sha \\}\\},oci-artifact=false`,
         "u",
       ),
     );
   }
+  assert.match(raw, /expected one layout root descriptor/u);
+  assert.match(raw, /io\.containerd\.image\.name/u);
+  assert.match(raw, /org\.opencontainers\.image\.ref\.name/u);
+  assert.doesNotMatch(raw, /sha256sum "\$root\/index\.json"/u);
+  assert.doesNotMatch(raw, /cp "\$root\/index\.json"/u);
+  assert.match(
+    raw,
+    /preflight-artifact\/\$\{key\}-oci-index\.json" "\$\{root\}\/blobs\/sha256\/\$\{root_digest#sha256:\}"/u,
+  );
   assert.match(
     raw,
     /\.subject == \[\{name:\$subjectName,digest:\{sha256:\(\$runnableDigest \| sub\("\^sha256:"; ""\)\)\}\}\]/u,
