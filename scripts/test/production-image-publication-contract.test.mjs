@@ -1578,6 +1578,31 @@ test("workflow is reusable, two-stage, digest-only and never rebuilds reviewed b
   const completeJob = JSON.stringify(
     workflow.jobs["publish-reviewed-complete"],
   );
+  const predecessorStep = workflow.jobs["publish-reviewed-complete"].steps.find(
+    (step) =>
+      step.name === "Download and verify the exact reviewed preflight bytes",
+  );
+  assert.ok(predecessorStep);
+  assert.equal(
+    (
+      predecessorStep.run.match(
+        /--arg callerWorkflowSha "\$CURRENT_CALLER_WORKFLOW_SHA"/gu,
+      ) ?? []
+    ).length,
+    3,
+  );
+  assert.match(
+    predecessorStep.run,
+    /\.event == "workflow_dispatch" and \.head_branch == "main" and\s+\.head_sha == \$callerWorkflowSha/u,
+  );
+  assert.match(
+    predecessorStep.run,
+    /\.workflow_run\.head_sha == \$callerWorkflowSha/u,
+  );
+  assert.doesNotMatch(
+    predecessorStep.run,
+    /\.workflow_run\.head_sha == \$sourceSha/u,
+  );
   const packagePostcheck = workflow.jobs[
     "publish-reviewed-complete"
   ].steps.find(
