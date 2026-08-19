@@ -26,7 +26,7 @@ describe("automatic backup trigger lock contract", () => {
     expect(trigger).toContain(
       "tryAcquireSchedulerLock(SCHEDULER_LOCK_KEYS.backupAuto",
     );
-    expect(trigger).toContain("await reserveAutoBackupIfDue(lease)");
+    expect(trigger).toContain("await reserveAutoBackupIfDue(lease, signal)");
     expect(trigger).toContain("if (!result.triggered) await lease.release()");
   });
 
@@ -52,7 +52,9 @@ describe("automatic backup trigger lock contract", () => {
       "export function startRestoreTestScheduler",
     );
 
-    expect(scheduler).toContain("triggerAutoBackupIfDue().catch");
+    expect(scheduler).toContain(
+      "triggerAutoBackupIfDue(abortController.signal).catch",
+    );
     expect(scheduler).not.toContain("withSchedulerLock(");
   });
 
@@ -67,7 +69,8 @@ describe("automatic backup trigger lock contract", () => {
     );
     expect(manual).toContain("await reconcileAbandonedRunningBackups()");
     expect(manual).toContain("await executeReservedBackup(attempt, lease)");
-    expect(manual).toContain("await lease.release()");
+    expect(manual).toContain("boundedBackupCleanup(");
+    expect(manual).toContain("lease.release().then(() => true)");
     expect(manual).toContain("throw new BackupAlreadyRunningError()");
   });
 
@@ -94,6 +97,14 @@ describe("automatic backup trigger lock contract", () => {
   });
 
   it("fences both final states by lease validity and running-row CAS", () => {
+    const success = section(
+      "export async function persistBackupCreationSuccess",
+      "type BackupCreationSuccessMetadata",
+    );
+    const failure = section(
+      "export async function resolveBackupCreationFailure",
+      "export type CreatedBackupLog",
+    );
     const execution = section(
       "async function executeReservedBackup",
       "export async function createBackup",
@@ -103,12 +114,22 @@ describe("automatic backup trigger lock contract", () => {
       execution.match(/lease\.isValid\(\)/g)?.length,
     ).toBeGreaterThanOrEqual(3);
     expect(execution).toContain("BackupExecutionLeaseLostError");
-    expect(execution.match(/eq\(backupLogTable\.id, row\.id\)/g)).toHaveLength(
-      2,
+    expect(success).toContain("WHERE id = $1 AND status = 'running'");
+    expect(success).toContain("clock_timestamp() <= $7::timestamptz");
+    expect(failure).toContain("WHERE id = $1 AND status = 'running'");
+    expect(failure).toContain("AND object_path = $2 AND size_bytes = $3");
+    const resolutionIndex = execution.indexOf("resolveBackupCreationFailure({");
+    const deleteIndex = execution.indexOf(
+      "objectStorage.deletePrivateObject(objectPath)",
     );
-    expect(
-      execution.match(/eq\(backupLogTable\.status, \"running\"\)/g),
-    ).toHaveLength(2);
+    expect(resolutionIndex).toBeGreaterThanOrEqual(0);
+    expect(deleteIndex).toBeGreaterThan(resolutionIndex);
+    expect(execution).toContain(
+      'if (resolution === "failed" && uploadStarted)',
+    );
+    expect(execution).toContain(
+      'if (resolution === "success" && successMetadata)',
+    );
   });
 
   it("terminates a timed-out restore process before forced database cleanup", () => {
@@ -120,7 +141,7 @@ describe("automatic backup trigger lock contract", () => {
     expect(restore).toContain('child.kill("SIGTERM")');
     expect(restore).toContain('child.kill("SIGKILL")');
     expect(restore).toContain("await stopActiveRestoreProcess()");
-    expect(restore).toContain("await restoreOperation.catch");
+    expect(restore).toContain("restoreOperation.catch(() => undefined)");
     expect(restore).toContain("WITH (FORCE)");
   });
 });

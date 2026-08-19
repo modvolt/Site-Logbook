@@ -1245,6 +1245,7 @@ jobs:
         with:
           context: .
           file: artifacts/api-server/Dockerfile
+          target: control-plane
           platforms: linux/amd64
           push: false
           build-args: BUILD_SHA=${{ inputs.source_sha }}
@@ -1371,6 +1372,7 @@ jobs:
         with:
           context: .
           file: artifacts/api-server/Dockerfile
+          target: control-plane
           platforms: linux/amd64
           push: true
           tags: ${{ steps.names.outputs.api }}:${{ inputs.source_sha }}

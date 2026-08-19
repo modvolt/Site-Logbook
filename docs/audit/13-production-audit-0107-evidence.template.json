@@ -1,0 +1,135 @@
+{
+  "_templateStatus": "ACTIVATION BLOCKED - populate only from a reviewed production host runner; split each evidence object and canonicalize it independently",
+  "target": {
+    "schemaVersion": 1,
+    "kind": "site-logbook-production-audit-0107-target",
+    "logicalEnvironmentId": "site-logbook-production",
+    "coolify": {
+      "projectId": "bai77dzr0h7b5gu1jqwpriew",
+      "environmentId": "d5m70pb2i5s7c41n21vaokr7",
+      "environmentLabel": "production",
+      "applicationId": "ef09696arga7h9ox6ojgv7ru",
+      "pendingChanges": true,
+      "deployedConfigSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "desiredConfigSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "resolvedComposeSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "build": {
+      "sourceSha": "0000000000000000000000000000000000000000",
+      "provenanceSourceSha": "0000000000000000000000000000000000000000",
+      "provenanceEvidenceSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "apiImage": "ghcr.io/modvolt/PENDING@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "apiImageDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "imageProfile": "production",
+      "mutatingEntrypointsPresent": false
+    },
+    "database": {
+      "name": "PENDING",
+      "user": "PENDING"
+    },
+    "livePostgresTarget": {
+      "containerId": "0000000000000000000000000000000000000000000000000000000000000000",
+      "image": "docker.io/library/postgres@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "imageId": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "volumeName": "PENDING",
+      "networkName": "PENDING",
+      "networkId": "0000000000000000000000000000000000000000000000000000000000000000",
+      "projectionSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "schemaFingerprintSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "capturedAt": "PENDING"
+  },
+  "intent": {
+    "schemaVersion": 1,
+    "kind": "site-logbook-production-audit-0107-intent",
+    "sourceSha": "0000000000000000000000000000000000000000",
+    "targetEvidenceSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "expectedSchemaFingerprintSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "backupIntegrity": {
+      "schemaVersion": "site-logbook.audit-schema-backup-integrity/v1",
+      "verifiedTableNames": ["PENDING"],
+      "verifiedTableCounts": {
+        "PENDING": 0
+      },
+      "verifiedTableCountsSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "backupRowBindingSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "productionTargetsTouched": false,
+    "confirmation": "APPLY_0107_AUDIT_EVIDENCE_TO_EXACT_MODVOLT_PRODUCTION",
+    "authorizesApplicationStart": false
+  },
+  "execution": {
+    "schemaVersion": 1,
+    "kind": "site-logbook-production-audit-0107-execution",
+    "decision": "PENDING",
+    "operation": "PENDING",
+    "sourceSha": "0000000000000000000000000000000000000000",
+    "targetEvidenceSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "intentEvidenceSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "expectedSchemaFingerprintSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "backupIntegrity": {
+      "schemaVersion": "site-logbook.audit-schema-backup-integrity/v1",
+      "verifiedTableNames": ["PENDING"],
+      "verifiedTableCounts": {
+        "PENDING": 0
+      },
+      "verifiedTableCountsSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "backupRowBindingSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "productionTargetsTouched": false,
+    "migration0107AppliedOrVerified": false,
+    "preMigrationBackupEvidenceSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "transitionChainSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "completedAt": "PENDING",
+    "authorizesApplicationStart": false
+  },
+  "steady": {
+    "schemaVersion": 1,
+    "kind": "site-logbook-production-audit-0107-steady",
+    "decision": "PENDING",
+    "sourceSha": "0000000000000000000000000000000000000000",
+    "targetEvidenceSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "productionTargetsTouched": false,
+    "databaseName": "PENDING",
+    "databaseUser": "PENDING",
+    "schemaFingerprintSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "lineage": {
+      "decision": "PENDING",
+      "mode": "production-copy-restricted",
+      "knownExpectedMigrations": 107,
+      "knownAppliedMigrations": 0,
+      "knownAppliedRowsSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "latestKnownAppliedTag": "PENDING",
+      "missingKnownToPredecessor": 107,
+      "opaqueLegacyRowCount": 2,
+      "opaqueLegacyRowsSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "opaqueLegacyMeaningInferred": false,
+      "excludedMigration0100Present": false
+    },
+    "checkedAt": "PENDING",
+    "authorizesApplicationStart": false
+  },
+  "activationApproval": {
+    "schemaVersion": "site-logbook.production-activation-approval/v1",
+    "sourceSha": "0000000000000000000000000000000000000000",
+    "targetEvidenceSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "confirmation": "AUTHORIZE_EXACT_0107_MODVOLT_PRODUCTION_APPLICATION_START",
+    "approvedAt": "PENDING",
+    "operator": "PENDING"
+  },
+  "release": {
+    "schemaVersion": 1,
+    "kind": "site-logbook-production-audit-0107-release-evidence",
+    "sourceSha": "0000000000000000000000000000000000000000",
+    "targetEvidenceSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "intentEvidenceSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "executionEvidenceSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "steadyEvidenceSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "confirmation": "AUTHORIZE_EXACT_0107_MODVOLT_PRODUCTION_APPLICATION_START",
+    "activationApprovalSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "approvedAt": "PENDING",
+    "operator": "PENDING",
+    "productionTargetsTouched": false,
+    "authorizesApplicationStart": false
+  }
+}

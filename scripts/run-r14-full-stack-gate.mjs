@@ -255,6 +255,8 @@ async function dockerBuilds() {
       ...buildPrefix,
       "--file",
       "artifacts/api-server/Dockerfile",
+      "--target",
+      "control-plane",
       "--build-arg",
       `BUILD_SHA=${sourceSha}`,
       "--tag",

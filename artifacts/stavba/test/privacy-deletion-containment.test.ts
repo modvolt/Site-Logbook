@@ -1,20 +1,17 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
+const source = (relativePath: string): string =>
+  readFileSync(new URL(relativePath, import.meta.url), "utf8").replace(
+    /\r\n?/g,
+    "\n",
+  );
+
 const pageSources = {
-  gdpr: readFileSync(new URL("../src/pages/gdpr.tsx", import.meta.url), "utf8"),
-  customers: readFileSync(
-    new URL("../src/pages/customers.tsx", import.meta.url),
-    "utf8",
-  ),
-  customerDetail: readFileSync(
-    new URL("../src/pages/customer-detail.tsx", import.meta.url),
-    "utf8",
-  ),
-  people: readFileSync(
-    new URL("../src/pages/people.tsx", import.meta.url),
-    "utf8",
-  ),
+  gdpr: source("../src/pages/gdpr.tsx"),
+  customers: source("../src/pages/customers.tsx"),
+  customerDetail: source("../src/pages/customer-detail.tsx"),
+  people: source("../src/pages/people.tsx"),
 };
 
 describe("privacy deletion UI containment", () => {

@@ -1,25 +1,17 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-const routes = readFileSync(
-  new URL("../src/routes/warehouse-items.ts", import.meta.url),
-  "utf8",
-);
-const service = readFileSync(
-  new URL("../src/lib/warehouse-service.ts", import.meta.url),
-  "utf8",
-);
-const app = readFileSync(new URL("../src/app.ts", import.meta.url), "utf8");
-const openapi = readFileSync(
-  new URL("../../../lib/api-spec/openapi.yaml", import.meta.url),
-  "utf8",
-);
-const adminBackfillPage = readFileSync(
-  new URL(
-    "../../stavba/src/pages/admin-warehouse-backfill.tsx",
-    import.meta.url,
-  ),
-  "utf8",
+const source = (relativePath: string): string =>
+  readFileSync(new URL(relativePath, import.meta.url), "utf8").replace(
+    /\r\n?/g,
+    "\n",
+  );
+const routes = source("../src/routes/warehouse-items.ts");
+const service = source("../src/lib/warehouse-service.ts");
+const app = source("../src/app.ts");
+const openapi = source("../../../lib/api-spec/openapi.yaml");
+const adminBackfillPage = source(
+  "../../stavba/src/pages/admin-warehouse-backfill.tsx",
 );
 
 function section(source: string, start: string, end: string): string {

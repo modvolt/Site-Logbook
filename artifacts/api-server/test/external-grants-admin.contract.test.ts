@@ -3,7 +3,8 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const root = resolve(import.meta.dirname, "../../..");
-const read = (path: string) => readFileSync(resolve(root, path), "utf8");
+const read = (path: string) =>
+  readFileSync(resolve(root, path), "utf8").replace(/\r\n?/g, "\n");
 
 describe("external grant administration contract", () => {
   it("lists only redacted metadata behind users.manage", () => {
@@ -24,7 +25,9 @@ describe("external grant administration contract", () => {
       route.indexOf("const qrListQuery"),
       route.indexOf("const revokeBody"),
     );
-    expect(qrList).toContain("beforeId: z.coerce.number().int().positive().optional()");
+    expect(qrList).toContain(
+      "beforeId: z.coerce.number().int().positive().optional()",
+    );
     expect(qrList).toContain("lt(switchboardsTable.id, query.data.beforeId)");
     expect(qrList).toContain(".orderBy(desc(switchboardsTable.id))");
     expect(qrList).toContain("nextBeforeId:");
@@ -36,15 +39,15 @@ describe("external grant administration contract", () => {
 
   it("step-up protects revocation and revalidates the manager in-transaction", () => {
     const route = read("artifacts/api-server/src/routes/external-grants.ts");
-    const service = read(
-      "artifacts/api-server/src/lib/public-access-token.ts",
-    );
+    const service = read("artifacts/api-server/src/lib/public-access-token.ts");
 
     expect(route).toContain('"/external-grants/public/:id/revoke"');
     expect(route).toContain("requireVaultStepUp");
     expect(route).toContain("lockAndAuthorizeUserManager");
     expect(route).toContain("revokePublicAccessTokenById");
-    expect(service).toContain("lockGrantFamily(tx, purpose, candidate.resourceId)");
+    expect(service).toContain(
+      "lockGrantFamily(tx, purpose, candidate.resourceId)",
+    );
     expect(service).toContain("isNull(publicAccessTokensTable.revokedAt)");
     expect(service).toContain("isNull(publicAccessTokensTable.consumedAt)");
   });

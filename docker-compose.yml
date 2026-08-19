@@ -1,18 +1,18 @@
-# Stavba — full self-hosted stack (PostgreSQL + MinIO + API + Web).
+# Stavba — production runtime (PostgreSQL + API + Web).
 #
-# Local quick start:
-#   cp .env.example .env   # then edit the secrets
-#   docker compose up --build
-#   open http://localhost:8080
-#
-# On Coolify, point a "Docker Compose" resource at this file and supply the same
-# variables through the Coolify environment UI. See DEPLOYMENT.md.
+# This manifest has no build path or mutable image fallback. Render it only with
+# separately approved immutable images and canonical production evidence. On
+# Coolify, point a "Docker Compose" resource at this file and supply the same
+# variables through the environment UI. See DEPLOYMENT.md.
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: ${PRODUCTION_POSTGRES_IMAGE:?set immutable PostgreSQL repository@sha256 digest}
+    pull_policy: always
     restart: unless-stopped
     environment:
+      # PostgreSQL bootstrap/admin identity only. The API never receives these
+      # credentials and never owns or migrates the production schema.
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
@@ -24,104 +24,38 @@ services:
       timeout: 5s
       retries: 10
 
-  minio:
-    image: minio/minio:latest
-    restart: unless-stopped
-    command: server /data --console-address ":9001"
-    environment:
-      # The bundled MinIO reuses the same credential pair the API uses, so there
-      # is a single source of truth (no nested ${VAR:-${VAR}} defaults, which
-      # some PaaS env parsers — notably Coolify — mangle, corrupting the key).
-      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID}
-      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY}
-    volumes:
-      - miniodata:/data
-    # Published for admin/console access only. Uploads are proxied through the
-    # API (browser → /api/storage/uploads → API → bucket), so the browser never
-    # connects to MinIO directly and does not need this port.
-    ports:
-      - "${MINIO_PORT:-9000}:9000"
-      - "${MINIO_CONSOLE_PORT:-9001}:9001"
-
-  # One-shot init job: create the bucket, then exit 0. Gates the API so storage
-  # is ready before it starts.
-  #
-  # restart: "no" is REQUIRED on Coolify. A one-shot container with any other
-  # restart policy is treated as a long-running service that "keeps stopping",
-  # and Coolify's post-deploy monitor then inspects a container that has already
-  # exited/been recreated, surfacing the "No such container" deploy failure.
-  # Pinning restart to "no" keeps it in a stable Exited(0) state so the API's
-  # service_completed_successfully gate can read it.
-  createbuckets:
-    image: minio/mc:latest
-    restart: "no"
-    depends_on:
-      minio:
-        condition: service_started
-    environment:
-      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID}
-      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY}
-      S3_BUCKET: ${S3_BUCKET}
-    # Wait for MinIO to accept connections, create the bucket idempotently
-    # (--ignore-existing => existing bucket is NOT an error), then exit 0.
-    # set -e makes a genuine bucket-creation failure (e.g. bad credentials) exit
-    # non-zero so the API gate is not satisfied, instead of silently passing.
-    #
-    # The connection wait is BOUNDED (60 tries x 2s = ~120s). Without a cap, an
-    # unreachable MinIO or bad credentials made this loop run forever, and because
-    # the API gates on `service_completed_successfully`, the WHOLE deploy hung
-    # indefinitely with no error. Now it fails fast with a clear message so the
-    # Coolify deploy stops with a diagnosable cause instead of stalling.
-    entrypoint: >
-      /bin/sh -c "
-      set -e;
-      i=0;
-      until mc alias set local http://minio:9000 \"$$MINIO_ROOT_USER\" \"$$MINIO_ROOT_PASSWORD\"; do
-        i=$$((i+1));
-        if [ $$i -ge 60 ]; then
-          echo 'ERROR: could not connect to MinIO after 60 attempts (~120s). Check that the minio service is running and that S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY are set correctly (MinIO root password must be >= 8 chars).' >&2;
-          exit 1;
-        fi;
-        echo \"waiting for minio... ($$i/60)\"; sleep 2;
-      done;
-      mc mb --ignore-existing local/\"$$S3_BUCKET\";
-      echo 'bucket ready';
-      "
-
   api:
-    build:
-      context: .
-      dockerfile: artifacts/api-server/Dockerfile
+    image: ${PRODUCTION_API_IMAGE:?set immutable API repository@sha256 digest}
+    pull_policy: always
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
-      createbuckets:
-        condition: service_completed_successfully
     environment:
       PORT: 5000
-      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      SITE_LOGBOOK_RUNTIME_ENVIRONMENT: production
+      BUILD_SHA: ${BUILD_SHA:?set the exact 40-character release commit SHA}
+      # The login role is source-pinned. Its separately generated secret is
+      # transferred to Coolify only after the attended role/credential receipt.
+      DATABASE_URL: postgres://site_logbook_runtime:${PRODUCTION_RUNTIME_DATABASE_PASSWORD:?set the separate runtime database secret}@postgres:5432/${POSTGRES_DB}
       SESSION_SECRET: ${SESSION_SECRET}
       # Object storage. Uploads are proxied through the API, which reaches the
       # bucket over S3_ENDPOINT — the browser never talks to storage, so no
       # browser-reachable endpoint or bucket CORS is required.
       #
-      # S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY are the single credential pair
-      # used by both the API and the bundled MinIO — set them in .env (local) or
-      # the Coolify env UI. S3_ENDPOINT defaults to the bundled MinIO; to use an
-      # EXTERNAL S3-compatible provider (Hetzner, AWS, …) instead, override:
+      # Production storage is the externally managed Hetzner Object Storage
+      # bucket. MinIO is not a production fallback and is intentionally absent
+      # from this Compose file. Create the bucket and credentials in Hetzner:
       #   S3_ENDPOINT=https://fsn1.your-objectstorage.com
       #   S3_REGION=fsn1
-      #   S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY = your provider's keys
-      #   S3_FORCE_PATH_STYLE=true   (Hetzner/MinIO) or false (AWS)
-      # The bucket must already exist on the external provider. The bundled
-      # `minio`/`createbuckets` services can be left running (unused) or removed.
-      S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
-      S3_REGION: ${S3_REGION:-us-east-1}
-      S3_BUCKET: ${S3_BUCKET}
-      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
-      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
-      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
+      # The exact pre-migration backup additionally requires HTTPS, an official
+      # Hetzner endpoint and durable object VersionId evidence.
+      S3_ENDPOINT: ${S3_ENDPOINT:?set the canonical Hetzner Object Storage HTTPS endpoint}
+      S3_REGION: ${S3_REGION:?set the Hetzner Object Storage location}
+      S3_BUCKET: ${S3_BUCKET:?set the existing Hetzner bucket}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?set the Hetzner S3 access key}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?set the Hetzner S3 secret key}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-false}
       # SMTP (optional — email features are disabled until configured).
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
@@ -136,14 +70,27 @@ services:
       # startup fails closed when this is absent; do not use hop counts or broad
       # private aliases. Record the real Coolify network topology first.
       API_TRUSTED_PROXY_CIDRS: ${API_TRUSTED_PROXY_CIDRS:-}
-      EXTERNAL_ACCOUNTS_ENABLED: ${EXTERNAL_ACCOUNTS_ENABLED:-false}
+      EXTERNAL_ACCOUNTS_ENABLED: "false"
+      # HOLD does not read DATABASE_URL, S3, or any application secret. These
+      # fixed source/image identity and pinned public-key digests authenticate
+      # a later secret-free v2 activation bundle. The signed bundle's
+      # authoritative observer evidence supplies configuration digests only
+      # after deployment, avoiding self-referential Coolify environment hashes.
+      # Evidence is never transported through environment B64.
+      PRODUCTION_ACTIVATION_PUBLISHER_PUBLIC_KEY_SHA256: ${PRODUCTION_ACTIVATION_PUBLISHER_PUBLIC_KEY_SHA256:?set pinned publisher Ed25519 DER-SPKI sha256 fingerprint}
+      PRODUCTION_ACTIVATION_HOST_PUBLIC_KEY_SHA256: ${PRODUCTION_ACTIVATION_HOST_PUBLIC_KEY_SHA256:?set distinct host Ed25519 DER-SPKI sha256 fingerprint}
+      PRODUCTION_EXPECTED_DATABASE_USER: site_logbook_runtime
+    volumes:
+      - type: bind
+        source: ${PRODUCTION_HOST_EVIDENCE_DIR:?set the precreated host evidence directory}
+        target: /run/site-logbook-production-evidence
+        read_only: true
+        bind:
+          create_host_path: false
 
   web:
-    build:
-      context: .
-      dockerfile: artifacts/stavba/Dockerfile
-      args:
-        BASE_PATH: /
+    image: ${PRODUCTION_WEB_IMAGE:?set immutable web repository@sha256 digest}
+    pull_policy: always
     restart: unless-stopped
     depends_on:
       api:
@@ -159,4 +106,3 @@ services:
 
 volumes:
   pgdata:
-  miniodata:

@@ -63,7 +63,10 @@ export interface ReminderText {
  * Build the default polite Czech reminder e-mail for an overdue invoice. Used to
  * pre-fill the manual reminder dialog and as the body of automatic reminders.
  */
-export function composeReminder(invoice: Invoice, overdueDays: number): ReminderText {
+export function composeReminder(
+  invoice: Invoice,
+  overdueDays: number,
+): ReminderText {
   const number = invoice.invoiceNumber ?? `#${invoice.id}`;
   const amount = fmtKc(num(invoice.totalWithVat));
   const due = fmtDate(invoice.dueDate);
@@ -82,12 +85,17 @@ export function composeReminder(invoice: Invoice, overdueDays: number): Reminder
 }
 
 async function loadInvoice(id: number): Promise<Invoice | null> {
-  const [invoice] = await db.select().from(invoicesTable).where(eq(invoicesTable.id, id));
+  const [invoice] = await db
+    .select()
+    .from(invoicesTable)
+    .where(eq(invoicesTable.id, id));
   return invoice ?? null;
 }
 
 /** True when an invoice is an outstanding receivable that is past its due date. */
-export function isOverdue(invoice: Pick<Invoice, "status" | "dueDate">): boolean {
+export function isOverdue(
+  invoice: Pick<Invoice, "status" | "dueDate">,
+): boolean {
   if (invoice.status !== "issued" && invoice.status !== "sent") return false;
   if (!invoice.dueDate) return false;
   return daysOverdue(invoice.dueDate) > 0;
@@ -199,7 +207,7 @@ export async function sendInvoiceReminder(
  * sent, and send a reminder for it. Each threshold fires at most once per
  * invoice. Safe to call repeatedly (idempotent within a day).
  */
-export async function runAutomaticReminders(): Promise<{
+export async function runAutomaticReminders(signal?: AbortSignal): Promise<{
   considered: number;
   sent: number;
   failed: number;
@@ -244,6 +252,7 @@ export async function runAutomaticReminders(): Promise<{
   let failed = 0;
 
   for (const invoice of overdue) {
+    if (signal?.aborted) break;
     const overdueCount = daysOverdue(invoice.dueDate!);
     const already = sentByInvoice.get(invoice.id) ?? new Set<number>();
     // Highest crossed threshold not yet sent — only the most recent milestone
@@ -253,7 +262,10 @@ export async function runAutomaticReminders(): Promise<{
       .sort((a, b) => b - a)[0];
     if (due == null) continue;
     // Skip invoices without a deliverable customer e-mail rather than erroring.
-    if (!invoice.customerEmail || !EMAIL_PATTERN.test(invoice.customerEmail.trim())) {
+    if (
+      !invoice.customerEmail ||
+      !EMAIL_PATTERN.test(invoice.customerEmail.trim())
+    ) {
       continue;
     }
     considered += 1;
@@ -274,31 +286,41 @@ export async function runAutomaticReminders(): Promise<{
   }
 
   if (sent || failed) {
-    logger.info({ considered, sent, failed }, "Automatic invoice reminders run");
+    logger.info(
+      { considered, sent, failed },
+      "Automatic invoice reminders run",
+    );
   }
   return { considered, sent, failed };
 }
 
-let schedulerStarted = false;
+export type SchedulerStopHandle = Readonly<{
+  stop(): void;
+}>;
+
+let schedulerHandle: SchedulerStopHandle | undefined;
 
 /**
  * Start the periodic automatic-reminder sweep. Idempotent. Interval is
  * REMINDER_INTERVAL_HOURS (default 12h). The sweep itself is gated on the
  * `reminderEnabled` billing setting, so it is cheap to run while disabled.
  */
-export function startReminderScheduler(): void {
-  if (schedulerStarted) return;
-  schedulerStarted = true;
+export function startReminderScheduler(): SchedulerStopHandle {
+  if (schedulerHandle) return schedulerHandle;
 
+  const abortController = new AbortController();
   const hours = Number(process.env.REMINDER_INTERVAL_HOURS);
-  const intervalMs = (Number.isFinite(hours) && hours > 0 ? hours : 12) * 60 * 60 * 1000;
+  const intervalMs =
+    (Number.isFinite(hours) && hours > 0 ? hours : 12) * 60 * 60 * 1000;
+  let stopped = false;
 
-  const tick = () =>
-    withSchedulerLock(SCHEDULER_LOCK_KEYS.invoiceReminders, async () => {
-      await runAutomaticReminders();
-    }).catch((err) =>
-      logger.error({ err }, "Automatic reminder sweep failed"),
-    );
+  const tick = (): void => {
+    if (stopped) return;
+    void withSchedulerLock(SCHEDULER_LOCK_KEYS.invoiceReminders, async () => {
+      if (abortController.signal.aborted) return;
+      await runAutomaticReminders(abortController.signal);
+    }).catch((err) => logger.error({ err }, "Automatic reminder sweep failed"));
+  };
 
   const timer = setInterval(tick, intervalMs);
   timer.unref();
@@ -308,8 +330,21 @@ export function startReminderScheduler(): void {
   const initial = setTimeout(tick, 60_000);
   initial.unref();
 
+  const handle: SchedulerStopHandle = {
+    stop(): void {
+      if (stopped) return;
+      stopped = true;
+      abortController.abort();
+      clearTimeout(initial);
+      clearInterval(timer);
+      if (schedulerHandle === handle) schedulerHandle = undefined;
+    },
+  };
+  schedulerHandle = handle;
+
   logger.info(
     { intervalHours: intervalMs / (60 * 60 * 1000) },
     "Invoice reminder scheduler started",
   );
+  return handle;
 }

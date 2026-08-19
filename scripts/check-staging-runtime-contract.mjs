@@ -188,10 +188,10 @@ export function classifyStagingPublicationState(stage, state) {
 }
 
 function readSource(relativePath, overrides) {
-  if (Object.hasOwn(overrides, relativePath)) {
-    return overrides[relativePath];
-  }
-  return fs.readFileSync(path.join(REPO_ROOT, relativePath), "utf8");
+  const value = Object.hasOwn(overrides, relativePath)
+    ? overrides[relativePath]
+    : fs.readFileSync(path.join(REPO_ROOT, relativePath), "utf8");
+  return value.replaceAll("\r\n", "\n");
 }
 
 function requireText(source, expected, field) {
@@ -239,12 +239,31 @@ function validateDockerfile(relativePath, source) {
   const fromLines = source
     .split(/\r?\n/)
     .filter((line) => line.startsWith("FROM "));
-  if (
-    fromLines.length === 0 ||
-    fromLines.some(
-      (line) => !/@sha256:[0-9a-f]{64}(?:\s+AS\s+[a-zA-Z0-9_-]+)?$/.test(line),
-    )
-  ) {
+  const pinnedStages = new Set();
+  let invalidFrom = fromLines.length === 0;
+  for (const line of fromLines) {
+    const parsed = /^FROM\s+(\S+?)(?:\s+AS\s+([a-zA-Z0-9_-]+))?$/.exec(line);
+    if (!parsed) {
+      invalidFrom = true;
+      break;
+    }
+    const [, base, declaredStage] = parsed;
+    const baseIsPinnedImage = /@sha256:[0-9a-f]{64}$/.test(base);
+    const baseIsPinnedLocalStage = pinnedStages.has(base.toLowerCase());
+    if (!baseIsPinnedImage && !baseIsPinnedLocalStage) {
+      invalidFrom = true;
+      break;
+    }
+    if (declaredStage) {
+      const canonicalStage = declaredStage.toLowerCase();
+      if (pinnedStages.has(canonicalStage)) {
+        invalidFrom = true;
+        break;
+      }
+      pinnedStages.add(canonicalStage);
+    }
+  }
+  if (invalidFrom) {
     fail(
       "STAGING_BASE_IMAGE_MUTABLE",
       `${relativePath} contains an unpinned FROM image.`,
@@ -440,7 +459,63 @@ export function validateStagingRuntimeContract(overrides = {}) {
   for (const relativePath of Object.keys(EXPECTED_BASE_IMAGES)) {
     validateDockerfile(relativePath, readSource(relativePath, overrides));
   }
+  const apiDockerfile = readSource(
+    "artifacts/api-server/Dockerfile",
+    overrides,
+  );
+  const runtimeStageStart = apiDockerfile.indexOf(" AS runtime");
+  const controlPlaneStageStart = apiDockerfile.indexOf(
+    "FROM runtime AS control-plane",
+  );
+  const productionStageStart = apiDockerfile.indexOf(
+    "FROM runtime AS production",
+  );
+  if (
+    runtimeStageStart < 0 ||
+    controlPlaneStageStart <= runtimeStageStart ||
+    productionStageStart <= controlPlaneStageStart
+  ) {
+    fail(
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+      "API runtime, explicit control-plane and final production Docker stages are not ordered fail closed.",
+    );
+  }
+  const producerBundle = "production-exact-0096-backup-producer.mjs";
+  const runtimeStage = apiDockerfile.slice(
+    runtimeStageStart,
+    controlPlaneStageStart,
+  );
+  const controlPlaneStage = apiDockerfile.slice(
+    controlPlaneStageStart,
+    productionStageStart,
+  );
+  const productionStage = apiDockerfile.slice(productionStageStart);
+  if (
+    runtimeStage.includes(producerBundle) ||
+    productionStage.includes(producerBundle) ||
+    !controlPlaneStage.includes(
+      'LABEL io.modvolt.site-logbook.image-profile="control-plane"',
+    ) ||
+    !controlPlaneStage.includes(
+      "RUN touch /app/.site-logbook-control-plane-image",
+    ) ||
+    !controlPlaneStage.includes(
+      "RUN test -f /app/.site-logbook-control-plane-image",
+    ) ||
+    !controlPlaneStage.includes(`/app/dist/${producerBundle}`) ||
+    !productionStage.includes("FROM runtime AS production")
+  ) {
+    fail(
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+      "The production image must exclude the exact-0096 producer while the explicit marker-baked control-plane target proves that bundle is present.",
+    );
+  }
   const apiBuild = readSource("artifacts/api-server/build.mjs", overrides);
+  requireText(
+    apiBuild,
+    '"src/production-exact-0096-backup-producer.ts"',
+    "API production exact-0096 producer bundle entrypoint",
+  );
   requireText(
     apiBuild,
     'path.resolve(artifactDir, "src/external-schema-preflight.ts")',
@@ -1926,10 +2001,15 @@ export function validateStagingRuntimeContract(overrides = {}) {
     "skipRetentionPrune?: boolean",
     "if (!skipRetentionPrune)",
     "maxPayloadBytes?: number",
-    "dumpStat.size > maxPayloadBytes",
+    "totalBytes + chunk.length > maxPayloadBytes",
+    'child.kill("SIGTERM")',
+    "terminationDeadline",
+    "stderrCeilingBytes",
     "storedSize > maxPayloadBytes",
     "row.sizeBytes > options.maxPayloadBytes",
     "maxBytes: options.maxPayloadBytes",
+    "persistBackupRestoreTestOutcome",
+    "clock_timestamp() <= $8::timestamptz",
   ]) {
     requireText(backupLibrary, boundary, `backup prune boundary ${boundary}`);
   }
@@ -1938,7 +2018,9 @@ export function validateStagingRuntimeContract(overrides = {}) {
     overrides,
   );
   for (const boundary of [
-    "options: { maxBytes?: number } = {}",
+    "options: { maxBytes?: number; signal?: AbortSignal } = {}",
+    "{ abortSignal: options.signal }",
+    "options.signal?.addEventListener",
     "totalBytes > options.maxBytes",
     "Recovery object exceeds the approved",
   ]) {
@@ -2605,6 +2687,111 @@ export function validateStagingRuntimeContract(overrides = {}) {
     );
   }
 
+  const frozenComposeRuntime = readSource(
+    "scripts/staging-frozen-compose-runtime.mjs",
+    overrides,
+  );
+  for (const boundary of [
+    'fs.openSync(filePath, "wx", 0o600)',
+    "stat.nlink !== 1",
+    "bytes.equals(frozen.fileBytes)",
+    '"config", "--format", "json"',
+    '"create"',
+    '"start", "--attach", containerId',
+    '["rm", "--force", target]',
+    '"container"',
+    '"--all"',
+    "`volume=${postgres.volumeName}`",
+    "`network=${postgres.networkName}`",
+    "STAGING_VOLUME_INSPECT_FORMAT",
+    "STAGING_NETWORK_INSPECT_FORMAT",
+    "sameIds(peerIds, allowed",
+    "primaryError && cleanupError",
+  ]) {
+    requireText(
+      frozenComposeRuntime,
+      boundary,
+      `frozen audit Compose runtime ${boundary}`,
+    );
+  }
+  const exact0106AuditBackupRunner = readSource(
+    "scripts/run-staging-exact-0106-audit-backup.mjs",
+    overrides,
+  );
+  for (const boundary of [
+    "freezeRenderedCompose",
+    "runFrozenComposeOneShot",
+    "assertApprovedDockerBoundary",
+    "cleanupFrozenCompose",
+    "STAGING_EXACT_0106_BACKUP_CONFIRMATION",
+    '"--expected-schema-fingerprint-sha256"',
+    "AUDIT_SCHEMA_EXPECTED_FINGERPRINT_SHA256",
+    "expectedSchemaFingerprintSha256",
+    "exactApprovedContainersAtObservedBoundaries: true",
+    "samePostgresContainerAtObservedBoundaries: true",
+    "continuousIsolationInferred: false",
+    "authorizesApplicationStart: false",
+  ]) {
+    requireText(
+      exact0106AuditBackupRunner,
+      boundary,
+      `exact-0106 audit backup host runtime ${boundary}`,
+    );
+  }
+  const auditSchemaFingerprintEnvironment =
+    "      AUDIT_SCHEMA_EXPECTED_FINGERPRINT_SHA256: ${AUDIT_SCHEMA_EXPECTED_FINGERPRINT_SHA256-}";
+  if (compose.split(auditSchemaFingerprintEnvironment).length - 1 !== 2) {
+    fail(
+      "STAGING_AUDIT_SCHEMA_FINGERPRINT_ENVIRONMENT_INVALID",
+      "Both isolated audit one-shots must expose exactly one empty-by-default schema fingerprint input for host freezing.",
+    );
+  }
+  const audit0107TransitionRunner = readSource(
+    "scripts/run-staging-audit-0107-transition.mjs",
+    overrides,
+  );
+  for (const boundary of [
+    "freezeRenderedCompose",
+    "runFrozenComposeOneShot",
+    "assertApprovedDockerBoundary",
+    "cleanupFrozenCompose",
+    'commandOverride: ["node", "dist/audit-schema-inventory.mjs"]',
+    "STAGING_AUDIT_DEPLOYMENT_INPUTS_SHA256",
+    "STAGING_EXACT_0106_BACKUP_EXECUTION_SHA256",
+    "AUDIT_SCHEMA_EXPECTED_FINGERPRINT_SHA256",
+    "validateBackupIntegrity",
+    "verifiedTableCountsSha256",
+    "backupRowBindingSha256",
+    "expectedSchemaFingerprintSha256",
+    "schemaFingerprintSha256",
+    "exactApprovedContainersAtObservedBoundaries: true",
+    "samePostgresContainerAtObservedBoundaries: true",
+    "continuousIsolationInferred: false",
+    "authorizesApplicationStart: false",
+  ]) {
+    requireText(
+      audit0107TransitionRunner,
+      boundary,
+      `audit 0107 transition host runtime ${boundary}`,
+    );
+  }
+
+  const audit0107Binding = readSource(
+    "scripts/check-staging-audit-0107-binding.mjs",
+    overrides,
+  );
+  for (const boundary of [
+    "verifiedTableNames",
+    "sourceTableCounts",
+    "restoredTableCounts",
+    "verifiedTableCountsSha256",
+    "backupRowBindingSha256",
+    "expectedSchemaFingerprintSha256",
+    "AUDIT_SCHEMA_EXPECTED_FINGERPRINT_SHA256",
+  ]) {
+    requireText(audit0107Binding, boundary, `audit 0107 binding ${boundary}`);
+  }
+
   const qualityWorkflow = readSource(
     ".github/workflows/quality-gate.yml",
     overrides,
@@ -2655,8 +2842,30 @@ export function validateStagingRuntimeContract(overrides = {}) {
     "staging-exact-0105-backup-runner.test.mjs",
     "staging-accounting-0106-binding.test.mjs",
     "staging-accounting-0106-transition-runner.test.mjs",
+    "staging:create-exact-0106-audit-backup",
+    "gate:staging-audit-0107-binding",
+    "staging:apply-audit-0107-transition",
+    "staging-exact-0106-audit-backup-runner.test.mjs",
+    "staging-audit-0107-transition-runner.test.mjs",
+    "test:staging-audit-0107-contract",
+    "test:production-exact-0096-backup-contract",
+    "test:production-migration-control-plane",
   ]) {
     requireText(packageJson, command, `exact-0104 package command ${command}`);
+  }
+  const hermeticGate = readSource("scripts/run-hermetic-gate.mjs", overrides);
+  for (const productionContractTest of [
+    "production-exact-0096-backup-contract.test.mjs",
+    "production-exact-0096-backup-host-adapter.test.mjs",
+    "production-exact-0096-backup-signature.test.mjs",
+    "production-migration-control-plane.test.mjs",
+    "production-migration-adapter.test.mjs",
+  ]) {
+    requireText(
+      hermeticGate,
+      productionContractTest,
+      `hermetic production control-plane test ${productionContractTest}`,
+    );
   }
 
   return Object.freeze({

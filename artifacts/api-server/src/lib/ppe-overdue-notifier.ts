@@ -1,6 +1,12 @@
 import nodemailer from "nodemailer";
 import { and, eq, lte, or, isNotNull, inArray } from "drizzle-orm";
-import { db, ppeAssignmentsTable, ppeItemsTable, peopleTable, usersTable } from "@workspace/db";
+import {
+  db,
+  ppeAssignmentsTable,
+  ppeItemsTable,
+  peopleTable,
+  usersTable,
+} from "@workspace/db";
 import { logger } from "./logger";
 import { resolveEmailConfig } from "./email";
 import { withSchedulerLock, SCHEDULER_LOCK_KEYS } from "./scheduler-lock";
@@ -45,12 +51,21 @@ export async function collectOverduePpeAssignments(): Promise<OverdueRow[]> {
       and(
         eq(ppeAssignmentsTable.status, "issued"),
         or(
-          and(isNotNull(ppeAssignmentsTable.replaceBy), lte(ppeAssignmentsTable.replaceBy, todayStr)),
-          and(isNotNull(ppeAssignmentsTable.nextInspectionAt), lte(ppeAssignmentsTable.nextInspectionAt, todayStr)),
+          and(
+            isNotNull(ppeAssignmentsTable.replaceBy),
+            lte(ppeAssignmentsTable.replaceBy, todayStr),
+          ),
+          and(
+            isNotNull(ppeAssignmentsTable.nextInspectionAt),
+            lte(ppeAssignmentsTable.nextInspectionAt, todayStr),
+          ),
         ),
       )!,
     )
-    .orderBy(ppeAssignmentsTable.personNameSnapshot, ppeAssignmentsTable.ppeNameSnapshot);
+    .orderBy(
+      ppeAssignmentsTable.personNameSnapshot,
+      ppeAssignmentsTable.ppeNameSnapshot,
+    );
 
   return rows.map((r) => ({
     assignmentId: r.assignmentId,
@@ -167,36 +182,52 @@ export async function runPpeOverdueNotification(): Promise<{
       { err, overdueCount: overdue.length, recipients: recipients.length },
       `PPE overdue notification email failed: ${detail}`,
     );
-    return { overdueCount: overdue.length, sent: false, recipients: recipients.length };
+    return {
+      overdueCount: overdue.length,
+      sent: false,
+      recipients: recipients.length,
+    };
   }
 
   logger.info(
     { overdueCount: overdue.length, recipients: recipients.length },
     "PPE overdue notification sent",
   );
-  return { overdueCount: overdue.length, sent: true, recipients: recipients.length };
+  return {
+    overdueCount: overdue.length,
+    sent: true,
+    recipients: recipients.length,
+  };
 }
 
-let schedulerStarted = false;
+export type SchedulerStopHandle = Readonly<{
+  stop(): void;
+}>;
+
+let schedulerHandle: SchedulerStopHandle | undefined;
 
 /**
  * Start the daily PPE overdue notification scheduler. Idempotent. Interval is
  * PPE_NOTIFY_INTERVAL_HOURS (default 24 h). Safe to run even when e-mail is
  * not configured — it logs a warning and skips silently.
  */
-export function startPpeOverdueScheduler(): void {
-  if (schedulerStarted) return;
-  schedulerStarted = true;
+export function startPpeOverdueScheduler(): SchedulerStopHandle {
+  if (schedulerHandle) return schedulerHandle;
 
   const hours = Number(process.env.PPE_NOTIFY_INTERVAL_HOURS);
-  const intervalMs = (Number.isFinite(hours) && hours > 0 ? hours : 24) * 60 * 60 * 1000;
+  const intervalMs =
+    (Number.isFinite(hours) && hours > 0 ? hours : 24) * 60 * 60 * 1000;
+  let stopped = false;
 
-  const tick = () =>
-    withSchedulerLock(SCHEDULER_LOCK_KEYS.ppeOverdue, async () => {
+  const tick = (): void => {
+    if (stopped) return;
+    void withSchedulerLock(SCHEDULER_LOCK_KEYS.ppeOverdue, async () => {
+      if (stopped) return;
       await runPpeOverdueNotification();
     }).catch((err) =>
       logger.error({ err }, "PPE overdue notification sweep failed"),
     );
+  };
 
   const timer = setInterval(tick, intervalMs);
   timer.unref();
@@ -206,8 +237,20 @@ export function startPpeOverdueScheduler(): void {
   const initial = setTimeout(tick, 2 * 60 * 1000);
   initial.unref();
 
+  const handle: SchedulerStopHandle = {
+    stop(): void {
+      if (stopped) return;
+      stopped = true;
+      clearTimeout(initial);
+      clearInterval(timer);
+      if (schedulerHandle === handle) schedulerHandle = undefined;
+    },
+  };
+  schedulerHandle = handle;
+
   logger.info(
     { intervalHours: intervalMs / (60 * 60 * 1000) },
     "PPE overdue notification scheduler started",
   );
+  return handle;
 }

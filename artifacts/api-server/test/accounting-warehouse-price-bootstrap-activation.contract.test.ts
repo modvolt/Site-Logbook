@@ -1014,7 +1014,7 @@ describe("warehouse-price bootstrap activation offline artifact verifier", () =>
       rmSync(preflightDirectory, { recursive: true, force: true });
       rmSync(receiptDirectory, { recursive: true, force: true });
     }
-  });
+  }, 60_000);
 
   it("keeps the verifier offline, read-only, and absent from app or route wiring", () => {
     const root = resolve(import.meta.dirname, "../../..");

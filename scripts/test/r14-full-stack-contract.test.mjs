@@ -37,7 +37,7 @@ const apiDockerfilePath = path.join(
 const [composeSource, runner, provider, workflow, dockerignore, apiDockerfile] =
   await Promise.all([
     readFile(composePath, "utf8"),
-    readFile(runnerPath, "utf8"),
+    readFile(runnerPath, "utf8").then((value) => value.replace(/\r\n?/g, "\n")),
     readFile(providerPath, "utf8"),
     readFile(workflowPath, "utf8"),
     readFile(dockerignorePath, "utf8"),
@@ -48,7 +48,15 @@ const compose = YAML.parse(composeSource);
 test("R14 stateful/application services remain internal and only web binds loopback", () => {
   assert.deepEqual(
     Object.keys(compose.services).sort(),
-    ["api", "minio", "minio-init", "postgres", "provider-fakes", "web"].sort(),
+    [
+      "api",
+      "migrate",
+      "minio",
+      "minio-init",
+      "postgres",
+      "provider-fakes",
+      "web",
+    ].sort(),
   );
   assert.equal(compose.networks.r14_internal.internal, true);
   assert.deepEqual(Object.keys(compose.networks).sort(), [
@@ -79,6 +87,7 @@ test("R14 stateful/application services remain internal and only web binds loopb
   assert.ok(compose.services.minio.tmpfs.includes("/data"));
   for (const name of [
     "api",
+    "migrate",
     "postgres",
     "minio",
     "minio-init",
@@ -102,11 +111,13 @@ test("all public R14 images are immutable and app images are exact-SHA inputs", 
     compose.services.api.image,
     "${R14_API_IMAGE:?set exact-SHA local R14 API image}",
   );
+  assert.equal(compose.services.migrate.image, compose.services.api.image);
   assert.equal(
     compose.services.web.image,
     "${R14_WEB_IMAGE:?set exact-SHA local R14 web image}",
   );
   assert.equal(compose.services.api.pull_policy, "never");
+  assert.equal(compose.services.migrate.pull_policy, "never");
   assert.equal(compose.services.web.pull_policy, "never");
   assert.ok(
     apiDockerfile.indexOf("apt-get install") <
@@ -117,7 +128,25 @@ test("all public R14 images are immutable and app images are exact-SHA inputs", 
 
 test("runtime uses only synthetic test configuration and test-only provider boundaries", () => {
   const env = compose.services.api.environment;
+  assert.deepEqual(compose.services.migrate.command, [
+    "node",
+    "/app/dist/migrate.mjs",
+  ]);
+  assert.deepEqual(compose.services.api.command, [
+    "node",
+    "--enable-source-maps",
+    "/app/dist/index.mjs",
+  ]);
+  assert.equal(
+    compose.services.api.depends_on.migrate.condition,
+    "service_completed_successfully",
+  );
+  assert.equal(
+    compose.services.migrate.environment.DATABASE_URL,
+    env.DATABASE_URL,
+  );
   assert.equal(env.NODE_ENV, "test");
+  assert.equal(env.SITE_LOGBOOK_RUNTIME_ENVIRONMENT, "staging");
   assert.equal(env.BUILD_SHA, "${R14_SOURCE_SHA:?set exact Git SHA}");
   assert.equal(env.MAIL_TEST_ALLOW_INSECURE, "true");
   assert.equal(env.OPENAI_TEST_BASE_URL, "http://provider-fakes:4010/v1");
@@ -183,10 +212,14 @@ test("runner enforces exact provenance, restore/fault proof, and unconditional t
     /captureText\("git", \[\s*"status",\s*"--porcelain=v1",\s*"--untracked-files=all",\s*\]\)/,
   );
   assert.equal((runner.match(/DOCKER_BUILDKIT: "1"/g) ?? []).length, 2);
+  assert.match(
+    runner,
+    /"artifacts\/api-server\/Dockerfile",\s*"--target",\s*"control-plane"/,
+  );
   assert.ok(runner.includes('"docker-buildx.exe"'));
   assert.ok(runner.includes('["build", "--load"]'));
   assert.doesNotMatch(runner, /"--no-privileges",\s*"-",/);
-  assert.ok(runner.includes('options.input !== undefined'));
+  assert.ok(runner.includes("options.input !== undefined"));
   assert.ok(runner.includes('["pipe", "inherit", "inherit"]'));
   assert.match(dockerignore, /^\/tmp$/m);
   assert.match(dockerignore, /^\/e2e\/test-results$/m);

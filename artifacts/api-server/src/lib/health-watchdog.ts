@@ -66,8 +66,8 @@ async function pingDb(): Promise<{ ok: boolean; latencyMs: number | null }> {
 function s3IsConfigured(): boolean {
   return Boolean(
     process.env.S3_BUCKET &&
-      process.env.S3_ACCESS_KEY_ID &&
-      process.env.S3_SECRET_ACCESS_KEY,
+    process.env.S3_ACCESS_KEY_ID &&
+    process.env.S3_SECRET_ACCESS_KEY,
   );
 }
 
@@ -75,8 +75,12 @@ async function pingS3(): Promise<boolean> {
   if (!s3IsConfigured()) return true; // dev fallback — not an error
   try {
     const result = await diagnoseS3();
-    const verdict = typeof result["verdict"] === "string" ? result["verdict"] : null;
-    return result["ok"] === true || (typeof verdict === "string" && verdict.startsWith("OK"));
+    const verdict =
+      typeof result["verdict"] === "string" ? result["verdict"] : null;
+    return (
+      result["ok"] === true ||
+      (typeof verdict === "string" && verdict.startsWith("OK"))
+    );
   } catch {
     return false;
   }
@@ -147,9 +151,10 @@ function describeFailure(dbOk: boolean, s3Ok: boolean): string {
 // Main watchdog check
 // ---------------------------------------------------------------------------
 
-export async function runHealthCheck(
-  preflightDbResult?: { ok: boolean; latencyMs: number | null },
-): Promise<void> {
+export async function runHealthCheck(preflightDbResult?: {
+  ok: boolean;
+  latencyMs: number | null;
+}): Promise<void> {
   const dbResult = preflightDbResult ?? (await pingDb());
   const [s3Ok, smtpOk] = await Promise.all([
     pingS3(),
@@ -159,8 +164,10 @@ export async function runHealthCheck(
   const { ok: dbOk, latencyMs: dbLatencyMs } = dbResult;
   const overallOk = dbOk && s3Ok;
   const overallStatus: "ok" | "degraded" = overallOk ? "ok" : "degraded";
-  const storageConfigured = s3IsConfigured() || Boolean(process.env.PRIVATE_OBJECT_DIR);
-  const storageRequired = storageConfigured || process.env.NODE_ENV === "production";
+  const storageConfigured =
+    s3IsConfigured() || Boolean(process.env.PRIVATE_OBJECT_DIR);
+  const storageRequired =
+    storageConfigured || process.env.NODE_ENV === "production";
 
   const providers = [
     {
@@ -247,12 +254,14 @@ export async function runHealthCheck(
     directTransitions = operationalTransitions;
   }
   if (directTransitions.length > 0) {
-    void deliverOperationalAlertTransitions(directTransitions).catch((error) => {
-      logger.warn(
-        { errorName: error instanceof Error ? error.name : "unknown" },
-        "Health watchdog: operational alert transport unavailable",
-      );
-    });
+    void deliverOperationalAlertTransitions(directTransitions).catch(
+      (error) => {
+        logger.warn(
+          { errorName: error instanceof Error ? error.name : "unknown" },
+          "Health watchdog: operational alert transport unavailable",
+        );
+      },
+    );
   }
   operationalStatus = operational.status;
   activeOperationalAlerts = operational.activeAlerts.length;
@@ -327,9 +336,7 @@ export async function runHealthCheck(
 export async function purgeOldHealthLogs(): Promise<void> {
   const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000);
   try {
-    await db.execute(
-      sql`DELETE FROM health_log WHERE checked_at < ${cutoff}`,
-    );
+    await db.execute(sql`DELETE FROM health_log WHERE checked_at < ${cutoff}`);
     logger.info("Health watchdog: purged old health_log rows");
   } catch (err) {
     logger.error({ err }, "Health watchdog: failed to purge health_log");
@@ -340,7 +347,11 @@ export async function purgeOldHealthLogs(): Promise<void> {
 // Scheduler
 // ---------------------------------------------------------------------------
 
-let started = false;
+export type SchedulerStopHandle = Readonly<{
+  stop(): void;
+}>;
+
+let schedulerHandle: SchedulerStopHandle | undefined;
 
 const CHECK_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const PURGE_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -359,18 +370,21 @@ async function runScheduledHealthCheck(): Promise<void> {
   });
 }
 
-export function startHealthWatchdog(): void {
-  if (started) return;
-  started = true;
+export function startHealthWatchdog(): SchedulerStopHandle {
+  if (schedulerHandle) return schedulerHandle;
+  let stopped = false;
 
   // Run an initial check shortly after startup
-  setTimeout(() => {
+  const initial = setTimeout(() => {
+    if (stopped) return;
     runScheduledHealthCheck().catch((err) =>
       logger.error({ err }, "Health watchdog: initial check failed"),
     );
   }, 30_000);
+  initial.unref();
 
   const checkTimer = setInterval(() => {
+    if (stopped) return;
     runScheduledHealthCheck().catch((err) =>
       logger.error({ err }, "Health watchdog: check failed"),
     );
@@ -378,13 +392,28 @@ export function startHealthWatchdog(): void {
   checkTimer.unref();
 
   const purgeTimer = setInterval(() => {
-    withSchedulerLock(SCHEDULER_LOCK_KEYS.healthWatchdogPurge, purgeOldHealthLogs).catch(
-      (err) => logger.error({ err }, "Health watchdog: purge failed"),
-    );
+    if (stopped) return;
+    withSchedulerLock(
+      SCHEDULER_LOCK_KEYS.healthWatchdogPurge,
+      purgeOldHealthLogs,
+    ).catch((err) => logger.error({ err }, "Health watchdog: purge failed"));
   }, PURGE_INTERVAL_MS);
   purgeTimer.unref();
 
+  const handle: SchedulerStopHandle = {
+    stop(): void {
+      if (stopped) return;
+      stopped = true;
+      clearTimeout(initial);
+      clearInterval(checkTimer);
+      clearInterval(purgeTimer);
+      if (schedulerHandle === handle) schedulerHandle = undefined;
+    },
+  };
+  schedulerHandle = handle;
+
   logger.info("Health watchdog started (interval: 5 min)");
+  return handle;
 }
 
 /** Expose in-process state for the lightweight nav-indicator endpoint. */

@@ -16,7 +16,7 @@ const HARNESS_DOCKERFILE = path.join(
 );
 const HARNESS_CONTEXT = path.dirname(HARNESS_DOCKERFILE);
 const HARNESS_DEFINITION_DIGEST = createHash("sha256")
-  .update(fs.readFileSync(HARNESS_DOCKERFILE))
+  .update(fs.readFileSync(HARNESS_DOCKERFILE, "utf8").replaceAll("\r\n", "\n"))
   .digest("hex")
   .slice(0, 16);
 export const WORKFLOW_HARNESS_IMAGE = `site-logbook/workflow-harness:alpine-3.22.1-${HARNESS_DEFINITION_DIGEST}`;

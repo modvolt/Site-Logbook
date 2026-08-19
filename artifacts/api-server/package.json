@@ -13,6 +13,8 @@
     "test:db": "node ../../scripts/run-safe-test-db.mjs",
     "test:backup-restore:isolated": "node ../../scripts/run-safe-test-db.mjs --backup-restore-isolated backup-restore-test",
     "test:all:isolated": "node ../../scripts/run-safe-test-db.mjs --all",
+    "test:production-runtime-db-credential-contract": "vitest run --config vitest.unit.config.ts test/production-runtime-db-credential-cutover.test.ts test/production-startup-evidence.test.ts",
+    "test:production-activation-hold": "vitest run --config vitest.unit.config.ts test/production-activation-hold.contract.test.ts",
     "auth:reset-admin-password": "tsx src/scripts/reset-admin-password.ts",
     "cleanup-materials": "tsx src/scripts/cleanup-duplicate-materials.ts",
     "objects:recovery": "tsx src/scripts/object-recovery.ts",

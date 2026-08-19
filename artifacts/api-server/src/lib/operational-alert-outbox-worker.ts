@@ -13,11 +13,16 @@ const POLL_INTERVAL_MS = 15_000;
 const MAX_PER_TICK = 16;
 let started = false;
 let timer: NodeJS.Timeout | null = null;
+let warmupTimer: NodeJS.Timeout | null = null;
 let running: Promise<void> | null = null;
+let abortController: AbortController | null = null;
 
-export async function drainOperationalAlertOutbox(): Promise<void> {
+export async function drainOperationalAlertOutbox(
+  signal?: AbortSignal,
+): Promise<void> {
   if (getOperationalAlertTransportMode() === "local_log_only") return;
   for (let index = 0; index < MAX_PER_TICK; index += 1) {
+    if (signal?.aborted) return;
     const claim = await claimOperationalAlert();
     if (!claim) return;
     const result = await deliverOperationalAlertTransitionDurably(
@@ -28,7 +33,10 @@ export async function drainOperationalAlertOutbox(): Promise<void> {
       const applied = await markOperationalAlertDelivered(claim);
       if (!applied) {
         logger.warn(
-          { event: "operational_alert_outbox_lost_lease", outboxId: claim.outboxId },
+          {
+            event: "operational_alert_outbox_lost_lease",
+            outboxId: claim.outboxId,
+          },
           "Operational alert was delivered after its lease expired",
         );
       }
@@ -52,9 +60,9 @@ export async function drainOperationalAlertOutbox(): Promise<void> {
   }
 }
 
-function tick(): void {
-  if (running) return;
-  running = drainOperationalAlertOutbox()
+function tick(signal: AbortSignal): void {
+  if (!started || signal.aborted || running) return;
+  const run = drainOperationalAlertOutbox(signal)
     .catch((error) =>
       logger.warn(
         { errorName: error instanceof Error ? error.name : "unknown" },
@@ -62,22 +70,32 @@ function tick(): void {
       ),
     )
     .finally(() => {
-      running = null;
+      if (running === run) running = null;
     });
+  running = run;
 }
 
 export function startOperationalAlertOutboxWorker(): void {
   if (started) return;
   started = true;
-  timer = setInterval(tick, POLL_INTERVAL_MS);
+  const controller = new AbortController();
+  abortController = controller;
+  const tickCurrent = (): void => tick(controller.signal);
+  timer = setInterval(tickCurrent, POLL_INTERVAL_MS);
   timer.unref();
-  setTimeout(tick, 5_000).unref();
+  warmupTimer = setTimeout(tickCurrent, 5_000);
+  warmupTimer.unref();
   logger.info("Operational alert outbox worker started");
 }
 
 export async function stopOperationalAlertOutboxWorker(): Promise<void> {
   started = false;
+  abortController?.abort();
+  abortController = null;
   if (timer) clearInterval(timer);
   timer = null;
-  await running;
+  if (warmupTimer) clearTimeout(warmupTimer);
+  warmupTimer = null;
+  const pending = running;
+  await pending;
 }

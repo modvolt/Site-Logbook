@@ -1,0 +1,1331 @@
+name: Publish immutable production images (private caller, no deploy)
+
+on:
+  workflow_call:
+    inputs:
+      source_sha:
+        description: Exact two-parent merge commit currently at public main
+        required: true
+        type: string
+      publication_stage:
+        description: Explicit stage; preflight-only is the no-write default
+        required: false
+        default: preflight-only
+        type: string
+      confirm_complete_registry_write:
+        description: Must remain false for preflight-only and be explicitly true for complete
+        required: false
+        default: false
+        type: boolean
+      publication_nonce:
+        description: Fresh 64-hex single-use nonce shared by the reviewed preflight and complete runs
+        required: true
+        type: string
+      expected_preflight_run_id:
+        description: Exact successful caller run that produced the reviewed preflight receipt
+        required: false
+        default: ""
+        type: string
+      expected_preflight_run_attempt:
+        description: Exact preflight run attempt; only first attempts are accepted
+        required: false
+        default: ""
+        type: string
+      expected_preflight_receipt_sha256:
+        description: Exact canonical preflight receipt digest required by complete
+        required: false
+        default: ""
+        type: string
+      expected_preflight_artifact_id:
+        description: Exact immutable GitHub artifact id returned by preflight-only
+        required: false
+        default: ""
+        type: string
+      expected_preflight_artifact_digest:
+        description: Exact v4 artifact digest returned by preflight-only
+        required: false
+        default: ""
+        type: string
+    outputs:
+      preflight_receipt_sha256:
+        description: Canonical no-write preflight receipt digest
+        value: ${{ jobs.build-preflight.outputs.receipt_sha256 }}
+      preflight_artifact_id:
+        description: Immutable preflight OCI artifact id
+        value: ${{ jobs.build-preflight.outputs.artifact_id }}
+      preflight_artifact_digest:
+        description: Immutable preflight OCI artifact digest
+        value: ${{ jobs.build-preflight.outputs.artifact_digest }}
+    secrets:
+      packages_metadata_token:
+        description: Dedicated classic PAT with exactly read:packages; used only by complete
+        required: false
+
+permissions: {}
+
+concurrency:
+  group: production-images-${{ inputs.source_sha }}
+  cancel-in-progress: false
+
+jobs:
+  validate-source:
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    outputs:
+      source_tree_sha: ${{ steps.source.outputs.source_tree_sha }}
+      merge_parent_0: ${{ steps.source.outputs.merge_parent_0 }}
+      merge_parent_1: ${{ steps.source.outputs.merge_parent_1 }}
+      quality_run_id: ${{ steps.source.outputs.quality_run_id }}
+      quality_run_attempt: ${{ steps.source.outputs.quality_run_attempt }}
+      job_workflow_ref: ${{ steps.identity.outputs.job_workflow_ref }}
+      caller_repository_id: ${{ steps.identity.outputs.caller_repository_id }}
+      caller_workflow_sha: ${{ steps.identity.outputs.caller_workflow_sha }}
+      publication_nonce_sha256: ${{ steps.identity.outputs.publication_nonce_sha256 }}
+    steps:
+      - name: Require exact private production caller and default-dark stage
+        shell: bash
+        env:
+          CALLER_ACTOR: ${{ github.actor }}
+          CALLER_EVENT_NAME: ${{ github.event_name }}
+          CALLER_REF: ${{ github.ref }}
+          CALLER_REPOSITORY: ${{ github.repository }}
+          CALLER_TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          CALLER_WORKFLOW_REF: ${{ github.workflow_ref }}
+          CONFIRM_COMPLETE: ${{ inputs.confirm_complete_registry_write }}
+          EXPECTED_PREFLIGHT_ARTIFACT_DIGEST: ${{ inputs.expected_preflight_artifact_digest }}
+          EXPECTED_PREFLIGHT_ARTIFACT_ID: ${{ inputs.expected_preflight_artifact_id }}
+          EXPECTED_PREFLIGHT_RECEIPT_SHA256: ${{ inputs.expected_preflight_receipt_sha256 }}
+          EXPECTED_PREFLIGHT_RUN_ATTEMPT: ${{ inputs.expected_preflight_run_attempt }}
+          EXPECTED_PREFLIGHT_RUN_ID: ${{ inputs.expected_preflight_run_id }}
+          PUBLICATION_STAGE: ${{ inputs.publication_stage }}
+          PUBLICATION_NONCE: ${{ inputs.publication_nonce }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+
+          fail() {
+            echo "Production image activation validation failed: $1" >&2
+            exit 1
+          }
+
+          [[ "${CALLER_REPOSITORY,,}" == "modvolt/site-logbook-registry" ]] \
+            || fail "the caller repository is not the approved private registry control plane."
+          [[ "${CALLER_WORKFLOW_REF,,}" == "modvolt/site-logbook-registry/.github/workflows/publish-production-images.yml@refs/heads/main" ]] \
+            || fail "the exact private main caller workflow is required."
+          [[ "$CALLER_EVENT_NAME" == "workflow_dispatch" && "$CALLER_REF" == "refs/heads/main" ]] \
+            || fail "the private caller must be a manual main dispatch."
+          [[ "${CALLER_ACTOR,,}" == "modvolt" && "${CALLER_TRIGGERING_ACTOR,,}" == "modvolt" ]] \
+            || fail "the owner must be both actor and triggering actor."
+          [[ "$RUN_ATTEMPT" == "1" ]] \
+            || fail "publisher reruns are ambiguous; create a new reviewed dispatch."
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] \
+            || fail "source_sha must be exact lowercase Git SHA."
+          [[ "$PUBLICATION_NONCE" =~ ^[0-9a-f]{64}$ && "$PUBLICATION_NONCE" != "$(printf '0%.0s' {1..64})" ]] \
+            || fail "publication_nonce must be one fresh non-zero 64-hex value."
+          [[ "$PUBLICATION_STAGE" == "preflight-only" || "$PUBLICATION_STAGE" == "complete" ]] \
+            || fail "publication_stage must be preflight-only or complete."
+
+          if [[ "$PUBLICATION_STAGE" == "preflight-only" ]]; then
+            [[ "$CONFIRM_COMPLETE" == "false" ]] \
+              || fail "preflight-only must not receive registry-write confirmation."
+            [[ -z "$EXPECTED_PREFLIGHT_RUN_ID" && -z "$EXPECTED_PREFLIGHT_RUN_ATTEMPT" && -z "$EXPECTED_PREFLIGHT_RECEIPT_SHA256" && -z "$EXPECTED_PREFLIGHT_ARTIFACT_ID" && -z "$EXPECTED_PREFLIGHT_ARTIFACT_DIGEST" ]] \
+              || fail "preflight-only must not claim predecessor evidence."
+          else
+            [[ "$CONFIRM_COMPLETE" == "true" ]] \
+              || fail "complete requires explicit registry-write confirmation."
+            [[ "$EXPECTED_PREFLIGHT_RUN_ID" =~ ^[1-9][0-9]*$ ]] \
+              || fail "complete requires an exact preflight run id."
+            [[ "$EXPECTED_PREFLIGHT_RUN_ATTEMPT" == "1" ]] \
+              || fail "complete accepts only a first-attempt preflight run."
+            [[ "$EXPECTED_PREFLIGHT_RECEIPT_SHA256" =~ ^sha256:[0-9a-f]{64}$ ]] \
+              || fail "complete requires the exact canonical preflight receipt digest."
+            [[ "$EXPECTED_PREFLIGHT_ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]] \
+              || fail "complete requires the immutable preflight artifact id."
+            [[ "$EXPECTED_PREFLIGHT_ARTIFACT_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] \
+              || fail "complete requires the immutable v4 preflight artifact digest."
+            [[ "$EXPECTED_PREFLIGHT_RUN_ID" != "${GITHUB_RUN_ID}" ]] \
+              || fail "complete cannot cite its own run as preflight."
+          fi
+
+      - name: Bind this reusable workflow to the exact source SHA
+        id: identity
+        shell: bash
+        env:
+          CALLER_REPOSITORY: ${{ github.repository }}
+          CALLER_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          GH_TOKEN: ${{ github.token }}
+          PUBLICATION_NONCE: ${{ inputs.publication_nonce }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+
+          fail() {
+            echo "Reusable workflow identity validation failed: $1" >&2
+            exit 1
+          }
+
+          oidc_response="$({
+            curl --fail-with-body --silent --show-error \
+              --proto '=https' --tlsv1.2 \
+              --connect-timeout 10 --max-time 30 \
+              --header "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+              "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=site-logbook-production-image-publication"
+          })" || fail "GitHub OIDC identity could not be read."
+          token="$(jq -r '.value' <<<"$oidc_response")"
+          [[ "$token" == *.*.* ]] || fail "GitHub OIDC response is malformed."
+          payload="$(cut -d. -f2 <<<"$token" | tr '_-' '/+')"
+          case $((${#payload} % 4)) in
+            0) ;;
+            2) payload="${payload}==" ;;
+            3) payload="${payload}=" ;;
+            *) fail "GitHub OIDC payload has invalid base64url length." ;;
+          esac
+          claims="$(printf '%s' "$payload" | base64 --decode)" \
+            || fail "GitHub OIDC payload cannot be decoded."
+          caller_repository_json="$(curl --fail-with-body --silent --show-error \
+            --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+            --header 'Accept: application/vnd.github+json' \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/${CALLER_REPOSITORY}")" \
+            || fail "the private caller repository identity could not be read."
+          jq -e \
+            '.private == true and (.full_name|ascii_downcase) == "modvolt/site-logbook-registry" and
+             (.id|type) == "number" and .id > 0 and
+             .owner.login == "modvolt" and .owner.id == 289280891' \
+            <<<"$caller_repository_json" >/dev/null \
+            || fail "the private caller repository immutable identity is not approved."
+          caller_repository_id="$(jq -r '.id' <<<"$caller_repository_json")"
+          expected_ref="modvolt/Site-Logbook/.github/workflows/production-images.yml@${SOURCE_SHA}"
+          jq -e \
+            --arg actorId "289280891" \
+            --arg callerRepositoryId "$caller_repository_id" \
+            --arg callerWorkflowSha "$CALLER_WORKFLOW_SHA" \
+            --arg expectedRef "$expected_ref" \
+            --arg sha "$SOURCE_SHA" \
+            '.aud == "site-logbook-production-image-publication" and
+             .job_workflow_ref == $expectedRef and
+             .job_workflow_sha == $sha and
+             (.repository | ascii_downcase) == "modvolt/site-logbook-registry" and
+             .repository_id == $callerRepositoryId and
+             .actor_id == $actorId and
+             .workflow_sha == $callerWorkflowSha and
+             .ref == "refs/heads/main" and
+             .event_name == "workflow_dispatch"' \
+            <<<"$claims" >/dev/null \
+            || fail "the private caller did not source-pin this exact public reusable workflow."
+          nonce_sha256="sha256:$(printf '%s' "$PUBLICATION_NONCE" | sha256sum | awk '{print $1}')"
+          {
+            echo "job_workflow_ref=${expected_ref}"
+            echo "caller_repository_id=${caller_repository_id}"
+            echo "caller_workflow_sha=${CALLER_WORKFLOW_SHA}"
+            echo "publication_nonce_sha256=${nonce_sha256}"
+          } >>"$GITHUB_OUTPUT"
+
+      - name: Require exact merged main and green push Quality gate
+        id: source
+        shell: bash
+        env:
+          SOURCE_REPOSITORY: modvolt/Site-Logbook
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+
+          fail() {
+            echo "Production main source validation failed: $1" >&2
+            exit 1
+          }
+
+          public_source_api() {
+            local url="$1"
+            case "$url" in
+              "https://api.github.com/repos/${SOURCE_REPOSITORY}/"*) ;;
+              *) fail "unexpected public source API origin." ;;
+            esac
+            curl --fail-with-body --silent --show-error \
+              --proto '=https' --tlsv1.2 \
+              --connect-timeout 10 --max-time 30 \
+              --header 'Accept: application/vnd.github+json' \
+              --header 'User-Agent: site-logbook-production-publisher' \
+              --header 'X-GitHub-Api-Version: 2022-11-28' \
+              "$url"
+          }
+
+          main_ref="$({
+            public_source_api "https://api.github.com/repos/${SOURCE_REPOSITORY}/git/ref/heads/main"
+          })" || fail "public main could not be read."
+          [[ "$(jq -r '.object.type' <<<"$main_ref")" == "commit" ]] \
+            || fail "public main does not resolve to a commit."
+          [[ "$(jq -r '.object.sha' <<<"$main_ref")" == "$SOURCE_SHA" ]] \
+            || fail "source_sha is not the current public main head."
+
+          commit="$({
+            public_source_api "https://api.github.com/repos/${SOURCE_REPOSITORY}/commits/${SOURCE_SHA}"
+          })" || fail "the selected main commit could not be read."
+          jq -e \
+            --arg repository "${SOURCE_REPOSITORY,,}" \
+            --arg sha "$SOURCE_SHA" \
+            '.sha == $sha and
+             (.parents | length) == 2 and
+             .parents[0].sha != .parents[1].sha and
+             .parents[0].sha != $sha and .parents[1].sha != $sha and
+             (.html_url | startswith("https://github.com/modvolt/Site-Logbook/commit/")) and
+             (.commit.tree.sha | test("^[0-9a-f]{40}$"))' \
+            <<<"$commit" >/dev/null \
+            || fail "source_sha must be the exact reviewed two-parent merge commit on main."
+
+          quality_runs="$({
+            public_source_api "https://api.github.com/repos/${SOURCE_REPOSITORY}/actions/workflows/quality-gate.yml/runs?head_sha=${SOURCE_SHA}&event=push&per_page=100"
+          })" || fail "the exact-SHA push Quality gate could not be read."
+          quality_run="$(jq -c \
+            --arg repository "${SOURCE_REPOSITORY,,}" \
+            --arg sha "$SOURCE_SHA" \
+            '[.workflow_runs[] |
+              select(
+                .name == "Quality gate" and
+                .path == ".github/workflows/quality-gate.yml" and
+                .event == "push" and
+                .head_branch == "main" and
+                .head_sha == $sha and
+                (.head_repository.full_name | ascii_downcase) == $repository
+              )] |
+             sort_by([.run_number, .run_attempt]) |
+             last' <<<"$quality_runs")"
+          jq -e \
+            '.status == "completed" and
+             .conclusion == "success" and
+             .run_attempt == 1 and
+             (.id | type) == "number" and .id > 0' \
+            <<<"$quality_run" >/dev/null \
+            || fail "no successful first-attempt exact-SHA push Quality gate exists."
+
+          {
+            echo "source_tree_sha=$(jq -r '.commit.tree.sha' <<<"$commit")"
+            echo "merge_parent_0=$(jq -r '.parents[0].sha' <<<"$commit")"
+            echo "merge_parent_1=$(jq -r '.parents[1].sha' <<<"$commit")"
+            echo "quality_run_id=$(jq -r '.id' <<<"$quality_run")"
+            echo "quality_run_attempt=$(jq -r '.run_attempt' <<<"$quality_run")"
+          } >>"$GITHUB_OUTPUT"
+
+  build-preflight:
+    if: inputs.publication_stage == 'preflight-only'
+    needs: validate-source
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    outputs:
+      receipt_sha256: ${{ steps.receipt.outputs.receipt_sha256 }}
+      artifact_id: ${{ steps.preflight-artifact.outputs.artifact-id }}
+      artifact_digest: ${{ steps.preflight-artifact.outputs.artifact-digest }}
+    steps:
+      - name: Check out exact merged public main
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          repository: modvolt/Site-Logbook
+          ref: ${{ inputs.source_sha }}
+
+      - name: Configure pinned Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+        with:
+          version: v0.34.1
+          driver-opts: image=moby/buildkit:v0.30.0@sha256:0168606be2315b7c807a03b3d8aa79beefdb31c98740cebdffdfeebf31190c9f
+
+      - name: Build production API without registry write
+        id: api
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: artifacts/api-server/Dockerfile
+          target: production
+          platforms: linux/amd64
+          push: false
+          outputs: type=oci,dest=production-api.oci.tar,name=ghcr.io/modvolt/site-logbook-production-api:${{ inputs.source_sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/modvolt/Site-Logbook
+            org.opencontainers.image.revision=${{ inputs.source_sha }}
+            org.opencontainers.image.url=https://github.com/modvolt/Site-Logbook/commit/${{ inputs.source_sha }}
+          build-args: BUILD_SHA=${{ inputs.source_sha }}
+          provenance: mode=max,version=v0.2
+          sbom: true
+
+      - name: Build control plane without registry write
+        id: control-plane
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: artifacts/api-server/Dockerfile
+          target: control-plane
+          platforms: linux/amd64
+          push: false
+          outputs: type=oci,dest=control-plane.oci.tar,name=ghcr.io/modvolt/site-logbook-control-plane:${{ inputs.source_sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/modvolt/Site-Logbook
+            org.opencontainers.image.revision=${{ inputs.source_sha }}
+            org.opencontainers.image.url=https://github.com/modvolt/Site-Logbook/commit/${{ inputs.source_sha }}
+          build-args: BUILD_SHA=${{ inputs.source_sha }}
+          provenance: mode=max,version=v0.2
+          sbom: true
+
+      - name: Build host operator without registry write
+        id: host-operator
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: artifacts/api-server/Dockerfile
+          target: host-operator
+          platforms: linux/amd64
+          push: false
+          outputs: type=oci,dest=host-operator.oci.tar,name=ghcr.io/modvolt/site-logbook-host-operator:${{ inputs.source_sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/modvolt/Site-Logbook
+            org.opencontainers.image.revision=${{ inputs.source_sha }}
+            org.opencontainers.image.url=https://github.com/modvolt/Site-Logbook/commit/${{ inputs.source_sha }}
+          build-args: BUILD_SHA=${{ inputs.source_sha }}
+          provenance: mode=max,version=v0.2
+          sbom: true
+
+      - name: Build production web without registry write
+        id: web
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: artifacts/stavba/Dockerfile
+          target: runtime
+          platforms: linux/amd64
+          push: false
+          outputs: type=oci,dest=production-web.oci.tar,name=ghcr.io/modvolt/site-logbook-production-web:${{ inputs.source_sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/modvolt/Site-Logbook
+            org.opencontainers.image.revision=${{ inputs.source_sha }}
+            org.opencontainers.image.url=https://github.com/modvolt/Site-Logbook/commit/${{ inputs.source_sha }}
+          build-args: VITE_BUILD_SHA=${{ inputs.source_sha }}
+          provenance: mode=max,version=v0.2
+          sbom: true
+
+      - name: Extract exact local OCI provenance, SBOM and filesystem bindings
+        shell: bash
+        env:
+          API_DIGEST: ${{ steps.api.outputs.digest }}
+          CONTROL_PLANE_DIGEST: ${{ steps.control-plane.outputs.digest }}
+          HOST_OPERATOR_DIGEST: ${{ steps.host-operator.outputs.digest }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          WEB_DIGEST: ${{ steps.web.outputs.digest }}
+        run: |
+          set -euo pipefail
+
+          fail() {
+            echo "Production OCI preflight evidence failed: $1" >&2
+            exit 1
+          }
+
+          extract_oci() {
+            local key="$1" archive="$2" root_digest="$3" repository="$4"
+            local dockerfile="$5" target="$6" build_arg="$7" profile="$8" mutating="$9"
+            local root="${RUNNER_TEMP}/oci-${key}"
+            local component="$key"
+            case "$key" in
+              controlPlane) component=control-plane ;;
+              hostOperator) component=host-operator ;;
+            esac
+            mkdir -m 700 "$root"
+            tar -xf "$archive" -C "$root"
+            [[ "$root_digest" =~ ^sha256:[0-9a-f]{64}$ ]] \
+              || fail "${key} root digest is invalid."
+
+            runnable="$(jq -c \
+              '[.manifests[] |
+                select(.platform.os == "linux" and .platform.architecture == "amd64" and
+                  (.annotations["vnd.docker.reference.type"] // "") != "attestation-manifest")] |
+               if length == 1 then .[0] else error("expected one runnable manifest") end' \
+              "$root/index.json")" || fail "${key} runnable manifest is ambiguous."
+            runnable_digest="$(jq -r '.digest' <<<"$runnable")"
+            index_digest="sha256:$(sha256sum "$root/index.json" | awk '{print $1}')"
+            [[ "$root_digest" == "$index_digest" ]] \
+              || fail "${key} publisher digest is not the exact OCI index."
+            manifest_path="$root/blobs/sha256/${runnable_digest#sha256:}"
+            [[ -f "$manifest_path" ]] || fail "${key} runnable manifest blob is missing."
+            [[ "sha256:$(sha256sum "$manifest_path" | awk '{print $1}')" == "$runnable_digest" ]] \
+              || fail "${key} runnable manifest blob digest drifted."
+            config_digest="$(jq -r '.config.digest' "$manifest_path")"
+            config_path="$root/blobs/sha256/${config_digest#sha256:}"
+            [[ -f "$config_path" && "sha256:$(sha256sum "$config_path" | awk '{print $1}')" == "$config_digest" ]] \
+              || fail "${key} image config blob digest drifted."
+            while IFS= read -r layer_digest; do
+              layer_path="$root/blobs/sha256/${layer_digest#sha256:}"
+              [[ -f "$layer_path" && "sha256:$(sha256sum "$layer_path" | awk '{print $1}')" == "$layer_digest" ]] \
+                || fail "${key} filesystem layer blob digest drifted."
+            done < <(jq -r '.layers[].digest' "$manifest_path")
+            # Exact scope: reachable OCI JSON and BuildKit provenance are secret-scanned
+            # by verify-oci. Compressed/binary filesystem payloads are digest-bound and
+            # SBOM-bound here, but are not content-scanned and are never claimed secret-complete.
+            jq -cS \
+              '{format:"oci-layer-manifest/v1", configDigest:.config.digest,
+                layers:[.layers[] | {digest,mediaType,size}], entryCount:(.layers|length)}' \
+              "$manifest_path" >"${key}-filesystem-projection.json"
+            [[ "$(jq -r '.entryCount' "${key}-filesystem-projection.json")" -gt 0 ]] \
+              || fail "${key} filesystem layer manifest is empty."
+            filesystem_sha="sha256:$(sha256sum "${key}-filesystem-projection.json" | awk '{print $1}')"
+
+            attestation="$(jq -c \
+              '[.manifests[] |
+                select(.annotations["vnd.docker.reference.type"] == "attestation-manifest")] |
+               if length == 1 then .[0] else error("expected one attestation manifest") end' \
+              "$root/index.json")" || fail "${key} attestation manifest is ambiguous."
+            attestation_digest="$(jq -r '.digest' <<<"$attestation")"
+            attestation_path="$root/blobs/sha256/${attestation_digest#sha256:}"
+            [[ -f "$attestation_path" && "sha256:$(sha256sum "$attestation_path" | awk '{print $1}')" == "$attestation_digest" ]] \
+              || fail "${key} attestation manifest blob digest drifted."
+            provenance_descriptor="$(jq -c \
+              '[.layers[] | select(.annotations["in-toto.io/predicate-type"] == "https://slsa.dev/provenance/v0.2")] |
+               if length == 1 then .[0] else error("expected one provenance predicate") end' \
+              "$attestation_path")" || fail "${key} BuildKit provenance is missing."
+            sbom_descriptor="$(jq -c \
+              '[.layers[] | select(.annotations["in-toto.io/predicate-type"] == "https://spdx.dev/Document")] |
+               if length == 1 then .[0] else error("expected one SPDX predicate") end' \
+              "$attestation_path")" || fail "${key} SPDX SBOM is missing."
+            provenance_digest="$(jq -r '.digest' <<<"$provenance_descriptor")"
+            sbom_digest="$(jq -r '.digest' <<<"$sbom_descriptor")"
+            provenance_path="$root/blobs/sha256/${provenance_digest#sha256:}"
+            sbom_path="$root/blobs/sha256/${sbom_digest#sha256:}"
+            [[ -f "$provenance_path" && "sha256:$(sha256sum "$provenance_path" | awk '{print $1}')" == "$provenance_digest" ]] \
+              || fail "${key} provenance blob digest drifted."
+            [[ -f "$sbom_path" && "sha256:$(sha256sum "$sbom_path" | awk '{print $1}')" == "$sbom_digest" ]] \
+              || fail "${key} SBOM blob digest drifted."
+            cp "$provenance_path" "${key}-provenance.intoto.json"
+            cp "$sbom_path" "${key}-sbom.intoto.json"
+            cp "$root/index.json" "${key}-oci-index.json"
+            cp "$manifest_path" "${key}-runnable-manifest.json"
+            cp "$config_path" "${key}-config.json"
+            cp "$attestation_path" "${key}-attestation-manifest.json"
+            jq -cS -n \
+              --argjson runnable "$runnable" \
+              --argjson attestation "$attestation" \
+              --argjson provenance "$provenance_descriptor" \
+              --argjson sbom "$sbom_descriptor" \
+              '{runnable:$runnable,attestation:$attestation,provenance:$provenance,sbom:$sbom}' \
+              >"${key}-oci-descriptors.json"
+            dockerfile_dir="${dockerfile%/Dockerfile}"
+            subject_name="pkg:docker/${repository}@${SOURCE_SHA}?platform=linux%2Famd64"
+            jq -e \
+              --arg buildArg "$build_arg" \
+              --arg dockerfileDir "$dockerfile_dir" \
+              --arg runnableDigest "$runnable_digest" \
+              --arg sha "$SOURCE_SHA" \
+              --arg subjectName "$subject_name" \
+              --arg target "$target" \
+              '.predicate.buildType == "https://mobyproject.org/buildkit@v1" and
+               .predicate.invocation.configSource.entryPoint == "Dockerfile" and
+               .predicate.invocation.parameters.args["build-arg:" + $buildArg] == $sha and
+               .predicate.invocation.parameters.args.target == $target and
+               .predicate.invocation.parameters.root.request.args["vcs:localdir:dockerfile"] == $dockerfileDir and
+               .predicate.invocation.parameters.root.request.args["vcs:revision"] == $sha and
+               .predicate.invocation.parameters.root.request.args["vcs:source"] == "https://github.com/modvolt/Site-Logbook" and
+               .predicate.metadata["https://mobyproject.org/buildkit@v1#metadata"].vcs.revision == $sha and
+               .subject == [{name:$subjectName,digest:{sha256:($runnableDigest | sub("^sha256:"; ""))}}]' \
+              "$provenance_path" >/dev/null \
+              || fail "${key} provenance is not exact-source BuildKit v1."
+            sbom_version="$(jq -r '.predicate.spdxVersion' "$sbom_path")"
+            [[ "$sbom_version" == "SPDX-2.2" || "$sbom_version" == "SPDX-2.3" ]] \
+              || fail "${key} SBOM is not an approved SPDX document."
+            package_count="$(jq '.predicate.packages | length' "$sbom_path")"
+            relationship_count="$(jq '.predicate.relationships | length' "$sbom_path")"
+            [[ "$package_count" -gt 0 && "$relationship_count" -gt 0 ]] \
+              || fail "${key} SBOM is empty."
+            archive_sha="sha256:$(sha256sum "$archive" | awk '{print $1}')"
+            archive_size="$(stat --format='%s' "$archive")"
+            [[ "$archive_sha" =~ ^sha256:[0-9a-f]{64}$ && "$archive_size" -gt 0 ]] \
+              || fail "${key} OCI archive binding is invalid."
+
+            jq -n \
+              --arg component "$component" \
+              --arg repository "$repository" \
+              --arg image "${repository}@${root_digest}" \
+              --arg digest "$root_digest" \
+              --arg runnableManifestDigest "$runnable_digest" \
+              --arg configDigest "$config_digest" \
+              --arg sourceSha "$SOURCE_SHA" \
+              --arg dockerfile "$dockerfile" \
+              --arg target "$target" \
+              --arg buildArg "$build_arg" \
+              --arg profile "$profile" \
+              --argjson mutating "$mutating" \
+              --arg provenanceSha "$provenance_digest" \
+              --arg sbomSha "$sbom_digest" \
+              --arg sbomVersion "$sbom_version" \
+              --argjson packageCount "$package_count" \
+              --argjson relationshipCount "$relationship_count" \
+              --arg filesystemSha "$filesystem_sha" \
+              --arg archiveSha "$archive_sha" \
+              --argjson archiveSize "$archive_size" \
+              --slurpfile filesystem "${key}-filesystem-projection.json" \
+              '{component:$component,repository:$repository,image:$image,digest:$digest,
+                runnableManifestDigest:$runnableManifestDigest,configDigest:$configDigest,
+                sourceSha:$sourceSha,platform:"linux/amd64",visibility:"private",
+                published:false,registryVerified:false,registryEvidenceSha256:null,
+                build:{dockerfile:$dockerfile,target:$target,buildArg:$buildArg,
+                  buildArgValue:$sourceSha,imageProfile:$profile,mutatingEntrypointsPresent:$mutating},
+                provenance:{mediaType:"application/vnd.in-toto+json",sha256:$provenanceSha,
+                  buildType:"https://mobyproject.org/buildkit@v1",
+                  vcsSource:"https://github.com/modvolt/Site-Logbook",vcsRevision:$sourceSha,
+                  dockerfile:$dockerfile,target:$target,buildArg:$buildArg,buildArgValue:$sourceSha},
+                sbom:{mediaType:"application/spdx+json",sha256:$sbomSha,spdxVersion:$sbomVersion,
+                  packageCount:$packageCount,relationshipCount:$relationshipCount},
+                filesystemManifest:($filesystem[0] + {sha256:$filesystemSha}),
+                ociArchive:{sha256:$archiveSha,sizeBytes:$archiveSize,indexDigest:$digest}}' \
+              >"${key}-image.json"
+          }
+
+          extract_oci api production-api.oci.tar "$API_DIGEST" \
+            ghcr.io/modvolt/site-logbook-production-api artifacts/api-server/Dockerfile \
+            production BUILD_SHA production false
+          extract_oci controlPlane control-plane.oci.tar "$CONTROL_PLANE_DIGEST" \
+            ghcr.io/modvolt/site-logbook-control-plane artifacts/api-server/Dockerfile \
+            control-plane BUILD_SHA control-plane true
+          extract_oci hostOperator host-operator.oci.tar "$HOST_OPERATOR_DIGEST" \
+            ghcr.io/modvolt/site-logbook-host-operator artifacts/api-server/Dockerfile \
+            host-operator BUILD_SHA host-operator true
+          extract_oci web production-web.oci.tar "$WEB_DIGEST" \
+            ghcr.io/modvolt/site-logbook-production-web artifacts/stavba/Dockerfile \
+            runtime VITE_BUILD_SHA production-web false
+
+      - name: Seal canonical no-write preflight receipt
+        id: receipt
+        shell: bash
+        env:
+          CALLER_ACTOR: ${{ github.actor }}
+          CALLER_ACTOR_ID: "289280891"
+          CALLER_REF: ${{ github.ref }}
+          CALLER_REPOSITORY: ${{ github.repository }}
+          CALLER_REPOSITORY_ID: ${{ needs.validate-source.outputs.caller_repository_id }}
+          CALLER_TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          CALLER_WORKFLOW_REF: ${{ github.workflow_ref }}
+          CALLER_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          JOB_WORKFLOW_REF: ${{ needs.validate-source.outputs.job_workflow_ref }}
+          MERGE_PARENT_0: ${{ needs.validate-source.outputs.merge_parent_0 }}
+          MERGE_PARENT_1: ${{ needs.validate-source.outputs.merge_parent_1 }}
+          PUBLICATION_NONCE_SHA256: ${{ needs.validate-source.outputs.publication_nonce_sha256 }}
+          QUALITY_RUN_ATTEMPT: ${{ needs.validate-source.outputs.quality_run_attempt }}
+          QUALITY_RUN_ID: ${{ needs.validate-source.outputs.quality_run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          RUN_ID: ${{ github.run_id }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          SOURCE_TREE_SHA: ${{ needs.validate-source.outputs.source_tree_sha }}
+        run: |
+          set -euo pipefail
+          workflow_sha="sha256:$(sha256sum .github/workflows/production-images.yml | awk '{print $1}')"
+          reviewed_image_set_sha256="$(node --input-type=module -e '
+            import fs from "node:fs";
+            import { reviewedImageSetSha256 } from "./scripts/production-evidence/production-image-publication-contract.mjs";
+            const image = (name) => JSON.parse(fs.readFileSync(`${name}-image.json`, "utf8"));
+            process.stdout.write(reviewedImageSetSha256({api:image("api"),controlPlane:image("controlPlane"),hostOperator:image("hostOperator"),web:image("web")}));
+          ')"
+          single_use_key_sha256="$(SOURCE_SHA="$SOURCE_SHA" RUN_ID="$RUN_ID" PUBLICATION_NONCE_SHA256="$PUBLICATION_NONCE_SHA256" node --input-type=module -e '
+            import { canonicalJson, sha256 } from "./scripts/production-evidence/production-image-publication-contract.mjs";
+            process.stdout.write(sha256(canonicalJson({sourceSha:process.env.SOURCE_SHA,preflightRunId:process.env.RUN_ID,publicationNonceSha256:process.env.PUBLICATION_NONCE_SHA256})));
+          ')"
+          created_at="$(date -u +'%Y-%m-%dT%H:%M:%S.000Z')"
+          jq -n \
+            --arg schemaVersion "site-logbook.production-image-publication/v1" \
+            --arg kind "site-logbook-production-image-publication-receipt" \
+            --arg sourceSha "$SOURCE_SHA" \
+            --arg sourceTreeSha "$SOURCE_TREE_SHA" \
+            --arg parent0 "$MERGE_PARENT_0" \
+            --arg parent1 "$MERGE_PARENT_1" \
+            --arg qualityRunId "$QUALITY_RUN_ID" \
+            --arg qualityRunAttempt "$QUALITY_RUN_ATTEMPT" \
+            --arg callerRepository "$CALLER_REPOSITORY" \
+            --arg callerRepositoryId "$CALLER_REPOSITORY_ID" \
+            --arg callerWorkflowRef "$CALLER_WORKFLOW_REF" \
+            --arg callerWorkflowSha "$CALLER_WORKFLOW_SHA" \
+            --arg actor "$CALLER_ACTOR" \
+            --arg actorId "$CALLER_ACTOR_ID" \
+            --arg triggeringActor "$CALLER_TRIGGERING_ACTOR" \
+            --arg callerRef "$CALLER_REF" \
+            --arg runId "$RUN_ID" \
+            --arg runAttempt "$RUN_ATTEMPT" \
+            --arg jobWorkflowRef "$JOB_WORKFLOW_REF" \
+            --arg workflowSha "$workflow_sha" \
+            --arg publicationNonceSha256 "$PUBLICATION_NONCE_SHA256" \
+            --arg singleUseKeySha256 "$single_use_key_sha256" \
+            --arg reviewedImageSetSha256 "$reviewed_image_set_sha256" \
+            --arg createdAt "$created_at" \
+            --slurpfile api api-image.json \
+            --slurpfile controlPlane controlPlane-image.json \
+            --slurpfile hostOperator hostOperator-image.json \
+            --slurpfile web web-image.json \
+            '{schemaVersion:$schemaVersion,kind:$kind,publicationStage:"preflight-only",
+              source:{repository:"modvolt/Site-Logbook",ref:"refs/heads/main",sha:$sourceSha,
+                treeSha:$sourceTreeSha,mergeParentShas:[$parent0,$parent1],
+                qualityGate:{workflowName:"Quality gate",workflowPath:".github/workflows/quality-gate.yml",
+                  event:"push",headBranch:"main",headSha:$sourceSha,runId:$qualityRunId,
+                  runAttempt:$qualityRunAttempt,conclusion:"success"}},
+              caller:{repository:$callerRepository,repositoryId:$callerRepositoryId,workflowRef:$callerWorkflowRef,
+                workflowSha:$callerWorkflowSha,eventName:"workflow_dispatch",ref:$callerRef,
+                actor:$actor,actorId:$actorId,triggeringActor:$triggeringActor,runId:$runId,runAttempt:$runAttempt},
+              publisher:{repository:"modvolt/Site-Logbook",workflowPath:".github/workflows/production-images.yml",
+                jobWorkflowRef:$jobWorkflowRef,sourceSha:$sourceSha,workflowFileSha256:$workflowSha},
+              chain:{preflightReceiptSha256:null,preflightRunId:null,preflightRunAttempt:null,
+                preflightArtifactId:null,preflightArtifactDigest:null,preflightArtifactCreatedAt:null,
+                preflightArtifactExpiresAt:null,preflightCreatedAt:null,
+                publicationNonceSha256:$publicationNonceSha256,singleUseKeySha256:$singleUseKeySha256,
+                reviewedImageSetSha256:$reviewedImageSetSha256},
+              policy:{registryWritePermitted:false,packagesVisibility:"private",platform:"linux/amd64",
+                productionTargetsTouched:false,deploymentAuthorized:false,migrationAuthorized:false},
+              images:{api:$api[0],controlPlane:$controlPlane[0],hostOperator:$hostOperator[0],web:$web[0]},createdAt:$createdAt}' \
+            >production-image-publication-input.json
+          node scripts/production-evidence/production-image-publication-contract.mjs seal \
+            --input production-image-publication-input.json \
+            --receipt production-image-preflight-receipt.json \
+            --checksum production-image-preflight-receipt.sha256 \
+            | tee receipt-digest.txt
+          echo "receipt_sha256=$(tr -d '\r\n' <receipt-digest.txt)" >>"$GITHUB_OUTPUT"
+
+      - name: Verify sealed receipt against all exact local OCI bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/production-evidence/production-image-publication-contract.mjs verify-oci \
+            --receipt production-image-preflight-receipt.json --image-key api \
+            --layout "${RUNNER_TEMP}/oci-api" --archive production-api.oci.tar >/dev/null
+          node scripts/production-evidence/production-image-publication-contract.mjs verify-oci \
+            --receipt production-image-preflight-receipt.json --image-key controlPlane \
+            --layout "${RUNNER_TEMP}/oci-controlPlane" --archive control-plane.oci.tar >/dev/null
+          node scripts/production-evidence/production-image-publication-contract.mjs verify-oci \
+            --receipt production-image-preflight-receipt.json --image-key hostOperator \
+            --layout "${RUNNER_TEMP}/oci-hostOperator" --archive host-operator.oci.tar >/dev/null
+          node scripts/production-evidence/production-image-publication-contract.mjs verify-oci \
+            --receipt production-image-preflight-receipt.json --image-key web \
+            --layout "${RUNNER_TEMP}/oci-web" --archive production-web.oci.tar >/dev/null
+
+      - name: Upload canonical preflight receipt
+        id: preflight-artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: production-images-preflight-${{ inputs.source_sha }}-${{ github.run_id }}-${{ inputs.publication_nonce }}
+          path: |
+            production-image-preflight-receipt.json
+            production-image-preflight-receipt.sha256
+            production-api.oci.tar
+            control-plane.oci.tar
+            host-operator.oci.tar
+            production-web.oci.tar
+            api-provenance.intoto.json
+            api-sbom.intoto.json
+            api-filesystem-projection.json
+            api-oci-index.json
+            api-runnable-manifest.json
+            api-config.json
+            api-attestation-manifest.json
+            api-oci-descriptors.json
+            controlPlane-provenance.intoto.json
+            controlPlane-sbom.intoto.json
+            controlPlane-filesystem-projection.json
+            controlPlane-oci-index.json
+            controlPlane-runnable-manifest.json
+            controlPlane-config.json
+            controlPlane-attestation-manifest.json
+            controlPlane-oci-descriptors.json
+            hostOperator-provenance.intoto.json
+            hostOperator-sbom.intoto.json
+            hostOperator-filesystem-projection.json
+            hostOperator-oci-index.json
+            hostOperator-runnable-manifest.json
+            hostOperator-config.json
+            hostOperator-attestation-manifest.json
+            hostOperator-oci-descriptors.json
+            web-provenance.intoto.json
+            web-sbom.intoto.json
+            web-filesystem-projection.json
+            web-oci-index.json
+            web-runnable-manifest.json
+            web-config.json
+            web-attestation-manifest.json
+            web-oci-descriptors.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  publish-reviewed-complete:
+    if: inputs.publication_stage == 'complete'
+    needs: validate-source
+    permissions:
+      actions: read
+      contents: read
+      packages: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Check out exact merged public main
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          repository: modvolt/Site-Logbook
+          ref: ${{ inputs.source_sha }}
+
+      - name: Download and verify the exact reviewed preflight bytes
+        id: predecessor
+        shell: bash
+        env:
+          CALLER_REPOSITORY_ID: ${{ needs.validate-source.outputs.caller_repository_id }}
+          CURRENT_CALLER_WORKFLOW_SHA: ${{ needs.validate-source.outputs.caller_workflow_sha }}
+          EXPECTED_ARTIFACT_DIGEST: ${{ inputs.expected_preflight_artifact_digest }}
+          EXPECTED_ARTIFACT_ID: ${{ inputs.expected_preflight_artifact_id }}
+          EXPECTED_DIGEST: ${{ inputs.expected_preflight_receipt_sha256 }}
+          EXPECTED_RUN_ATTEMPT: ${{ inputs.expected_preflight_run_attempt }}
+          EXPECTED_RUN_ID: ${{ inputs.expected_preflight_run_id }}
+          GH_TOKEN: ${{ github.token }}
+          PUBLICATION_NONCE: ${{ inputs.publication_nonce }}
+          PUBLICATION_NONCE_SHA256: ${{ needs.validate-source.outputs.publication_nonce_sha256 }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+
+          fail() {
+            echo "Production preflight chain validation failed: $1" >&2
+            exit 1
+          }
+
+          github_get() {
+            local url="$1" output="$2" status
+            case "$url" in
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/"*) ;;
+              *) fail "unexpected private caller API origin." ;;
+            esac
+            status="$(curl --disable --silent --show-error \
+              --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 60 \
+              --header 'Accept: application/vnd.github+json' \
+              --header "Authorization: Bearer ${GH_TOKEN}" \
+              --header 'X-GitHub-Api-Version: 2022-11-28' \
+              --output "$output" --write-out '%{http_code}' "$url")" \
+              || fail "private caller API request failed at the transport layer."
+            [[ "$status" == "200" ]] \
+              || fail "private caller API request returned HTTP ${status}."
+          }
+
+          github_get \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${EXPECTED_RUN_ID}" \
+            run.json
+          run_json="$(<run.json)"
+          jq -e \
+            --arg attempt "$EXPECTED_RUN_ATTEMPT" \
+            --arg repositoryId "$CALLER_REPOSITORY_ID" \
+            --arg runId "$EXPECTED_RUN_ID" \
+            '(.id|tostring) == $runId and (.run_attempt|tostring) == $attempt and
+             .event == "workflow_dispatch" and .head_branch == "main" and
+             .path == ".github/workflows/publish-production-images.yml" and
+             .status == "completed" and .conclusion == "success" and
+             (.head_repository.full_name | ascii_downcase) == "modvolt/site-logbook-registry" and
+             (.head_repository.id|tostring) == $repositoryId and .head_repository.private == true and
+             (.repository.full_name | ascii_downcase) == "modvolt/site-logbook-registry" and
+             (.repository.id|tostring) == $repositoryId and .repository.private == true and
+             .actor.login == "modvolt" and (.actor.id|tostring) == "289280891" and
+             .triggering_actor.login == "modvolt" and (.triggering_actor.id|tostring) == "289280891"' \
+            <<<"$run_json" >/dev/null \
+            || fail "the cited preflight run is not the exact successful private-main dispatch."
+
+          artifact_name="production-images-preflight-${SOURCE_SHA}-${EXPECTED_RUN_ID}-${PUBLICATION_NONCE}"
+          github_get \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${EXPECTED_RUN_ID}/artifacts?per_page=100" \
+            artifacts.json
+          jq -e '.total_count == (.artifacts|length) and .total_count <= 100' artifacts.json >/dev/null \
+            || fail "preflight artifact inventory is truncated or unbounded."
+          artifact="$(jq -c \
+            --arg artifactDigest "$EXPECTED_ARTIFACT_DIGEST" \
+            --arg artifactId "$EXPECTED_ARTIFACT_ID" \
+            --arg name "$artifact_name" \
+            --arg repositoryId "$CALLER_REPOSITORY_ID" \
+            --arg runId "$EXPECTED_RUN_ID" \
+            --arg sourceSha "$SOURCE_SHA" \
+            '[.artifacts[] | select(
+               (.id|tostring) == $artifactId and .name == $name and .expired == false and
+               .digest == $artifactDigest and (.size_in_bytes|type) == "number" and
+               .size_in_bytes > 0 and .size_in_bytes <= 21474836480 and
+               (.workflow_run.id|tostring) == $runId and
+               (.workflow_run.repository_id|tostring) == $repositoryId and
+               .workflow_run.head_branch == "main" and .workflow_run.head_sha == $sourceSha)] |
+             if length == 1 then .[0] else error("ambiguous artifact") end' \
+            artifacts.json)" || fail "the exact immutable preflight artifact is not unique."
+          artifact_created_at="$(jq -r '.created_at' <<<"$artifact")"
+          artifact_expires_at="$(jq -r '.expires_at' <<<"$artifact")"
+          artifact_created_at="$(node -e 'const d=new Date(process.argv[1]); if(!Number.isFinite(d.valueOf())) process.exit(1); process.stdout.write(d.toISOString())' "$artifact_created_at")" \
+            || fail "preflight artifact creation time is invalid."
+          artifact_expires_at="$(node -e 'const d=new Date(process.argv[1]); if(!Number.isFinite(d.valueOf())) process.exit(1); process.stdout.write(d.toISOString())' "$artifact_expires_at")" \
+            || fail "preflight artifact expiration time is invalid."
+          now_epoch="$(date -u +%s)"
+          created_epoch="$(date -u -d "$artifact_created_at" +%s)" \
+            || fail "preflight artifact creation time cannot be parsed."
+          expires_epoch="$(date -u -d "$artifact_expires_at" +%s)" \
+            || fail "preflight artifact expiration time cannot be parsed."
+          run_started_epoch="$(date -u -d "$(jq -r '.run_started_at' <<<"$run_json")" +%s)" \
+            || fail "preflight run start time cannot be parsed."
+          (( created_epoch <= now_epoch + 300 && now_epoch - created_epoch <= 86400 )) \
+            || fail "preflight artifact is future-dated or older than 24 hours."
+          (( run_started_epoch <= now_epoch + 300 && now_epoch - run_started_epoch <= 86400 )) \
+            || fail "preflight run is future-dated or older than 24 hours."
+          (( expires_epoch > now_epoch && expires_epoch > created_epoch )) \
+            || fail "preflight artifact is expired or has invalid chronology."
+
+          download_status="$(curl --disable --silent --show-error --location \
+            --proto '=https' --proto-redir '=https' --tlsv1.2 \
+            --connect-timeout 10 --max-time 120 --max-redirs 5 \
+            --header 'Accept: application/vnd.github+json' \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            --output preflight-artifact.zip --write-out '%{http_code}' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${EXPECTED_ARTIFACT_ID}/zip")" \
+            || fail "the exact preflight artifact download failed at the transport layer."
+          [[ "$download_status" == "200" ]] \
+            || fail "the exact preflight artifact download returned HTTP ${download_status}."
+          [[ "sha256:$(sha256sum preflight-artifact.zip | awk '{print $1}')" == "$EXPECTED_ARTIFACT_DIGEST" ]] \
+            || fail "downloaded artifact ZIP bytes do not match the v4 artifact digest."
+
+          unzip -Z1 preflight-artifact.zip >artifact-files.txt \
+            || fail "preflight artifact ZIP inventory cannot be read."
+          [[ -z "$(LC_ALL=C sort artifact-files.txt | uniq -d)" ]] \
+            || fail "preflight artifact contains duplicate paths."
+          cat >expected-artifact-files.txt <<'FILES'
+          api-attestation-manifest.json
+          api-config.json
+          api-filesystem-projection.json
+          api-oci-descriptors.json
+          api-oci-index.json
+          api-provenance.intoto.json
+          api-runnable-manifest.json
+          api-sbom.intoto.json
+          control-plane.oci.tar
+          controlPlane-attestation-manifest.json
+          controlPlane-config.json
+          controlPlane-filesystem-projection.json
+          controlPlane-oci-descriptors.json
+          controlPlane-oci-index.json
+          controlPlane-provenance.intoto.json
+          controlPlane-runnable-manifest.json
+          controlPlane-sbom.intoto.json
+          host-operator.oci.tar
+          hostOperator-attestation-manifest.json
+          hostOperator-config.json
+          hostOperator-filesystem-projection.json
+          hostOperator-oci-descriptors.json
+          hostOperator-oci-index.json
+          hostOperator-provenance.intoto.json
+          hostOperator-runnable-manifest.json
+          hostOperator-sbom.intoto.json
+          production-api.oci.tar
+          production-image-preflight-receipt.json
+          production-image-preflight-receipt.sha256
+          production-web.oci.tar
+          web-attestation-manifest.json
+          web-config.json
+          web-filesystem-projection.json
+          web-oci-descriptors.json
+          web-oci-index.json
+          web-provenance.intoto.json
+          web-runnable-manifest.json
+          web-sbom.intoto.json
+          FILES
+          LC_ALL=C sort -o expected-artifact-files.txt expected-artifact-files.txt
+          LC_ALL=C sort -o artifact-files.txt artifact-files.txt
+          cmp expected-artifact-files.txt artifact-files.txt \
+            || fail "preflight artifact file inventory is not exact."
+          mkdir -m 700 preflight-artifact
+          unzip -q preflight-artifact.zip -d preflight-artifact
+          [[ "$(tr -d '\r\n' <preflight-artifact/production-image-preflight-receipt.sha256)" == "$EXPECTED_DIGEST" ]] \
+            || fail "the artifact checksum file does not equal the reviewed digest."
+          node scripts/production-evidence/production-image-publication-contract.mjs verify \
+            --receipt preflight-artifact/production-image-preflight-receipt.json \
+            --expected-stage preflight-only \
+            --expected-source-sha "$SOURCE_SHA" \
+            --expected-run-id "$EXPECTED_RUN_ID" \
+            --expected-run-attempt "$EXPECTED_RUN_ATTEMPT" \
+            --expected-receipt-sha256 "$EXPECTED_DIGEST" \
+            --max-age-minutes 1440 \
+            >/dev/null
+
+          receipt=preflight-artifact/production-image-preflight-receipt.json
+          jq -e \
+            --arg callerRepositoryId "$CALLER_REPOSITORY_ID" \
+            --arg callerWorkflowSha "$CURRENT_CALLER_WORKFLOW_SHA" \
+            --arg nonceSha "$PUBLICATION_NONCE_SHA256" \
+            --arg runHeadSha "$(jq -r '.head_sha' <<<"$run_json")" \
+            '.caller.repositoryId == $callerRepositoryId and .caller.actorId == "289280891" and
+             .caller.workflowSha == $callerWorkflowSha and .caller.workflowSha == $runHeadSha and
+             .chain.publicationNonceSha256 == $nonceSha' \
+            "$receipt" >/dev/null \
+            || fail "preflight receipt does not bind the immutable caller, nonce and run head."
+          preflight_created_epoch="$(date -u -d "$(jq -r '.createdAt' "$receipt")" +%s)" \
+            || fail "preflight receipt creation time cannot be parsed."
+          chronology_delta=$((preflight_created_epoch - created_epoch))
+          (( chronology_delta < 0 )) && chronology_delta=$((-chronology_delta))
+          (( chronology_delta <= 900 )) \
+            || fail "preflight receipt and artifact are not one bounded snapshot."
+
+          safe_extract_oci() {
+            local archive="$1" root="$2" listing="${archive}.listing"
+            tar -tf "$archive" >"$listing" \
+              || fail "${archive} inventory cannot be read."
+            : >"${listing}.normalized"
+            while IFS= read -r path; do
+              path="${path#./}"
+              path="${path%/}"
+              [[ -n "$path" && "$path" != /* && "$path" != ".." && "$path" != ../* && "$path" != */../* && "$path" != *\\* ]] \
+                || fail "${archive} contains an unsafe path."
+              if [[ "$path" != "oci-layout" && "$path" != "index.json" && "$path" != "blobs" && "$path" != "blobs/sha256" && ! "$path" =~ ^blobs/sha256/[0-9a-f]{64}$ ]]; then
+                fail "${archive} contains a path outside the exact OCI layout."
+              fi
+              printf '%s\n' "$path" >>"${listing}.normalized"
+            done <"$listing"
+            [[ -z "$(LC_ALL=C sort "${listing}.normalized" | uniq -d)" ]] \
+              || fail "${archive} contains duplicate normalized paths."
+            tar -tvf "$archive" | awk 'substr($1,1,1) != "-" && substr($1,1,1) != "d" {exit 1}' \
+              || fail "${archive} contains links or special files."
+            mkdir -m 700 "$root"
+            tar --extract --file "$archive" --directory "$root" \
+              --no-same-owner --no-same-permissions --delay-directory-restore
+          }
+
+          safe_extract_oci preflight-artifact/production-api.oci.tar preflight-api-oci
+          safe_extract_oci preflight-artifact/control-plane.oci.tar preflight-controlPlane-oci
+          safe_extract_oci preflight-artifact/host-operator.oci.tar preflight-hostOperator-oci
+          safe_extract_oci preflight-artifact/production-web.oci.tar preflight-web-oci
+          node scripts/production-evidence/production-image-publication-contract.mjs verify-oci \
+            --receipt "$receipt" --image-key api --layout preflight-api-oci \
+            --archive preflight-artifact/production-api.oci.tar >/dev/null
+          node scripts/production-evidence/production-image-publication-contract.mjs verify-oci \
+            --receipt "$receipt" --image-key controlPlane --layout preflight-controlPlane-oci \
+            --archive preflight-artifact/control-plane.oci.tar >/dev/null
+          node scripts/production-evidence/production-image-publication-contract.mjs verify-oci \
+            --receipt "$receipt" --image-key hostOperator --layout preflight-hostOperator-oci \
+            --archive preflight-artifact/host-operator.oci.tar >/dev/null
+          node scripts/production-evidence/production-image-publication-contract.mjs verify-oci \
+            --receipt "$receipt" --image-key web --layout preflight-web-oci \
+            --archive preflight-artifact/production-web.oci.tar >/dev/null
+
+          verify_bound_file() {
+            local key="$1" field="$2" path="$3"
+            local expected actual
+            expected="$(jq -r --arg key "$key" --arg field "$field" \
+              '.images[$key][$field].sha256' \
+              "$receipt")"
+            actual="sha256:$(sha256sum "$path" | awk '{print $1}')"
+            [[ "$actual" == "$expected" ]] \
+              || fail "${key} ${field} bytes do not match the reviewed preflight receipt."
+          }
+          for key in api controlPlane hostOperator web; do
+            verify_bound_file "$key" provenance "preflight-artifact/${key}-provenance.intoto.json"
+            verify_bound_file "$key" sbom "preflight-artifact/${key}-sbom.intoto.json"
+            verify_bound_file "$key" filesystemManifest "preflight-artifact/${key}-filesystem-projection.json"
+            root="preflight-${key}-oci"
+            runnable_digest="$(jq -r --arg key "$key" '.images[$key].runnableManifestDigest' "$receipt")"
+            config_digest="$(jq -r --arg key "$key" '.images[$key].configDigest' "$receipt")"
+            attestation_digest="$(jq -r '.attestation.digest' "preflight-artifact/${key}-oci-descriptors.json")"
+            jq -e \
+              --slurpfile attestation "preflight-artifact/${key}-attestation-manifest.json" \
+              --slurpfile index "preflight-artifact/${key}-oci-index.json" \
+              '. as $descriptors |
+               ($attestation[0].layers | length) == 2 and
+               ([$index[0].manifests[] |
+                 select(.platform.os == "linux" and .platform.architecture == "amd64" and
+                   (.annotations["vnd.docker.reference.type"] // "") != "attestation-manifest")] == [$descriptors.runnable]) and
+               ([$index[0].manifests[] |
+                 select(.annotations["vnd.docker.reference.type"] == "attestation-manifest")] == [$descriptors.attestation]) and
+               ([$attestation[0].layers[] |
+                 select(.annotations["in-toto.io/predicate-type"] == "https://slsa.dev/provenance/v0.2")] == [$descriptors.provenance]) and
+               ([$attestation[0].layers[] |
+                 select(.annotations["in-toto.io/predicate-type"] == "https://spdx.dev/Document")] == [$descriptors.sbom])' \
+              "preflight-artifact/${key}-oci-descriptors.json" >/dev/null \
+              || fail "${key} uploaded OCI descriptor projection drifted."
+            cmp "preflight-artifact/${key}-oci-index.json" "${root}/index.json" \
+              || fail "${key} raw OCI index copy drifted."
+            cmp "preflight-artifact/${key}-runnable-manifest.json" "${root}/blobs/sha256/${runnable_digest#sha256:}" \
+              || fail "${key} raw runnable manifest copy drifted."
+            cmp "preflight-artifact/${key}-config.json" "${root}/blobs/sha256/${config_digest#sha256:}" \
+              || fail "${key} raw config copy drifted."
+            cmp "preflight-artifact/${key}-attestation-manifest.json" "${root}/blobs/sha256/${attestation_digest#sha256:}" \
+              || fail "${key} raw attestation manifest copy drifted."
+          done
+
+          single_use_key="$(jq -r '.chain.singleUseKeySha256' "$receipt")"
+          complete_artifact_name="production-images-complete-${single_use_key#sha256:}"
+          : >all-artifacts.jsonl
+          page=1
+          while (( page <= 100 )); do
+            github_get \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100&page=${page}" \
+              artifact-page.json
+            jq -e '.artifacts|type == "array" and length <= 100' artifact-page.json >/dev/null \
+              || fail "single-use artifact inventory is invalid."
+            jq -c '.artifacts[]' artifact-page.json >>all-artifacts.jsonl
+            count="$(jq '.artifacts|length' artifact-page.json)"
+            (( count < 100 )) && break
+            page=$((page + 1))
+          done
+          (( page <= 100 )) || fail "single-use artifact inventory exceeded its bound."
+          [[ "$(jq -s --arg name "$complete_artifact_name" '[.[]|select(.name == $name)]|length' all-artifacts.jsonl)" == "0" ]] \
+            || fail "this preflight run and nonce already has a complete receipt; blind retry is forbidden."
+
+          {
+            echo "artifact_created_at=${artifact_created_at}"
+            echo "artifact_expires_at=${artifact_expires_at}"
+            echo "complete_artifact_name=${complete_artifact_name}"
+            echo "single_use_key_sha256=${single_use_key}"
+          } >>"$GITHUB_OUTPUT"
+
+      - name: Require exact private package metadata lookups
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.packages_metadata_token }}
+          REGISTRY_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+
+          fail() {
+            echo "Production package pre-publication validation failed: $1" >&2
+            exit 1
+          }
+
+          [[ -n "$GH_TOKEN" && "$GH_TOKEN" != "$REGISTRY_TOKEN" ]] \
+            || fail "complete requires a distinct named read-only metadata credential."
+          api_get() {
+            local url="$1" body="$2" headers="$3" status
+            case "$url" in
+              https://api.github.com/*) ;;
+              *) fail "unexpected package metadata API origin." ;;
+            esac
+            status="$(curl --disable --silent --show-error \
+              --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 60 \
+              --header 'Accept: application/vnd.github+json' \
+              --header "Authorization: Bearer ${GH_TOKEN}" \
+              --header 'X-GitHub-Api-Version: 2022-11-28' \
+              --dump-header "$headers" --output "$body" --write-out '%{http_code}' "$url")" \
+              || fail "package metadata lookup failed at the transport layer."
+            printf '%s' "$status"
+          }
+          identity_status="$(api_get https://api.github.com/user identity.json identity.headers)"
+          [[ "$identity_status" == "200" ]] \
+            || fail "metadata credential identity returned HTTP ${identity_status}."
+          scopes="$(awk 'BEGIN{IGNORECASE=1} /^x-oauth-scopes:/{sub(/^[^:]*:[[:space:]]*/,"");gsub(/\r/,"");print;exit}' identity.headers |
+            tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sed '/^$/d' | LC_ALL=C sort -u | paste -sd, -)"
+          [[ "$scopes" == "read:packages" ]] \
+            || fail "metadata credential must have exactly read:packages."
+          jq -e '.login == "modvolt" and .id == 289280891 and .type == "User"' identity.json >/dev/null \
+            || fail "metadata credential owner is not exact."
+
+          for package in site-logbook-production-api site-logbook-control-plane site-logbook-host-operator site-logbook-production-web; do
+            package_status="$(api_get \
+              "https://api.github.com/user/packages/container/${package}" \
+              "${package}.json" "${package}.headers")"
+            case "$package_status" in
+              404) continue ;;
+              200) ;;
+              *) fail "${package} lookup returned HTTP ${package_status}; only exact 200 or 404 are meaningful." ;;
+            esac
+            if [[ "$package_status" == "200" ]]; then
+              jq -e --arg package "$package" \
+                '.name == $package and .package_type == "container" and
+                 (.owner.login|ascii_downcase) == "modvolt" and .visibility == "private" and
+                 (.id|type) == "number" and .id > 0 and
+                 (.version_count|type) == "number" and .version_count >= 0' \
+                "${package}.json" >/dev/null \
+                || fail "existing ${package} metadata is not exact and private."
+            fi
+          done
+
+      - name: Recheck source inside atomic set publication and publish exact reviewed OCI bytes by digest only
+        shell: bash
+        env:
+          GHCR_PUBLICATION_ACTOR: ${{ github.actor }}
+          GHCR_PUBLICATION_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          receipt=preflight-artifact/production-image-preflight-receipt.json
+          node scripts/production-evidence/production-image-publication-contract.mjs publish-oci-set \
+            --receipt "$receipt" \
+            --api-layout preflight-api-oci \
+            --api-archive preflight-artifact/production-api.oci.tar \
+            --api-result api-registry-publication.json \
+            --control-plane-layout preflight-controlPlane-oci \
+            --control-plane-archive preflight-artifact/control-plane.oci.tar \
+            --control-plane-result controlPlane-registry-publication.json \
+            --host-operator-layout preflight-hostOperator-oci \
+            --host-operator-archive preflight-artifact/host-operator.oci.tar \
+            --host-operator-result hostOperator-registry-publication.json \
+            --web-layout preflight-web-oci \
+            --web-archive preflight-artifact/production-web.oci.tar \
+            --web-result web-registry-publication.json
+
+      - name: Require exact private package identities after publication
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.packages_metadata_token }}
+        run: |
+          set -euo pipefail
+          fail() { echo "Production package post-publication validation failed: $1" >&2; exit 1; }
+          verify_package() {
+            local key="$1" package="$2" attempt status
+            for attempt in {1..12}; do
+              status="$(curl --disable --silent --show-error \
+                --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 60 \
+                --header 'Accept: application/vnd.github+json' \
+                --header "Authorization: Bearer ${GH_TOKEN}" \
+                --header 'X-GitHub-Api-Version: 2022-11-28' \
+                --output "${key}-package.json" --write-out '%{http_code}' \
+                "https://api.github.com/user/packages/container/${package}")" \
+                || fail "${package} post-publication lookup failed at the transport layer."
+              if [[ "$status" == "200" ]] && jq -e \
+                --arg package "$package" \
+                '.name == $package and .package_type == "container" and
+                 (.owner.login|ascii_downcase) == "modvolt" and .visibility == "private" and
+                 (.id|type) == "number" and .id > 0 and
+                 (.version_count|type) == "number" and .version_count > 0' \
+                "${key}-package.json" >/dev/null; then
+                return
+              fi
+              [[ "$status" == "200" || "$status" == "404" ]] \
+                || fail "${package} post-publication lookup returned HTTP ${status}."
+              (( attempt < 12 )) && sleep 10
+            done
+            fail "${package} did not converge to its exact private package identity. Digest integrity is established separately by the GHCR graph verifier."
+          }
+          verify_package api site-logbook-production-api
+          verify_package controlPlane site-logbook-control-plane
+          verify_package hostOperator site-logbook-host-operator
+          verify_package web site-logbook-production-web
+
+      - name: Seal canonical complete publication receipt
+        id: receipt
+        shell: bash
+        env:
+          CALLER_ACTOR: ${{ github.actor }}
+          CALLER_ACTOR_ID: "289280891"
+          CALLER_REF: ${{ github.ref }}
+          CALLER_REPOSITORY: ${{ github.repository }}
+          CALLER_REPOSITORY_ID: ${{ needs.validate-source.outputs.caller_repository_id }}
+          CALLER_TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          CALLER_WORKFLOW_REF: ${{ github.workflow_ref }}
+          CALLER_WORKFLOW_SHA: ${{ needs.validate-source.outputs.caller_workflow_sha }}
+          PREFLIGHT_ARTIFACT_CREATED_AT: ${{ steps.predecessor.outputs.artifact_created_at }}
+          PREFLIGHT_ARTIFACT_DIGEST: ${{ inputs.expected_preflight_artifact_digest }}
+          PREFLIGHT_ARTIFACT_EXPIRES_AT: ${{ steps.predecessor.outputs.artifact_expires_at }}
+          PREFLIGHT_ARTIFACT_ID: ${{ inputs.expected_preflight_artifact_id }}
+          JOB_WORKFLOW_REF: ${{ needs.validate-source.outputs.job_workflow_ref }}
+          MERGE_PARENT_0: ${{ needs.validate-source.outputs.merge_parent_0 }}
+          MERGE_PARENT_1: ${{ needs.validate-source.outputs.merge_parent_1 }}
+          PREFLIGHT_RECEIPT_SHA256: ${{ inputs.expected_preflight_receipt_sha256 }}
+          PREFLIGHT_RUN_ATTEMPT: ${{ inputs.expected_preflight_run_attempt }}
+          PREFLIGHT_RUN_ID: ${{ inputs.expected_preflight_run_id }}
+          QUALITY_RUN_ATTEMPT: ${{ needs.validate-source.outputs.quality_run_attempt }}
+          QUALITY_RUN_ID: ${{ needs.validate-source.outputs.quality_run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          RUN_ID: ${{ github.run_id }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          SOURCE_TREE_SHA: ${{ needs.validate-source.outputs.source_tree_sha }}
+        run: |
+          set -euo pipefail
+          preflight_receipt=preflight-artifact/production-image-preflight-receipt.json
+          workflow_sha="sha256:$(sha256sum .github/workflows/production-images.yml | awk '{print $1}')"
+          for key in api controlPlane hostOperator web; do
+            evidence_sha="sha256:$(sha256sum "${key}-registry-publication.json" | awk '{print $1}')"
+            jq -e \
+              --arg digest "$(jq -r --arg key "$key" '.images[$key].digest' "$preflight_receipt")" \
+              --arg sha "$SOURCE_SHA" \
+              '.sourceSha == $sha and .digest == $digest and
+               .immutableImage == (.repository + "@" + .digest) and
+               .referenceMode == "digest-only" and
+               (.preWriteDigestState == "present" or .preWriteDigestState == "absent") and
+               .digestAlreadyPresent == (.preWriteDigestState == "present") and
+               .registryWritePerformed == (.preWriteDigestState == "absent") and
+               .sourceRecheckPerformed == true and
+               .digestReferenceVerified == true and .runnableManifestVerified == true and
+               .attestationManifestVerified == true and .allReviewedBlobsVerified == true' \
+              "${key}-registry-publication.json" >/dev/null
+            jq --arg evidenceSha "$evidence_sha" --arg key "$key" \
+              '.images[$key] | .published=true | .registryVerified=true |
+               .registryEvidenceSha256=$evidenceSha' \
+              "$preflight_receipt" >"${key}-image.json"
+          done
+          publication_nonce_sha256="$(jq -r '.chain.publicationNonceSha256' "$preflight_receipt")"
+          single_use_key_sha256="$(jq -r '.chain.singleUseKeySha256' "$preflight_receipt")"
+          reviewed_image_set_sha256="$(jq -r '.chain.reviewedImageSetSha256' "$preflight_receipt")"
+          preflight_created_at="$(jq -r '.createdAt' "$preflight_receipt")"
+          jq -n \
+            --arg schemaVersion "site-logbook.production-image-publication/v1" \
+            --arg kind "site-logbook-production-image-publication-receipt" \
+            --arg sourceSha "$SOURCE_SHA" --arg sourceTreeSha "$SOURCE_TREE_SHA" \
+            --arg parent0 "$MERGE_PARENT_0" --arg parent1 "$MERGE_PARENT_1" \
+            --arg qualityRunId "$QUALITY_RUN_ID" --arg qualityRunAttempt "$QUALITY_RUN_ATTEMPT" \
+            --arg callerRepository "$CALLER_REPOSITORY" --arg callerWorkflowRef "$CALLER_WORKFLOW_REF" \
+            --arg callerRepositoryId "$CALLER_REPOSITORY_ID" \
+            --arg callerWorkflowSha "$CALLER_WORKFLOW_SHA" --arg actor "$CALLER_ACTOR" --arg actorId "$CALLER_ACTOR_ID" \
+            --arg triggeringActor "$CALLER_TRIGGERING_ACTOR" --arg callerRef "$CALLER_REF" \
+            --arg runId "$RUN_ID" --arg runAttempt "$RUN_ATTEMPT" \
+            --arg jobWorkflowRef "$JOB_WORKFLOW_REF" --arg workflowSha "$workflow_sha" \
+            --arg preflightReceiptSha256 "$PREFLIGHT_RECEIPT_SHA256" \
+            --arg preflightRunId "$PREFLIGHT_RUN_ID" --arg preflightRunAttempt "$PREFLIGHT_RUN_ATTEMPT" \
+            --arg preflightArtifactId "$PREFLIGHT_ARTIFACT_ID" \
+            --arg preflightArtifactDigest "$PREFLIGHT_ARTIFACT_DIGEST" \
+            --arg preflightArtifactCreatedAt "$PREFLIGHT_ARTIFACT_CREATED_AT" \
+            --arg preflightArtifactExpiresAt "$PREFLIGHT_ARTIFACT_EXPIRES_AT" \
+            --arg preflightCreatedAt "$preflight_created_at" \
+            --arg publicationNonceSha256 "$publication_nonce_sha256" \
+            --arg singleUseKeySha256 "$single_use_key_sha256" \
+            --arg reviewedImageSetSha256 "$reviewed_image_set_sha256" \
+            --arg createdAt "$(date -u +'%Y-%m-%dT%H:%M:%S.000Z')" \
+            --slurpfile api api-image.json --slurpfile controlPlane controlPlane-image.json \
+            --slurpfile hostOperator hostOperator-image.json --slurpfile web web-image.json \
+            '{schemaVersion:$schemaVersion,kind:$kind,publicationStage:"complete",
+              source:{repository:"modvolt/Site-Logbook",ref:"refs/heads/main",sha:$sourceSha,
+                treeSha:$sourceTreeSha,mergeParentShas:[$parent0,$parent1],
+                qualityGate:{workflowName:"Quality gate",workflowPath:".github/workflows/quality-gate.yml",
+                  event:"push",headBranch:"main",headSha:$sourceSha,runId:$qualityRunId,
+                   runAttempt:$qualityRunAttempt,conclusion:"success"}},
+              caller:{repository:$callerRepository,repositoryId:$callerRepositoryId,
+                workflowRef:$callerWorkflowRef,workflowSha:$callerWorkflowSha,
+                eventName:"workflow_dispatch",ref:$callerRef,actor:$actor,triggeringActor:$triggeringActor,
+                actorId:$actorId,runId:$runId,runAttempt:$runAttempt},
+              publisher:{repository:"modvolt/Site-Logbook",workflowPath:".github/workflows/production-images.yml",
+                jobWorkflowRef:$jobWorkflowRef,sourceSha:$sourceSha,workflowFileSha256:$workflowSha},
+              chain:{preflightReceiptSha256:$preflightReceiptSha256,preflightRunId:$preflightRunId,
+                preflightRunAttempt:$preflightRunAttempt,preflightArtifactId:$preflightArtifactId,
+                preflightArtifactDigest:$preflightArtifactDigest,
+                preflightArtifactCreatedAt:$preflightArtifactCreatedAt,
+                preflightArtifactExpiresAt:$preflightArtifactExpiresAt,preflightCreatedAt:$preflightCreatedAt,
+                publicationNonceSha256:$publicationNonceSha256,singleUseKeySha256:$singleUseKeySha256,
+                reviewedImageSetSha256:$reviewedImageSetSha256},
+              policy:{registryWritePermitted:true,packagesVisibility:"private",platform:"linux/amd64",
+                productionTargetsTouched:false,deploymentAuthorized:false,migrationAuthorized:false},
+              images:{api:$api[0],controlPlane:$controlPlane[0],hostOperator:$hostOperator[0],web:$web[0]},createdAt:$createdAt}' \
+            >production-image-publication-input.json
+          node scripts/production-evidence/production-image-publication-contract.mjs seal \
+            --input production-image-publication-input.json \
+            --receipt production-image-publication-receipt.json \
+            --checksum production-image-publication-receipt.sha256
+          echo "complete_artifact_name=production-images-complete-${single_use_key_sha256#sha256:}" >>"$GITHUB_OUTPUT"
+          cp "$preflight_receipt" reviewed-preflight-receipt.json
+          cp preflight-artifact/production-image-preflight-receipt.sha256 reviewed-preflight-receipt.sha256
+
+      - name: Upload immutable production image publication receipt
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ steps.receipt.outputs.complete_artifact_name }}
+          path: |
+            production-image-publication-receipt.json
+            production-image-publication-receipt.sha256
+            reviewed-preflight-receipt.json
+            reviewed-preflight-receipt.sha256
+            api-registry-publication.json
+            controlPlane-registry-publication.json
+            hostOperator-registry-publication.json
+            web-registry-publication.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90

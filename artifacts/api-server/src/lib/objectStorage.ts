@@ -17,7 +17,52 @@ import { createHash, randomUUID } from "crypto";
 import { Readable } from "stream";
 import { pipeline } from "stream/promises";
 import type { Response as ExpressResponse } from "express";
+import {
+  PRODUCTION_EXACT_0096_HETZNER_BUCKET,
+  PRODUCTION_EXACT_0096_HETZNER_ENDPOINT,
+  PRODUCTION_EXACT_0096_HETZNER_REGION,
+  parseProductionHetznerObjectStorageEndpoint,
+} from "./production-object-storage-config";
 import { resolveS3TestRequestTimeout } from "./s3-test-request-timeout";
+
+function abortReason(signal: AbortSignal): Error {
+  return signal.reason instanceof Error
+    ? signal.reason
+    : new Error("Object storage operation aborted.");
+}
+
+function binaryCompare(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+async function raceWithAbort<T>(
+  operation: Promise<T>,
+  signal?: AbortSignal,
+  onAbort?: () => void,
+): Promise<T> {
+  if (!signal) return operation;
+  if (signal.aborted) {
+    onAbort?.();
+    throw abortReason(signal);
+  }
+  return await new Promise<T>((resolve, reject) => {
+    const abort = () => {
+      onAbort?.();
+      reject(abortReason(signal));
+    };
+    signal.addEventListener("abort", abort, { once: true });
+    operation.then(
+      (value) => {
+        signal.removeEventListener("abort", abort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener("abort", abort);
+        reject(error);
+      },
+    );
+  });
+}
 
 export type RecoveryReadinessStatus = "pass" | "fail" | "unknown";
 
@@ -48,6 +93,53 @@ export class ObjectNotFoundError extends Error {
     this.name = "ObjectNotFoundError";
     Object.setPrototypeOf(this, ObjectNotFoundError.prototype);
   }
+}
+
+export type ProductionExactVersionedObjectHead = Readonly<{
+  bucket: string;
+  key: string;
+  versionId: string;
+  headObservedAt: string;
+  headContentLength: number;
+  headEtag: string;
+  headObjectSha256Metadata: string;
+  storageProvider: Readonly<{
+    kind: "hetzner-object-storage";
+    endpointOriginSha256: string;
+    region: "fsn1" | "nbg1" | "hel1";
+    encryptionBoundary: "client-envelope-only";
+    transport: "https";
+    versioning: "enabled";
+  }>;
+}>;
+
+type ProductionExactS3Client = Pick<S3Client, "send">;
+
+type ProductionExactHetznerBinding = Readonly<{
+  kind: "hetzner-object-storage";
+  endpointOriginSha256: string;
+  region: "fsn1" | "nbg1" | "hel1";
+  encryptionBoundary: "client-envelope-only";
+  transport: "https";
+  versioning: "enabled";
+}>;
+
+function productionExactHetznerBinding(
+  endpointInput: string | undefined,
+  regionInput: string | undefined,
+): ProductionExactHetznerBinding {
+  if (
+    endpointInput !== PRODUCTION_EXACT_0096_HETZNER_ENDPOINT ||
+    regionInput !== PRODUCTION_EXACT_0096_HETZNER_REGION
+  ) {
+    throw new Error(
+      "PRODUCTION_HETZNER_OBJECT_STORAGE_INVALID: exact-0096 is source-pinned to the canonical fsn1 endpoint.",
+    );
+  }
+  return parseProductionHetznerObjectStorageEndpoint(
+    endpointInput,
+    regionInput,
+  );
 }
 
 // Object storage supports two backends:
@@ -854,6 +946,314 @@ export class ObjectStorageService {
     }
   }
 
+  /**
+   * Persist one already-bounded, client-side MVE1-encrypted production backup
+   * stream as a new Hetzner Object Storage version and independently HEAD that
+   * exact version. Existing generic object-storage callers do not use this
+   * path. The provider binding deliberately rejects MinIO, AWS and arbitrary
+   * S3-compatible endpoints instead of inferring capabilities they did not
+   * attest.
+   */
+  async putProductionExactVersionedBackup(
+    input: {
+      key: string;
+      body: Readable;
+      contentLength: number;
+      encryptedPayloadSha256: string;
+      signal: AbortSignal;
+    },
+    dependencies: {
+      client?: ProductionExactS3Client;
+      bucket?: string;
+      now?: () => Date;
+      endpoint?: string;
+      region?: string;
+    } = {},
+  ): Promise<ProductionExactVersionedObjectHead> {
+    if (
+      !/^private\/production\/exact-0096\/[A-Za-z0-9][A-Za-z0-9._/-]{7,511}$/.test(
+        input.key,
+      ) ||
+      input.key.split("/").some((segment) => ["", ".", ".."].includes(segment))
+    ) {
+      throw new Error("Production exact backup object key is invalid.");
+    }
+    if (
+      !Number.isSafeInteger(input.contentLength) ||
+      input.contentLength < 1 ||
+      !/^sha256:[0-9a-f]{64}$/.test(input.encryptedPayloadSha256) ||
+      input.signal.aborted
+    ) {
+      throw new Error("Production exact backup upload input is invalid.");
+    }
+    const storageProvider = productionExactHetznerBinding(
+      dependencies.endpoint ?? process.env.S3_ENDPOINT,
+      dependencies.region ?? process.env.S3_REGION,
+    );
+    const client = dependencies.client ?? getClient();
+    const bucket = dependencies.bucket ?? getBucket();
+    if (bucket !== PRODUCTION_EXACT_0096_HETZNER_BUCKET) {
+      throw new Error("Production exact backup bucket is invalid.");
+    }
+
+    const versioning = await client.send(
+      new GetBucketVersioningCommand({ Bucket: bucket }),
+      { abortSignal: input.signal },
+    );
+    if (versioning.Status !== "Enabled") {
+      throw new Error(
+        "Production exact backup requires read-only proof that bucket versioning is Enabled before PUT.",
+      );
+    }
+
+    const put = await client.send(
+      new PutObjectCommand({
+        Bucket: bucket,
+        Key: input.key,
+        Body: input.body,
+        ContentType: "application/octet-stream",
+        ContentLength: input.contentLength,
+        IfNoneMatch: "*",
+        Metadata: {
+          sha256: input.encryptedPayloadSha256.slice("sha256:".length),
+          "client-side-encryption": "mve1",
+          "encryption-boundary": "client-envelope-only",
+          "storage-provider": "hetzner-object-storage",
+        },
+      }),
+      { abortSignal: input.signal },
+    );
+    const versionId = put.VersionId;
+    if (!versionId || ["null", "none", "undefined"].includes(versionId)) {
+      let cleanupVersionId: string | undefined;
+      try {
+        const current = await client.send(
+          new HeadObjectCommand({ Bucket: bucket, Key: input.key }),
+          { abortSignal: input.signal },
+        );
+        if (
+          current.VersionId &&
+          !["null", "none", "undefined"].includes(current.VersionId) &&
+          (!put.ETag || current.ETag === put.ETag)
+        ) {
+          cleanupVersionId = current.VersionId;
+        }
+      } catch {
+        cleanupVersionId = undefined;
+      }
+      if (cleanupVersionId) {
+        await client.send(
+          new DeleteObjectCommand({
+            Bucket: bucket,
+            Key: input.key,
+            VersionId: cleanupVersionId,
+          }),
+        );
+      }
+      throw new Error(
+        cleanupVersionId
+          ? "Production exact backup upload returned no durable object version; the exact observed version was deleted."
+          : "Production exact backup upload returned no durable object version and exact-version cleanup could not be proven.",
+      );
+    }
+
+    try {
+      const head = await client.send(
+        new HeadObjectCommand({
+          Bucket: bucket,
+          Key: input.key,
+          VersionId: versionId,
+        }),
+        { abortSignal: input.signal },
+      );
+      const metadataDigest = head.Metadata?.sha256;
+      const observedAt = (dependencies.now ?? (() => new Date()))();
+      if (
+        head.VersionId !== versionId ||
+        head.ContentLength !== input.contentLength ||
+        !head.ETag ||
+        !/^"[0-9a-f]{32,64}(?:-[1-9][0-9]*)?"$/.test(head.ETag) ||
+        metadataDigest !==
+          input.encryptedPayloadSha256.slice("sha256:".length) ||
+        head.Metadata?.["client-side-encryption"] !== "mve1" ||
+        head.Metadata?.["encryption-boundary"] !== "client-envelope-only" ||
+        head.Metadata?.["storage-provider"] !== "hetzner-object-storage" ||
+        !Number.isFinite(observedAt.getTime())
+      ) {
+        throw new Error(
+          "Production exact backup HEAD did not reproduce the exact version binding.",
+        );
+      }
+      return Object.freeze({
+        bucket,
+        key: input.key,
+        versionId,
+        headObservedAt: observedAt.toISOString(),
+        headContentLength: head.ContentLength,
+        headEtag: head.ETag,
+        headObjectSha256Metadata: input.encryptedPayloadSha256,
+        storageProvider,
+      });
+    } catch (error) {
+      await client
+        .send(
+          new DeleteObjectCommand({
+            Bucket: bucket,
+            Key: input.key,
+            VersionId: versionId,
+          }),
+        )
+        .catch(() => undefined);
+      throw error;
+    }
+  }
+
+  async openProductionExactVersionedBackup(
+    expected: ProductionExactVersionedObjectHead,
+    signal: AbortSignal,
+    dependencies: {
+      client?: ProductionExactS3Client;
+      endpoint?: string;
+      region?: string;
+    } = {},
+  ): Promise<Readable> {
+    if (signal.aborted) {
+      throw new Error(
+        "Production exact backup restore requires a live signal.",
+      );
+    }
+    if (expected.bucket !== PRODUCTION_EXACT_0096_HETZNER_BUCKET) {
+      throw new Error(
+        "Production exact backup restore bucket differs from modvoltdata.",
+      );
+    }
+    const storageProvider = productionExactHetznerBinding(
+      dependencies.endpoint ?? process.env.S3_ENDPOINT,
+      dependencies.region ?? process.env.S3_REGION,
+    );
+    if (
+      storageProvider.kind !== expected.storageProvider.kind ||
+      storageProvider.endpointOriginSha256 !==
+        expected.storageProvider.endpointOriginSha256 ||
+      storageProvider.region !== expected.storageProvider.region ||
+      storageProvider.encryptionBoundary !==
+        expected.storageProvider.encryptionBoundary ||
+      storageProvider.transport !== expected.storageProvider.transport ||
+      storageProvider.versioning !== expected.storageProvider.versioning
+    ) {
+      throw new Error(
+        "Production exact backup restore provider does not match the reviewed Hetzner binding.",
+      );
+    }
+    const client = dependencies.client ?? getClient();
+    const versioning = await client.send(
+      new GetBucketVersioningCommand({ Bucket: expected.bucket }),
+      { abortSignal: signal },
+    );
+    if (versioning.Status !== "Enabled") {
+      throw new Error(
+        "Production exact backup restore requires bucket versioning to remain Enabled.",
+      );
+    }
+    const result = await client.send(
+      new GetObjectCommand({
+        Bucket: expected.bucket,
+        Key: expected.key,
+        VersionId: expected.versionId,
+      }),
+      { abortSignal: signal },
+    );
+    if (
+      !(result.Body instanceof Readable) ||
+      result.VersionId !== expected.versionId ||
+      result.ContentLength !== expected.headContentLength ||
+      result.ETag !== expected.headEtag ||
+      result.Metadata?.sha256 !==
+        expected.headObjectSha256Metadata.slice("sha256:".length) ||
+      result.Metadata?.["client-side-encryption"] !== "mve1" ||
+      result.Metadata?.["encryption-boundary"] !== "client-envelope-only" ||
+      result.Metadata?.["storage-provider"] !== "hetzner-object-storage"
+    ) {
+      if (result.Body instanceof Readable) result.Body.destroy();
+      throw new Error(
+        "Production exact backup GET did not reproduce the reviewed object version.",
+      );
+    }
+    return result.Body;
+  }
+
+  async headProductionExactVersionedBackup(
+    expected: Pick<
+      ProductionExactVersionedObjectHead,
+      "bucket" | "key" | "versionId"
+    >,
+    signal: AbortSignal,
+    dependencies: {
+      client?: ProductionExactS3Client;
+      endpoint?: string;
+      region?: string;
+      now?: () => Date;
+    } = {},
+  ): Promise<ProductionExactVersionedObjectHead> {
+    if (signal.aborted) {
+      throw new Error("Production exact backup HEAD requires a live signal.");
+    }
+    if (expected.bucket !== PRODUCTION_EXACT_0096_HETZNER_BUCKET) {
+      throw new Error(
+        "Production exact backup HEAD bucket differs from modvoltdata.",
+      );
+    }
+    const storageProvider = productionExactHetznerBinding(
+      dependencies.endpoint ?? process.env.S3_ENDPOINT,
+      dependencies.region ?? process.env.S3_REGION,
+    );
+    const client = dependencies.client ?? getClient();
+    const versioning = await client.send(
+      new GetBucketVersioningCommand({ Bucket: expected.bucket }),
+      { abortSignal: signal },
+    );
+    if (versioning.Status !== "Enabled") {
+      throw new Error(
+        "Production exact backup HEAD requires bucket versioning to remain Enabled.",
+      );
+    }
+    const head = await client.send(
+      new HeadObjectCommand({
+        Bucket: expected.bucket,
+        Key: expected.key,
+        VersionId: expected.versionId,
+      }),
+      { abortSignal: signal },
+    );
+    const observedAt = (dependencies.now ?? (() => new Date()))();
+    if (
+      head.VersionId !== expected.versionId ||
+      !Number.isSafeInteger(head.ContentLength) ||
+      Number(head.ContentLength) < 1 ||
+      !head.ETag ||
+      !/^"[0-9a-f]{32,64}(?:-[1-9][0-9]*)?"$/.test(head.ETag) ||
+      !/^[0-9a-f]{64}$/.test(head.Metadata?.sha256 ?? "") ||
+      head.Metadata?.["client-side-encryption"] !== "mve1" ||
+      head.Metadata?.["encryption-boundary"] !== "client-envelope-only" ||
+      head.Metadata?.["storage-provider"] !== "hetzner-object-storage" ||
+      !Number.isFinite(observedAt.getTime())
+    ) {
+      throw new Error(
+        "Production exact backup independent HEAD did not reproduce the exact version binding.",
+      );
+    }
+    return Object.freeze({
+      bucket: expected.bucket,
+      key: expected.key,
+      versionId: expected.versionId,
+      headObservedAt: observedAt.toISOString(),
+      headContentLength: Number(head.ContentLength),
+      headEtag: head.ETag,
+      headObjectSha256Metadata: `sha256:${head.Metadata.sha256}`,
+      storageProvider,
+    });
+  }
+
   /** List every object below the configured private prefix for recovery. */
   async listPrivateObjectsForRecovery(): Promise<
     Array<{ objectPath: string; size: number; lastModified: string | null }>
@@ -895,7 +1295,7 @@ export class ObjectStorageService {
           );
         }
       } while (continuationToken);
-      return objects.sort((a, b) => a.objectPath.localeCompare(b.objectPath));
+      return objects.sort((a, b) => binaryCompare(a.objectPath, b.objectPath));
     }
 
     const { bucketName, objectName } = parseGcsPath(gcsPrivateDir());
@@ -920,7 +1320,7 @@ export class ObjectStorageService {
             : undefined,
       }))
       .filter((item) => item.objectPath !== "/objects/");
-    return objects.sort((a, b) => a.objectPath.localeCompare(b.objectPath));
+    return objects.sort((a, b) => binaryCompare(a.objectPath, b.objectPath));
   }
 
   /** True when the current private store already contains the exact path. */
@@ -943,17 +1343,23 @@ export class ObjectStorageService {
   async openPrivateObjectRecoveryStream(
     objectPath: string,
     snapshotToken?: string,
+    options: { signal?: AbortSignal } = {},
   ): Promise<{ body: Readable; contentType: string }> {
+    if (options.signal?.aborted) throw abortReason(options.signal);
     if (!objectPath.startsWith("/objects/")) throw new ObjectNotFoundError();
     if (s3Configured()) {
       const entityId = trimSlashes(objectPath.slice("/objects/".length));
       if (!entityId) throw new ObjectNotFoundError();
-      const out = await getClient().send(
-        new GetObjectCommand({
-          Bucket: getBucket(),
-          Key: joinKey(getPrivatePrefix(), entityId),
-          IfMatch: snapshotToken,
-        }),
+      const out = await raceWithAbort(
+        getClient().send(
+          new GetObjectCommand({
+            Bucket: getBucket(),
+            Key: joinKey(getPrivatePrefix(), entityId),
+            IfMatch: snapshotToken,
+          }),
+          { abortSignal: options.signal },
+        ),
+        options.signal,
       );
       if (!out.Body || !(out.Body instanceof Readable)) {
         throw new ObjectNotFoundError();
@@ -974,9 +1380,14 @@ export class ObjectStorageService {
         objectName,
         snapshotToken ? { generation: snapshotToken } : undefined,
       );
-    const [metadata] = await file.getMetadata();
+    const body = file.createReadStream();
+    const [metadata] = await raceWithAbort(
+      file.getMetadata(),
+      options.signal,
+      () => body.destroy(),
+    );
     return {
-      body: file.createReadStream(),
+      body,
       contentType:
         (metadata.contentType as string) || "application/octet-stream",
     };
@@ -1049,7 +1460,7 @@ export class ObjectStorageService {
   /** Read bytes plus content type so a recovery copy preserves object metadata. */
   async readPrivateObjectForRecovery(
     objectPath: string,
-    options: { maxBytes?: number } = {},
+    options: { maxBytes?: number; signal?: AbortSignal } = {},
   ): Promise<{ body: Buffer; contentType: string }> {
     if (
       options.maxBytes !== undefined &&
@@ -1059,20 +1470,36 @@ export class ObjectStorageService {
         "Recovery object byte ceiling must be a positive safe integer.",
       );
     }
-    const opened = await this.openPrivateObjectRecoveryStream(objectPath);
+    const opened = await this.openPrivateObjectRecoveryStream(
+      objectPath,
+      undefined,
+      { signal: options.signal },
+    );
     const chunks: Buffer[] = [];
     let totalBytes = 0;
-    for await (const value of opened.body) {
-      const chunk = Buffer.isBuffer(value)
-        ? value
-        : Buffer.from(value as Uint8Array);
-      totalBytes += chunk.length;
-      if (options.maxBytes !== undefined && totalBytes > options.maxBytes) {
-        throw new Error(
-          `Recovery object exceeds the approved ${options.maxBytes}-byte ceiling.`,
-        );
+    const abort = () => opened.body.destroy();
+    options.signal?.addEventListener("abort", abort, { once: true });
+    try {
+      for await (const value of opened.body) {
+        if (options.signal?.aborted) throw abortReason(options.signal);
+        const chunk = Buffer.isBuffer(value)
+          ? value
+          : Buffer.from(value as Uint8Array);
+        totalBytes += chunk.length;
+        if (options.maxBytes !== undefined && totalBytes > options.maxBytes) {
+          opened.body.destroy();
+          throw new Error(
+            `Recovery object exceeds the approved ${options.maxBytes}-byte ceiling.`,
+          );
+        }
+        chunks.push(chunk);
       }
-      chunks.push(chunk);
+      if (options.signal?.aborted) throw abortReason(options.signal);
+    } catch (error) {
+      if (options.signal?.aborted) throw abortReason(options.signal);
+      throw error;
+    } finally {
+      options.signal?.removeEventListener("abort", abort);
     }
     return { body: Buffer.concat(chunks), contentType: opened.contentType };
   }
@@ -1087,8 +1514,12 @@ export class ObjectStorageService {
     objectPath: string,
     body: Buffer,
     contentType: string,
-    options: { uploadStatus?: "stored" | "quarantined" } = {},
+    options: {
+      uploadStatus?: "stored" | "quarantined";
+      signal?: AbortSignal;
+    } = {},
   ): Promise<void> {
+    if (options.signal?.aborted) throw abortReason(options.signal);
     if (!objectPath.startsWith("/objects/")) {
       throw new Error("putPrivateObject requires an /objects/ path");
     }
@@ -1101,39 +1532,59 @@ export class ObjectStorageService {
     if (s3Configured()) {
       const key = joinKey(getPrivatePrefix(), entityId);
       const testTimeoutMs = resolveS3TestRequestTimeout();
-      await getClient().send(
-        new PutObjectCommand({
-          Bucket: getBucket(),
-          Key: key,
-          Body: body,
-          ContentType: contentType,
-          ContentLength: body.length,
-          Metadata: {
-            sha256,
-            "upload-status": uploadStatus,
-          },
-        }),
-        testTimeoutMs === undefined
+      const abortSignal =
+        options.signal ??
+        (testTimeoutMs === undefined
           ? undefined
-          : { abortSignal: AbortSignal.timeout(testTimeoutMs) },
+          : AbortSignal.timeout(testTimeoutMs));
+      await raceWithAbort(
+        getClient().send(
+          new PutObjectCommand({
+            Bucket: getBucket(),
+            Key: key,
+            Body: body,
+            ContentType: contentType,
+            ContentLength: body.length,
+            Metadata: {
+              sha256,
+              "upload-status": uploadStatus,
+            },
+          }),
+          abortSignal === undefined ? undefined : { abortSignal },
+        ),
+        options.signal,
       );
       return;
     }
 
     const { bucketName, objectName } = gcsResolvePrivate(objectPath);
-    await getGcsClient()
-      .bucket(bucketName)
-      .file(objectName)
-      .save(body, {
-        contentType,
-        resumable: false,
+    const file = getGcsClient().bucket(bucketName).file(objectName);
+    const metadata = {
+      contentType,
+      resumable: false,
+      metadata: {
         metadata: {
-          metadata: {
-            sha256,
-            uploadStatus,
-          },
+          sha256,
+          uploadStatus,
         },
-      });
+      },
+    } as const;
+    if (!options.signal) {
+      await file.save(body, metadata);
+      return;
+    }
+    const input = Readable.from(body, { objectMode: false });
+    const output = file.createWriteStream({
+      contentType,
+      resumable: false,
+      metadata: {
+        metadata: {
+          sha256,
+          uploadStatus,
+        },
+      },
+    });
+    await pipeline(input, output, { signal: options.signal });
   }
 
   /**
@@ -1143,7 +1594,7 @@ export class ObjectStorageService {
    */
   async getPrivateObjectBuffer(
     objectPath: string,
-    options: { maxBytes?: number } = {},
+    options: { maxBytes?: number; signal?: AbortSignal } = {},
   ): Promise<Buffer> {
     return (await this.readPrivateObjectForRecovery(objectPath, options)).body;
   }

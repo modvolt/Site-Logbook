@@ -8,7 +8,9 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const MIGRATION_TAG = "0107_canonical_audit_evidence";
 const read = (path: string) => readFileSync(resolve(ROOT, path), "utf8");
 const migrationSql = read(`lib/db/migrations/${MIGRATION_TAG}.sql`);
-const migrationHash = createHash("sha256").update(migrationSql).digest("hex");
+const migrationHash = createHash("sha256")
+  .update(migrationSql.replace(/\r\n/g, "\n"))
+  .digest("hex");
 const rollbackSql = read(`lib/db/rollbacks/${MIGRATION_TAG}.down.sql`);
 const schemaSource = read("lib/db/src/schema/audit-evidence.ts");
 const contractSource = read(
@@ -97,6 +99,26 @@ describe("R09 canonical audit evidence expand artifacts", () => {
     );
   });
 
+  it("freezes every audit function to pg_catalog and qualified audit objects", () => {
+    expect(migrationSql.match(/CREATE OR REPLACE FUNCTION/g)).toHaveLength(16);
+    expect(migrationSql.match(/SET search_path = pg_catalog/g)).toHaveLength(
+      16,
+    );
+    expect(migrationSql).toContain("pg_catalog.sha256(");
+    expect(migrationSql).toContain("pg_catalog.convert_to(");
+    expect(migrationSql).toContain("pg_catalog.decode(");
+    expect(migrationSql).toContain("pg_catalog.encode(");
+    expect(migrationSql).not.toMatch(
+      /\b(?:FROM|JOIN|INTO)\s+audit_(?:events|chain_heads|export_outbox)\b/,
+    );
+    expect(migrationSql).not.toMatch(
+      /EXECUTE FUNCTION\s+(?:guard_audit|deny_audit)/,
+    );
+    expect(migrationSql).toContain(
+      "REVOKE CREATE ON SCHEMA public FROM PUBLIC;",
+    );
+  });
+
   it("uses one atomic event+ledger repository operation in a caller-owned tx", () => {
     expect(contractSource).toContain("insertEventAndLedger(");
     expect(contractSource).not.toContain("insertEventEnvelope(");
@@ -117,12 +139,13 @@ describe("R09 canonical audit evidence expand artifacts", () => {
     const firstDropAt = rollbackSql.search(/\bDROP\b/i);
     expect(guardAt).toBeGreaterThanOrEqual(0);
     expect(firstDropAt).toBeGreaterThan(guardAt);
-    expect(rollbackSql).toContain("SELECT 1 FROM audit_events");
-    expect(rollbackSql).toContain("SELECT 1 FROM audit_export_outbox");
+    expect(rollbackSql).toContain("SET LOCAL search_path = pg_catalog");
+    expect(rollbackSql).toContain("SELECT 1 FROM public.audit_events");
+    expect(rollbackSql).toContain("SELECT 1 FROM public.audit_export_outbox");
     expect(rollbackSql).toContain("sequence = 0");
     expect(rollbackSql).toContain("ledger_sha256 IS NULL");
     expect(rollbackSql).toContain(
-      "LOCK TABLE audit_chain_heads, audit_events, audit_export_outbox",
+      "LOCK TABLE public.audit_chain_heads, public.audit_events, public.audit_export_outbox,\n  drizzle.__drizzle_migrations",
     );
     expect(rollbackSql).toContain("pg_advisory_xact_lock(911072468)");
     expect(rollbackSql.indexOf("pg_advisory_xact_lock")).toBeLessThan(
@@ -133,5 +156,9 @@ describe("R09 canonical audit evidence expand artifacts", () => {
     expect(rollbackSql).toContain("created_at = 1786484628859");
     expect(rollbackSql.match(new RegExp(migrationHash, "g"))).toHaveLength(3);
     expect(rollbackSql).not.toMatch(/\bCASCADE\b/i);
+    expect(rollbackSql).not.toContain(
+      "GRANT CREATE ON SCHEMA public TO PUBLIC",
+    );
+    expect(rollbackSql).toContain("intentionally\n-- sticky");
   });
 });

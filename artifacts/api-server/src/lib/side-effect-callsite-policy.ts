@@ -238,7 +238,7 @@ export const SIDE_EFFECT_CALLSITE_INVENTORY_V1 = [
   {
     file: "lib/backup.ts",
     symbol: ".deletePrivateObject",
-    occurrences: 1,
+    occurrences: 2,
     kind: "managed-object",
     boundary: "product-caller",
     migrationStatus: "legacy-unbound",

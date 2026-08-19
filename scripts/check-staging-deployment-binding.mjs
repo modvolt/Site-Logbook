@@ -34,10 +34,12 @@ const IMMUTABLE_IMAGES = Object.freeze({
   web: "site-logbook-staging-web",
   alertReceiver: "site-logbook-staging-alert-receiver",
 });
-const STAGING_POSTGRES_IMAGE =
+export const STAGING_POSTGRES_IMAGE =
   "postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777";
 const STAGING_POSTGRES_DATA_TARGET = "/var/lib/postgresql/data";
-const STAGING_POSTGRES_VOLUME = "staging_pgdata";
+export const STAGING_POSTGRES_VOLUME = "staging_pgdata";
+const STAGING_AUDIT_RESTRICTED_OPAQUE_ROWS_JSON =
+  '[{"createdAt":1783190993468,"hash":"fe7cb6a82d419b32a4a71e54476a5431b2260e876de1a4e37f156f151a8b6927"},{"createdAt":1783261969512,"hash":"3355fdc1265e205de92dae49d7f51d3a01fbc9e3d37c6512f92536d27081affa"}]';
 
 // The projection deliberately excludes Config.Env and every secret-bearing
 // field. Host runners parse this single JSON object without logging it.
@@ -56,6 +58,20 @@ function exactKeys(value, expected, field) {
       `${field} must contain only approved fields.`,
     );
   }
+}
+
+function validateAuditLineageBinding(mode, opaqueRowsJson) {
+  if (
+    (mode === "clean" && opaqueRowsJson === "[]") ||
+    (mode === "production-copy-restricted" &&
+      opaqueRowsJson === STAGING_AUDIT_RESTRICTED_OPAQUE_ROWS_JSON)
+  ) {
+    return;
+  }
+  fail(
+    "DEPLOYMENT_COMPOSE_TARGET_INVALID",
+    "Audit lineage must use clean [] or the two frozen opaque production-copy identities.",
+  );
 }
 
 function httpsUrl(value, field, expectedPath) {
@@ -372,6 +388,15 @@ function validateOneShotService(service, targetService) {
       profiles: ["exact-0105-accounting-backup"],
       dependsOn: false,
     },
+    "exact-0106-audit-backup": {
+      command: ["node", "dist/audit-schema-exact-0106-backup.mjs"],
+      cpus: 0.5,
+      memLimit: "1610612736",
+      memReservation: "402653184",
+      tmpfs: ["/tmp:size=536870912,mode=1777"],
+      profiles: ["exact-0106-audit-backup"],
+      dependsOn: false,
+    },
     "exact-0104-recovery-gate": {
       command: ["node", "dist/external-schema-exact-0104-recovery.mjs"],
       cpus: 0.25,
@@ -398,6 +423,15 @@ function validateOneShotService(service, targetService) {
       tmpfs: undefined,
       profiles: undefined,
       dependsOn: true,
+    },
+    "audit-schema-gate": {
+      command: ["node", "dist/audit-schema-gate.mjs"],
+      cpus: 0.25,
+      memLimit: "402653184",
+      memReservation: "201326592",
+      tmpfs: undefined,
+      profiles: ["audit-0107-transition"],
+      dependsOn: false,
     },
   }[targetService];
   if (!expected) {
@@ -672,6 +706,12 @@ export function validateResolvedStagingComposeTarget(
     exact0105BackupExecutionSha256,
     exact0105BackupMaxPayloadBytes,
     exact0105BackupSizeBytes,
+    auditInputsSha256,
+    exact0106BackupExecutionSha256,
+    exact0106BackupMaxPayloadBytes,
+    exact0106BackupSizeBytes,
+    auditLineageMode,
+    auditOpaqueLegacyRowsJson,
   },
 ) {
   const inputs = validateStagingDeploymentInputs(inputsValue);
@@ -679,9 +719,11 @@ export function validateResolvedStagingComposeTarget(
     ![
       "exact-0104-backup",
       "exact-0105-accounting-backup",
+      "exact-0106-audit-backup",
       "exact-0104-recovery-gate",
       "external-schema-gate",
       "accounting-schema-gate",
+      "audit-schema-gate",
     ].includes(targetService) ||
     !SHA256.test(String(expectedInputsSha256)) ||
     value?.name !== inputs.composeProjectName
@@ -690,6 +732,12 @@ export function validateResolvedStagingComposeTarget(
       "DEPLOYMENT_COMPOSE_TARGET_INVALID",
       "Resolved Compose project or target service is not approved.",
     );
+  }
+  if (
+    targetService === "exact-0106-audit-backup" ||
+    targetService === "audit-schema-gate"
+  ) {
+    validateAuditLineageBinding(auditLineageMode, auditOpaqueLegacyRowsJson);
   }
   const isolation = validateTopLevelIsolation(value, inputs.composeProjectName);
   const services = composeObject(value.services, "compose services");
@@ -783,15 +831,28 @@ export function validateResolvedStagingComposeTarget(
             "STAGING_PROVISIONING_MANIFEST_SHA256",
             "STAGING_SCHEMA_ACTION",
           ]
-        : targetService === "exact-0104-recovery-gate"
+        : targetService === "exact-0106-audit-backup"
           ? [
+              "ACCOUNTING_SCHEMA_PREFLIGHT_CONFIRMATION",
+              "AUDIT_SCHEMA_EXPECTED_FINGERPRINT_SHA256",
+              "AUDIT_SCHEMA_LINEAGE_MODE",
+              "AUDIT_SCHEMA_OPAQUE_LEGACY_ROWS_JSON",
+              "AUDIT_SCHEMA_PREFLIGHT_CONFIRMATION",
+              "BACKUP_ENABLED",
+              "BACKUP_ENCRYPTION_ACTIVE_KEY_ID",
+              "BACKUP_ENCRYPTION_KEYRING",
               "DATABASE_URL",
               "EXTERNAL_ACCOUNTS_ENABLED",
-              "STAGING_API_IMAGE",
+              "S3_ACCESS_KEY_ID",
+              "S3_BUCKET",
+              "S3_ENDPOINT",
+              "S3_FORCE_PATH_STYLE",
+              "S3_PRIVATE_PREFIX",
+              "S3_REGION",
+              "S3_SECRET_ACCESS_KEY",
               "STAGING_BACKUP_EVIDENCE_ID",
               "STAGING_BACKUP_RESTORE_MAX_AGE_HOURS",
-              "STAGING_BASELINE_0104_EXECUTION_B64",
-              "STAGING_BASELINE_0104_EXECUTION_SHA256",
+              "STAGING_AUDIT_SCHEMA_ACTION",
               "STAGING_BUILD_SHA",
               "STAGING_COMPOSE_PROJECT_NAME",
               "STAGING_DATABASE_HOST",
@@ -799,8 +860,8 @@ export function validateResolvedStagingComposeTarget(
               "STAGING_DATABASE_USER",
               "STAGING_DEPLOYMENT_INPUTS_SHA256",
               "STAGING_ENVIRONMENT_ID",
-              "STAGING_EXACT_0104_RECOVERY_INPUTS_B64",
-              "STAGING_EXACT_0104_RECOVERY_INPUTS_SHA256",
+              "STAGING_EXACT_0106_BACKUP_ACTION",
+              "STAGING_EXACT_0106_BACKUP_CONFIRMATION",
               "STAGING_EXTERNAL_ACCOUNTS_ENABLED",
               "STAGING_EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION",
               "STAGING_IMAGE_MANIFEST_SHA256",
@@ -808,16 +869,15 @@ export function validateResolvedStagingComposeTarget(
               "STAGING_PROVISIONING_MANIFEST_SHA256",
               "STAGING_SCHEMA_ACTION",
             ]
-          : targetService === "accounting-schema-gate"
+          : targetService === "exact-0104-recovery-gate"
             ? [
-                "ACCOUNTING_SCHEMA_PREFLIGHT_CONFIRMATION",
                 "DATABASE_URL",
                 "EXTERNAL_ACCOUNTS_ENABLED",
-                "STAGING_ACCOUNTING_DEPLOYMENT_INPUTS_SHA256",
-                "STAGING_ACCOUNTING_SCHEMA_ACTION",
                 "STAGING_API_IMAGE",
                 "STAGING_BACKUP_EVIDENCE_ID",
                 "STAGING_BACKUP_RESTORE_MAX_AGE_HOURS",
+                "STAGING_BASELINE_0104_EXECUTION_B64",
+                "STAGING_BASELINE_0104_EXECUTION_SHA256",
                 "STAGING_BUILD_SHA",
                 "STAGING_COMPOSE_PROJECT_NAME",
                 "STAGING_DATABASE_HOST",
@@ -825,9 +885,8 @@ export function validateResolvedStagingComposeTarget(
                 "STAGING_DATABASE_USER",
                 "STAGING_DEPLOYMENT_INPUTS_SHA256",
                 "STAGING_ENVIRONMENT_ID",
-                "STAGING_EXACT_0105_BACKUP_EXECUTION_SHA256",
-                "STAGING_EXACT_0105_BACKUP_MAX_PAYLOAD_BYTES",
-                "STAGING_EXACT_0105_BACKUP_SIZE_BYTES",
+                "STAGING_EXACT_0104_RECOVERY_INPUTS_B64",
+                "STAGING_EXACT_0104_RECOVERY_INPUTS_SHA256",
                 "STAGING_EXTERNAL_ACCOUNTS_ENABLED",
                 "STAGING_EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION",
                 "STAGING_IMAGE_MANIFEST_SHA256",
@@ -835,21 +894,78 @@ export function validateResolvedStagingComposeTarget(
                 "STAGING_PROVISIONING_MANIFEST_SHA256",
                 "STAGING_SCHEMA_ACTION",
               ]
-            : [
-                "DATABASE_URL",
-                "EXTERNAL_ACCOUNTS_ENABLED",
-                "EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION",
-                "STAGING_BACKUP_EVIDENCE_ID",
-                "STAGING_BACKUP_RESTORE_MAX_AGE_HOURS",
-                "STAGING_BUILD_SHA",
-                "STAGING_DATABASE_HOST",
-                "STAGING_DATABASE_NAME",
-                "STAGING_DATABASE_USER",
-                "STAGING_DEPLOYMENT_INPUTS_SHA256",
-                "STAGING_ENVIRONMENT_ID",
-                "STAGING_IMAGE_MANIFEST_SOURCE_SHA",
-                "STAGING_SCHEMA_ACTION",
-              ],
+            : targetService === "accounting-schema-gate"
+              ? [
+                  "ACCOUNTING_SCHEMA_PREFLIGHT_CONFIRMATION",
+                  "DATABASE_URL",
+                  "EXTERNAL_ACCOUNTS_ENABLED",
+                  "STAGING_ACCOUNTING_DEPLOYMENT_INPUTS_SHA256",
+                  "STAGING_ACCOUNTING_SCHEMA_ACTION",
+                  "STAGING_API_IMAGE",
+                  "STAGING_BACKUP_EVIDENCE_ID",
+                  "STAGING_BACKUP_RESTORE_MAX_AGE_HOURS",
+                  "STAGING_BUILD_SHA",
+                  "STAGING_COMPOSE_PROJECT_NAME",
+                  "STAGING_DATABASE_HOST",
+                  "STAGING_DATABASE_NAME",
+                  "STAGING_DATABASE_USER",
+                  "STAGING_DEPLOYMENT_INPUTS_SHA256",
+                  "STAGING_ENVIRONMENT_ID",
+                  "STAGING_EXACT_0105_BACKUP_EXECUTION_SHA256",
+                  "STAGING_EXACT_0105_BACKUP_MAX_PAYLOAD_BYTES",
+                  "STAGING_EXACT_0105_BACKUP_SIZE_BYTES",
+                  "STAGING_EXTERNAL_ACCOUNTS_ENABLED",
+                  "STAGING_EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION",
+                  "STAGING_IMAGE_MANIFEST_SHA256",
+                  "STAGING_IMAGE_MANIFEST_SOURCE_SHA",
+                  "STAGING_PROVISIONING_MANIFEST_SHA256",
+                  "STAGING_SCHEMA_ACTION",
+                ]
+              : targetService === "audit-schema-gate"
+                ? [
+                    "AUDIT_SCHEMA_EXPECTED_FINGERPRINT_SHA256",
+                    "AUDIT_SCHEMA_LINEAGE_MODE",
+                    "AUDIT_SCHEMA_OPAQUE_LEGACY_ROWS_JSON",
+                    "AUDIT_SCHEMA_PREFLIGHT_CONFIRMATION",
+                    "DATABASE_URL",
+                    "EXTERNAL_ACCOUNTS_ENABLED",
+                    "STAGING_AUDIT_DEPLOYMENT_INPUTS_SHA256",
+                    "STAGING_AUDIT_SCHEMA_ACTION",
+                    "STAGING_API_IMAGE",
+                    "STAGING_BACKUP_EVIDENCE_ID",
+                    "STAGING_BACKUP_RESTORE_MAX_AGE_HOURS",
+                    "STAGING_BUILD_SHA",
+                    "STAGING_COMPOSE_PROJECT_NAME",
+                    "STAGING_DATABASE_HOST",
+                    "STAGING_DATABASE_NAME",
+                    "STAGING_DATABASE_USER",
+                    "STAGING_DEPLOYMENT_INPUTS_SHA256",
+                    "STAGING_ENVIRONMENT_ID",
+                    "STAGING_EXACT_0106_BACKUP_EXECUTION_SHA256",
+                    "STAGING_EXACT_0106_BACKUP_MAX_PAYLOAD_BYTES",
+                    "STAGING_EXACT_0106_BACKUP_SIZE_BYTES",
+                    "STAGING_EXTERNAL_ACCOUNTS_ENABLED",
+                    "STAGING_EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION",
+                    "STAGING_IMAGE_MANIFEST_SHA256",
+                    "STAGING_IMAGE_MANIFEST_SOURCE_SHA",
+                    "STAGING_PROVISIONING_MANIFEST_SHA256",
+                    "STAGING_SCHEMA_ACTION",
+                  ]
+                : [
+                    "DATABASE_URL",
+                    "EXTERNAL_ACCOUNTS_ENABLED",
+                    "EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION",
+                    "STAGING_BACKUP_EVIDENCE_ID",
+                    "STAGING_BACKUP_RESTORE_MAX_AGE_HOURS",
+                    "STAGING_BUILD_SHA",
+                    "STAGING_DATABASE_HOST",
+                    "STAGING_DATABASE_NAME",
+                    "STAGING_DATABASE_USER",
+                    "STAGING_DEPLOYMENT_INPUTS_SHA256",
+                    "STAGING_ENVIRONMENT_ID",
+                    "STAGING_IMAGE_MANIFEST_SOURCE_SHA",
+                    "STAGING_SCHEMA_ACTION",
+                  ],
     `${targetService} environment`,
   );
   const common = [
@@ -940,7 +1056,8 @@ export function validateResolvedStagingComposeTarget(
   validateDatabaseUrl(targetEnvironment.DATABASE_URL);
   if (
     targetService === "exact-0104-backup" ||
-    targetService === "exact-0105-accounting-backup"
+    targetService === "exact-0105-accounting-backup" ||
+    targetService === "exact-0106-audit-backup"
   ) {
     for (const [key, expected] of [
       ["STAGING_COMPOSE_PROJECT_NAME", inputs.composeProjectName],
@@ -982,6 +1099,18 @@ export function validateResolvedStagingComposeTarget(
             ["ACCOUNTING_SCHEMA_PREFLIGHT_CONFIRMATION", ""],
             ["STAGING_EXACT_0105_BACKUP_ACTION", ""],
             ["STAGING_EXACT_0105_BACKUP_CONFIRMATION", ""],
+          ]
+        : []),
+      ...(targetService === "exact-0106-audit-backup"
+        ? [
+            ["ACCOUNTING_SCHEMA_PREFLIGHT_CONFIRMATION", ""],
+            ["AUDIT_SCHEMA_EXPECTED_FINGERPRINT_SHA256", ""],
+            ["AUDIT_SCHEMA_PREFLIGHT_CONFIRMATION", ""],
+            ["STAGING_AUDIT_SCHEMA_ACTION", "inspect"],
+            ["AUDIT_SCHEMA_LINEAGE_MODE", auditLineageMode],
+            ["AUDIT_SCHEMA_OPAQUE_LEGACY_ROWS_JSON", auditOpaqueLegacyRowsJson],
+            ["STAGING_EXACT_0106_BACKUP_ACTION", ""],
+            ["STAGING_EXACT_0106_BACKUP_CONFIRMATION", ""],
           ]
         : []),
     ]) {
@@ -1083,6 +1212,64 @@ export function validateResolvedStagingComposeTarget(
       fail(
         "DEPLOYMENT_COMPOSE_TARGET_MISMATCH",
         "The accounting transition target must not receive an S3 write surface.",
+      );
+    }
+  } else if (targetService === "audit-schema-gate") {
+    if (
+      !SHA256.test(String(auditInputsSha256)) ||
+      !SHA256.test(String(exact0106BackupExecutionSha256)) ||
+      exact0106BackupMaxPayloadBytes !== 256 * 1024 * 1024 ||
+      !Number.isSafeInteger(exact0106BackupSizeBytes) ||
+      exact0106BackupSizeBytes < 1 ||
+      exact0106BackupSizeBytes > exact0106BackupMaxPayloadBytes ||
+      !["clean", "production-copy-restricted"].includes(auditLineageMode) ||
+      typeof auditOpaqueLegacyRowsJson !== "string" ||
+      auditOpaqueLegacyRowsJson.length < 2
+    ) {
+      fail(
+        "DEPLOYMENT_COMPOSE_TARGET_INVALID",
+        "The exact audit transition, lineage and backup execution bindings are required.",
+      );
+    }
+    for (const [key, expected] of [
+      ["STAGING_COMPOSE_PROJECT_NAME", inputs.composeProjectName],
+      ["STAGING_IMAGE_MANIFEST_SHA256", inputs.imageManifestSha256],
+      [
+        "STAGING_PROVISIONING_MANIFEST_SHA256",
+        inputs.provisioningManifestSha256,
+      ],
+      ["STAGING_API_IMAGE", inputs.images.api],
+      ["STAGING_EXTERNAL_ACCOUNTS_ENABLED", "false"],
+      ["STAGING_EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION", ""],
+      ["STAGING_AUDIT_SCHEMA_ACTION", "steady-0107"],
+      ["AUDIT_SCHEMA_EXPECTED_FINGERPRINT_SHA256", ""],
+      ["AUDIT_SCHEMA_PREFLIGHT_CONFIRMATION", ""],
+      ["AUDIT_SCHEMA_LINEAGE_MODE", auditLineageMode],
+      ["AUDIT_SCHEMA_OPAQUE_LEGACY_ROWS_JSON", auditOpaqueLegacyRowsJson],
+      ["STAGING_AUDIT_DEPLOYMENT_INPUTS_SHA256", auditInputsSha256],
+      [
+        "STAGING_EXACT_0106_BACKUP_EXECUTION_SHA256",
+        exact0106BackupExecutionSha256,
+      ],
+      [
+        "STAGING_EXACT_0106_BACKUP_MAX_PAYLOAD_BYTES",
+        String(exact0106BackupMaxPayloadBytes),
+      ],
+      [
+        "STAGING_EXACT_0106_BACKUP_SIZE_BYTES",
+        String(exact0106BackupSizeBytes),
+      ],
+    ]) {
+      exactEnvironmentValue(targetEnvironment, key, expected, targetService);
+    }
+    if (
+      Object.keys(targetEnvironment).some(
+        (key) => key.startsWith("S3_") || key.startsWith("STAGING_S3_"),
+      )
+    ) {
+      fail(
+        "DEPLOYMENT_COMPOSE_TARGET_MISMATCH",
+        "The audit transition target must not receive an S3 write surface.",
       );
     }
   } else if (
@@ -1220,8 +1407,10 @@ export function validateRunningStagingPostgresContainer(
   return Object.freeze({
     containerId: projection.id,
     image: projection.configImage,
+    imageId: projection.imageId,
     volumeName: mount.Name,
     networkName: binding.defaultNetworkName,
+    networkId: network.NetworkID,
   });
 }
 

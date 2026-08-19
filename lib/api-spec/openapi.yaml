@@ -10763,12 +10763,76 @@ components:
           type: ["string", "null"]
           description: ISO timestamp of the last successful restore from this backup; null if never restored
 
+    ProductionRuntimeBindingHealth:
+      type: object
+      additionalProperties: false
+      required:
+        - schemaVersion
+        - sourceSha
+        - apiImage
+        - apiImageDigest
+        - targetEvidenceSha256
+        - releaseEvidenceSha256
+        - resolvedComposeSha256
+        - deployedConfigSha256
+        - desiredConfigSha256
+        - livePostgresTargetSha256
+        - databaseName
+        - databaseUser
+        - schemaFingerprintSha256
+        - preMigrationBackupEvidenceSha256
+        - backupIntegritySha256
+        - transitionChainSha256
+        - activationApprovalSha256
+      properties:
+        schemaVersion:
+          type: string
+          enum: [site-logbook.production-runtime-binding/v1]
+        sourceSha:
+          type: string
+        apiImage:
+          type: string
+        apiImageDigest:
+          type: string
+        targetEvidenceSha256:
+          type: string
+        releaseEvidenceSha256:
+          type: string
+        resolvedComposeSha256:
+          type: string
+        deployedConfigSha256:
+          type: string
+        desiredConfigSha256:
+          type: string
+        livePostgresTargetSha256:
+          type: string
+        databaseName:
+          type: string
+        databaseUser:
+          type: string
+        schemaFingerprintSha256:
+          type: string
+        preMigrationBackupEvidenceSha256:
+          type: string
+        backupIntegritySha256:
+          type: string
+        transitionChainSha256:
+          type: string
+        activationApprovalSha256:
+          type: string
+
     AdminHealthStatus:
       type: object
       required:
         - apiVersion
         - migrationParity
+        - migrationControlParity
+        - productionRuntimeBinding
         - expectedMigrations
+        - knownAppliedMigrations
+        - knownMigrationRowsSha256
+        - opaqueAppliedMigrations
+        - opaqueMigrationRowsSha256
         - appliedMigrations
         - missingMigrationTags
         - dbStatus
@@ -10788,11 +10852,32 @@ components:
           description: Build SHA or version of the running API
         migrationParity:
           type: boolean
-          description: True when all expected migrations are applied
+          description: True when all exact known migration identities are applied and, in production, the runtime release-evidence lineage matches the live known/opaque inventory
+        migrationControlParity:
+          type: ["boolean", "null"]
+          description: Exact production steady-release lineage match; null outside production
+        productionRuntimeBinding:
+          description: Secret-free exact production target, config, image, database and schema binding; null outside the production runtime.
+          oneOf:
+            - $ref: "#/components/schemas/ProductionRuntimeBindingHealth"
+            - type: "null"
         expectedMigrations:
           type: integer
+        knownAppliedMigrations:
+          type: integer
+          description: Live rows matching an expected journal timestamp and SQL hash exactly
+        knownMigrationRowsSha256:
+          type: string
+          description: SHA-256 of the canonical sorted exact-known migration identity array, or sha256:unknown when inventory cannot be read
+        opaqueAppliedMigrations:
+          type: integer
+          description: Live rows not consumed by the exact known migration set, including duplicates and hash drift
+        opaqueMigrationRowsSha256:
+          type: string
+          description: SHA-256 of the canonical sorted opaque migration identity array, or sha256:unknown when inventory cannot be read
         appliedMigrations:
           type: integer
+          description: Total live journal rows; equals knownAppliedMigrations plus opaqueAppliedMigrations
         latestExpectedTag:
           type: ["string", "null"]
         missingMigrationTags:
