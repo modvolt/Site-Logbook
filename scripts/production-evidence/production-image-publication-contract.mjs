@@ -50,6 +50,7 @@ export const PRODUCTION_IMAGE_SPECS = Object.freeze({
     dockerfile: "artifacts/api-server/Dockerfile",
     target: "production",
     buildArg: "BUILD_SHA",
+    configBuildEnvironment: "BUILD_SHA",
     imageProfile: "production",
     mutatingEntrypointsPresent: false,
   }),
@@ -59,6 +60,7 @@ export const PRODUCTION_IMAGE_SPECS = Object.freeze({
     dockerfile: "artifacts/api-server/Dockerfile",
     target: "control-plane",
     buildArg: "BUILD_SHA",
+    configBuildEnvironment: "BUILD_SHA",
     imageProfile: "control-plane",
     mutatingEntrypointsPresent: true,
   }),
@@ -68,6 +70,7 @@ export const PRODUCTION_IMAGE_SPECS = Object.freeze({
     dockerfile: "artifacts/api-server/Dockerfile",
     target: "host-operator",
     buildArg: "BUILD_SHA",
+    configBuildEnvironment: null,
     imageProfile: "host-operator",
     mutatingEntrypointsPresent: true,
   }),
@@ -77,6 +80,7 @@ export const PRODUCTION_IMAGE_SPECS = Object.freeze({
     dockerfile: "artifacts/stavba/Dockerfile",
     target: "runtime",
     buildArg: "VITE_BUILD_SHA",
+    configBuildEnvironment: "VITE_BUILD_SHA",
     imageProfile: "production-web",
     mutatingEntrypointsPresent: false,
   }),
@@ -1718,12 +1722,33 @@ export async function verifyReviewedOciLayout({
     `${SOURCE_URL}/commit/${image.sourceSha}`,
     `${imageKey}.config.commitUrlLabel`,
   );
-  const buildEnvironment =
-    spec.buildArg === "VITE_BUILD_SHA" ? "VITE_BUILD_SHA" : "BUILD_SHA";
-  if (!config.config?.Env?.includes(`${buildEnvironment}=${image.sourceSha}`)) {
+  const configEnvironment = config.config?.Env;
+  if (!Array.isArray(configEnvironment)) {
     fail(
       "PRODUCTION_IMAGE_OCI_LAYOUT_INVALID",
-      `${imageKey} config does not contain the exact baked source SHA.`,
+      `${imageKey} config does not contain an OCI environment array.`,
+    );
+  }
+  const buildEnvironment = spec.configBuildEnvironment;
+  const buildEnvironmentName = buildEnvironment ?? spec.buildArg;
+  const buildEnvironmentEntries = configEnvironment.filter(
+    (entry) =>
+      typeof entry === "string" && entry.startsWith(`${buildEnvironmentName}=`),
+  );
+  if (buildEnvironment === null) {
+    if (buildEnvironmentEntries.length !== 0) {
+      fail(
+        "PRODUCTION_IMAGE_OCI_LAYOUT_INVALID",
+        `${imageKey} config exposes a mutable runtime source SHA.`,
+      );
+    }
+  } else if (
+    buildEnvironmentEntries.length !== 1 ||
+    buildEnvironmentEntries[0] !== `${buildEnvironment}=${image.sourceSha}`
+  ) {
+    fail(
+      "PRODUCTION_IMAGE_OCI_LAYOUT_INVALID",
+      `${imageKey} config does not contain exactly one baked source SHA.`,
     );
   }
 
