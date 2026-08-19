@@ -221,6 +221,19 @@ function changed(stage, mutate) {
   return receipt;
 }
 
+function replaceFilesystemLayers(image, layers) {
+  const filesystemProjection = {
+    format: image.filesystemManifest.format,
+    configDigest: image.configDigest,
+    layers: structuredClone(layers),
+    entryCount: layers.length,
+  };
+  image.filesystemManifest = {
+    ...filesystemProjection,
+    sha256: sha256(canonicalJson(filesystemProjection)),
+  };
+}
+
 function expectCode(value, code) {
   assert.throws(
     () => sealProductionImagePublicationReceipt(value),
@@ -276,6 +289,9 @@ function ociLayoutFixture(options = {}) {
   const layer = writeBlob(
     Buffer.from(options.layerPayload ?? "reviewed-root-filesystem", "utf8"),
   );
+  const overlayLayer = options.duplicateFilesystemLayer
+    ? writeBlob(Buffer.from("reviewed-root-filesystem-overlay", "utf8"))
+    : null;
   const provisionalRunnableDigest = digest("provisional-runnable");
   const provenanceValue = {
     _type: "https://in-toto.io/Statement/v0.1",
@@ -363,6 +379,20 @@ function ociLayoutFixture(options = {}) {
     os: "unknown",
   });
 
+  const layerDescriptor = {
+    mediaType: "application/vnd.oci.image.layer.v1.tar+gzip",
+    ...layer,
+  };
+  const runnableLayers = options.duplicateFilesystemLayer
+    ? [
+        layerDescriptor,
+        {
+          mediaType: "application/vnd.oci.image.layer.v1.tar+gzip",
+          ...overlayLayer,
+        },
+        layerDescriptor,
+      ]
+    : [layerDescriptor];
   const runnableValue = {
     schemaVersion: 2,
     mediaType: "application/vnd.oci.image.manifest.v1+json",
@@ -370,12 +400,7 @@ function ociLayoutFixture(options = {}) {
       mediaType: "application/vnd.oci.image.config.v1+json",
       ...config,
     },
-    layers: [
-      {
-        mediaType: "application/vnd.oci.image.layer.v1.tar+gzip",
-        ...layer,
-      },
-    ],
+    layers: runnableLayers,
   };
   const runnable = writeBlob(runnableValue);
   for (const subject of provenanceValue.subject ?? []) {
@@ -524,25 +549,13 @@ function ociLayoutFixture(options = {}) {
   image.sbom.sha256 = sbom.digest;
   image.sbom.packageCount = 1;
   image.sbom.relationshipCount = 1;
-  image.filesystemManifest = {
-    format: "oci-layer-manifest/v1",
-    configDigest: config.digest,
-    layers: [
-      {
-        digest: layer.digest,
-        mediaType: "application/vnd.oci.image.layer.v1.tar+gzip",
-        size: layer.size,
-      },
-    ],
-    entryCount: 1,
-  };
-  image.filesystemManifest.sha256 = sha256(
-    canonicalJson({
-      format: image.filesystemManifest.format,
-      configDigest: image.filesystemManifest.configDigest,
-      layers: image.filesystemManifest.layers,
-      entryCount: image.filesystemManifest.entryCount,
-    }),
+  replaceFilesystemLayers(
+    image,
+    runnableLayers.map(({ digest, mediaType, size }) => ({
+      digest,
+      mediaType,
+      size,
+    })),
   );
   image.ociArchive = {
     sha256: sha256(archiveBytes),
@@ -940,6 +953,70 @@ test("rejects provenance, SBOM, manifest and filesystem binding drift", () => {
   );
 });
 
+test("preserves ordered duplicate filesystem layer descriptors", async () => {
+  const receipt = receiptFixture("preflight-only");
+  const controlPlane = receipt.images.controlPlane;
+  const [baseLayer, overlayLayer] = controlPlane.filesystemManifest.layers;
+  const orderedLayers = [baseLayer, overlayLayer, baseLayer];
+  replaceFilesystemLayers(controlPlane, orderedLayers);
+  receipt.chain.reviewedImageSetSha256 = reviewedImageSetSha256(receipt.images);
+
+  const sealed = sealProductionImagePublicationReceipt(receipt);
+  assert.deepEqual(
+    sealed.receipt.images.controlPlane.filesystemManifest.layers,
+    orderedLayers,
+  );
+  assert.equal(
+    sealed.receipt.images.controlPlane.filesystemManifest.entryCount,
+    3,
+  );
+
+  const layout = ociLayoutFixture({
+    imageKey: "controlPlane",
+    duplicateFilesystemLayer: true,
+  });
+  try {
+    const graph = await verifyReviewedOciLayout({
+      layoutDirectory: layout.root,
+      archivePath: layout.archivePath,
+      image: layout.image,
+      imageKey: "controlPlane",
+    });
+    const [firstLayer, secondLayer, repeatedLayer] =
+      layout.image.filesystemManifest.layers;
+    assert.equal(firstLayer.digest, repeatedLayer.digest);
+    assert.notEqual(firstLayer.digest, secondLayer.digest);
+    assert.equal(
+      graph.blobFiles.filter(
+        ({ digest: blobDigest }) => blobDigest === firstLayer.digest,
+      ).length,
+      1,
+    );
+
+    for (const driftedLayers of [
+      [firstLayer, secondLayer],
+      [firstLayer, repeatedLayer, secondLayer],
+    ]) {
+      const driftedImage = structuredClone(layout.image);
+      replaceFilesystemLayers(driftedImage, driftedLayers);
+      await assert.rejects(
+        () =>
+          verifyReviewedOciLayout({
+            layoutDirectory: layout.root,
+            archivePath: layout.archivePath,
+            image: driftedImage,
+            imageKey: "controlPlane",
+          }),
+        (error) =>
+          error instanceof ProductionImagePublicationError &&
+          error.code === "PRODUCTION_IMAGE_BINDING_INVALID",
+      );
+    }
+  } finally {
+    rmSync(layout.fixtureRoot, { recursive: true, force: true });
+  }
+});
+
 test("binds immutable caller ids, nonce single-use key and fresh artifact chronology", () => {
   expectCode(
     changed("preflight-only", (receipt) => {
@@ -1320,7 +1397,7 @@ test("documents that filesystem payloads are digest-bound but outside the JSON m
 
 test("publishes and reuses only content-addressed digest references", async () => {
   for (const digestStatus of [404, 200]) {
-    const layout = ociLayoutFixture();
+    const layout = ociLayoutFixture({ duplicateFilesystemLayer: true });
     const registry = registryFixture(layout, {
       digestStatus,
       redirectBlobs: digestStatus === 404,
