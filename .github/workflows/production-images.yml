@@ -817,10 +817,12 @@ jobs:
           run_json="$(<run.json)"
           jq -e \
             --arg attempt "$EXPECTED_RUN_ATTEMPT" \
+            --arg callerWorkflowSha "$CURRENT_CALLER_WORKFLOW_SHA" \
             --arg repositoryId "$CALLER_REPOSITORY_ID" \
             --arg runId "$EXPECTED_RUN_ID" \
             '(.id|tostring) == $runId and (.run_attempt|tostring) == $attempt and
              .event == "workflow_dispatch" and .head_branch == "main" and
+             .head_sha == $callerWorkflowSha and
              .path == ".github/workflows/publish-production-images.yml" and
              .status == "completed" and .conclusion == "success" and
              (.head_repository.full_name | ascii_downcase) == "modvolt/site-logbook-registry" and
@@ -841,17 +843,18 @@ jobs:
           artifact="$(jq -c \
             --arg artifactDigest "$EXPECTED_ARTIFACT_DIGEST" \
             --arg artifactId "$EXPECTED_ARTIFACT_ID" \
+            --arg callerWorkflowSha "$CURRENT_CALLER_WORKFLOW_SHA" \
             --arg name "$artifact_name" \
             --arg repositoryId "$CALLER_REPOSITORY_ID" \
             --arg runId "$EXPECTED_RUN_ID" \
-            --arg sourceSha "$SOURCE_SHA" \
             '[.artifacts[] | select(
                (.id|tostring) == $artifactId and .name == $name and .expired == false and
                .digest == $artifactDigest and (.size_in_bytes|type) == "number" and
                .size_in_bytes > 0 and .size_in_bytes <= 21474836480 and
                (.workflow_run.id|tostring) == $runId and
                (.workflow_run.repository_id|tostring) == $repositoryId and
-               .workflow_run.head_branch == "main" and .workflow_run.head_sha == $sourceSha)] |
+               .workflow_run.head_branch == "main" and
+               .workflow_run.head_sha == $callerWorkflowSha)] |
              if length == 1 then .[0] else error("ambiguous artifact") end' \
             artifacts.json)" || fail "the exact immutable preflight artifact is not unique."
           artifact_created_at="$(jq -r '.created_at' <<<"$artifact")"
