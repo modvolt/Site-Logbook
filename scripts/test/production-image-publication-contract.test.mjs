@@ -276,7 +276,11 @@ function ociLayoutFixture(options = {}) {
         "org.opencontainers.image.revision": SOURCE_SHA,
         "org.opencontainers.image.url": `https://github.com/modvolt/Site-Logbook/commit/${SOURCE_SHA}`,
       },
-      Env: [`${spec.buildArg}=${SOURCE_SHA}`],
+      Env:
+        options.configEnvironment ??
+        (spec.configBuildEnvironment === null
+          ? ["NODE_ENV=production", "HOME=/tmp"]
+          : [`${spec.configBuildEnvironment}=${SOURCE_SHA}`]),
     },
   };
   if (options.configSecret) {
@@ -862,6 +866,7 @@ test("pins production package names, Docker targets and mutating profile boundar
     dockerfile: "artifacts/api-server/Dockerfile",
     target: "host-operator",
     buildArg: "BUILD_SHA",
+    configBuildEnvironment: null,
     imageProfile: "host-operator",
     mutatingEntrypointsPresent: true,
   });
@@ -1138,6 +1143,68 @@ test("verifies exact offline OCI graph and raw target/build-arg provenance", asy
     } finally {
       rmSync(drifted.fixtureRoot, { recursive: true, force: true });
     }
+  }
+});
+
+test("models runtime and embedded source bindings per production image", async () => {
+  for (const imageKey of ["api", "controlPlane", "hostOperator", "web"]) {
+    const accepted = ociLayoutFixture({ imageKey });
+    try {
+      await verifyReviewedOciLayout({
+        layoutDirectory: accepted.root,
+        archivePath: accepted.archivePath,
+        image: accepted.image,
+        imageKey,
+      });
+    } finally {
+      rmSync(accepted.fixtureRoot, { recursive: true, force: true });
+    }
+  }
+
+  for (const [imageKey, configEnvironment] of [
+    ["api", []],
+    ["controlPlane", [`BUILD_SHA=${"8".repeat(40)}`]],
+    ["web", [`VITE_BUILD_SHA=${SOURCE_SHA}`, `VITE_BUILD_SHA=${SOURCE_SHA}`]],
+    ["hostOperator", [`BUILD_SHA=${SOURCE_SHA}`]],
+  ]) {
+    const rejected = ociLayoutFixture({ imageKey, configEnvironment });
+    try {
+      await assert.rejects(
+        () =>
+          verifyReviewedOciLayout({
+            layoutDirectory: rejected.root,
+            archivePath: rejected.archivePath,
+            image: rejected.image,
+            imageKey,
+          }),
+        (error) =>
+          error instanceof ProductionImagePublicationError &&
+          error.code === "PRODUCTION_IMAGE_OCI_LAYOUT_INVALID",
+      );
+    } finally {
+      rmSync(rejected.fixtureRoot, { recursive: true, force: true });
+    }
+  }
+
+  const wrongEmbeddedBuild = ociLayoutFixture({
+    imageKey: "hostOperator",
+    rawBuildArgValue: "7".repeat(40),
+  });
+  try {
+    await assert.rejects(
+      () =>
+        verifyReviewedOciLayout({
+          layoutDirectory: wrongEmbeddedBuild.root,
+          archivePath: wrongEmbeddedBuild.archivePath,
+          image: wrongEmbeddedBuild.image,
+          imageKey: "hostOperator",
+        }),
+      (error) =>
+        error instanceof ProductionImagePublicationError &&
+        error.code === "PRODUCTION_IMAGE_BINDING_INVALID",
+    );
+  } finally {
+    rmSync(wrongEmbeddedBuild.fixtureRoot, { recursive: true, force: true });
   }
 });
 
