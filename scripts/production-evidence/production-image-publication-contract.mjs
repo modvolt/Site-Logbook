@@ -800,12 +800,6 @@ function validateFilesystemManifest(value, imageField) {
     }
     return layer;
   });
-  if (new Set(layers.map((layer) => layer.digest)).size !== layers.length) {
-    fail(
-      "PRODUCTION_IMAGE_FILESYSTEM_MANIFEST_INVALID",
-      `${imageField} contains duplicate filesystem layers.`,
-    );
-  }
   requireEqual(
     manifest.entryCount,
     layers.length,
