@@ -315,6 +315,8 @@ jobs:
   build-preflight:
     if: inputs.publication_stage == 'preflight-only'
     needs: validate-source
+    env:
+      DOCKER_BUILD_RECORD_UPLOAD: "false"
     permissions:
       contents: read
     runs-on: ubuntu-latest
@@ -347,7 +349,7 @@ jobs:
           target: production
           platforms: linux/amd64
           push: false
-          outputs: type=oci,dest=production-api.oci.tar,name=ghcr.io/modvolt/site-logbook-production-api:${{ inputs.source_sha }}
+          outputs: type=oci,dest=production-api.oci.tar,name=ghcr.io/modvolt/site-logbook-production-api:${{ inputs.source_sha }},oci-artifact=false
           labels: |
             org.opencontainers.image.source=https://github.com/modvolt/Site-Logbook
             org.opencontainers.image.revision=${{ inputs.source_sha }}
@@ -365,7 +367,7 @@ jobs:
           target: control-plane
           platforms: linux/amd64
           push: false
-          outputs: type=oci,dest=control-plane.oci.tar,name=ghcr.io/modvolt/site-logbook-control-plane:${{ inputs.source_sha }}
+          outputs: type=oci,dest=control-plane.oci.tar,name=ghcr.io/modvolt/site-logbook-control-plane:${{ inputs.source_sha }},oci-artifact=false
           labels: |
             org.opencontainers.image.source=https://github.com/modvolt/Site-Logbook
             org.opencontainers.image.revision=${{ inputs.source_sha }}
@@ -383,7 +385,7 @@ jobs:
           target: host-operator
           platforms: linux/amd64
           push: false
-          outputs: type=oci,dest=host-operator.oci.tar,name=ghcr.io/modvolt/site-logbook-host-operator:${{ inputs.source_sha }}
+          outputs: type=oci,dest=host-operator.oci.tar,name=ghcr.io/modvolt/site-logbook-host-operator:${{ inputs.source_sha }},oci-artifact=false
           labels: |
             org.opencontainers.image.source=https://github.com/modvolt/Site-Logbook
             org.opencontainers.image.revision=${{ inputs.source_sha }}
@@ -401,7 +403,7 @@ jobs:
           target: runtime
           platforms: linux/amd64
           push: false
-          outputs: type=oci,dest=production-web.oci.tar,name=ghcr.io/modvolt/site-logbook-production-web:${{ inputs.source_sha }}
+          outputs: type=oci,dest=production-web.oci.tar,name=ghcr.io/modvolt/site-logbook-production-web:${{ inputs.source_sha }},oci-artifact=false
           labels: |
             org.opencontainers.image.source=https://github.com/modvolt/Site-Logbook
             org.opencontainers.image.revision=${{ inputs.source_sha }}
@@ -440,14 +442,55 @@ jobs:
             [[ "$root_digest" =~ ^sha256:[0-9a-f]{64}$ ]] \
               || fail "${key} root digest is invalid."
 
+            layout_descriptor="$(jq -c \
+              'if .schemaVersion == 2 and
+                    .mediaType == "application/vnd.oci.image.index.v1+json" and
+                    (.manifests | type) == "array" and
+                    (.manifests | length) == 1
+               then .manifests[0]
+               else error("expected one layout root descriptor")
+               end' "$root/index.json")" \
+              || fail "${key} OCI layout root descriptor is ambiguous."
+            layout_ref="${repository}:${SOURCE_SHA}"
+            jq -e \
+              --arg digest "$root_digest" \
+              --arg imageName "$layout_ref" \
+              --arg refName "$SOURCE_SHA" \
+              '.mediaType == "application/vnd.oci.image.index.v1+json" and
+               .digest == $digest and
+               (.size | type) == "number" and .size > 0 and
+               .annotations["io.containerd.image.name"] == $imageName and
+               .annotations["org.opencontainers.image.ref.name"] == $refName' \
+              <<<"$layout_descriptor" >/dev/null \
+              || fail "${key} OCI layout root descriptor is not exact."
+            index_path="$root/blobs/sha256/${root_digest#sha256:}"
+            [[ -f "$index_path" ]] \
+              || fail "${key} root image index blob is missing."
+            [[ "sha256:$(sha256sum "$index_path" | awk '{print $1}')" == "$root_digest" ]] \
+              || fail "${key} root image index blob digest drifted."
+            [[ "$(stat --format='%s' "$index_path")" == "$(jq -r '.size' <<<"$layout_descriptor")" ]] \
+              || fail "${key} root image index descriptor size drifted."
+            jq -e \
+              '.schemaVersion == 2 and
+               .mediaType == "application/vnd.oci.image.index.v1+json" and
+               (.manifests | type) == "array" and
+               (.manifests | length) == 2' \
+              "$index_path" >/dev/null \
+              || fail "${key} root image index is incomplete."
+
             runnable="$(jq -c \
               '[.manifests[] |
                 select(.platform.os == "linux" and .platform.architecture == "amd64" and
                   (.annotations["vnd.docker.reference.type"] // "") != "attestation-manifest")] |
                if length == 1 then .[0] else error("expected one runnable manifest") end' \
-              "$root/index.json")" || fail "${key} runnable manifest is ambiguous."
+              "$index_path")" || fail "${key} runnable manifest is ambiguous."
             runnable_digest="$(jq -r '.digest' <<<"$runnable")"
-            index_digest="sha256:$(sha256sum "$root/index.json" | awk '{print $1}')"
+            jq -e \
+              '.mediaType == "application/vnd.oci.image.manifest.v1+json" and
+               .platform == {architecture:"amd64",os:"linux"}' \
+              <<<"$runnable" >/dev/null \
+              || fail "${key} runnable manifest descriptor is invalid."
+            index_digest="sha256:$(sha256sum "$index_path" | awk '{print $1}')"
             [[ "$root_digest" == "$index_digest" ]] \
               || fail "${key} publisher digest is not the exact OCI index."
             manifest_path="$root/blobs/sha256/${runnable_digest#sha256:}"
@@ -478,8 +521,15 @@ jobs:
               '[.manifests[] |
                 select(.annotations["vnd.docker.reference.type"] == "attestation-manifest")] |
                if length == 1 then .[0] else error("expected one attestation manifest") end' \
-              "$root/index.json")" || fail "${key} attestation manifest is ambiguous."
+              "$index_path")" || fail "${key} attestation manifest is ambiguous."
             attestation_digest="$(jq -r '.digest' <<<"$attestation")"
+            jq -e \
+              --arg runnableDigest "$runnable_digest" \
+              '.mediaType == "application/vnd.oci.image.manifest.v1+json" and
+               .platform == {architecture:"unknown",os:"unknown"} and
+               .annotations["vnd.docker.reference.digest"] == $runnableDigest' \
+              <<<"$attestation" >/dev/null \
+              || fail "${key} attestation manifest descriptor is invalid."
             attestation_path="$root/blobs/sha256/${attestation_digest#sha256:}"
             [[ -f "$attestation_path" && "sha256:$(sha256sum "$attestation_path" | awk '{print $1}')" == "$attestation_digest" ]] \
               || fail "${key} attestation manifest blob digest drifted."
@@ -501,7 +551,7 @@ jobs:
               || fail "${key} SBOM blob digest drifted."
             cp "$provenance_path" "${key}-provenance.intoto.json"
             cp "$sbom_path" "${key}-sbom.intoto.json"
-            cp "$root/index.json" "${key}-oci-index.json"
+            cp "$index_path" "${key}-oci-index.json"
             cp "$manifest_path" "${key}-runnable-manifest.json"
             cp "$config_path" "${key}-config.json"
             cp "$attestation_path" "${key}-attestation-manifest.json"
@@ -1027,6 +1077,7 @@ jobs:
             verify_bound_file "$key" sbom "preflight-artifact/${key}-sbom.intoto.json"
             verify_bound_file "$key" filesystemManifest "preflight-artifact/${key}-filesystem-projection.json"
             root="preflight-${key}-oci"
+            root_digest="$(jq -r --arg key "$key" '.images[$key].digest' "$receipt")"
             runnable_digest="$(jq -r --arg key "$key" '.images[$key].runnableManifestDigest' "$receipt")"
             config_digest="$(jq -r --arg key "$key" '.images[$key].configDigest' "$receipt")"
             attestation_digest="$(jq -r '.attestation.digest' "preflight-artifact/${key}-oci-descriptors.json")"
@@ -1046,7 +1097,7 @@ jobs:
                  select(.annotations["in-toto.io/predicate-type"] == "https://spdx.dev/Document")] == [$descriptors.sbom])' \
               "preflight-artifact/${key}-oci-descriptors.json" >/dev/null \
               || fail "${key} uploaded OCI descriptor projection drifted."
-            cmp "preflight-artifact/${key}-oci-index.json" "${root}/index.json" \
+            cmp "preflight-artifact/${key}-oci-index.json" "${root}/blobs/sha256/${root_digest#sha256:}" \
               || fail "${key} raw OCI index copy drifted."
             cmp "preflight-artifact/${key}-runnable-manifest.json" "${root}/blobs/sha256/${runnable_digest#sha256:}" \
               || fail "${key} raw runnable manifest copy drifted."

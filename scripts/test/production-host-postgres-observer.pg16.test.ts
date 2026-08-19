@@ -253,24 +253,56 @@ async function assertLocalDefaultDockerContext(): Promise<void> {
   );
 }
 
-async function waitForPostgres(containerName: string): Promise<void> {
-  const deadline = Date.now() + 30_000;
-  while (Date.now() < deadline) {
+interface PostgresWaitOptions {
+  runDocker?: FixtureDockerRunner;
+  now?: () => number;
+  sleep?: (delayMs: number) => Promise<void>;
+  timeoutMs?: number;
+}
+
+async function waitForPostgres(
+  containerName: string,
+  {
+    runDocker = docker,
+    now = Date.now,
+    sleep = (delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs)),
+    timeoutMs = 30_000,
+  }: PostgresWaitOptions = {},
+): Promise<void> {
+  const deadline = now() + timeoutMs;
+  while (now() < deadline) {
     try {
-      await docker([
+      const pidOneComm = await runDocker([
         "container",
         "exec",
         containerName,
-        "pg_isready",
-        "--dbname",
-        DATABASE,
-        "--username",
-        USER,
+        "cat",
+        "/proc/1/comm",
       ]);
-      return;
+      if (pidOneComm === "postgres") {
+        const binding = await runDocker([
+          "container",
+          "exec",
+          containerName,
+          "psql",
+          "--no-psqlrc",
+          "--set=ON_ERROR_STOP=1",
+          "--dbname",
+          DATABASE,
+          "--username",
+          USER,
+          "--tuples-only",
+          "--no-align",
+          "--field-separator=|",
+          "--command",
+          "SELECT current_database(), current_user;",
+        ]);
+        if (binding === `${DATABASE}|${USER}`) return;
+      }
     } catch {
-      await new Promise((resolve) => setTimeout(resolve, 250));
+      // The image can accept sockets before entrypoint creates and hands off POSTGRES_DB.
     }
+    await sleep(250);
   }
   throw new Error("POSTGRES_OBSERVER_PG16_FIXTURE_NOT_READY");
 }
@@ -295,6 +327,89 @@ test("PG16 observer rejects non-opt-in, remote DOCKER_HOST and non-default conte
   assert.doesNotThrow(() =>
     assertProductionHostPostgresObserverPg16OptIn(DISPOSABLE_CONFIRMATION, {}),
   );
+});
+
+test("PG16 readiness requires the exact database and user before continuing", async () => {
+  const calls: string[][] = [];
+  let now = 0;
+  const responses: Array<string | Error> = [
+    "docker-entrypoi",
+    "postgres",
+    new Error("database does not exist"),
+    "postgres",
+    `${DATABASE}|foreign_role`,
+    "postgres",
+    `${DATABASE}|${USER}`,
+  ];
+  await waitForPostgres("fixture-postgres", {
+    now: () => now,
+    runDocker: async (args) => {
+      calls.push([...args]);
+      const response = responses.shift();
+      assert.ok(response);
+      if (response instanceof Error) throw response;
+      return response;
+    },
+    sleep: async () => {
+      now += 1;
+    },
+    timeoutMs: 4,
+  });
+  const pidOneProbe = [
+    "container",
+    "exec",
+    "fixture-postgres",
+    "cat",
+    "/proc/1/comm",
+  ];
+  const bindingProbe = [
+    "container",
+    "exec",
+    "fixture-postgres",
+    "psql",
+    "--no-psqlrc",
+    "--set=ON_ERROR_STOP=1",
+    "--dbname",
+    DATABASE,
+    "--username",
+    USER,
+    "--tuples-only",
+    "--no-align",
+    "--field-separator=|",
+    "--command",
+    "SELECT current_database(), current_user;",
+  ];
+  assert.deepEqual(calls, [
+    pidOneProbe,
+    pidOneProbe,
+    bindingProbe,
+    pidOneProbe,
+    bindingProbe,
+    pidOneProbe,
+    bindingProbe,
+  ]);
+  assert.equal(calls.flat().includes("pg_isready"), false);
+});
+
+test("PG16 readiness remains bounded when the exact binding never appears", async () => {
+  let now = 0;
+  let attempts = 0;
+  await assert.rejects(
+    () =>
+      waitForPostgres("fixture-postgres", {
+        now: () => now,
+        runDocker: async () => {
+          attempts += 1;
+          throw new Error("database does not exist");
+        },
+        sleep: async (delayMs) => {
+          now += delayMs;
+        },
+        timeoutMs: 500,
+      }),
+    /POSTGRES_OBSERVER_PG16_FIXTURE_NOT_READY/,
+  );
+  assert.equal(attempts, 2);
 });
 
 test("PG16 cleanup records failures, continues per resource and verifies empty inventories", async () => {
