@@ -42,7 +42,7 @@ const DIGEST = /^sha256:[0-9a-f]{64}$/;
 const GIT_SHA = /^[0-9a-f]{40}$/;
 const HEX_ID = /^[0-9a-f]{64}$/;
 const BOUNDED_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/;
-const VERSION_ID = /^[A-Za-z0-9][A-Za-z0-9._~+/=-]{0,255}$/;
+const VERSION_ID = /^[A-Za-z0-9_][A-Za-z0-9._~+/=-]{0,255}$/;
 const DATABASE_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_$-]{0,62}$/;
 const CANONICAL_TABLE = /^[a-z_][a-z0-9_$]*\.[a-z_][a-z0-9_$]*$/;
 const IMMUTABLE_IMAGE =
