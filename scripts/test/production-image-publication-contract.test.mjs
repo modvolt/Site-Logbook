@@ -1898,6 +1898,14 @@ test("workflow is reusable, two-stage, digest-only and never rebuilds reviewed b
     predecessorStep.run,
     /\.workflow_run\.head_sha == \$sourceSha/u,
   );
+  assert.match(
+    predecessorStep.run,
+    /safe_extract_oci\(\) \{\s+local archive="\$1" root="\$2"\s+local listing="\$\{archive\}\.listing"/u,
+  );
+  assert.doesNotMatch(
+    predecessorStep.run,
+    /local archive="\$1" root="\$2" listing="\$\{archive\}\.listing"/u,
+  );
   const packagePostcheck = workflow.jobs[
     "publish-reviewed-complete"
   ].steps.find(
