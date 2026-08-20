@@ -24,6 +24,7 @@ const LEGACY_APPLICATION_REPOSITORY = `${LEGACY_COMPOSE_PROJECT}_api`;
 const LEGACY_POSTGRES_REPOSITORY = "postgres";
 const LEGACY_POSTGRES_CONFIG_IMAGE = "postgres:16-alpine";
 const LEGACY_POSTGRES_VOLUME = `${LEGACY_COMPOSE_PROJECT}_pgdata`;
+const POSTGRES_DATA_DESTINATION = "/var/lib/postgresql/data";
 const LEGACY_POSTGRES_SERVICE_CONFIG_HASH =
   "a6b721760225d7b9ffe163067a8256c1bd7c87e7c30d8d972bba1d6adb8d847e";
 const LEGACY_CONFIG_SURROGATE = `sha256:${LEGACY_POSTGRES_SERVICE_CONFIG_HASH}`;
@@ -291,6 +292,19 @@ function validateProjection(binding, projection) {
     projection;
   const mounts = Array.isArray(container.Mounts) ? container.Mounts : [];
   const networks = container.NetworkSettings?.Networks ?? {};
+  const postgresDataMounts = mounts.filter(
+    (mount) => mount?.Destination === POSTGRES_DATA_DESTINATION,
+  );
+  const networkNames =
+    networks && typeof networks === "object" && !Array.isArray(networks)
+      ? Object.keys(networks)
+      : [];
+  const networkContainerIds =
+    network.Containers &&
+    typeof network.Containers === "object" &&
+    !Array.isArray(network.Containers)
+      ? Object.keys(network.Containers).sort()
+      : [];
   const mode = runtimeIdentityMode(binding, projection);
   if (
     mode === undefined ||
@@ -298,9 +312,12 @@ function validateProjection(binding, projection) {
     container.Image !== binding.postgresImageId ||
     !postgresConfigImageMatches(binding, container, postgresImage, mode) ||
     container.State?.Status !== "running" ||
-    !mounts.some(
-      (mount) => mount?.Type === "volume" && mount?.Name === binding.volumeName,
-    ) ||
+    postgresDataMounts.length !== 1 ||
+    postgresDataMounts[0]?.Type !== "volume" ||
+    postgresDataMounts[0]?.Name !== binding.volumeName ||
+    postgresDataMounts[0]?.RW !== true ||
+    networkNames.length !== 1 ||
+    networkNames[0] !== binding.networkName ||
     networks[binding.networkName]?.NetworkID !== binding.networkId ||
     postgresImage.Id !== binding.postgresImageId ||
     !Array.isArray(postgresImage.RepoDigests) ||
@@ -316,7 +333,8 @@ function validateProjection(binding, projection) {
     labelsDigest(volume.Labels) !== binding.volumeLabelsSha256 ||
     network.Id !== binding.networkId ||
     network.Name !== binding.networkName ||
-    !Object.hasOwn(network.Containers ?? {}, binding.containerId)
+    canonicalProjection(networkContainerIds) !==
+      canonicalProjection([binding.containerId])
   ) {
     fail(
       "PRODUCTION_MIGRATION_RUNTIME_AUTHORITY_DRIFT",

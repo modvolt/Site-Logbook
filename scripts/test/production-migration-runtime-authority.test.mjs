@@ -20,6 +20,7 @@ const LEGACY_PROJECT = "ef09696arga7h9ox6ojgv7ru";
 const LEGACY_APPLICATION_REPOSITORY = `${LEGACY_PROJECT}_api`;
 const LEGACY_POSTGRES_CONFIG_IMAGE = "postgres:16-alpine";
 const LEGACY_VOLUME = `${LEGACY_PROJECT}_pgdata`;
+const POSTGRES_DATA_DESTINATION = "/var/lib/postgresql/data";
 const LEGACY_CONFIG_HASH =
   "a6b721760225d7b9ffe163067a8256c1bd7c87e7c30d8d972bba1d6adb8d847e";
 const LEGACY_CONFIG_SURROGATE = `sha256:${LEGACY_CONFIG_HASH}`;
@@ -75,7 +76,14 @@ function runtimeFixture(mode = "modern") {
               },
       },
       State: { Status: "running" },
-      Mounts: [{ Type: "volume", Name: binding.volumeName }],
+      Mounts: [
+        {
+          Type: "volume",
+          Name: binding.volumeName,
+          Destination: POSTGRES_DATA_DESTINATION,
+          RW: true,
+        },
+      ],
       NetworkSettings: {
         Networks: {
           [binding.networkName]: { NetworkID: binding.networkId },
@@ -194,7 +202,7 @@ test("exact frozen legacy runtime is accepted only through the one-time surrogat
   assert.equal(fixture.binding.resolvedConfigSha256, LEGACY_CONFIG_SURROGATE);
 });
 
-test("bounded 2026-08-20 production snapshot matches the legacy branch without authorizing a migration", async () => {
+test("bounded pre-outage production snapshot is rejected while writer peers remain", async () => {
   const fixture = runtimeFixture("legacy");
   const volumeLabels = {
     "com.docker.compose.config-hash":
@@ -246,10 +254,7 @@ test("bounded 2026-08-20 production snapshot matches the legacy branch without a
     "sha256:31a07c6092f3e0e76e07b6b77e0b2f303e9cf37742c393c75de47a66887085a4",
   );
 
-  const { result } = await observe(fixture);
-  assert.equal(result.value.authorizesProductionMigration, false);
-  assert.equal(result.value.productionTargetsTouched, false);
-  assert.deepEqual(result.value.runtimeBinding, fixture.binding);
+  await rejectsDrift(fixture);
 });
 
 test("legacy branch rejects partial modern labels and every frozen Compose/Coolify guard drift", async (t) => {
@@ -468,9 +473,40 @@ test("modern branch rejects individual runtime identity drift", async (t) => {
       },
     ],
     [
+      "volume mount destination",
+      ({ values }) => {
+        values.container.Mounts[0].Destination = "/tmp/not-pgdata";
+      },
+    ],
+    [
+      "read-only volume mount",
+      ({ values }) => {
+        values.container.Mounts[0].RW = false;
+      },
+    ],
+    [
+      "competing PGDATA mount",
+      ({ values }) => {
+        values.container.Mounts.push({
+          Type: "bind",
+          Source: "/tmp/foreign",
+          Destination: POSTGRES_DATA_DESTINATION,
+          RW: true,
+        });
+      },
+    ],
+    [
       "network attachment",
       ({ values }) => {
         values.container.NetworkSettings.Networks = {};
+      },
+    ],
+    [
+      "additional network attachment",
+      ({ values }) => {
+        values.container.NetworkSettings.Networks.foreign = {
+          NetworkID: "f".repeat(64),
+        };
       },
     ],
     [
@@ -551,6 +587,12 @@ test("modern branch rejects individual runtime identity drift", async (t) => {
       "network membership",
       ({ values }) => {
         values.network.Containers = {};
+      },
+    ],
+    [
+      "network writer peer",
+      ({ values }) => {
+        values.network.Containers["f".repeat(64)] = {};
       },
     ],
   ];

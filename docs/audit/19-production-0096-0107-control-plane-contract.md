@@ -202,9 +202,13 @@ The implemented reviewed slice is:
    `6ae3072a3eb80b9647bc66abb80d979c5ec9e2a5` in Coolify application
    `ef09696arga7h9ox6ojgv7ru`: it requires the frozen application source tag,
    PostgreSQL tag, image IDs and RepoDigests, Compose project/service/one-off/
-   container-number/config-hash labels, Coolify ownership labels, network and
-   volume identities, and absence of both modern config labels and of the OCI
-   revision label. In that path the exact PostgreSQL service config hash is
+   container-number/config-hash labels, Coolify ownership labels, the exact
+   writable named-volume mount at `/var/lib/postgresql/data`, a single attached
+   PostgreSQL network whose only live peer is the PostgreSQL container,
+   volume/network identities, and absence of both modern config labels and of
+   the OCI revision label. The zero-writer condition is a migration-time gate:
+   the bounded pre-outage inventory with API/web/minio/proxy peers is
+   intentionally rejected. In that path the exact PostgreSQL service config hash is
    carried in both legacy config-digest fields as an explicitly scoped
    surrogate; it is not a claim that Docker Compose's per-service hash equals
    Coolify's configuration hash or the resolved Compose-file hash. A fresh
