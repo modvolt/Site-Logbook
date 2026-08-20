@@ -82,7 +82,10 @@ services:
       PRODUCTION_EXPECTED_DATABASE_USER: site_logbook_runtime
     volumes:
       - type: bind
-        source: ${PRODUCTION_HOST_EVIDENCE_DIR:?set the precreated host evidence directory}
+        # Coolify rejects variable interpolation in volume sources. Keep this
+        # host boundary literal, fixed and precreated instead of accepting an
+        # operator-controlled path through the Compose environment.
+        source: /var/lib/modvolt/site-logbook-production-evidence
         target: /run/site-logbook-production-evidence
         read_only: true
         bind:
