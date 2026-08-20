@@ -584,6 +584,9 @@ function registryFixture(
     digestStatus = 404,
     corruptExistingRoot = false,
     redirectBlobs = false,
+    externalUpload = false,
+    unsafeUploadLocation,
+    redirectExternalUpload = false,
   } = {},
 ) {
   const calls = [];
@@ -670,6 +673,7 @@ function registryFixture(
       path: url.pathname,
       search: url.search,
       authorizationPresent: Boolean(options.headers?.Authorization),
+      redirect: options.redirect,
     });
     if (url.href.startsWith("https://ghcr.io/token?")) {
       return new Response(
@@ -688,6 +692,23 @@ function registryFixture(
       const bytes = remoteBlobs.get(blobDigest);
       if (!bytes) return new Response(null, { status: 404 });
       return new Response(bytes, { status: 200 });
+    }
+    if (url.hostname === "uploads.example.test") {
+      assert.equal(options.headers?.Authorization, undefined);
+      assert.equal(method, "PUT");
+      assert.equal(url.searchParams.get("opaque"), "preserved");
+      const blobDigest = url.searchParams.get("digest");
+      assert.match(blobDigest, /^sha256:[0-9a-f]{64}$/u);
+      const bytes = await requestBytes(options.body);
+      assert.equal(sha256(bytes), blobDigest);
+      if (redirectExternalUpload) {
+        return new Response(null, {
+          status: 307,
+          headers: { location: "https://redirect.example.test/upload" },
+        });
+      }
+      remoteBlobs.set(blobDigest, bytes);
+      return new Response(null, { status: 201 });
     }
     const repositoryPath = layout.image.repository.slice("ghcr.io/".length);
     const prefix = `/v2/${repositoryPath}/`;
@@ -733,7 +754,11 @@ function registryFixture(
       return new Response(null, {
         status: 202,
         headers: {
-          location: `https://ghcr.io${prefix}blobs/uploads/${calls.length}`,
+          location: unsafeUploadLocation
+            ? unsafeUploadLocation
+            : externalUpload
+              ? `https://uploads.example.test/session/${calls.length}?opaque=preserved`
+              : `https://ghcr.io${prefix}blobs/uploads/${calls.length}`,
         },
       });
     }
@@ -1468,6 +1493,7 @@ test("publishes and reuses only content-addressed digest references", async () =
     const registry = registryFixture(layout, {
       digestStatus,
       redirectBlobs: digestStatus === 404,
+      externalUpload: digestStatus === 404,
     });
     try {
       const result = await publishReviewedOciLayout({
@@ -1483,6 +1509,16 @@ test("publishes and reuses only content-addressed digest references", async () =
         sourceRecheck: async () => true,
       });
       assert.equal(result.result.referenceMode, "digest-only");
+      if (digestStatus === 404) {
+        assert.ok(
+          registry.calls.some(
+            (call) =>
+              call.method === "PUT" &&
+              call.path.startsWith("/session/") &&
+              call.authorizationPresent === false,
+          ),
+        );
+      }
       assert.equal(
         result.result.preWriteDigestState,
         digestStatus === 200 ? "present" : "absent",
@@ -1515,6 +1551,86 @@ test("publishes and reuses only content-addressed digest references", async () =
     } finally {
       rmSync(layout.fixtureRoot, { recursive: true, force: true });
     }
+  }
+});
+
+test("rejects unsafe external blob upload locations before sending bytes", async () => {
+  for (const unsafeUploadLocation of [
+    "http://uploads.example.test/session/1?opaque=preserved",
+    "https://user:secret@uploads.example.test/session/1?opaque=preserved",
+    "https://uploads.example.test:444/session/1?opaque=preserved",
+  ]) {
+    const layout = ociLayoutFixture();
+    const registry = registryFixture(layout, { unsafeUploadLocation });
+    try {
+      await assert.rejects(
+        () =>
+          publishReviewedOciLayout({
+            layoutDirectory: layout.root,
+            archivePath: layout.archivePath,
+            image: layout.image,
+            imageKey: "api",
+            actor: "modvolt",
+            publicationToken: "fixture-publication-token-1234567890",
+            resultPath: join(layout.root, "must-not-exist.json"),
+            fetchImpl: registry.fetchImpl,
+            sourceRecheck: async () => true,
+          }),
+        (error) =>
+          error instanceof ProductionImagePublicationError &&
+          error.code === "PRODUCTION_IMAGE_REGISTRY_WRITE_FAILED",
+      );
+      assert.equal(
+        registry.calls.some(
+          (call) => call.method === "PUT" && call.path.startsWith("/session/"),
+        ),
+        false,
+      );
+    } finally {
+      rmSync(layout.fixtureRoot, { recursive: true, force: true });
+    }
+  }
+});
+
+test("does not follow redirects from credential-free upload endpoints", async () => {
+  const layout = ociLayoutFixture();
+  const registry = registryFixture(layout, {
+    externalUpload: true,
+    redirectExternalUpload: true,
+  });
+  try {
+    await assert.rejects(
+      () =>
+        publishReviewedOciLayout({
+          layoutDirectory: layout.root,
+          archivePath: layout.archivePath,
+          image: layout.image,
+          imageKey: "api",
+          actor: "modvolt",
+          publicationToken: "fixture-publication-token-1234567890",
+          resultPath: join(layout.root, "must-not-exist.json"),
+          fetchImpl: registry.fetchImpl,
+          sourceRecheck: async () => true,
+        }),
+      (error) =>
+        error instanceof ProductionImagePublicationError &&
+        error.code === "PRODUCTION_IMAGE_REGISTRY_WRITE_FAILED",
+    );
+    assert.equal(
+      registry.calls.some((call) => call.path === "/upload"),
+      false,
+    );
+    assert.ok(
+      registry.calls.some(
+        (call) =>
+          call.method === "PUT" &&
+          call.path.startsWith("/session/") &&
+          call.redirect === "error" &&
+          call.authorizationPresent === false,
+      ),
+    );
+  } finally {
+    rmSync(layout.fixtureRoot, { recursive: true, force: true });
   }
 });
 

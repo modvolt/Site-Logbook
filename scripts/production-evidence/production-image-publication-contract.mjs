@@ -2038,6 +2038,21 @@ async function registryFetch(fetchImpl, bearer, url, options = {}) {
   }
 }
 
+async function credentialFreeRegistryUpload(fetchImpl, url, options) {
+  try {
+    return await fetchImpl(url, {
+      ...options,
+      redirect: "error",
+      signal: options.signal ?? AbortSignal.timeout(300_000),
+    });
+  } catch {
+    fail(
+      "PRODUCTION_IMAGE_REGISTRY_NETWORK_FAILED",
+      "Credential-free registry blob upload failed; publication state is unknown and must not be retried blindly.",
+    );
+  }
+}
+
 function exactManifestReference(reference, field) {
   if (!DIGEST.test(reference)) {
     fail(
@@ -2071,17 +2086,19 @@ async function uploadBlob(fetchImpl, bearer, repositoryPath, blob) {
   const uploadUrl = new URL(location, "https://ghcr.io");
   if (
     uploadUrl.protocol !== "https:" ||
-    uploadUrl.hostname !== "ghcr.io" ||
+    uploadUrl.username !== "" ||
+    uploadUrl.password !== "" ||
     (uploadUrl.port !== "" && uploadUrl.port !== "443") ||
-    !uploadUrl.pathname.startsWith(`/v2/${repositoryPath}/blobs/uploads/`)
+    (uploadUrl.hostname === "ghcr.io" &&
+      !uploadUrl.pathname.startsWith(`/v2/${repositoryPath}/blobs/uploads/`))
   ) {
     fail(
       "PRODUCTION_IMAGE_REGISTRY_WRITE_FAILED",
-      "GHCR blob upload redirected outside the pinned registry.",
+      "GHCR blob upload location is unsafe.",
     );
   }
   uploadUrl.searchParams.set("digest", blob.digest);
-  const upload = await registryFetch(fetchImpl, bearer, uploadUrl, {
+  const uploadOptions = {
     method: "PUT",
     headers: {
       "Content-Length": String(statSync(blob.path).size),
@@ -2090,7 +2107,11 @@ async function uploadBlob(fetchImpl, bearer, repositoryPath, blob) {
     body: createReadStream(blob.path),
     duplex: "half",
     signal: AbortSignal.timeout(300_000),
-  });
+  };
+  const upload =
+    uploadUrl.hostname === "ghcr.io"
+      ? await registryFetch(fetchImpl, bearer, uploadUrl, uploadOptions)
+      : await credentialFreeRegistryUpload(fetchImpl, uploadUrl, uploadOptions);
   if (upload.status !== 201) {
     fail(
       "PRODUCTION_IMAGE_REGISTRY_WRITE_FAILED",
