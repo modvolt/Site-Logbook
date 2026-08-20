@@ -681,4 +681,3 @@ test("unreviewed fields and non-canonical trace JSON fail closed", async () => {
     /SCHEMA_INVALID/,
   );
 });
-
