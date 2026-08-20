@@ -513,6 +513,23 @@ test("binds exact bucket, key, version, HEAD size/digest and Hetzner identity", 
   }
 });
 
+test("accepts the opaque leading-underscore VersionId returned by Hetzner", () => {
+  const { plan, trace } = traceMutation((candidate) => {
+    const versionId = "_apBRCMYzrNTaI3shw03cZxYFxMsu0e";
+    candidate.payloadWrite.payload.object.versionId = versionId;
+    candidate.restore.backupObject.versionId = versionId;
+    candidate.steps[4].artifactSha256 = productionExact0096BackupSha256(
+      canonicalProductionExact0096BackupJson(candidate.payloadWrite),
+    );
+    candidate.steps[5].artifactSha256 = productionExact0096BackupSha256(
+      canonicalProductionExact0096BackupJson(candidate.restore),
+    );
+  });
+  assert.doesNotThrow(() =>
+    validateProductionExact0096BackupExecutorTrace(trace, plan.canonical),
+  );
+});
+
 test("plan parser rejects any substituted exact storage destination", () => {
   const plan = createProductionExact0096BackupPlan(fixturePlanInput());
   for (const mutate of [
@@ -664,3 +681,4 @@ test("unreviewed fields and non-canonical trace JSON fail closed", async () => {
     /SCHEMA_INVALID/,
   );
 });
+
