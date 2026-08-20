@@ -10,6 +10,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
+import { isIP } from "node:net";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -2083,14 +2084,27 @@ async function uploadBlob(fetchImpl, bearer, repositoryPath, blob) {
       "GHCR blob upload did not return a location.",
     );
   }
-  const uploadUrl = new URL(location, "https://ghcr.io");
+  let uploadUrl;
+  try {
+    uploadUrl = new URL(location, "https://ghcr.io");
+  } catch {
+    fail(
+      "PRODUCTION_IMAGE_REGISTRY_WRITE_FAILED",
+      "GHCR blob upload location is unsafe.",
+    );
+  }
+  const uploadHostname = uploadUrl.hostname.replace(/^\[|\]$/gu, "");
+  const sameOriginUploadPathIsExact =
+    uploadUrl.hostname !== "ghcr.io" ||
+    uploadUrl.pathname.startsWith(`/v2/${repositoryPath}/blobs/uploads/`) ||
+    uploadUrl.pathname.startsWith(`/v2/${repositoryPath}/blobs/upload/`);
   if (
     uploadUrl.protocol !== "https:" ||
     uploadUrl.username !== "" ||
     uploadUrl.password !== "" ||
     (uploadUrl.port !== "" && uploadUrl.port !== "443") ||
-    (uploadUrl.hostname === "ghcr.io" &&
-      !uploadUrl.pathname.startsWith(`/v2/${repositoryPath}/blobs/uploads/`))
+    (uploadUrl.hostname !== "ghcr.io" && isIP(uploadHostname) !== 0) ||
+    !sameOriginUploadPathIsExact
   ) {
     fail(
       "PRODUCTION_IMAGE_REGISTRY_WRITE_FAILED",

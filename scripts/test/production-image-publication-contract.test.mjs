@@ -585,6 +585,7 @@ function registryFixture(
     corruptExistingRoot = false,
     redirectBlobs = false,
     externalUpload = false,
+    singularSameOriginUpload = false,
     unsafeUploadLocation,
     redirectExternalUpload = false,
   } = {},
@@ -758,12 +759,20 @@ function registryFixture(
             ? unsafeUploadLocation
             : externalUpload
               ? `https://uploads.example.test/session/${calls.length}?opaque=preserved`
-              : `https://ghcr.io${prefix}blobs/uploads/${calls.length}`,
+              : singularSameOriginUpload
+                ? `${prefix}blobs/upload/${calls.length}?opaque=preserved`
+                : `https://ghcr.io${prefix}blobs/uploads/${calls.length}`,
         },
       });
     }
-    if (suffix.startsWith("blobs/uploads/")) {
+    if (
+      suffix.startsWith("blobs/uploads/") ||
+      suffix.startsWith("blobs/upload/")
+    ) {
       assert.equal(method, "PUT");
+      if (suffix.startsWith("blobs/upload/")) {
+        assert.equal(url.searchParams.get("opaque"), "preserved");
+      }
       const blobDigest = url.searchParams.get("digest");
       assert.match(blobDigest, /^sha256:[0-9a-f]{64}$/u);
       const bytes = await requestBytes(options.body);
@@ -1559,6 +1568,9 @@ test("rejects unsafe external blob upload locations before sending bytes", async
     "http://uploads.example.test/session/1?opaque=preserved",
     "https://user:secret@uploads.example.test/session/1?opaque=preserved",
     "https://uploads.example.test:444/session/1?opaque=preserved",
+    "https://127.0.0.1/session/1?opaque=preserved",
+    "https://[::1]/session/1?opaque=preserved",
+    "https://ghcr.io/v2/modvolt/other-package/blobs/upload/1?opaque=preserved",
   ]) {
     const layout = ociLayoutFixture();
     const registry = registryFixture(layout, { unsafeUploadLocation });
@@ -1581,14 +1593,81 @@ test("rejects unsafe external blob upload locations before sending bytes", async
           error.code === "PRODUCTION_IMAGE_REGISTRY_WRITE_FAILED",
       );
       assert.equal(
-        registry.calls.some(
-          (call) => call.method === "PUT" && call.path.startsWith("/session/"),
-        ),
+        registry.calls.some((call) => call.method === "PUT"),
         false,
       );
     } finally {
       rmSync(layout.fixtureRoot, { recursive: true, force: true });
     }
+  }
+});
+
+test("rejects malformed blob upload locations without exposing their input", async () => {
+  const sentinel = "SENTINEL_UPLOAD_QUERY_MUST_NOT_APPEAR";
+  const layout = ociLayoutFixture();
+  const registry = registryFixture(layout, {
+    unsafeUploadLocation: `https://[::1/?signed=${sentinel}`,
+  });
+  try {
+    await assert.rejects(
+      () =>
+        publishReviewedOciLayout({
+          layoutDirectory: layout.root,
+          archivePath: layout.archivePath,
+          image: layout.image,
+          imageKey: "api",
+          actor: "modvolt",
+          publicationToken: "fixture-publication-token-1234567890",
+          resultPath: join(layout.root, "must-not-exist.json"),
+          fetchImpl: registry.fetchImpl,
+          sourceRecheck: async () => true,
+        }),
+      (error) =>
+        error instanceof ProductionImagePublicationError &&
+        error.code === "PRODUCTION_IMAGE_REGISTRY_WRITE_FAILED" &&
+        !error.message.includes(sentinel),
+    );
+    assert.equal(
+      registry.calls.some((call) => call.method === "PUT"),
+      false,
+    );
+  } finally {
+    rmSync(layout.fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("accepts GHCR's singular same-repository blob upload location", async () => {
+  const layout = ociLayoutFixture();
+  const registry = registryFixture(layout, { singularSameOriginUpload: true });
+  try {
+    const result = await publishReviewedOciLayout({
+      layoutDirectory: layout.root,
+      archivePath: layout.archivePath,
+      image: layout.image,
+      imageKey: "api",
+      actor: "modvolt",
+      publicationToken: "fixture-publication-token-1234567890",
+      resultPath: join(layout.root, "registry-result-opaque-location.json"),
+      fetchImpl: registry.fetchImpl,
+      now: () => new Date("2026-08-18T12:30:00.000Z"),
+      sourceRecheck: async () => true,
+    });
+    assert.equal(result.result.registryWritePerformed, true);
+    assert.ok(
+      registry.calls.some(
+        (call) =>
+          call.method === "PUT" &&
+          call.path.startsWith(
+            "/v2/modvolt/site-logbook-production-api/blobs/upload/",
+          ) &&
+          call.search.includes("opaque=preserved") &&
+          call.search.includes("digest=sha256%3A") &&
+          call.authorizationPresent === true &&
+          call.redirect === "error",
+      ),
+    );
+  } finally {
+    rmSync(layout.fixtureRoot, { recursive: true, force: true });
   }
 });
 
