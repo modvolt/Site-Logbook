@@ -1357,6 +1357,10 @@ describe("production activation deployment contract", () => {
     );
     expect(compose).not.toMatch(/PRODUCTION_[A-Z0-9_]*EVIDENCE_B64/);
     expect(compose).not.toContain("PRODUCTION_HOST_ATTESTATION_B64");
+    expect(compose).not.toContain("PRODUCTION_HOST_EVIDENCE_DIR");
+    expect(compose).toContain(
+      "source: /var/lib/modvolt/site-logbook-production-evidence",
+    );
     expect(compose).toContain("/run/site-logbook-production-evidence");
     expect(compose).toContain("read_only: true");
     expect(compose).toContain("create_host_path: false");

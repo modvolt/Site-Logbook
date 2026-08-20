@@ -196,6 +196,27 @@ The implemented reviewed slice is:
    bounded Docker `inspect` operations, re-observes container/network/volume
    state for drift, validates all expected binding fields, and returns only
    `site-logbook.production-migration-runtime-observation/v1` canonical bytes.
+   The ordinary path requires digest-addressed PostgreSQL `Config.Image`, the
+   exact application OCI revision label, and both externally derived config
+   digest labels. A one-time compatibility path exists only for predecessor
+   `6ae3072a3eb80b9647bc66abb80d979c5ec9e2a5` in Coolify application
+   `ef09696arga7h9ox6ojgv7ru`: it requires the frozen application source tag,
+   PostgreSQL tag, image IDs and RepoDigests, Compose project/service/one-off/
+   container-number/config-hash labels, Coolify ownership labels, the exact
+   writable named-volume mount at `/var/lib/postgresql/data`, a single attached
+   PostgreSQL network whose only live peer is the PostgreSQL container,
+   volume/network identities, and absence of both modern config labels and of
+   the OCI revision label. The zero-writer condition is a migration-time gate:
+   the bounded pre-outage inventory with API/web/minio/proxy peers is
+   intentionally rejected. In that path the exact PostgreSQL service config hash is
+   carried in both legacy config-digest fields as an explicitly scoped
+   surrogate; it is not a claim that Docker Compose's per-service hash equals
+   Coolify's configuration hash or the resolved Compose-file hash. A fresh
+   source-pinned Coolify observation must still independently prove
+   `pendingChanges=false`, desired equals deployed, and the distinct
+   configuration and resolved-Compose digests in the same maintenance window.
+   Partial or mismatched modern labels never downgrade into the compatibility
+   path.
 3. The strict `roleCeremony` descriptor object has descriptor-relative paths
    for `activation`, `transactionReceipt` and `postCommitProjection`. The first
    is required and stably read before the one-shot role ceremony; the latter
@@ -211,8 +232,10 @@ The implemented reviewed slice is:
    `productionMigrationRoleAuthority`; no descriptor module reads a connection
    secret or invents role evidence.
 
-Hermetic tests cover fixed Docker argv, drift, abort, default-dark ceremony
-confirmation, descriptor assembly and full ten-receipt ordering. The opt-in
+Hermetic tests cover both exact runtime-identity paths, anti-downgrade and
+individual Compose/Coolify/image/container/network/volume drift, fixed Docker
+argv, double-observation drift, abort, default-dark ceremony confirmation,
+descriptor assembly and full ten-receipt ordering. The opt-in
 PostgreSQL 16 regression covers the actual bootstrap, all ten SQL migrations and
 the actual post-commit role projection. Real execution still requires an exact
 attended production request, fresh observation and separate operational
