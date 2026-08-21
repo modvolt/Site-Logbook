@@ -1359,11 +1359,11 @@ describe("production activation deployment contract", () => {
     expect(compose).not.toContain("PRODUCTION_HOST_ATTESTATION_B64");
     expect(compose).not.toContain("PRODUCTION_HOST_EVIDENCE_DIR");
     expect(compose).toContain(
-      "source: /var/lib/modvolt/site-logbook-production-evidence",
+      "/var/lib/modvolt/site-logbook-production-evidence:/run/site-logbook-production-evidence:ro",
     );
-    expect(compose).toContain("/run/site-logbook-production-evidence");
-    expect(compose).toContain("read_only: true");
-    expect(compose).toContain("create_host_path: false");
+    expect(compose).not.toContain(
+      "/var/lib/modvolt/site-logbook-production-evidence:/run/site-logbook-production-evidence:rw",
+    );
     expect(dockerfile).toContain("/app/dist/production-api-entrypoint.mjs");
     expect(dockerfile).toContain(PRODUCTION_ACTIVATION_HEALTH_PATH);
   });
