@@ -2025,6 +2025,21 @@ test("workflow is reusable, two-stage, digest-only and never rebuilds reviewed b
   );
   assert.match(raw, /event=push/u);
   assert.match(raw, /\.event == "push"/u);
+  const sourceStep = workflow.jobs["validate-source"].steps.find(
+    (step) =>
+      step.name === "Require exact merged main and green push Quality gate",
+  );
+  assert.ok(sourceStep);
+  assert.equal(
+    sourceStep.env.PUBLIC_SOURCE_API_TOKEN,
+    "${{ secrets.packages_metadata_token }}",
+  );
+  assert.match(
+    sourceStep.run,
+    /if \[\[ -n "\$PUBLIC_SOURCE_API_TOKEN" \]\]; then\s+curl_args\+=\(--header "Authorization: Bearer \$\{PUBLIC_SOURCE_API_TOKEN\}"\)\s+fi/u,
+  );
+  assert.match(sourceStep.run, /curl "\$\{curl_args\[@\]\}" "\$url"/u);
+  assert.doesNotMatch(sourceStep.run, /echo.*PUBLIC_SOURCE_API_TOKEN/u);
   assert.match(raw, /target: production/u);
   assert.match(raw, /target: control-plane/u);
   assert.match(raw, /target: host-operator/u);
