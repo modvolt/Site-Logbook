@@ -9,6 +9,8 @@ import {
 const MAX_STDOUT_BYTES = 64 * 1024;
 const MAX_STDERR_BYTES = 4 * 1024;
 const BRIDGE_SCHEMA = "site-logbook.coolify-host-bridge-attestation/v1";
+const IMMUTABLE_IMAGE =
+  /^[a-z0-9.-]+(?::[0-9]+)?\/[a-z0-9._\/-]+@sha256:[0-9a-f]{64}$/;
 
 export const PRODUCTION_COOLIFY_CONTROL_PLANE_BINDING = Object.freeze({
   version: "4.1.1",
@@ -108,10 +110,10 @@ try {
     }
     $arguments = $argv;
     array_shift($arguments);
-    if (count($arguments) !== 6) {
+    if (count($arguments) !== 9) {
         stop_bridge();
     }
-    [$schema, $applicationUuid, $nonce, $ordinal, $issuedAtText, $expiresAtText] = $arguments;
+    [$schema, $applicationUuid, $nonce, $ordinal, $issuedAtText, $expiresAtText, $expectedApiImage, $expectedPostgresImage, $expectedWebImage] = $arguments;
     if (
         $schema !== BRIDGE_SCHEMA ||
         $applicationUuid !== EXPECTED_APPLICATION_UUID ||
@@ -122,6 +124,11 @@ try {
     }
     $issuedAt = exact_utc($issuedAtText);
     $expiresAt = exact_utc($expiresAtText);
+    $expectedImages = [
+        'api' => immutable_image($expectedApiImage),
+        'postgres' => immutable_image($expectedPostgresImage),
+        'web' => immutable_image($expectedWebImage),
+    ];
     $serverTime = new DateTimeImmutable('now', new DateTimeZone('UTC'));
     if (
         $expiresAt <= $issuedAt ||
@@ -208,13 +215,26 @@ try {
         if ($serviceNames !== ['api', 'postgres', 'web']) {
             stop_bridge();
         }
+        $imageSelectors = [
+            'api' => '\${PRODUCTION_API_IMAGE:?set immutable API repository@sha256 digest}',
+            'postgres' => '\${PRODUCTION_POSTGRES_IMAGE:?set immutable PostgreSQL repository@sha256 digest}',
+            'web' => '\${PRODUCTION_WEB_IMAGE:?set immutable web repository@sha256 digest}',
+        ];
         $images = [];
         foreach (['api', 'postgres', 'web'] as $service) {
             $serviceConfig = $services[$service] ?? null;
             if (!is_array($serviceConfig)) {
                 stop_bridge();
             }
-            $images[$service] = immutable_image($serviceConfig['image'] ?? null);
+            $rawImage = $serviceConfig['image'] ?? null;
+            if ($rawImage === $imageSelectors[$service]) {
+                $images[$service] = $expectedImages[$service];
+                continue;
+            }
+            $images[$service] = immutable_image($rawImage);
+            if (!hash_equals($expectedImages[$service], $images[$service])) {
+                stop_bridge();
+            }
         }
         $resolvedComposeSha256 = 'sha256:'.hash('sha256', $composeBytes);
         $finishedAt = DateTimeImmutable::createFromInterface($deployment->finished_at)
@@ -275,7 +295,7 @@ try {
 const computedBridgeSourceSha256 = `sha256:${createHash("sha256").update(PHP_SOURCE).digest("hex")}`;
 
 export const PRODUCTION_COOLIFY_HOST_BRIDGE_SOURCE_SHA256 =
-  "sha256:3bdfcf56842ee67b98975bf6b03931c8b9dd4b518b2b4650a424919f55abd2d7";
+  "sha256:2991afcf1cd3118be680cc1a1573a38ffd9839f4273bc7ced6b9b284eaa3131b";
 
 if (
   computedBridgeSourceSha256 !== PRODUCTION_COOLIFY_HOST_BRIDGE_SOURCE_SHA256
@@ -483,11 +503,25 @@ function exactChallenge(value) {
 
 function createAuthority(runDocker) {
   return async function readCoolifyHostBridgeAttestation(rawCall) {
-    const call = exactObject(rawCall, ["challenge", "signal"]);
+    const call = exactObject(rawCall, [
+      "challenge",
+      "expectedImages",
+      "signal",
+    ]);
     if (!(call.signal instanceof AbortSignal) || call.signal.aborted) {
       throw abortError();
     }
     const challenge = exactChallenge(call.challenge);
+    const expectedImages = exactObject(call.expectedImages, [
+      "api",
+      "postgres",
+      "web",
+    ]);
+    for (const image of Object.values(expectedImages)) {
+      if (typeof image !== "string" || !IMMUTABLE_IMAGE.test(image)) {
+        throw bridgeError();
+      }
+    }
     const before = await inspectControlPlane(runDocker, call.signal);
     const stdout = await runStrict(
       runDocker,
@@ -509,6 +543,9 @@ function createAuthority(runDocker) {
         String(challenge.ordinal),
         challenge.issuedAt,
         challenge.expiresAt,
+        expectedImages.api,
+        expectedImages.postgres,
+        expectedImages.web,
       ],
       { input: PHP_SOURCE, signal: call.signal },
     );

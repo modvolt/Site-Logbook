@@ -562,10 +562,10 @@ function createChallenge(startedAt, timeoutMs, random) {
   });
 }
 
-async function readAuthority(readAttestation, request, signal) {
+async function readAuthority(readAttestation, request, expectedImages, signal) {
   try {
     return await abortable(
-      readAttestation({ challenge: request, signal }),
+      readAttestation({ challenge: request, expectedImages, signal }),
       signal,
     );
   } catch (error) {
@@ -587,11 +587,17 @@ async function observationCycle(
   readAttestation,
   challenge,
   ordinal,
+  expectedImages,
   signal,
   now,
 ) {
   const expectedChallenge = Object.freeze({ ...challenge, ordinal });
-  const raw = await readAuthority(readAttestation, expectedChallenge, signal);
+  const raw = await readAuthority(
+    readAttestation,
+    expectedChallenge,
+    expectedImages,
+    signal,
+  );
   return parseCycle(raw, expectedChallenge, readClock(now));
 }
 
@@ -624,6 +630,7 @@ async function collectCoolifyReadOnlyExportCore(
       readAttestation,
       challenge,
       1,
+      expected.images,
       signal,
       now,
     );
@@ -631,6 +638,7 @@ async function collectCoolifyReadOnlyExportCore(
       readAttestation,
       challenge,
       2,
+      expected.images,
       signal,
       now,
     );
