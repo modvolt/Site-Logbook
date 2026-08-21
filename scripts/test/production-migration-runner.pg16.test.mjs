@@ -242,6 +242,7 @@ test(
           confirmation: PRODUCTION_MIGRATION_APPLY_CONFIRMATION,
         });
       }
+      databaseClock = Date.parse("2026-08-12T12:12:00.000Z");
       runnerClock = Date.parse("2026-08-12T12:20:00.000Z");
       const chain = await executable.finalize({
         receiptCount: 10,
@@ -258,3 +259,4 @@ test(
     }
   },
 );
+

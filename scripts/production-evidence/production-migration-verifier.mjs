@@ -802,14 +802,14 @@ export function createProductionMigrationTransitionChain({
     );
   }
   if (
-    finalLive.observedAt < verified.completedAt ||
-    roleReceipt.executedAt < finalLive.observedAt ||
+    roleReceipt.executedAt < verified.completedAt ||
     postCommitRole.observedAt < roleReceipt.executedAt ||
-    completedMillis < postCommitRole.observedAt
+    finalLive.observedAt < postCommitRole.observedAt ||
+    completedMillis < finalLive.observedAt
   ) {
     productionMigrationFail(
       "PRODUCTION_MIGRATION_TIME_INVALID",
-      "Final live and post-commit role evidence must follow the migration receipts.",
+      "Role, post-commit and final live evidence must follow the migration receipts in execution order.",
     );
   }
   const chain = {

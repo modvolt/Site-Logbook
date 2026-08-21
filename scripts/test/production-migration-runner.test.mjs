@@ -224,6 +224,9 @@ function fakeDatabase(planInput) {
     get stateIndex() {
       return stateIndex;
     },
+    setClock(value) {
+      clock = value;
+    },
     async readInventoryReadOnly() {
       observations.push({ kind: "inventory", stateIndex });
       return fixtureInventory(stateIndex);
@@ -394,6 +397,7 @@ test("attended runner completes all ten exact steps and never authorizes app sta
     postRole.receipt.canonical,
   );
 
+  database.setClock(Date.parse("2026-08-12T11:17:00.000Z"));
   nowValue = Date.parse("2026-08-12T11:20:00.000Z");
   const finalized = await executable.finalize({
     receiptCount: 10,
@@ -802,3 +806,4 @@ test("role evidence custody proves exact mode/readback, refuses clobber and remo
   );
   await assert.rejects(lstat(partial), { code: "ENOENT" });
 });
+

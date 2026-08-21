@@ -442,8 +442,8 @@ test("builds and verifies ten externally evidenced chained receipts and a non-au
     requireComplete: true,
   });
   assert.equal(verified.receipts.length, 10);
-  const finalLive = fixtureLiveIdentity(plan, 10, "2026-08-12T11:11:00.000Z");
   const roleEvidence = fixturePostCommitRole(plan, "2026-08-12T11:11:30.000Z");
+  const finalLive = fixtureLiveIdentity(plan, 10, "2026-08-12T11:11:45.000Z");
   const chain = createProductionMigrationTransitionChain({
     planCanonical: plan.canonical,
     intentCanonical: intent.canonical,
@@ -474,6 +474,26 @@ test("builds and verifies ten externally evidenced chained receipts and a non-au
       postCommitRoleArtifactCanonical: roleEvidence.postCommit.canonical,
     }).sha256,
     chain.sha256,
+  );
+  const prematureFinalLive = fixtureLiveIdentity(
+    plan,
+    10,
+    "2026-08-12T11:11:00.000Z",
+  );
+  assert.throws(
+    () =>
+      createProductionMigrationTransitionChain({
+        planCanonical: plan.canonical,
+        intentCanonical: intent.canonical,
+        intentPersistenceReceiptCanonical: persistence.canonical,
+        receiptCanonicals: receipts.map((receipt) => receipt.canonical),
+        finalInventory: fixtureInventory(10),
+        finalLiveIdentityCanonical: prematureFinalLive.canonical,
+        roleTransactionReceiptCanonical: roleEvidence.receipt.canonical,
+        postCommitRoleArtifactCanonical: roleEvidence.postCommit.canonical,
+        completedAt: "2026-08-12T11:12:00.000Z",
+      }),
+    /PRODUCTION_MIGRATION_TIME_INVALID/,
   );
   const tamperedPostRole = JSON.parse(roleEvidence.postCommit.canonical);
   tamperedPostRole.authorizesDeployment = true;

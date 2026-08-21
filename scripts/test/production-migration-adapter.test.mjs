@@ -816,11 +816,17 @@ test("ten receipt-backed steps finalize only with exact live inventory and post-
     sessionUser: input.database.sessionUser,
     databaseName: input.database.name,
   });
+  let runtimeObservedAt = Date.parse("2026-08-12T11:01:00.000Z");
   const database = databaseFor(
     pg,
     deterministicClock("2026-08-12T11:01:00.000Z"),
     fixtureRoleBinding,
     runtimeBinding,
+    async () =>
+      createProductionMigrationRuntimeObservation({
+        runtimeBinding,
+        observedAt: new Date(runtimeObservedAt++).toISOString(),
+      }).canonical,
   );
   const artifacts = memoryArtifactStore();
   const roleEvidence = postCommitRoleEvidence(plan);
@@ -884,6 +890,7 @@ test("ten receipt-backed steps finalize only with exact live inventory and post-
     receiptStorageIds.push(applied.receiptStorageId);
     receiptCanonicals.push(applied.receiptCanonical);
   }
+  runtimeObservedAt = Date.parse("2026-08-12T11:11:45.000Z");
   adapterNow = Date.parse("2026-08-12T11:12:00.000Z");
   const finalized = await adapter.finalize({
     activationCanonical: activation.canonical,
