@@ -67,7 +67,7 @@ export const PRODUCTION_MIGRATION_AUTHORITY_BINDINGS = Object.freeze({
       AUTHORITY_DIRECTORY,
       "production-migration-docker-runtime-authority.mjs",
     ),
-    sha256: "6c6f466a79f479260da2d60443b7a31a38e98695367f8972f8dab18178cd3358",
+    sha256: "1acd1cb477acca54a697fc49bdd9dfaada4f8a96bf7e8eda556e64c00a5661bc",
   }),
   role: Object.freeze({
     id: "site-logbook.production-migration.role/v1",
