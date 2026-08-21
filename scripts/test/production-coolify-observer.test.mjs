@@ -304,6 +304,7 @@ test("host bridge uses only fixed inspect/exec argv and source bytes", async () 
   const readBridge = testCore.createHostBridgeAuthority(runDocker);
   const result = await readBridge({
     challenge,
+    expectedImages: images,
     signal: new AbortController().signal,
   });
 
@@ -321,9 +322,26 @@ test("host bridge uses only fixed inspect/exec argv and source bytes", async () 
   );
   const execution = commands[2];
   assert.equal(execution.args[2], testCore.controlPlaneBinding.containerId);
+  assert.deepEqual(execution.args.slice(-3), [
+    images.api,
+    images.postgres,
+    images.web,
+  ]);
   assert.equal(execution.args.includes("sh"), false);
   assert.equal(execution.args.includes("-c"), false);
   assert.equal(execution.options.input, testCore.bridgeContract.phpSource);
+  assert.match(
+    execution.options.input,
+    /\$\{PRODUCTION_API_IMAGE:\?set immutable API repository@sha256 digest\}/,
+  );
+  assert.match(
+    execution.options.input,
+    /\$\{PRODUCTION_POSTGRES_IMAGE:\?set immutable PostgreSQL repository@sha256 digest\}/,
+  );
+  assert.match(
+    execution.options.input,
+    /\$\{PRODUCTION_WEB_IMAGE:\?set immutable web repository@sha256 digest\}/,
+  );
   assert.doesNotMatch(
     JSON.stringify(commands.map(({ args }) => args)),
     /Config\.Env|\.env|token|password|secret/i,
@@ -369,6 +387,7 @@ test("host bridge discards stderr and never echoes subprocess material", async (
         issuedAt: new Date(NOW).toISOString(),
         expiresAt: new Date(NOW + 60_000).toISOString(),
       },
+      expectedImages: images,
       signal: new AbortController().signal,
     }),
     (error) => {
