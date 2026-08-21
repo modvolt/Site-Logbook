@@ -312,7 +312,7 @@ export function exactSourceSha(value, field = "sourceSha") {
 
 const LOWER_DATABASE_IDENTIFIER = /^[a-z_][a-z0-9_]{0,62}$/;
 const IMMUTABLE_IMAGE =
-  /^[a-z0-9][a-z0-9._:-]*(?:\/[a-z0-9][a-z0-9._-]*)+@sha256:[0-9a-f]{64}$/;
+  /^[a-z0-9][a-z0-9._:-]*(?:\/[a-z0-9][a-z0-9._-]*)*@sha256:[0-9a-f]{64}$/;
 
 export function exactProductionMigrationDatabase(value, field = "database") {
   const database = exactObject(

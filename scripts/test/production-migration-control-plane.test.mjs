@@ -12,6 +12,7 @@ import {
   canonicalProductionMigrationJson,
   createProductionMigrationArtifact,
   createProductionMigrationLiveIdentity,
+  exactProductionMigrationImmutableImage,
 } from "../production-evidence/production-migration-contract.mjs";
 import {
   PRODUCTION_MIGRATION_EXECUTOR_INTERFACE,
@@ -39,6 +40,11 @@ import {
 import { fixturePlanInput as fixtureExactBackupPlanInput } from "./production-exact-0096-backup-contract-fixtures.mjs";
 
 const migrationsUrl = new URL("../../lib/db/migrations/", import.meta.url);
+
+test("accepts an exact local Compose digest reference for the legacy baseline", () => {
+  const image = `ef09696arga7h9ox6ojgv7ru_api@sha256:${"a".repeat(64)}`;
+  assert.equal(exactProductionMigrationImmutableImage(image), image);
+});
 
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
