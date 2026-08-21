@@ -81,9 +81,12 @@ describe("production steady-0107 startup boundary", () => {
     }
     expect(compose).not.toMatch(/PRODUCTION_[A-Z0-9_]*EVIDENCE_B64/);
     expect(compose).not.toContain("PRODUCTION_HOST_ATTESTATION_B64");
-    expect(compose).toContain("/run/site-logbook-production-evidence");
-    expect(compose).toContain("read_only: true");
-    expect(compose).toContain("create_host_path: false");
+    expect(compose).toContain(
+      "/var/lib/modvolt/site-logbook-production-evidence:/run/site-logbook-production-evidence:ro",
+    );
+    expect(compose).not.toContain(
+      "/var/lib/modvolt/site-logbook-production-evidence:/run/site-logbook-production-evidence:rw",
+    );
   });
 
   it("proves the runtime credential against a self-owned disposable PostgreSQL 16 fixture", () => {

@@ -81,15 +81,9 @@ services:
       PRODUCTION_ACTIVATION_HOST_PUBLIC_KEY_SHA256: ${PRODUCTION_ACTIVATION_HOST_PUBLIC_KEY_SHA256:?set distinct host Ed25519 DER-SPKI sha256 fingerprint}
       PRODUCTION_EXPECTED_DATABASE_USER: site_logbook_runtime
     volumes:
-      - type: bind
-        # Coolify rejects variable interpolation in volume sources. Keep this
-        # host boundary literal, fixed and precreated instead of accepting an
-        # operator-controlled path through the Compose environment.
-        source: /var/lib/modvolt/site-logbook-production-evidence
-        target: /run/site-logbook-production-evidence
-        read_only: true
-        bind:
-          create_host_path: false
+      # Coolify rejects variable interpolation in volume sources. Keep this
+      # host boundary literal, fixed, precreated and read-only.
+      - /var/lib/modvolt/site-logbook-production-evidence:/run/site-logbook-production-evidence:ro
 
   web:
     image: ${PRODUCTION_WEB_IMAGE:?set immutable web repository@sha256 digest}
