@@ -14,9 +14,12 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import {
+  PRODUCTION_ACTIVATION_0108_BUNDLE_BASENAME,
+  PRODUCTION_ACTIVATION_0108_BUNDLE_TRANSFER_CONFIRMATION,
   PRODUCTION_ACTIVATION_BUNDLE_BASENAME,
   PRODUCTION_ACTIVATION_BUNDLE_TRANSFER_CONFIRMATION,
   canonicalProductionActivationTransferJson,
+  publishTransferredActivation0108Bundle,
   publishTransferredActivationBundle,
   runProductionHostOperator,
 } from "../production-evidence/production-host-operator-packaging.mjs";
@@ -55,6 +58,15 @@ function activationBundle(overrides = {}) {
   };
 }
 
+function activation0108Bundle() {
+  const bundle = activationBundle();
+  bundle.activation.schemaVersion = 3;
+  bundle.activation.kind = "site-logbook-production-activation-bundle-v3";
+  bundle.hostAttestation.schemaVersion = 3;
+  bundle.hostAttestation.kind = "site-logbook-production-host-attestation-v3";
+  return bundle;
+}
+
 function publishArgs(input, directory, expectedSha256) {
   return [
     "--input",
@@ -65,6 +77,19 @@ function publishArgs(input, directory, expectedSha256) {
     directory,
     "--confirm",
     PRODUCTION_ACTIVATION_BUNDLE_TRANSFER_CONFIRMATION,
+  ];
+}
+
+function publish0108Args(input, directory, expectedSha256) {
+  return [
+    "--input",
+    input,
+    "--expected-sha256",
+    expectedSha256,
+    "--evidence-dir",
+    directory,
+    "--confirm",
+    PRODUCTION_ACTIVATION_0108_BUNDLE_TRANSFER_CONFIRMATION,
   ];
 }
 
@@ -135,6 +160,10 @@ test("host-operator Docker target is exact-digest isolated from the final runtim
   assert.equal(packaging.match(/await sync\(directory\)/g)?.length, 2);
   assert.match(packaging, /await link\(temporary, destination\)/);
   assert.match(packaging, /await readStableSingleLinkFile\(destination/);
+  assert.match(
+    packaging,
+    /PUBLISH_DIGEST_VERIFIED_SITE_LOGBOOK_ACTIVATION_BUNDLE_V3_ON_HOST/,
+  );
 });
 
 test("host operator is default-dark and source-pins delegated commands", async () => {
@@ -206,6 +235,35 @@ test("publishes exact canonical public evidence with no-clobber, fsync and readb
       /PRODUCTION_ACTIVATION_TRANSFER_DESTINATION_EXISTS/,
     );
     assert.deepEqual(await readFile(result.output), bytes);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("publishes the exact v3 0108 bundle to its separate no-clobber basename", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "host-operator-0108-"));
+  const evidenceDirectory = join(directory, "evidence");
+  const input = join(directory, "staged-v3.json");
+  await mkdir(evidenceDirectory);
+  const bytes = Buffer.from(
+    canonicalProductionActivationTransferJson(activation0108Bundle()),
+  );
+  const expectedSha256 = `sha256:${createHash("sha256")
+    .update(bytes)
+    .digest("hex")}`;
+  await writeFile(input, bytes);
+  try {
+    const result = await publishTransferredActivation0108Bundle(
+      publish0108Args(input, evidenceDirectory, expectedSha256),
+      SOURCE_SHA,
+      { syncDirectory: async () => {} },
+    );
+    assert.equal(
+      result.output,
+      join(evidenceDirectory, PRODUCTION_ACTIVATION_0108_BUNDLE_BASENAME),
+    );
+    assert.deepEqual(await readFile(result.output), bytes);
+    assert.equal((await lstat(result.output, { bigint: true })).nlink, 1n);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

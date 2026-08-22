@@ -1162,6 +1162,22 @@ export function createProductionRuntimeBinding(
     backupIntegritySha256: summary.backupIntegritySha256,
     transitionChainSha256: summary.transitionChainSha256,
     activationApprovalSha256: summary.activationApprovalSha256,
+    ...(summary.invoiceSchemaProjectionSha256 === undefined
+      ? {}
+      : {
+          invoiceSchemaProjectionSha256: summary.invoiceSchemaProjectionSha256,
+        }),
+    ...(summary.invoice0108MigrationReceiptSha256 === undefined
+      ? {}
+      : {
+          invoice0108MigrationReceiptSha256:
+            summary.invoice0108MigrationReceiptSha256,
+        }),
+    ...(summary.invoice0108RoleReceiptSha256 === undefined
+      ? {}
+      : {
+          invoice0108RoleReceiptSha256: summary.invoice0108RoleReceiptSha256,
+        }),
     lineage: summary.lineage,
   });
 }

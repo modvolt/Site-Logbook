@@ -561,6 +561,11 @@ test("exclusive artifact store is durable, read-back exact and no-clobber", asyn
     const canonical = '{"authorizesApplicationStart":false}\n';
     await store.persistExclusive("receipt-01.json", canonical);
     assert.equal(await store.readCanonical("receipt-01.json"), canonical);
+    assert.equal(await store.readOptionalCanonical("missing.json"), null);
+    assert.equal(
+      await store.readOptionalCanonical("receipt-01.json"),
+      canonical,
+    );
     await assert.rejects(store.persistExclusive("receipt-01.json", canonical), {
       code: "PRODUCTION_MIGRATION_ARTIFACT_EXISTS",
     });

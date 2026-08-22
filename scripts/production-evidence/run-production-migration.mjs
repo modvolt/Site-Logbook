@@ -544,7 +544,14 @@ async function assertPinnedAuthoritySource(kind, source, label) {
   }
   const bytes = await readFile(source.path);
   const after = await lstat(source.path, { bigint: true });
-  const digest = createHash("sha256").update(bytes).digest("hex");
+  // Git may materialize reviewed UTF-8 authority sources with CRLF in a
+  // Windows developer checkout. Production execution is Linux and remains
+  // byte-exact; only the Windows pre-release resolver hashes canonical LF.
+  const digestBytes =
+    process.platform === "win32"
+      ? Buffer.from(bytes.toString("utf8").replace(/\r\n/g, "\n"), "utf8")
+      : bytes;
+  const digest = createHash("sha256").update(digestBytes).digest("hex");
   if (
     before.dev !== after.dev ||
     before.ino !== after.ino ||

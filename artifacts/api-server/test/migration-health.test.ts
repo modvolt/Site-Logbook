@@ -10,6 +10,7 @@ import {
   productionRuntimeBindingMatches,
   type ExpectedMigrationIdentity,
 } from "../src/lib/migration-health";
+import { createProductionRuntimeBinding } from "../src/lib/production-startup-evidence";
 
 const expected: ExpectedMigrationIdentity[] = [
   { when: 101, tag: "0001_first", hash: "a".repeat(64) },
@@ -169,11 +170,15 @@ describe("migration health inventory", () => {
       missingKnownMigrationTags: [],
     };
     const digest = `sha256:${"d".repeat(64)}`;
-    const binding = {
-      schemaVersion: "site-logbook.production-runtime-binding/v1" as const,
+    const binding = createProductionRuntimeBinding({
       sourceSha: "c".repeat(40),
       apiImage: `ghcr.io/modvolt/site-logbook-api@sha256:${"a".repeat(64)}`,
       apiImageDigest: `sha256:${"a".repeat(64)}`,
+      publicationReceiptSha256: digest,
+      reviewedImageSetSha256: digest,
+      apiRunnableManifestDigest: digest,
+      apiOciProvenanceSha256: digest,
+      postgresImage: `postgres@sha256:${"b".repeat(64)}`,
       targetEvidenceSha256: digest,
       releaseEvidenceSha256: digest,
       resolvedComposeSha256: digest,
@@ -196,15 +201,19 @@ describe("migration health inventory", () => {
         knownExpectedMigrations: 108,
         knownAppliedMigrations: 108,
         knownAppliedRowsSha256: inventory.knownAppliedRowsSha256,
-        latestKnownAppliedTag:
-          "0108_invoice_source_allocations_and_advances",
+        latestKnownAppliedTag: "0108_invoice_source_allocations_and_advances",
         missingKnownToPredecessor: 0,
         opaqueLegacyRowCount: 2,
         opaqueLegacyRowsSha256: inventory.opaqueLegacyRowsSha256,
         opaqueLegacyMeaningInferred: false,
         excludedMigration0100Present: false,
       },
-    };
+    });
+    expect(binding).toMatchObject({
+      invoiceSchemaProjectionSha256: digest,
+      invoice0108MigrationReceiptSha256: digest,
+      invoice0108RoleReceiptSha256: digest,
+    });
     expect(
       productionRuntimeBindingMatches(
         binding,

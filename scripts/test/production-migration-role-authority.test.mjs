@@ -44,13 +44,15 @@ test("role wrapper and bootstrap expose the referenced @workspace/db boundary im
     "function",
   );
   assert.equal(
-    await readFile(
-      new URL(
-        "../production-evidence/production-migration-role-authority.ts",
-        import.meta.url,
-      ),
-      "utf8",
-    ),
+    (
+      await readFile(
+        new URL(
+          "../production-evidence/production-migration-role-authority.ts",
+          import.meta.url,
+        ),
+        "utf8",
+      )
+    ).replace(/\r\n/g, "\n"),
     'export * from "@workspace/db/production-migration-role-authority";\n',
   );
   const bootstrapSource = await readFile(

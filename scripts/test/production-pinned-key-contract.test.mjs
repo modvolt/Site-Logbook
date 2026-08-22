@@ -61,7 +61,10 @@ test("binds the attended production public trust roots exactly", () => {
 test("keeps the attended ceremony receipt canonical, public-only and exact", () => {
   const receiptBytes = readFileSync(RECEIPT_URL, "utf8");
   const receipt = JSON.parse(receiptBytes);
-  assert.equal(receiptBytes, `${canonicalJson(receipt)}\n`);
+  assert.equal(
+    receiptBytes.replace(/\r\n/g, "\n"),
+    `${canonicalJson(receipt)}\n`,
+  );
   assert.equal(
     receipt.publicManifest.sha256,
     "sha256:407ebba2d8661fe9fd7aa660056827608bd1199a12b214de3757419ed711abc7",

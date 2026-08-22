@@ -287,6 +287,7 @@ globalThis.require = __hostOperatorCreateRequire(import.meta.url);`,
   for (const requiredBoundary of [
     "site-logbook-production-host-operator/v1",
     "PUBLISH_DIGEST_VERIFIED_SITE_LOGBOOK_ACTIVATION_BUNDLE_V2_ON_HOST",
+    "PUBLISH_DIGEST_VERIFIED_SITE_LOGBOOK_ACTIVATION_BUNDLE_V3_ON_HOST",
     "PRODUCTION_HOST_SOURCE_MISMATCH",
   ]) {
     if (!hostOperator.includes(requiredBoundary)) {

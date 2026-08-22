@@ -11,6 +11,7 @@
     "./accounting-schema-preflight": "./src/accounting-schema-preflight.ts",
     "./audit-schema-preflight": "./src/audit-schema-preflight.ts",
     "./invoice-0108-schema-preflight": "./src/invoice-0108-schema-preflight.ts",
+    "./production-migration-role-0108-authority": "./src/production-migration-role-0108-authority.ts",
     "./production-migration-role-authority": "./src/production-migration-role-ceremony.ts",
     "./staging-baseline-0104": "./src/staging-baseline-0104.ts",
     "./staging-exact-0104-recovery": "./src/staging-exact-0104-recovery.ts"

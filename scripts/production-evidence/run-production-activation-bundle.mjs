@@ -18,6 +18,8 @@ import { verifyProductionApiImageProvenanceArtifact } from "./host-attestation-c
 
 export const PRODUCTION_ACTIVATION_BUNDLE_CONFIRMATION =
   "PUBLISH_EXACT_SITE_LOGBOOK_PRODUCTION_ACTIVATION_BUNDLE_V2";
+export const PRODUCTION_ACTIVATION_0108_BUNDLE_CONFIRMATION =
+  "PUBLISH_EXACT_SITE_LOGBOOK_PRODUCTION_ACTIVATION_BUNDLE_V3";
 export const PRODUCTION_ACTIVATION_BUNDLE_MAX_BYTES = 1024 * 1024;
 export const PRODUCTION_ACTIVATION_EVIDENCE_MAX_BYTES = 960 * 1024;
 export const PRODUCTION_ACTIVATION_PUBLIC_KEY_MAX_BYTES = 16 * 1024;
@@ -31,6 +33,7 @@ const CUSTODY_SCRIPT = path.join(
   "production-signing-custody.mjs",
 );
 const OUTPUT_BASENAME = "activation-bundle-v2.json";
+const OUTPUT_0108_BASENAME = "activation-bundle-v3.json";
 const SOURCE_SHA = /^[0-9a-f]{40}$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 const SHA256_PIN = /^sha256:[0-9a-f]{64}$/;
@@ -463,7 +466,7 @@ function parseTimestamp(value, field) {
   return { text, millis };
 }
 
-function parseChallenge(value) {
+function parseChallenge(value, protocolVersion = 2) {
   const challenge = exactObject(
     value,
     ["apiImage", "containerId", "kind", "nonce", "sourceSha"],
@@ -471,7 +474,7 @@ function parseChallenge(value) {
   );
   exactEqual(
     challenge.kind,
-    "site-logbook-production-activation-challenge-v2",
+    `site-logbook-production-activation-challenge-v${protocolVersion}`,
     "challenge.kind",
   );
   exactString(challenge.sourceSha, "challenge.sourceSha", SOURCE_SHA);
@@ -481,20 +484,50 @@ function parseChallenge(value) {
   return challenge;
 }
 
-function parseEvidence(value, challenge, now, verifyApiImageProvenance) {
+function parseEvidence(
+  value,
+  challenge,
+  now,
+  verifyApiImageProvenance,
+  protocolVersion = 2,
+) {
   scanSecretFree(value, "evidence");
-  const evidence = exactObject(
-    value,
-    [
+  const evidenceKeys = [
+    "activationApproval",
+    "apiImageProvenance",
+    "exact0096Backup",
+    "finalObservations",
+    "migration0096To0107",
+    "runtimeDatabaseCredentialCutover",
+  ];
+  if (protocolVersion === 3) evidenceKeys.push("migration0107To0108");
+  const evidence = exactObject(value, evidenceKeys, "evidence");
+  if (protocolVersion === 3) {
+    const invoice0108 = exactObject(
+      evidence.migration0107To0108,
+      [
+        "activationApproval",
+        "backupRestoreReference",
+        "intent",
+        "migrationReceipt",
+        "plan",
+        "roleReceipt",
+        "schemaReadiness",
+      ],
+      "evidence.migration0107To0108",
+    );
+    for (const key of [
       "activationApproval",
-      "apiImageProvenance",
-      "exact0096Backup",
-      "finalObservations",
-      "migration0096To0107",
-      "runtimeDatabaseCredentialCutover",
-    ],
-    "evidence",
-  );
+      "backupRestoreReference",
+      "intent",
+      "migrationReceipt",
+      "plan",
+      "roleReceipt",
+      "schemaReadiness",
+    ]) {
+      parseArtifact(invoice0108[key], `evidence.migration0107To0108.${key}`);
+    }
+  }
   const apiImageProvenance = exactObject(
     evidence.apiImageProvenance,
     ["canonical", "signatureB64"],
@@ -815,11 +848,11 @@ async function writeExclusiveSynced(file, bytes) {
   }
 }
 
-async function assertOutputAvailable(output) {
-  if (path.basename(output) !== OUTPUT_BASENAME) {
+async function assertOutputAvailable(output, outputBasename = OUTPUT_BASENAME) {
+  if (path.basename(output) !== outputBasename) {
     fail(
       "PRODUCTION_ACTIVATION_BUNDLE_OUTPUT_INVALID",
-      `output basename must be ${OUTPUT_BASENAME}.`,
+      `output basename must be ${outputBasename}.`,
     );
   }
   const parentState = await lstat(path.dirname(output));
@@ -844,7 +877,11 @@ async function assertOutputAvailable(output) {
   }
 }
 
-async function publishAtomicNoClobber(output, bytes) {
+async function publishAtomicNoClobber(
+  output,
+  bytes,
+  outputBasename = OUTPUT_BASENAME,
+) {
   const directory = path.dirname(output);
   const directoryState = await lstat(directory);
   if (!directoryState.isDirectory() || directoryState.isSymbolicLink()) {
@@ -855,7 +892,7 @@ async function publishAtomicNoClobber(output, bytes) {
   }
   const temporary = path.join(
     directory,
-    `.${OUTPUT_BASENAME}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`,
+    `.${outputBasename}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`,
   );
   let linked = false;
   try {
@@ -996,11 +1033,14 @@ async function verifyWithRuntimeContracts({
   hostPublicKeyFile,
   hostPublicKeySha256,
   now,
+  protocolVersion = 2,
 }) {
   const [{ validateProductionActivationBundleTransport }, contract] =
     await Promise.all([
       import("../../artifacts/api-server/src/lib/production-activation-hold.ts"),
-      import("../../artifacts/api-server/src/lib/production-activation-contract.ts"),
+      protocolVersion === 3
+        ? import("../../artifacts/api-server/src/lib/production-activation-0108-contract.ts")
+        : import("../../artifacts/api-server/src/lib/production-activation-contract.ts"),
     ]);
   const parsed = await validateProductionActivationBundleTransport(
     bundleBytes,
@@ -1015,17 +1055,29 @@ async function verifyWithRuntimeContracts({
     hostPublicKeyFile,
     hostPublicKeySha256,
     now,
+    protocolVersion,
   );
-  await contract.verifyProductionActivationContractV2(parsed);
+  if (protocolVersion === 3) {
+    await contract.verifyProductionActivationContractV3(parsed);
+  } else {
+    await contract.verifyProductionActivationContractV2(parsed);
+  }
 }
 
-export async function publishProductionActivationBundle(
+async function publishProductionActivationBundleVersion(
   rawOptions,
-  dependencies = {},
+  dependencies,
+  protocolVersion,
 ) {
+  const outputBasename =
+    protocolVersion === 3 ? OUTPUT_0108_BASENAME : OUTPUT_BASENAME;
+  const confirmation =
+    protocolVersion === 3
+      ? PRODUCTION_ACTIVATION_0108_BUNDLE_CONFIRMATION
+      : PRODUCTION_ACTIVATION_BUNDLE_CONFIRMATION;
   const options = { ...rawOptions };
   exactOptions(options);
-  if (options.confirm !== PRODUCTION_ACTIVATION_BUNDLE_CONFIRMATION) {
+  if (options.confirm !== confirmation) {
     fail(
       "PRODUCTION_ACTIVATION_BUNDLE_CONFIRMATION_REQUIRED",
       "the exact attended publication confirmation is required.",
@@ -1043,7 +1095,7 @@ export async function publishProductionActivationBundle(
   );
   const vault = absolutePath(options.vault, "vault");
   const output = absolutePath(options.output, "output");
-  await assertOutputAvailable(output);
+  await assertOutputAvailable(output, outputBasename);
 
   const now = dependencies.now?.() ?? Date.now();
   if (!Number.isSafeInteger(now) || now <= 0) {
@@ -1057,6 +1109,7 @@ export async function publishProductionActivationBundle(
       await readStableActivationInput(challengeFile, 16 * 1024),
       "challenge",
     ),
+    protocolVersion,
   );
   const verifyApiImageProvenance =
     dependencies.verifyApiImageProvenance ??
@@ -1072,6 +1125,7 @@ export async function publishProductionActivationBundle(
     challenge,
     now,
     verifyApiImageProvenance,
+    protocolVersion,
   );
   const [publisherKey, hostKey] = await Promise.all([
     parsePublicKey(publisherPublicKeyFile, "publisher-public-key"),
@@ -1088,8 +1142,8 @@ export async function publishProductionActivationBundle(
   }
 
   const hostAttestation = {
-    schemaVersion: 2,
-    kind: "site-logbook-production-host-attestation-v2",
+    schemaVersion: protocolVersion,
+    kind: `site-logbook-production-host-attestation-v${protocolVersion}`,
     sourceSha: challenge.sourceSha,
     apiImage: challenge.apiImage,
     desiredConfigSha256: observedConfiguration.desiredConfigSha256,
@@ -1103,8 +1157,8 @@ export async function publishProductionActivationBundle(
     observedAt: new Date(observedAt).toISOString(),
   };
   const activation = {
-    schemaVersion: 2,
-    kind: "site-logbook-production-activation-bundle-v2",
+    schemaVersion: protocolVersion,
+    kind: `site-logbook-production-activation-bundle-v${protocolVersion}`,
     sourceSha: challenge.sourceSha,
     apiImage: challenge.apiImage,
     desiredConfigSha256: observedConfiguration.desiredConfigSha256,
@@ -1127,7 +1181,7 @@ export async function publishProductionActivationBundle(
   scanSecretFree(hostAttestation, "hostAttestation");
 
   const temporaryDirectory = await mkdtemp(
-    path.join(os.tmpdir(), "site-logbook-activation-v2-"),
+    path.join(os.tmpdir(), `site-logbook-activation-v${protocolVersion}-`),
   );
   if (process.platform !== "win32") await chmod(temporaryDirectory, 0o700);
   const signWithCustody =
@@ -1220,11 +1274,12 @@ export async function publishProductionActivationBundle(
       hostPublicKeyFile,
       hostPublicKeySha256: hostKey.sha256,
       now,
+      protocolVersion,
     });
     // Complete ephemeral custody cleanup before the atomic publication point,
     // so a cleanup failure can never produce a false negative after commit.
     await rm(temporaryDirectory, { recursive: true, force: true });
-    await publishAtomicNoClobber(output, bytes);
+    await publishAtomicNoClobber(output, bytes, outputBasename);
     return Object.freeze({
       output,
       sha256: `sha256:${sha256Hex(bytes)}`,
@@ -1244,9 +1299,21 @@ export async function publishProductionActivationBundle(
   }
 }
 
-export async function main(argv = process.argv.slice(2)) {
-  const options = parseArgs(argv);
-  const result = await publishProductionActivationBundle(options);
+export async function publishProductionActivationBundle(
+  rawOptions,
+  dependencies = {},
+) {
+  return publishProductionActivationBundleVersion(rawOptions, dependencies, 2);
+}
+
+export async function publishProductionActivation0108Bundle(
+  rawOptions,
+  dependencies = {},
+) {
+  return publishProductionActivationBundleVersion(rawOptions, dependencies, 3);
+}
+
+function printPublicationResult(result) {
   process.stdout.write(
     [
       "published=true",
@@ -1264,6 +1331,20 @@ export async function main(argv = process.argv.slice(2)) {
       "",
     ].join("\n"),
   );
+}
+
+export async function main(argv = process.argv.slice(2)) {
+  const options = parseArgs(argv);
+  const result = await publishProductionActivationBundle(options);
+  printPublicationResult(result);
+}
+
+export async function mainProductionActivation0108Bundle(
+  argv = process.argv.slice(2),
+) {
+  const options = parseArgs(argv);
+  const result = await publishProductionActivation0108Bundle(options);
+  printPublicationResult(result);
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {

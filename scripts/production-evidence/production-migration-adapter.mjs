@@ -1152,6 +1152,41 @@ export function createNodeExclusiveArtifactStore({ directory }) {
         await directoryHandle.close();
       }
     },
+    async readOptionalCanonical(storageId) {
+      const id = safeStorageId(storageId);
+      const directoryHandle = await openPinnedDirectory();
+      const target = descriptorRelativeTarget(directoryHandle, id);
+      let handle;
+      try {
+        handle = await open(
+          target,
+          fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW,
+        );
+        const metadata = await handle.stat();
+        if (
+          !metadata.isFile() ||
+          metadata.nlink !== 1 ||
+          metadata.size > 512 * 1024
+        ) {
+          fail(
+            "PRODUCTION_MIGRATION_STORAGE_INVALID",
+            "Stored artifact must be one bounded regular non-link file.",
+          );
+        }
+        return handle.readFile("utf8");
+      } catch (error) {
+        if (error?.code === "ENOENT") return null;
+        if (error instanceof ProductionMigrationAdapterError) throw error;
+        fail(
+          "PRODUCTION_MIGRATION_ARTIFACT_READ_FAILED",
+          "Descriptor-relative optional artifact read failed closed.",
+          { cause: error },
+        );
+      } finally {
+        await handle?.close();
+        await directoryHandle.close();
+      }
+    },
   });
 }
 
