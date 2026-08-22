@@ -224,7 +224,6 @@ function databaseProjection(
     identity: {
       database_name: "site_logbook",
       database_user: "site_logbook_runtime",
-      data_directory: "/var/lib/postgresql/data",
       server_version: "16.14",
       server_version_num: 160_014,
       isolation_level: "repeatable read",
@@ -333,6 +332,7 @@ describe("production host PostgreSQL authoritative observer", () => {
     expect(sql).toContain("ROLLBACK");
     expect(sql).toContain("pg_get_functiondef");
     expect(sql).toContain("pg_get_triggerdef");
+    expect(sql).not.toContain("data_directory");
     expect(artifact.value).toMatchObject({
       schemaVersion: "site-logbook.production-host-postgres-export/v2",
       containerId: CONTAINER_ID,
@@ -489,7 +489,7 @@ describe("production host PostgreSQL authoritative observer", () => {
     ).rejects.toThrow(/DOCKER_FOREIGN_PEER/);
   });
 
-  it("rejects DB/user/PG16/RR-RO/data target, journal and fingerprint drift", async () => {
+  it("rejects DB/user/PG16/RR-RO, journal and fingerprint drift", async () => {
     const cases = [
       {
         projection: databaseProjection({
@@ -523,9 +523,9 @@ describe("production host PostgreSQL authoritative observer", () => {
       },
       {
         projection: databaseProjection({
-          identity: { data_directory: "/foreign" },
+          identity: { data_directory: "/var/lib/postgresql/data" },
         }),
-        code: /IDENTITY_INVALID/,
+        code: /SCHEMA_INVALID/,
       },
       {
         projection: databaseProjection({
@@ -582,4 +582,3 @@ describe("production host PostgreSQL authoritative observer", () => {
     ).rejects.toThrow(/PRODUCTION_POSTGRES_OBSERVER_ABORTED/);
   });
 });
-
