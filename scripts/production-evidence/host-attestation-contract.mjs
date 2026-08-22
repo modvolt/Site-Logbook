@@ -20,6 +20,9 @@ const MAX_JSON_BYTES = 256 * 1024;
 const MAX_CLOCK_SKEW_MS = 5 * 60_000;
 const MAX_OBSERVATION_SPREAD_MS = 2 * 60_000;
 const MAX_ATTESTATION_LIFETIME_MS = 15 * 60_000;
+const COOLIFY_PROXY_PROJECT = "coolify-proxy";
+const COOLIFY_PROXY_SERVICE = "traefik";
+const COOLIFY_PROXY_IMAGE = "traefik:v3.6";
 
 export const PRODUCTION_TARGET = Object.freeze({
   projectId: "bai77dzr0h7b5gu1jqwpriew",
@@ -577,13 +580,23 @@ function parsePeer(value, field) {
     ],
     field,
   );
+  const composeProject = exactString(
+    peer.composeProject,
+    `${field}.composeProject`,
+  );
+  const service = exactString(peer.service, `${field}.service`);
+  const isCoolifyProxy =
+    composeProject === COOLIFY_PROXY_PROJECT &&
+    service === COOLIFY_PROXY_SERVICE;
   return {
     containerId: requireHex64(peer.containerId, `${field}.containerId`),
     name: exactString(peer.name, `${field}.name`),
-    composeProject: exactString(peer.composeProject, `${field}.composeProject`),
-    service: exactString(peer.service, `${field}.service`),
+    composeProject,
+    service,
     state: exactString(peer.state, `${field}.state`),
-    image: exactImage(peer.image, `${field}.image`),
+    image: isCoolifyProxy
+      ? exactString(peer.image, `${field}.image`)
+      : exactImage(peer.image, `${field}.image`),
     imageId: exactDigest(peer.imageId, `${field}.imageId`),
   };
 }
@@ -744,23 +757,35 @@ function parseDocker(value, request, coolify) {
   ).map((peer, index) =>
     parsePeer(peer, `dockerExport.networkPeers[${index}]`),
   );
-  const services = networkPeers
+  const applicationNetworkPeers = networkPeers.filter(
+    (peer) => peer.composeProject === request.composeProject,
+  );
+  const infrastructureNetworkPeers = networkPeers.filter(
+    (peer) => peer.composeProject !== request.composeProject,
+  );
+  const services = applicationNetworkPeers
     .map((peer) => peer.service)
     .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
   if (
-    networkPeers.some(
-      (peer) =>
-        peer.composeProject !== request.composeProject ||
-        peer.state !== "running",
-    ) ||
+    applicationNetworkPeers.some((peer) => peer.state !== "running") ||
     new Set(services).size !== services.length ||
     JSON.stringify(services) !==
       JSON.stringify(request.expectedNetworkServices) ||
-    !networkPeers.some(
+    !applicationNetworkPeers.some(
       (peer) =>
         peer.containerId === targetId &&
         peer.image === targetImage &&
         peer.imageId === imageId,
+    ) ||
+    new Set(networkPeers.map((peer) => peer.containerId)).size !==
+      networkPeers.length ||
+    infrastructureNetworkPeers.length > 1 ||
+    infrastructureNetworkPeers.some(
+      (peer) =>
+        peer.composeProject !== COOLIFY_PROXY_PROJECT ||
+        peer.service !== COOLIFY_PROXY_SERVICE ||
+        peer.image !== COOLIFY_PROXY_IMAGE ||
+        peer.state !== "running",
     )
   ) {
     fail(
@@ -773,7 +798,7 @@ function parseDocker(value, request, coolify) {
     postgres: "postgres",
     web: "web",
   };
-  for (const peer of networkPeers) {
+  for (const peer of applicationNetworkPeers) {
     const imageKey = imageKeyByService[peer.service];
     if (!imageKey || peer.image !== coolify.deployed.images[imageKey]) {
       fail(
@@ -782,7 +807,9 @@ function parseDocker(value, request, coolify) {
       );
     }
   }
-  const apiPeer = networkPeers.find((peer) => peer.service === "api");
+  const apiPeer = applicationNetworkPeers.find(
+    (peer) => peer.service === "api",
+  );
   if (!apiPeer) {
     fail(
       "PRODUCTION_HOST_TARGET_INVALID",
@@ -1908,3 +1935,4 @@ export function verifyDetachedHostAttestation(
     sha256: sha256(attestationCanonical),
   });
 }
+
