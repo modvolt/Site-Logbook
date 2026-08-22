@@ -444,6 +444,51 @@ describe("production host PostgreSQL authoritative observer", () => {
     ).rejects.toThrow(/DOCKER_STALE/);
   });
 
+  it("accepts at most one exact running Coolify proxy infrastructure peer", async () => {
+    const proxy: DockerContainerFixture = {
+      ...container("api"),
+      Id: "8".repeat(64),
+      Name: "/coolify-proxy",
+      Config: {
+        Image: "traefik:v3.6",
+        Labels: {
+          "com.docker.compose.project": "coolify-proxy",
+          "com.docker.compose.service": "traefik",
+        },
+      },
+      Image: `sha256:${"8".repeat(64)}`,
+      Mounts: [],
+    };
+    await expect(
+      authority({
+        runner: dockerRunner({
+          containers: [
+            container("api"),
+            container("postgres"),
+            container("web"),
+            proxy,
+          ],
+        }),
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({ composeProject: "production" }),
+    );
+
+    await expect(
+      authority({
+        runner: dockerRunner({
+          containers: [
+            container("api"),
+            container("postgres"),
+            container("web"),
+            proxy,
+            { ...proxy, Id: "9".repeat(64), Name: "/coolify-proxy-2" },
+          ],
+        }),
+      }),
+    ).rejects.toThrow(/DOCKER_FOREIGN_PEER/);
+  });
+
   it("rejects DB/user/PG16/RR-RO/data target, journal and fingerprint drift", async () => {
     const cases = [
       {
@@ -537,3 +582,4 @@ describe("production host PostgreSQL authoritative observer", () => {
     ).rejects.toThrow(/PRODUCTION_POSTGRES_OBSERVER_ABORTED/);
   });
 });
+

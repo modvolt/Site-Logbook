@@ -13,6 +13,7 @@ import {
   POSTGRES_EXPORT_SCHEMA,
   assertSecretFree,
   canonicalJson,
+  sha256,
   createProductionHostAttestation,
   createProductionHostAttestationWithTestAuthority,
   createProductionTargetEvidence,
@@ -790,6 +791,33 @@ test("rejects foreign volume and network peers", () => {
   assert.throws(() => targetEvidence(foreignNetwork), /FOREIGN_PEER/);
 });
 
+test("accepts one exact running Coolify proxy infrastructure peer", () => {
+  const observation = fixtures();
+  observation.docker.networkPeers.push({
+    containerId: "0".repeat(63) + "1",
+    name: "coolify-proxy",
+    composeProject: "coolify-proxy",
+    service: "traefik",
+    state: "running",
+    image: "traefik:v3.6",
+    imageId: digest("8"),
+  });
+  observation.postgres.dockerExportSha256 = sha256(
+    canonicalJson(observation.docker),
+  );
+  assert.doesNotThrow(() => targetEvidence(observation));
+
+  observation.docker.networkPeers.push({
+    ...observation.docker.networkPeers.at(-1),
+    containerId: "0".repeat(62) + "12",
+    name: "coolify-proxy-2",
+  });
+  observation.postgres.dockerExportSha256 = sha256(
+    canonicalJson(observation.docker),
+  );
+  assert.throws(() => targetEvidence(observation), /FOREIGN_PEER/);
+});
+
 test("rejects secret-shaped fields and values without echoing them", () => {
   const secret = "github_pat_this_must_never_be_echoed_123456";
   const scramVerifier =
@@ -987,3 +1015,4 @@ test("rejects a peer image mismatch and Docker inventory race", async () => {
     /inventory changed/,
   );
 });
+
