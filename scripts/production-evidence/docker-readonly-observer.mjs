@@ -211,13 +211,24 @@ export async function collectDockerReadOnlyExport(
   ) {
     fail("network peer membership changed during the bounded observation.");
   }
+  const hasVolume = (container) =>
+    (container.Mounts ?? []).some(
+      (mount) => mount.Type === "volume" && mount.Name === volumeName,
+    );
+  const hasNetwork = (container) =>
+    Object.values(container.NetworkSettings?.Networks ?? {}).some(
+      (network) => network.NetworkID === networkId,
+    );
+  const relevantContainers = (items) =>
+    items.filter((container) => hasVolume(container) || hasNetwork(container));
+  const initialRelevantContainers = relevantContainers(containers);
   const finalIds = await listAllContainerIds(runDocker);
-  if (JSON.stringify(initialIds) !== JSON.stringify(finalIds)) {
-    fail("the Docker container inventory changed during observation.");
-  }
   const finalContainers = await inspectAllContainers(runDocker, finalIds);
-  if (canonicalJson(finalContainers) !== canonicalJson(containers)) {
-    fail("the Docker container projection changed during observation.");
+  if (
+    canonicalJson(relevantContainers(finalContainers)) !==
+    canonicalJson(initialRelevantContainers)
+  ) {
+    fail("the relevant Docker container projection changed during observation.");
   }
   const finalNetworkInspect = parseJson(
     await runDocker([
@@ -242,14 +253,6 @@ export async function collectDockerReadOnlyExport(
     fail("Docker observation exceeded its reviewed 60 second bound.");
   }
 
-  const hasVolume = (container) =>
-    (container.Mounts ?? []).some(
-      (mount) => mount.Type === "volume" && mount.Name === volumeName,
-    );
-  const hasNetwork = (container) =>
-    Object.values(container.NetworkSettings?.Networks ?? {}).some(
-      (network) => network.NetworkID === networkId,
-    );
   const byContainerId = (left, right) => {
     const a = left.containerId;
     const b = right.containerId;

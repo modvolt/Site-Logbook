@@ -953,7 +953,7 @@ test("Docker observer uses only read-only inventory verbs and includes stopped p
   );
 });
 
-test("rejects a peer image mismatch and Docker inventory race", async () => {
+test("rejects a peer image mismatch and ignores unrelated Docker inventory drift", async () => {
   const wrongPeer = fixtures();
   wrongPeer.docker.networkPeers.find((peer) => peer.service === "api").image =
     image("attacker", "f");
@@ -992,7 +992,25 @@ test("rejects a peer image mismatch and Docker inventory race", async () => {
         ? `${CONTAINER_ID}\n`
         : `${CONTAINER_ID}\n${"f".repeat(64)}\n`;
     }
-    if (args[0] === "container") return JSON.stringify(container);
+    if (args[0] === "container") {
+      if (args.at(-1) === "f".repeat(64)) {
+        return JSON.stringify({
+          ...container,
+          Id: "f".repeat(64),
+          Name: "/unrelated-container",
+          Config: {
+            ...container.Config,
+            Labels: {
+              "com.docker.compose.project": "unrelated",
+              "com.docker.compose.service": "worker",
+            },
+          },
+          Mounts: [],
+          NetworkSettings: { Networks: {} },
+        });
+      }
+      return JSON.stringify(container);
+    }
     if (args[0] === "volume") {
       return JSON.stringify({
         Name: "coolify-production-postgres",
@@ -1007,12 +1025,11 @@ test("rejects a peer image mismatch and Docker inventory race", async () => {
       Containers: { [CONTAINER_ID]: { Name: container.Name } },
     });
   };
-  await assert.rejects(
-    collectDockerReadOnlyExport(base.request, {
-      runDocker,
-      now: () => NOW,
-    }),
-    /inventory changed/,
-  );
+  const result = await collectDockerReadOnlyExport(base.request, {
+    runDocker,
+    now: () => NOW,
+  });
+  assert.equal(result.value.volumePeers.length, 1);
+  assert.equal(result.value.networkPeers.length, 1);
 });
 
