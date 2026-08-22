@@ -262,7 +262,23 @@ function evidence(
       passReceipt: artifact("exact-0096-backup-pass-receipt", {
         result: "PASS",
       }),
-      plan: artifact("exact-0096-backup-plan", { revision: 2 }),
+      plan: artifact("exact-0096-backup-plan", {
+        publicIdentityPolicy: {
+          activeApplicationSessions: 0,
+          snapshotTokenSha256: `sha256:${"e".repeat(64)}`,
+          "public.user_sessions": 0,
+          "public.work_session_billing_links": 0,
+          "public.work_session_breaks": 0,
+          "public.work_session_events": 0,
+          "public.work_sessions": 0,
+          user_sessions: 0,
+          work_session_billing_links: 0,
+          work_session_breaks: 0,
+          work_session_events: 0,
+          work_sessions: 0,
+        },
+        revision: 2,
+      }),
       signature: artifact("exact-0096-backup-signature", {
         algorithm: "Ed25519",
         signature: "public-fixture",

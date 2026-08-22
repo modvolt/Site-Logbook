@@ -131,7 +131,22 @@ function evidence(overrides = {}) {
     activationApproval: artifact("activation-approval", approval()),
     apiImageProvenance: apiImageProvenance(),
     exact0096Backup: {
-      plan: simple("backup-plan"),
+      plan: simple("backup-plan", {
+        publicIdentityPolicy: {
+          activeApplicationSessions: 0,
+          snapshotTokenSha256: `sha256:${"e".repeat(64)}`,
+          "public.user_sessions": 0,
+          "public.work_session_billing_links": 0,
+          "public.work_session_breaks": 0,
+          "public.work_session_events": 0,
+          "public.work_sessions": 0,
+          user_sessions: 0,
+          work_session_billing_links: 0,
+          work_session_breaks: 0,
+          work_session_events: 0,
+          work_sessions: 0,
+        },
+      }),
       trace: simple("backup-trace"),
       passReceipt: simple("backup-pass-receipt"),
       signature: simple("backup-signature-envelope"),

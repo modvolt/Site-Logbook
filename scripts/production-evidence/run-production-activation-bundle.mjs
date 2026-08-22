@@ -46,7 +46,19 @@ const FORBIDDEN_KEY =
   /(?:password|secret|private.?key|access.?key|session|cookie|token|authorization|database.?url|mnemonic|passphrase)/i;
 const PUBLIC_IDENTITY_OR_POLICY_KEYS = new Set([
   "adminSessionUser",
+  "activeApplicationSessions",
   "sessionUser",
+  "snapshotTokenSha256",
+  "public.user_sessions",
+  "public.work_session_billing_links",
+  "public.work_session_breaks",
+  "public.work_session_events",
+  "public.work_sessions",
+  "user_sessions",
+  "work_session_billing_links",
+  "work_session_breaks",
+  "work_session_events",
+  "work_sessions",
   "requiresExplicitCoolifySecretTransfer",
 ]);
 const APPROVAL_KEYS = [
