@@ -8,7 +8,7 @@ import {
 import type { BigIntStats } from "node:fs";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 
-export const PRODUCTION_ACTIVATION_BUNDLE_MAX_BYTES = 512 * 1024;
+export const PRODUCTION_ACTIVATION_BUNDLE_MAX_BYTES = 1024 * 1024;
 export const PRODUCTION_ACTIVATION_PUBLIC_KEY_MAX_BYTES = 16 * 1024;
 export const PRODUCTION_ACTIVATION_MAX_LIFETIME_MS = 10 * 60 * 1000;
 export const PRODUCTION_ACTIVATION_MAX_CLOCK_SKEW_MS = 30 * 1000;
