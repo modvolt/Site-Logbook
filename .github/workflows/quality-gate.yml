@@ -14,6 +14,7 @@ jobs:
     timeout-minutes: 60
     env:
       BASE_PATH: /
+      INVOICE_0108_PG16_CONTAINER: site-logbook-invoice-0108-pg16-${{ github.run_id }}-${{ github.run_attempt }}
       RUNTIME_CREDENTIAL_PG16_CONTAINER: site-logbook-runtime-credential-pg16-${{ github.run_id }}-${{ github.run_attempt }}
       ROLE_BOOTSTRAP_PG16_CONTAINER: site-logbook-role-bootstrap-pg16-${{ github.run_id }}-${{ github.run_attempt }}
     services:
@@ -60,6 +61,44 @@ jobs:
         run: pnpm test:production-migration-runner:pg16
         env:
           PRODUCTION_MIGRATION_RUNNER_PG16_URL: postgresql://site_logbook_ci:site-logbook-ci-only@127.0.0.1:5432/site_logbook_ci_test
+      - name: Start disposable invoice 0108 PostgreSQL 16 fixture
+        run: >-
+          docker run --rm -d --name "$INVOICE_0108_PG16_CONTAINER"
+          --cpus 1 --memory 512m --pids-limit 256
+          --tmpfs /var/lib/postgresql/data:rw,nosuid,nodev,size=512m
+          -p 127.0.0.1:61497:5432
+          -e POSTGRES_USER=invoice_0108_fixture_admin
+          -e POSTGRES_PASSWORD=invoice-0108-ci-only
+          -e POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256
+          -e POSTGRES_HOST_AUTH_METHOD=scram-sha-256
+          postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
+      - name: Wait for disposable invoice 0108 PostgreSQL 16 fixture
+        run: |
+          for _ in $(seq 1 30); do
+            if docker exec "$INVOICE_0108_PG16_CONTAINER" pg_isready \
+              -U invoice_0108_fixture_admin -d postgres; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs "$INVOICE_0108_PG16_CONTAINER"
+          exit 1
+      - name: Invoice 0108 PostgreSQL 16 lifecycle gate
+        run: pnpm test:production-invoice-0108:pg
+        env:
+          PRODUCTION_INVOICE_0108_PG_DISPOSABLE_CONFIRM: I_CONFIRM_THIS_IS_A_DISPOSABLE_LOOPBACK_INVOICE_0108_DATABASE
+          PRODUCTION_INVOICE_0108_PG_URL: postgresql://invoice_0108_fixture_admin:invoice-0108-ci-only@127.0.0.1:61497/postgres
+      - name: Remove disposable invoice 0108 PostgreSQL 16 fixture
+        if: always()
+        run: |
+          if docker ps -a \
+            --filter "name=^/${INVOICE_0108_PG16_CONTAINER}$" \
+            --format '{{.Names}}' | grep -Fxq "$INVOICE_0108_PG16_CONTAINER"; then
+            docker rm --force "$INVOICE_0108_PG16_CONTAINER"
+          fi
+          test -z "$(docker ps -a \
+            --filter "name=^/${INVOICE_0108_PG16_CONTAINER}$" \
+            --format '{{.Names}}')"
       - name: Start disposable runtime credential PostgreSQL 16 fixture
         run: >-
           docker run --rm -d --name "$RUNTIME_CREDENTIAL_PG16_CONTAINER"

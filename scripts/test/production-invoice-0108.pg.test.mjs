@@ -223,6 +223,29 @@ test("0108 PostgreSQL catalog classifies only the exact 0107 and 0108 inventorie
   );
 });
 
+test("quality gate runs the exact 0108 lifecycle on an isolated PostgreSQL 16 fixture", async () => {
+  const workflow = await readFile(
+    path.resolve(".github/workflows/quality-gate.yml"),
+    "utf8",
+  );
+  for (const expected of [
+    "INVOICE_0108_PG16_CONTAINER: site-logbook-invoice-0108-pg16-${{ github.run_id }}-${{ github.run_attempt }}",
+    "-p 127.0.0.1:61497:5432",
+    "POSTGRES_USER=invoice_0108_fixture_admin",
+    "pnpm test:production-invoice-0108:pg",
+    "PRODUCTION_INVOICE_0108_PG_DISPOSABLE_CONFIRM: I_CONFIRM_THIS_IS_A_DISPOSABLE_LOOPBACK_INVOICE_0108_DATABASE",
+    "PRODUCTION_INVOICE_0108_PG_URL: postgresql://invoice_0108_fixture_admin:invoice-0108-ci-only@127.0.0.1:61497/postgres",
+    'docker rm --force "$INVOICE_0108_PG16_CONTAINER"',
+    "postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777",
+  ]) {
+    assert.equal(
+      workflow.includes(expected),
+      true,
+      `Missing CI contract: ${expected}`,
+    );
+  }
+});
+
 test(
   "disposable PostgreSQL runs exact 0107→0108, least privilege, DOWN and forward again",
   {

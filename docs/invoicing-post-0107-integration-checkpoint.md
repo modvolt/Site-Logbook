@@ -93,7 +93,9 @@ no-clobber role receipt. Samotný kontrakt nadále neautorizuje start aplikace.
    - na novém disposable PostgreSQL 18 prošel cílený DB souběh: 1 soubor,
      11/11 scénářů rezervace, dvojího vystavení, storna a opakovaného vystavení;
    - exact PostgreSQL 16 lifecycle zůstává skip, dokud není dostupný schválený
-     izolovaný PG16/Docker endpoint.
+     izolovaný PG16/Docker endpoint;
+   - Quality workflow už má vlastní disposable PG16 kontejner a explicitní
+     `0107 -> 0108 -> DOWN -> 0108` krok; jeho první skutečný běh čeká na PR.
 
 ## Přesný zbývající release postup
 
@@ -123,7 +125,9 @@ no-clobber role receipt. Samotný kontrakt nadále neautorizuje start aplikace.
 - disposable PostgreSQL 18 0107/0108 lifecycle: úspěšný;
 - disposable PostgreSQL 18 DB concurrency: 1 soubor, 11/11 testů;
 - převzaté Phase-0 vazby přijatá faktura/dodací list/zakázka/materiál a
-  automatické párování: 4 izolované DB soubory, 66/66 testů.
+  automatické párování: 4 izolované DB soubory, 66/66 testů;
+- syntaxe Quality workflow a fail-closed zapojení exact PG16 0108 gate: úspěšné,
+  samotný PG16 lifecycle zatím lokálně neproveden.
 
 Tyto výsledky dokazují lokální implementaci. Nedokazují nový CI run, publikaci
 image, skutečný produkční backup, migraci, deployment ani přihlášený live smoke.
