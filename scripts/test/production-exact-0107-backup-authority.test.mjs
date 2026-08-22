@@ -27,11 +27,17 @@ function receipt(overrides = {}) {
     backupArtifactStorageId: "exact-0107/database.dump",
     backupArtifactSha256: `sha256:${"2".repeat(64)}`,
     backupArtifactBytes: 4096,
+    backupEncryptionFormat: "mve1",
     backupCompletedAt: BACKUP_AT,
     restoreVerifiedAt: RESTORE_AT,
     restoreInventorySha256:
       PRODUCTION_INVOICE_0108_PRE_STATE.knownAppliedRowsSha256,
+    sourceTableCountsSha256: `sha256:${"3".repeat(64)}`,
+    restoreTableCountsSha256: `sha256:${"3".repeat(64)}`,
     restoreDatabaseIsDisposable: true,
+    runtimeRole: "site_logbook_runtime",
+    writersStoppedBeforeAt: "2026-08-23T09:59:00.000Z",
+    writersStoppedAfterAt: "2026-08-23T10:06:00.000Z",
     productionRestorePerformed: false,
     authorizesProductionMigration: false,
     ...overrides,
@@ -45,6 +51,7 @@ test("creates a non-authorizing exact-0107 reference and revalidates its durable
     receiptCanonical: durableReceipt.canonical,
   });
   const authority = createProductionInvoice0108BackupAuthority({
+    expectedRuntimeRole: "site_logbook_runtime",
     loadReceiptCanonical: async (storageId) => {
       assert.equal(storageId, RECEIPT_ID);
       return durableReceipt.canonical;
@@ -79,6 +86,7 @@ test("rejects a reference when durable receipt bytes were substituted", async ()
   });
   const substituted = receipt({ backupArtifactBytes: 8192 });
   const authority = createProductionInvoice0108BackupAuthority({
+    expectedRuntimeRole: "site_logbook_runtime",
     loadReceiptCanonical: async () => substituted.canonical,
   });
   await assert.rejects(

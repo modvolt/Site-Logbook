@@ -49,10 +49,16 @@ export function parseProductionExact0107BackupRestoreReceipt(canonical) {
       "backupArtifactStorageId",
       "backupArtifactSha256",
       "backupArtifactBytes",
+      "backupEncryptionFormat",
       "backupCompletedAt",
       "restoreVerifiedAt",
       "restoreInventorySha256",
+      "sourceTableCountsSha256",
+      "restoreTableCountsSha256",
       "restoreDatabaseIsDisposable",
+      "runtimeRole",
+      "writersStoppedBeforeAt",
+      "writersStoppedAfterAt",
       "productionRestorePerformed",
       "authorizesProductionMigration",
     ],
@@ -64,6 +70,7 @@ export function parseProductionExact0107BackupRestoreReceipt(canonical) {
     value.kind !==
       "site-logbook-production-exact-0107-backup-restore-receipt" ||
     value.decision !== "PASS" ||
+    value.backupEncryptionFormat !== "mve1" ||
     value.restoreDatabaseIsDisposable !== true ||
     value.productionRestorePerformed !== false ||
     value.authorizesProductionMigration !== false
@@ -79,6 +86,18 @@ export function parseProductionExact0107BackupRestoreReceipt(canonical) {
   exactDigest(value.sourceInventorySha256, "receipt.sourceInventorySha256");
   exactDigest(value.backupArtifactSha256, "receipt.backupArtifactSha256");
   exactDigest(value.restoreInventorySha256, "receipt.restoreInventorySha256");
+  exactDigest(value.sourceTableCountsSha256, "receipt.sourceTableCountsSha256");
+  exactDigest(
+    value.restoreTableCountsSha256,
+    "receipt.restoreTableCountsSha256",
+  );
+  if (
+    !/^[a-z_][a-z0-9_]{0,62}$/.test(
+      exactString(value.runtimeRole, "receipt.runtimeRole", 63),
+    )
+  ) {
+    fail("BACKUP_RECEIPT_INVALID", "Receipt runtime role is invalid.");
+  }
   if (
     !Number.isSafeInteger(value.backupArtifactBytes) ||
     value.backupArtifactBytes <= 0
@@ -96,11 +115,22 @@ export function parseProductionExact0107BackupRestoreReceipt(canonical) {
     value.restoreVerifiedAt,
     "receipt.restoreVerifiedAt",
   );
+  const writersStoppedBeforeAt = exactTimestamp(
+    value.writersStoppedBeforeAt,
+    "receipt.writersStoppedBeforeAt",
+  );
+  const writersStoppedAfterAt = exactTimestamp(
+    value.writersStoppedAfterAt,
+    "receipt.writersStoppedAfterAt",
+  );
   if (
+    backupCompletedAt < writersStoppedBeforeAt ||
     restoreVerifiedAt < backupCompletedAt ||
+    writersStoppedAfterAt < restoreVerifiedAt ||
     value.sourceInventorySha256 !==
       PRODUCTION_INVOICE_0108_PRE_STATE.knownAppliedRowsSha256 ||
-    value.restoreInventorySha256 !== value.sourceInventorySha256
+    value.restoreInventorySha256 !== value.sourceInventorySha256 ||
+    value.restoreTableCountsSha256 !== value.sourceTableCountsSha256
   ) {
     fail(
       "BACKUP_RECEIPT_INVALID",
@@ -140,8 +170,12 @@ export function createProductionExact0107BackupRestoreReference({
 
 export function createProductionInvoice0108BackupAuthority({
   loadReceiptCanonical,
+  expectedRuntimeRole,
 }) {
-  if (typeof loadReceiptCanonical !== "function") {
+  if (
+    typeof loadReceiptCanonical !== "function" ||
+    !/^[a-z_][a-z0-9_]{0,62}$/.test(String(expectedRuntimeRole))
+  ) {
     fail(
       "BACKUP_AUTHORITY_UNAVAILABLE",
       "A durable exact-0107 receipt loader is required.",
@@ -181,6 +215,12 @@ export function createProductionInvoice0108BackupAuthority({
       }
       const receipt =
         parseProductionExact0107BackupRestoreReceipt(receiptCanonical);
+      if (receipt.value.runtimeRole !== expectedRuntimeRole) {
+        fail(
+          "BACKUP_REFERENCE_INVALID",
+          "Receipt runtime role differs from the migration descriptor.",
+        );
+      }
       for (const [field, actual, expected] of [
         [
           "receiptSha256",

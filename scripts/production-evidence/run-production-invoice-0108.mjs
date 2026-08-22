@@ -483,6 +483,7 @@ export async function executeProductionInvoice0108Cli(
       migratorRole: descriptor.connection.migratorRole,
     });
     const backupAuthority = createProductionInvoice0108BackupAuthority({
+      expectedRuntimeRole: descriptor.connection.runtimeRole,
       loadReceiptCanonical: async (storageId) => {
         if (!STORAGE_ID.test(String(storageId)) || storageId.includes("..")) {
           fail(

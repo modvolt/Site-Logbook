@@ -1,21 +1,21 @@
 # Fakturace 0108 po dokončení produkčního přechodu 0107
 
-Datum rehearsal: 2026-08-18
+Aktualizováno: 2026-08-23
 
 ## Stav
 
-Tento dokument je integrační checkpoint, nikoli povolení k nasazení. Produkce
-zůstala při jeho přípravě read-only a žádná migrace, změna role, deployment,
-push ani PR nebyly provedeny.
+Tento dokument je integrační checkpoint, nikoli potvrzení o nasazení. V této
+větvi nebyl proveden push, workflow dispatch, produkční DB zápis ani deployment.
 
-- Poslední lokálně dostupný čistý základ produkčního proudu: `8300469`.
-- Aktivní úkol Fáze 0 nad tímto základem stále dokončuje P1 opravy; pracovní
-  strom ani PR stack proto ještě nejsou autoritativní základ pro fakturaci.
-- Původní čistý fakturační checkpoint: `1f5f7ef`.
-- Rehearsal větev: `agent/invoicing-after-8300469-20260818`.
-- Rehearsal přenesl commity `b3f5721`, `6e51d10`, `1f5f7ef` bez konfliktu.
-- Souborový překryv fakturačních změn s commitnutými i tehdy rozpracovanými
-  změnami produkčního proudu byl nulový. Na finálním SHA se musí přepočítat.
+- Autoritativní veřejný základ s opravou production activation/loginu:
+  `8787d7fc9fc28df2bccb4300b4ad484d16c87c05`.
+- Integrovaná fakturace nad tímto základem: `32fb8ec`.
+- Samostatný lokální exact-0108 release chain: `cf64cc1`.
+- Pracovní větev: `agent/invoice-0108-on-8787`.
+- Login/activation soubory byly převzaty z veřejného merge základu; fakturační
+  integrace je nepřepisuje starší variantou.
+- Produkce je podle koordinačního checkpointu na `0107`; před prvním zápisem se
+  tento údaj musí znovu potvrdit read-only inventurou nového produceru.
 
 ## Migrační linie
 
@@ -57,65 +57,70 @@ Nový deaktivovaný kontrakt vyžaduje:
 - žádný `DELETE`, `TRUNCATE`, `REFERENCES`, `TRIGGER` nebo DDL grant;
 - exact-0107 role projekci a oba nové objekty default-dark jako pre-state.
 
-Kontrakt zatím neposkytuje produkční autorizaci ani samostatný host executor.
+Samostatná source-pinned 0108 autorita nyní provede přesně čtyři granty až po
+durable migration receiptu. Výsledek je znovu read-only promítnut a uložen jako
+no-clobber role receipt. Samotný kontrakt nadále neautorizuje start aplikace.
 
-## Co musí vzniknout po finálním 0107 checkpointu
+## Release brány po finálním 0107 checkpointu
 
-1. **Neměnný základ**
-   - čistý finální `main` SHA a tree SHA;
-   - zelené CI a finální image digesty;
-   - potvrzený receipt-backed stav `0107` a dokončený runtime credential
-     cutover/smoke test.
-2. **Nový pre-0108 recovery bod**
-   - read-only inventory přesného živého stavu `0107`;
-   - nový backup po zastavení writerů;
-   - izolovaný PostgreSQL 16 restore a podepsaný PASS receipt.
-3. **Samostatný přechod 0107 -> 0108**
-   - nový verzovaný plán, confirmation a receipt; starý runner se nepoužije;
-   - atomické provedení právě jedné migrace pod migrator rolí;
-   - aplikace grant kontraktu a nezávislá post-commit role projekce;
-   - exact kontrola 108 známých řádků, dvou produkčních opaque identit a zákazu
+1. **Neměnný základ – lokálně hotovo, publikace čeká**
+   - větev je založená přímo na veřejném merge `8787d7f`;
+   - celý lokální gate je zelený;
+   - push/PR, merge a digesty nových image zatím nevznikly.
+2. **Nový pre-0108 recovery bod – implementován, produkční běh čeká**
+   - nový control-plane one-shot nejdřív ověří exact `0107` a zastavené runtime
+     DB relace;
+   - vytvoří existující šifrovanou `mve1` zálohu bez retention prune a ze stejného
+     exportovaného snapshotu změří všechny aplikační tabulky;
+   - zálohu obnoví do dočasné DB a porovná všechny počty tabulek;
+   - teprve potom no-clobber uloží exact receipt a reference; ani jeden artefakt
+     sám neautorizuje migraci nebo start aplikace;
+   - čerstvý produkční běh a jeho skutečné artefakty zatím neproběhly.
+3. **Samostatný přechod 0107 -> 0108 – implementován, produkční běh čeká**
+   - samostatný source-pinned runner aplikuje právě jedinou 0108 transakci;
+   - nejasný COMMIT/ROLLBACK je terminální `RESTORE_REQUIRED`, bez blind retry;
+   - role delta následuje až po durable migration receiptu;
+   - exact inventura vyžaduje 108 známých migrací, dvě opaque identity a zákaz
      `0100`.
-4. **0108 startup/release evidence**
-   - nový evidence schema/version vázaný na finální build SHA;
-   - zachovaná validace exact-0107 auditního prefixu;
-   - plná validace známého suffixu `0108`, jeho SQL hash a schema fingerprint;
-   - odmítnutí starého 0107 evidence pro nový fakturační image.
-5. **Lokální databázové brány**
-   - disposable forward `0107 -> 0108`;
-   - rollback preflight, povolený DOWN na prázdných nových datech a opětovný
-     forward;
-   - důkaz, že fail-closed rollback blokery skutečně blokují destruktivní DOWN;
-   - souběžná rezervace zdrojů a dvojí vystavení na izolované loopback DB.
+4. **0108 startup/release evidence – implementováno, skutečný bundle čeká**
+   - protokol v3 váže build SHA, zálohu, plán, intent, migration receipt, role
+     receipt, live readiness a attended start approval;
+   - runtime 0108 odmítne starý v2/exact-0107 bundle i starý build SHA;
+   - nový podepsaný produkční bundle ještě nebyl vytvořen ani přenesen na host.
+5. **Lokální databázové brány – částečně hotovo**
+   - disposable PostgreSQL 18 ověřil forward `0107 -> 0108`, nejmenší oprávnění,
+     DOWN a druhý forward;
+   - exact PostgreSQL 16 lifecycle zůstává skip, dokud není dostupný schválený
+     izolovaný PG16/Docker endpoint;
+   - DB souběh dvojí rezervace/vystavení je stále povinná release brána.
 
-## Přesný integrační postup po dokončení Fáze 0
+## Přesný zbývající release postup
 
-1. Načíst finální `main`, ověřit čistý strom a zachytit SHA.
-2. Zopakovat migrační diff, file-overlap a snapshot lineage.
-3. Vytvořit nový worktree z finálního SHA.
-4. Přenést tři fakturační commity v původním pořadí.
-5. Přenést nebo znovu aplikovat pouze rehearsal integrační opravy, které jsou
-   stále potřeba po finálních P1 změnách.
-6. Spustit codegen dvakrát; druhý běh nesmí vytvořit obsahový diff.
-7. Spustit typecheck, lint, celý hermetický gate, API/PWA build a focused
-   fakturační testy.
-8. Spustit disposable PostgreSQL 16 forward/rollback/concurrency brány.
-9. Teprve potom připravit samostatný PR. Merge, staging, produkční migrace a
-   deployment zůstávají oddělené approval hranice.
+1. Uzavřít nový backup producer do čistého lokálního commitu a zopakovat celý
+   release gate.
+2. Po samostatném schválení publikovat větev/PR; bez workflow dispatch.
+3. Po merge ověřit exact-SHA Quality a publikovat digestové runtime,
+   control-plane a host-operator image.
+4. V maintenance window zastavit aplikační writer, spustit nový exact-0107
+   backup+disposable-restore one-shot a zachovat receipt/reference.
+5. Spustit `prepare`, jednu 0108 transakci, role delta a read-only readiness;
+   při nejasném výsledku nic neopakovat a řídit se klasifikací recovery.
+6. Vytvořit attended approval a podepsaný v3 activation bundle, přenést jej
+   samostatným V3 host commandem a teprve potom nasadit runtime image.
+7. Ověřit login, health, běžnou fakturu bez zakázky, zálohovou fakturu a vazby
+   přijatého dokladu/dodacího listu v produkčním smoke testu.
 
-## Aktuálně ověřeno v rehearsal
+## Aktuálně ověřeno lokálně
 
-- cherry-pick: bez konfliktu;
-- production control-plane: 30/30;
-- role 0108 contract: 5/5;
-- fakturační unit/contract sada: 52/52;
-- frontend unit sada: 191/191;
-- TypeScript: úspěšný;
-- ESLint: úspěšný;
-- API build: úspěšný;
-- PWA build: úspěšný;
-- Orval/codegen a knihovní TypeScript build: úspěšný.
+- Node hermetické kontrakty: 330 celkem, 329 pass, 1 PG16 skip, 0 fail;
+- activation/DB kontrakty: 33 celkem, 30 pass, 3 PG16 skip, 0 fail;
+- nový exact-0107 backup producer: 3/3;
+- exact-0107 backup authority: 3/3;
+- frontend/PWA unit: 193/193;
+- live-events: 15/15;
+- API unit: 1070 celkem, 1069 pass, 1 skip;
+- TypeScript, ESLint, API build a diff-check: úspěšné;
+- dřívější disposable PostgreSQL 18 0107/0108 lifecycle: úspěšný.
 
-Celý release gate není na dočasném základu `8300469` autoritativní. Finální
-source piny a rozpracovaná host-operator testovací hrana patří do dokončovaného
-PR stacku Fáze 0 a musí se ověřit až na jeho výsledném SHA.
+Tyto výsledky dokazují lokální implementaci. Nedokazují nový CI run, publikaci
+image, skutečný produkční backup, migraci, deployment ani přihlášený live smoke.

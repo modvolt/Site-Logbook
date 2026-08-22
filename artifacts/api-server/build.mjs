@@ -39,6 +39,7 @@ async function buildAll() {
       path.resolve(artifactDir, "src/accounting-schema-inventory.ts"),
       path.resolve(artifactDir, "src/accounting-schema-exact-0105-backup.ts"),
       path.resolve(artifactDir, "src/production-exact-0096-backup-producer.ts"),
+      path.resolve(artifactDir, "src/production-exact-0107-backup-producer.ts"),
       path.resolve(
         artifactDir,
         "src/production-exact-0096-backup-host-worker.ts",

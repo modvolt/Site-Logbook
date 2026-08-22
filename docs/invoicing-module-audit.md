@@ -85,8 +85,9 @@ Produkční release `6ae3072` stále končí migrací `0096`; stabilní lokáln�
 - V izolovaném worktree `_invoice_after_8300469` se všechny tři fakturační commity přenesly na `8300469` bez textového konfliktu. Commitnuté ani tehdy rozpracované produkční změny neměly s 48 fakturačními cestami souborový překryv. Toto zjištění je rehearsal, ne náhrada opakované kontroly proti finálnímu SHA.
 - Starý produkční runner `0096 -> 0107` původně vyžadoval celý aktivní journal o přesně 107 položkách, a po přidání `0108` proto fail-closed končil chybným hlášením o `0100`. Rehearsal jej zmrazuje pouze na ověřený prefix do `0107`; validní pozdější suffix se nestane krokem starého runneru ani součástí jeho cílového digestu.
 - Oddělení DB rolí po `0107` ponechává budoucí objekty default-dark. Nová tabulka a serial sekvence proto vyžadují samostatný `0108` role kontrakt: runtime smí pouze `SELECT`, `INSERT`, `UPDATE` na `invoice_source_allocations` a `USAGE` na `invoice_source_allocations_id_seq`; `DELETE`, DDL, `PUBLIC`, třetí role a column grants jsou zakázané. Kontrakt je deaktivovaný ve výchozím stavu a vyžaduje exact-0107 plus default-dark pre-projekci.
-- Produkční startup/release evidence, source pin, backup a receipt-backed runner zůstávají záměrně exact `0107` / `0096 -> 0107`. Před prvním deploymentem fakturačního image je nutný nový, verzovaný `0107 -> 0108` evidence a migration checkpoint vázaný na finální build SHA, nový pre-0108 backup/restore receipt a exact live lineage. Starý runner se pro `0108` nesmí znovu použít.
-- Rehearsal ověřil codegen, TypeScript, lint, API build, PWA build, 52 fakturačních testů a 191 frontendových testů. Historický production control-plane po zmrazení prefixu prošel 30/30 a nový role kontrakt 5/5. Celý hermetický gate zatím nelze označit zeleně: source-pin digest musí vzniknout až z finálního checkpointu Fáze 0 a dočasný `8300469` obsahuje nedokončenou host-operator testovací hranu.
+- Následná integrace nad veřejným login/activation mergem `8787d7f` přidala samostatný source-pinned runner `0107 -> 0108`, post-migration role autoritu, exact-0108 readiness a podepsaný activation protokol v3. Historický runner zůstává zmrazený na `0096 -> 0107` a pro `0108` se nepoužívá.
+- Nový control-plane exact-0107 backup producer vyžaduje zastavené runtime DB relace, vytvoří šifrovanou `mve1` zálohu bez retention prune, změří všechny tabulky ve stejném exportovaném snapshotu, provede disposable restore a až poté uloží no-clobber receipt/reference. Implementace ani artefakty samy neautorizují migraci nebo start aplikace; skutečný produkční běh zatím neproběhl.
+- Aktuální lokální gate nad `8787d7f` je zelený: Node 329 pass + 1 PG16 skip, activation/DB 30 pass + 3 PG16 skip, frontend 193, live-events 15 a API 1069 pass + 1 skip. Exact PostgreSQL 16 lifecycle a DB concurrency zůstávají před publikací povinné, nebo musí být jejich neprovedení výslovně přijato jako release riziko.
 
 ## Navazující integrační body (bez rozšíření rozsahu)
 
@@ -125,9 +126,9 @@ Přijatý doklad/fotografie/AI extrakce končí v `billing_documents` a `billing
 ## Migrace a návrat
 
 1. **Hotovo:** `0108_snapshot.json` je přegenerovaný proti skutečnému předchůdci `0107`; `0100` zůstává nepoužitá a test kontroluje přesný řetězec snapshotů.
-2. **Čeká na izolovanou DB:** spustit forward migraci a ověřit počty historických alokací. Migrace přebírá pouze explicitní `source_type/source_id`; nejasné historie označí `legacy_incomplete` a při konfliktu je nechá neaktivní.
-3. **Čeká na izolovanou DB:** před návratem spustit read-only `preflight_0108_invoice_source_allocations.sql`. Down skript je fail-closed: pokud už existují ověřené nové alokace, zálohy, nové snapshotové hodnoty nebo sekce, destruktivní rollback odmítne.
-4. Teprve po forward/rollback zkoušce, DB integračních testech, dopojení na další stabilní recovery checkpoint a schválení lze migraci zařadit do release. Tento pracovní strom nic nenasadil.
+2. **Ověřeno na disposable PostgreSQL 18:** forward, least-privilege role delta, read-only preflight, povolený DOWN na prázdných nových datech a druhý forward. Exact PG16 varianta zůstává neprovedená.
+3. **Produkční běh čeká:** nový exact-0107 backup/restore receipt, durable intent, jediná 0108 transakce, role receipt a v3 activation bundle se musí vytvořit až z publikovaného finálního SHA.
+4. Při nejasném COMMIT/ROLLBACK nebo nedurable receiptu se migrace nesmí slepě opakovat; runner vrátí `RESTORE_REQUIRED`. Tento pracovní strom nic nenasadil.
 
 ## Automatické ověření
 
@@ -160,9 +161,9 @@ Na izolované testovací databázi s kopií neprodukčních dat:
 
 ## Známá omezení
 
-- `0108` už správně navazuje na commitnutou linii `0097`–`0107`; bez izolované forward/rollback DB brány však ještě není release-ready.
-- Aktivní recovery/backup práce v původním úkolu po `0c7a956` zatím nemá autoritativní commit. Aktuálně nemá se změnou fakturace žádný souborový překryv, ale finální release větev ji musí převzít až po jejím vlastním checkpointu a znovu spustit stejné brány.
+- `0108` správně navazuje na commitnutou linii `0097`–`0107` a disposable PostgreSQL 18 lifecycle prošel. Exact PG16 a DB concurrency jsou stále otevřené release brány.
+- Finální integrační základ je veřejný login/activation merge `8787d7f`; fakturační release a control-plane změny jsou zatím pouze v lokální větvi a nebyly publikovány ani nasazeny.
 - Zálohová faktura je v této změně platební výzva. Automatické vytvoření daňového dokladu k přijaté platbě ani automatický odečet zaplacené zálohy na konečné faktuře zatím implementovány nejsou; to vyžaduje navazující účetní fázi.
 - Částečný fakturační stav je odvozený `billingState`, nikoli nový provozní enum zakázky, aby se nerozbilo současné workflow `done`/`vyfakturovano`.
 - ISDOC zůstává mimo rozsah stejně jako v původním modulu; ověřuje se PDF a stávající exportní chování.
-- Bez izolované PostgreSQL a lokální přihlášené relace nelze tvrdit plné DB/E2E ani vizuální přijetí. Před releasem jsou tyto brány povinné.
+- Bez exact PostgreSQL 16 concurrency brány a přihlášeného live smoke nelze tvrdit plné DB/E2E ani vizuální přijetí.
