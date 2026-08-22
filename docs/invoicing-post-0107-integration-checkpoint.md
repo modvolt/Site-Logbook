@@ -121,7 +121,9 @@ no-clobber role receipt. Samotný kontrakt nadále neautorizuje start aplikace.
 - API unit: 1070 celkem, 1069 pass, 1 skip;
 - TypeScript, ESLint, API build a diff-check: úspěšné;
 - disposable PostgreSQL 18 0107/0108 lifecycle: úspěšný;
-- disposable PostgreSQL 18 DB concurrency: 1 soubor, 11/11 testů.
+- disposable PostgreSQL 18 DB concurrency: 1 soubor, 11/11 testů;
+- převzaté Phase-0 vazby přijatá faktura/dodací list/zakázka/materiál a
+  automatické párování: 4 izolované DB soubory, 66/66 testů.
 
 Tyto výsledky dokazují lokální implementaci. Nedokazují nový CI run, publikaci
 image, skutečný produkční backup, migraci, deployment ani přihlášený live smoke.
