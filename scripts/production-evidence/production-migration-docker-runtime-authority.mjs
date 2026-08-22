@@ -494,12 +494,10 @@ export function createProductionMigrationDockerRuntimeAuthority({
           "Runtime authority clock is invalid.",
         );
       }
-      return canonicalProductionExact0096BackupJson(
-        createProductionMigrationRuntimeObservation({
-          runtimeBinding: binding,
-          observedAt: observedAt.toISOString(),
-        }),
-      );
+      return createProductionMigrationRuntimeObservation({
+        runtimeBinding: binding,
+        observedAt: observedAt.toISOString(),
+      }).canonical;
     },
   });
 }
