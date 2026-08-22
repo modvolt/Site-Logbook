@@ -34,6 +34,9 @@ const FORBIDDEN_KEY =
 const FORBIDDEN_VALUE =
   /(-----BEGIN [A-Z ]*PRIVATE KEY-----|SCRAM-SHA-256\$[0-9]{3,10}:[A-Za-z0-9+/]+={0,2}\$[A-Za-z0-9+/]+={0,2}:[A-Za-z0-9+/]+={0,2}|github_pat_|gh[pousr]_[A-Za-z0-9]{16,}|AKIA[0-9A-Z]{16}|\bBearer\s+[A-Za-z0-9._~+/-]+=*|[a-z][a-z0-9+.-]*:\/\/[^\s/@:]+:[^\s/@]+@)/i;
 const PRODUCTION_NETWORK_SERVICES = Object.freeze(["api", "postgres", "web"]);
+const COOLIFY_PROXY_PROJECT = "coolify-proxy";
+const COOLIFY_PROXY_SERVICE = "traefik";
+const COOLIFY_PROXY_IMAGE = "traefik:v3.6";
 
 export const PRODUCTION_HOST_DOCKER_AUTHORITY_CONFIRMATION =
   "OBSERVE_EXACT_SITE_LOGBOOK_PRODUCTION_DOCKER_AUTHORITY_READ_ONLY";
@@ -402,12 +405,22 @@ function parsePeer(value: unknown, field: string) {
     field,
   );
   exactText(peer.name, `${field}.name`);
+  const composeProject = exactText(
+    peer.composeProject,
+    `${field}.composeProject`,
+  );
+  const service = exactText(peer.service, `${field}.service`);
+  const isCoolifyProxy =
+    composeProject === COOLIFY_PROXY_PROJECT &&
+    service === COOLIFY_PROXY_SERVICE;
   return Object.freeze({
     containerId: exactContainerId(peer.containerId, `${field}.containerId`),
-    composeProject: exactText(peer.composeProject, `${field}.composeProject`),
-    service: exactText(peer.service, `${field}.service`),
+    composeProject,
+    service,
     state: exactText(peer.state, `${field}.state`),
-    image: exactImage(peer.image, `${field}.image`),
+    image: isCoolifyProxy
+      ? exactText(peer.image, `${field}.image`)
+      : exactImage(peer.image, `${field}.image`),
     imageId: exactDigest(peer.imageId, `${field}.imageId`),
   });
 }
@@ -624,22 +637,36 @@ function validateDockerArtifact(
     peer.state === "running" &&
     peer.image === targetImage &&
     peer.imageId === targetImageId;
-  const services = networkPeers
+  const applicationNetworkPeers = networkPeers.filter(
+    (peer) => peer.composeProject === request.composeProject,
+  );
+  const infrastructureNetworkPeers = networkPeers.filter(
+    (peer) => peer.composeProject !== request.composeProject,
+  );
+  const services = applicationNetworkPeers
     .map((peer) => peer.service)
     .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
   if (
     volumePeers.length !== 1 ||
     !exactTargetPeer(volumePeers[0]) ||
-    networkPeers.length !== PRODUCTION_NETWORK_SERVICES.length ||
+    applicationNetworkPeers.length !== PRODUCTION_NETWORK_SERVICES.length ||
     JSON.stringify(services) !== JSON.stringify(PRODUCTION_NETWORK_SERVICES) ||
     new Set(networkPeers.map((peer) => peer.containerId)).size !==
       networkPeers.length ||
-    networkPeers.some(
+    applicationNetworkPeers.some(
       (peer) =>
         peer.composeProject !== request.composeProject ||
         peer.state !== "running",
     ) ||
-    networkPeers.filter(exactTargetPeer).length !== 1
+    applicationNetworkPeers.filter(exactTargetPeer).length !== 1 ||
+    infrastructureNetworkPeers.length > 1 ||
+    infrastructureNetworkPeers.some(
+      (peer) =>
+        peer.composeProject !== COOLIFY_PROXY_PROJECT ||
+        peer.service !== COOLIFY_PROXY_SERVICE ||
+        peer.image !== COOLIFY_PROXY_IMAGE ||
+        peer.state !== "running",
+    )
   ) {
     fail(
       "PRODUCTION_POSTGRES_OBSERVER_DOCKER_FOREIGN_PEER",
@@ -1433,3 +1460,4 @@ export function assertProductionHostPostgresSecretFreeWithTestAuthority(
 ): void {
   assertSecretFree(value, "testProjection");
 }
+
