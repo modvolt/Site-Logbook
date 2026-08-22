@@ -2,9 +2,9 @@
  * Pure money / VAT math for invoices. No DB access, no side effects — kept
  * separate so the arithmetic can be reasoned about (and unit-tested) on its own.
  *
- * Money is CZK with haléře (2 decimals). All amounts are rounded to 2 decimals
- * using round-half-up with an epsilon nudge to avoid binary-float artefacts
- * (e.g. 1.005 → 1.01, not 1.00).
+ * Money is CZK with haléře (2 decimals). Arithmetic is performed as bigint
+ * cents / basis points, never with binary floating-point multiplication. API
+ * numbers are converted only at the boundary and DB values remain `numeric`.
  */
 
 export type VatMode = "standard" | "reverse_charge" | "zero" | "non_vat";
@@ -19,9 +19,58 @@ export const VAT_MODES: ReadonlyArray<VatMode> = [
 /** Default Czech standard VAT rate (%) applied when a standard line omits one. */
 export const DEFAULT_VAT_RATE = 21;
 
+function decimalString(value: unknown): string {
+  if (value == null || value === "") return "0";
+  const raw = String(value).trim();
+  if (!raw || !/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(raw)) {
+    return "0";
+  }
+  if (!/[eE]/.test(raw)) return raw;
+
+  const [coefficient, exponentRaw] = raw.toLowerCase().split("e");
+  const exponent = Number(exponentRaw);
+  if (!Number.isInteger(exponent) || Math.abs(exponent) > 100) return "0";
+  const negative = coefficient.startsWith("-");
+  const unsigned = coefficient.replace(/^[+-]/, "");
+  const [whole = "0", fraction = ""] = unsigned.split(".");
+  const digits = `${whole}${fraction}`.replace(/^0+(?=\d)/, "") || "0";
+  const point = whole.length + exponent;
+  const plain =
+    point <= 0
+      ? `0.${"0".repeat(-point)}${digits}`
+      : point >= digits.length
+        ? `${digits}${"0".repeat(point - digits.length)}`
+        : `${digits.slice(0, point)}.${digits.slice(point)}`;
+  return negative ? `-${plain}` : plain;
+}
+
+/** Parse a decimal boundary value into a fixed-scale bigint, half-up. */
+function scaledInteger(value: unknown, decimalPlaces: number): bigint {
+  const raw = decimalString(value);
+  const negative = raw.startsWith("-");
+  const unsigned = raw.replace(/^[+-]/, "");
+  const [wholeRaw = "0", fractionRaw = ""] = unsigned.split(".");
+  const whole = BigInt(wholeRaw || "0");
+  const kept = fractionRaw.slice(0, decimalPlaces).padEnd(decimalPlaces, "0");
+  let result = whole * 10n ** BigInt(decimalPlaces) + BigInt(kept || "0");
+  if ((fractionRaw[decimalPlaces] ?? "0") >= "5") result += 1n;
+  return negative ? -result : result;
+}
+
+function divideHalfUp(numerator: bigint, denominator: bigint): bigint {
+  if (denominator <= 0n) throw new Error("Denominator must be positive.");
+  const negative = numerator < 0n;
+  const absolute = negative ? -numerator : numerator;
+  const rounded = (absolute + denominator / 2n) / denominator;
+  return negative ? -rounded : rounded;
+}
+
+function centsToNumber(cents: bigint): number {
+  return Number(cents) / 100;
+}
+
 export function round2(value: number): number {
-  if (!Number.isFinite(value)) return 0;
-  return Math.round((value + Number.EPSILON) * 100) / 100;
+  return centsToNumber(scaledInteger(value, 2));
 }
 
 /** Coerce a possibly-null Drizzle numeric (string) or number to a finite number. */
@@ -32,6 +81,7 @@ export function num(value: unknown): number {
 }
 
 export interface LineInputForCalc {
+  rowType?: "item" | "section" | null;
   quantity?: number | null;
   unitPriceWithoutVat?: number | null;
   discountPercent?: number | null;
@@ -54,7 +104,10 @@ export interface ComputedLine {
  * Resolve the effective VAT rate for a line given its mode. Only `standard`
  * lines carry VAT; reverse_charge (PDP), zero-rated and non-VAT lines never do.
  */
-export function resolveVatRate(mode: VatMode, rate: number | null | undefined): number | null {
+export function resolveVatRate(
+  mode: VatMode,
+  rate: number | null | undefined,
+): number | null {
   switch (mode) {
     case "standard":
       return rate == null ? DEFAULT_VAT_RATE : num(rate);
@@ -71,6 +124,18 @@ export function computeLine(
   input: LineInputForCalc,
   invoiceVatMode: VatMode,
 ): ComputedLine {
+  if (input.rowType === "section") {
+    return {
+      quantity: 0,
+      unitPriceWithoutVat: 0,
+      discountPercent: null,
+      vatMode: input.vatMode ?? invoiceVatMode,
+      vatRate: null,
+      totalWithoutVat: 0,
+      totalVat: 0,
+      totalWithVat: 0,
+    };
+  }
   const quantity = round2(num(input.quantity ?? 1));
   const unitPrice = round2(num(input.unitPriceWithoutVat ?? 0));
   const discountPercent =
@@ -78,12 +143,22 @@ export function computeLine(
   const vatMode: VatMode = input.vatMode ?? invoiceVatMode;
   const vatRate = resolveVatRate(vatMode, input.vatRate);
 
-  const gross = quantity * unitPrice;
-  const discounted = discountPercent ? gross * (1 - discountPercent / 100) : gross;
-  const totalWithoutVat = round2(discounted);
-  const totalVat =
-    vatMode === "standard" && vatRate ? round2((totalWithoutVat * vatRate) / 100) : 0;
-  const totalWithVat = round2(totalWithoutVat + totalVat);
+  const quantityHundredths = scaledInteger(quantity, 2);
+  const unitPriceCents = scaledInteger(unitPrice, 2);
+  const grossCents = divideHalfUp(quantityHundredths * unitPriceCents, 100n);
+  const discountBasisPoints = scaledInteger(discountPercent ?? 0, 2);
+  const discountCents = discountPercent
+    ? divideHalfUp(grossCents * discountBasisPoints, 10_000n)
+    : 0n;
+  const totalWithoutVatCents = grossCents - discountCents;
+  const vatBasisPoints = scaledInteger(vatRate ?? 0, 2);
+  const totalVatCents =
+    vatMode === "standard" && vatRate
+      ? divideHalfUp(totalWithoutVatCents * vatBasisPoints, 10_000n)
+      : 0n;
+  const totalWithoutVat = centsToNumber(totalWithoutVatCents);
+  const totalVat = centsToNumber(totalVatCents);
+  const totalWithVat = centsToNumber(totalWithoutVatCents + totalVatCents);
 
   return {
     quantity,
@@ -137,9 +212,18 @@ export function resolveLineMaterialMarkup(
  * Apply a percent markup to a material unit price. A markup of 0 (or less)
  * leaves the price unchanged. Result is rounded to 2 decimals.
  */
-export function applyMaterialMarkup(unitPrice: number, markupPercent: number): number {
-  const factor = markupPercent > 0 ? 1 + markupPercent / 100 : 1;
-  return round2(num(unitPrice) * factor);
+export function applyMaterialMarkup(
+  unitPrice: number,
+  markupPercent: number,
+): number {
+  const priceCents = scaledInteger(unitPrice, 2);
+  const markupBasisPoints = scaledInteger(
+    markupPercent > 0 ? markupPercent : 0,
+    2,
+  );
+  return centsToNumber(
+    divideHalfUp(priceCents * (10_000n + markupBasisPoints), 10_000n),
+  );
 }
 
 export interface InvoiceTotals {
@@ -152,11 +236,17 @@ export interface InvoiceTotals {
 export function sumTotals(
   lines: ReadonlyArray<Pick<ComputedLine, "totalWithoutVat" | "totalVat">>,
 ): InvoiceTotals {
-  const subtotalWithoutVat = round2(
-    lines.reduce((acc, l) => acc + num(l.totalWithoutVat), 0),
+  const subtotalCents = lines.reduce(
+    (acc, line) => acc + scaledInteger(line.totalWithoutVat, 2),
+    0n,
   );
-  const totalVat = round2(lines.reduce((acc, l) => acc + num(l.totalVat), 0));
-  const totalWithVat = round2(subtotalWithoutVat + totalVat);
+  const vatCents = lines.reduce(
+    (acc, line) => acc + scaledInteger(line.totalVat, 2),
+    0n,
+  );
+  const subtotalWithoutVat = centsToNumber(subtotalCents);
+  const totalVat = centsToNumber(vatCents);
+  const totalWithVat = centsToNumber(subtotalCents + vatCents);
   return { subtotalWithoutVat, totalVat, totalWithVat };
 }
 
@@ -164,26 +254,28 @@ export function sumTotals(
 export function vatBreakdown(
   lines: ReadonlyArray<ComputedLine>,
 ): Array<{ rate: number; base: number; vat: number }> {
-  const byRate = new Map<number, { base: number; vat: number }>();
+  const byRate = new Map<number, { base: bigint; vat: bigint }>();
   for (const l of lines) {
     if (l.vatMode !== "standard") continue;
     const rate = l.vatRate ?? 0;
-    const entry = byRate.get(rate) ?? { base: 0, vat: 0 };
-    entry.base += l.totalWithoutVat;
-    entry.vat += l.totalVat;
+    const entry = byRate.get(rate) ?? { base: 0n, vat: 0n };
+    entry.base += scaledInteger(l.totalWithoutVat, 2);
+    entry.vat += scaledInteger(l.totalVat, 2);
     byRate.set(rate, entry);
   }
   return Array.from(byRate.entries())
-    .map(([rate, v]) => ({ rate, base: round2(v.base), vat: round2(v.vat) }))
+    .map(([rate, v]) => ({
+      rate,
+      base: centsToNumber(v.base),
+      vat: centsToNumber(v.vat),
+    }))
     .sort((a, b) => b.rate - a.rate);
 }
 
 /**
- * Derive invoice→job source links from the current set of lines. A job is only
- * billed (flipped to "vyfakturováno" on issue) when it still has at least one
- * line on the invoice. Deleting every line of a job in the edit UI therefore
- * drops its source link, so the job returns to the unbilled pool instead of
- * being silently marked as invoiced with nothing on the invoice for it.
+ * Legacy line-to-parent projection retained for compatibility and pure math
+ * tests. The invoice service no longer derives operational settlement from
+ * editable commercial lines; `invoice_source_allocations` is authoritative.
  *
  * `lines[i]` and `computed[i]` must be index-aligned (same order as persisted).
  * The returned amount is the sum of each job's line `totalWithoutVat`.
@@ -205,19 +297,20 @@ export function deriveJobSourceLinks(
 }
 
 /**
- * Derive invoice source links from the current set of lines, supporting BOTH
- * job-billed and activity-billed (dlouhodobá akce) lines. A job or activity is
- * billed only while it still has at least one line carrying its id, so deleting
- * every line of a job/activity in the edit UI drops its source link and returns
- * it to the unbilled pool. A line that carries a `jobId` is grouped as a job
- * link; otherwise an `activityId` groups it as an activity link.
+ * Legacy mixed-parent projection. It is not used to settle or release raw
+ * sources after draft edits; the allocation ledger preserves those sources
+ * independently of customer-facing rows.
  *
  * `lines[i]` and `computed[i]` must be index-aligned (same order as persisted).
  */
 export function deriveSourceLinks(
   lines: ReadonlyArray<{ jobId?: number | null; activityId?: number | null }>,
   computed: ReadonlyArray<Pick<ComputedLine, "totalWithoutVat">>,
-): Array<{ jobId: number | null; activityId: number | null; amountWithoutVat: number }> {
+): Array<{
+  jobId: number | null;
+  activityId: number | null;
+  amountWithoutVat: number;
+}> {
   const jobAmounts = new Map<number, number>();
   const activityAmounts = new Map<number, number>();
   lines.forEach((line, i) => {

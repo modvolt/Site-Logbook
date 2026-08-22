@@ -39,6 +39,8 @@ const commands = [
       "scripts/test/production-migration-runner.test.mjs",
       "scripts/test/production-migration-runtime-authority.test.mjs",
       "scripts/test/production-migration-role-authority.test.mjs",
+      "scripts/test/production-invoice-0108-runner.test.mjs",
+      "scripts/test/production-role-separation-0108-contract.test.mjs",
       "scripts/test/production-migration-adapter.pg16.test.mjs",
       "scripts/test/production-coolify-observer.test.mjs",
       "scripts/test/production-image-publication-contract.test.mjs",

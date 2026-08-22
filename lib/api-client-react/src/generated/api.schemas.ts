@@ -5,37 +5,36 @@
  * Stavba Job Tracker API
  * OpenAPI spec version: 0.1.0
  */
-export type HealthStatusStatus =
-  (typeof HealthStatusStatus)[keyof typeof HealthStatusStatus];
+export type HealthStatusStatus = typeof HealthStatusStatus[keyof typeof HealthStatusStatus];
+
 
 export const HealthStatusStatus = {
-  ok: "ok",
-  degraded: "degraded",
+  ok: 'ok',
+  degraded: 'degraded',
 } as const;
+export type HealthStatusDbStatus = typeof HealthStatusDbStatus[keyof typeof HealthStatusDbStatus];
 
-export type HealthStatusDbStatus =
-  (typeof HealthStatusDbStatus)[keyof typeof HealthStatusDbStatus];
 
 export const HealthStatusDbStatus = {
-  ok: "ok",
-  error: "error",
+  ok: 'ok',
+  error: 'error',
 } as const;
 
-export type HealthStatusStorageStatus =
-  (typeof HealthStatusStorageStatus)[keyof typeof HealthStatusStorageStatus];
+export type HealthStatusStorageStatus = typeof HealthStatusStorageStatus[keyof typeof HealthStatusStorageStatus];
+
 
 export const HealthStatusStorageStatus = {
-  ok: "ok",
-  error: "error",
-  not_configured: "not_configured",
+  ok: 'ok',
+  error: 'error',
+  not_configured: 'not_configured',
 } as const;
 
-export type HealthStatusSmtpStatus =
-  (typeof HealthStatusSmtpStatus)[keyof typeof HealthStatusSmtpStatus];
+export type HealthStatusSmtpStatus = typeof HealthStatusSmtpStatus[keyof typeof HealthStatusSmtpStatus];
+
 
 export const HealthStatusSmtpStatus = {
-  configured: "configured",
-  not_configured: "not_configured",
+  configured: 'configured',
+  not_configured: 'not_configured',
 } as const;
 
 export interface HealthStatus {
@@ -55,63 +54,62 @@ export interface HealthStatus {
   migrationParity?: boolean | null;
 }
 
-export type AdminHealthStatusDbStatus =
-  (typeof AdminHealthStatusDbStatus)[keyof typeof AdminHealthStatusDbStatus];
+export type AdminHealthStatusDbStatus = typeof AdminHealthStatusDbStatus[keyof typeof AdminHealthStatusDbStatus];
+
 
 export const AdminHealthStatusDbStatus = {
-  ok: "ok",
-  error: "error",
+  ok: 'ok',
+  error: 'error',
 } as const;
 
-export type AdminHealthStatusStorageStatus =
-  (typeof AdminHealthStatusStorageStatus)[keyof typeof AdminHealthStatusStorageStatus];
+export type AdminHealthStatusStorageStatus = typeof AdminHealthStatusStorageStatus[keyof typeof AdminHealthStatusStorageStatus];
+
 
 export const AdminHealthStatusStorageStatus = {
-  ok: "ok",
-  error: "error",
-  not_configured: "not_configured",
+  ok: 'ok',
+  error: 'error',
+  not_configured: 'not_configured',
 } as const;
 
-export type AdminHealthStatusSmtpStatus =
-  (typeof AdminHealthStatusSmtpStatus)[keyof typeof AdminHealthStatusSmtpStatus];
+export type AdminHealthStatusSmtpStatus = typeof AdminHealthStatusSmtpStatus[keyof typeof AdminHealthStatusSmtpStatus];
+
 
 export const AdminHealthStatusSmtpStatus = {
-  configured: "configured",
-  not_configured: "not_configured",
+  configured: 'configured',
+  not_configured: 'not_configured',
 } as const;
 
-export type AdminHealthStatusAiStatus =
-  (typeof AdminHealthStatusAiStatus)[keyof typeof AdminHealthStatusAiStatus];
+export type AdminHealthStatusAiStatus = typeof AdminHealthStatusAiStatus[keyof typeof AdminHealthStatusAiStatus];
+
 
 export const AdminHealthStatusAiStatus = {
-  ready: "ready",
-  configured_disabled: "configured_disabled",
-  not_configured: "not_configured",
+  ready: 'ready',
+  configured_disabled: 'configured_disabled',
+  not_configured: 'not_configured',
 } as const;
 
-export type AdminHealthStatusGmailStatus =
-  (typeof AdminHealthStatusGmailStatus)[keyof typeof AdminHealthStatusGmailStatus];
+export type AdminHealthStatusGmailStatus = typeof AdminHealthStatusGmailStatus[keyof typeof AdminHealthStatusGmailStatus];
+
 
 export const AdminHealthStatusGmailStatus = {
-  connected: "connected",
-  disconnected: "disconnected",
-  not_configured: "not_configured",
+  connected: 'connected',
+  disconnected: 'disconnected',
+  not_configured: 'not_configured',
 } as const;
 
-export type AdminHealthStatusImapStatus =
-  (typeof AdminHealthStatusImapStatus)[keyof typeof AdminHealthStatusImapStatus];
+export type AdminHealthStatusImapStatus = typeof AdminHealthStatusImapStatus[keyof typeof AdminHealthStatusImapStatus];
+
 
 export const AdminHealthStatusImapStatus = {
-  configured: "configured",
-  not_configured: "not_configured",
+  configured: 'configured',
+  not_configured: 'not_configured',
 } as const;
 
-export type ProductionRuntimeBindingHealthSchemaVersion =
-  (typeof ProductionRuntimeBindingHealthSchemaVersion)[keyof typeof ProductionRuntimeBindingHealthSchemaVersion];
+export type ProductionRuntimeBindingHealthSchemaVersion = typeof ProductionRuntimeBindingHealthSchemaVersion[keyof typeof ProductionRuntimeBindingHealthSchemaVersion];
+
 
 export const ProductionRuntimeBindingHealthSchemaVersion = {
-  "site-logbookproduction-runtime-binding/v1":
-    "site-logbook.production-runtime-binding/v1",
+  'site-logbookproduction-runtime-binding/v1': 'site-logbook.production-runtime-binding/v1',
 } as const;
 
 export interface ProductionRuntimeBindingHealth {
@@ -156,14 +154,14 @@ export interface AdminHealthLastBackup {
   /** @nullable */
   error?: string | null;
   /**
-   * SHA-256 hex digest of the dump bytes; null for older backups
-   * @nullable
-   */
+     * SHA-256 hex digest of the dump bytes; null for older backups
+     * @nullable
+     */
   sha256?: string | null;
   /**
-   * ISO timestamp of the last successful restore from this backup; null if never restored
-   * @nullable
-   */
+     * ISO timestamp of the last successful restore from this backup; null if never restored
+     * @nullable
+     */
   restoredAt?: string | null;
 }
 
@@ -173,9 +171,9 @@ export interface AdminHealthStatus {
   /** True when all exact known migration identities are applied and, in production, the runtime release-evidence lineage matches the live known/opaque inventory */
   migrationParity: boolean;
   /**
-   * Exact production steady-release lineage match; null outside production
-   * @nullable
-   */
+     * Exact production steady-release lineage match; null outside production
+     * @nullable
+     */
   migrationControlParity: boolean | null;
   /** Secret-free exact production target, config, image, database and schema binding; null outside the production runtime. */
   productionRuntimeBinding: ProductionRuntimeBindingHealth | null;
@@ -223,41 +221,41 @@ export interface AdminHealthStatus {
   lastBackupError?: AdminHealthLastBackup | null;
 }
 
-export type OperationalSnapshotStatus =
-  (typeof OperationalSnapshotStatus)[keyof typeof OperationalSnapshotStatus];
+export type OperationalSnapshotStatus = typeof OperationalSnapshotStatus[keyof typeof OperationalSnapshotStatus];
+
 
 export const OperationalSnapshotStatus = {
-  ok: "ok",
-  warning: "warning",
-  critical: "critical",
-  unknown: "unknown",
+  ok: 'ok',
+  warning: 'warning',
+  critical: 'critical',
+  unknown: 'unknown',
 } as const;
 
-export type OperationalSnapshotAlertTransport =
-  (typeof OperationalSnapshotAlertTransport)[keyof typeof OperationalSnapshotAlertTransport];
+export type OperationalSnapshotAlertTransport = typeof OperationalSnapshotAlertTransport[keyof typeof OperationalSnapshotAlertTransport];
+
 
 export const OperationalSnapshotAlertTransport = {
-  local_log_only: "local_log_only",
-  local_log_and_https_webhook: "local_log_and_https_webhook",
+  local_log_only: 'local_log_only',
+  local_log_and_https_webhook: 'local_log_and_https_webhook',
 } as const;
 
-export type OperationalQueueSignalId =
-  (typeof OperationalQueueSignalId)[keyof typeof OperationalQueueSignalId];
+export type OperationalQueueSignalId = typeof OperationalQueueSignalId[keyof typeof OperationalQueueSignalId];
+
 
 export const OperationalQueueSignalId = {
-  extraction: "extraction",
-  switchboard: "switchboard",
-  email_import: "email_import",
+  extraction: 'extraction',
+  switchboard: 'switchboard',
+  email_import: 'email_import',
 } as const;
 
-export type OperationalQueueSignalStatus =
-  (typeof OperationalQueueSignalStatus)[keyof typeof OperationalQueueSignalStatus];
+export type OperationalQueueSignalStatus = typeof OperationalQueueSignalStatus[keyof typeof OperationalQueueSignalStatus];
+
 
 export const OperationalQueueSignalStatus = {
-  ok: "ok",
-  warning: "warning",
-  critical: "critical",
-  unknown: "unknown",
+  ok: 'ok',
+  warning: 'warning',
+  critical: 'critical',
+  unknown: 'unknown',
 } as const;
 
 export interface OperationalQueueSignal {
@@ -271,9 +269,9 @@ export interface OperationalQueueSignal {
   /** @minimum 0 */
   failedDepth: number;
   /**
-   * @minimum 0
-   * @nullable
-   */
+     * @minimum 0
+     * @nullable
+     */
   oldestReadyAgeSeconds: number | null;
   /** @minimum 1 */
   warningAgeSeconds: number;
@@ -281,15 +279,15 @@ export interface OperationalQueueSignal {
   criticalAgeSeconds: number;
 }
 
-export type OperationalBackupSignalStatus =
-  (typeof OperationalBackupSignalStatus)[keyof typeof OperationalBackupSignalStatus];
+export type OperationalBackupSignalStatus = typeof OperationalBackupSignalStatus[keyof typeof OperationalBackupSignalStatus];
+
 
 export const OperationalBackupSignalStatus = {
-  ok: "ok",
-  warning: "warning",
-  critical: "critical",
-  unknown: "unknown",
-  not_configured: "not_configured",
+  ok: 'ok',
+  warning: 'warning',
+  critical: 'critical',
+  unknown: 'unknown',
+  not_configured: 'not_configured',
 } as const;
 
 export interface OperationalBackupSignal {
@@ -299,18 +297,18 @@ export interface OperationalBackupSignal {
   /** @nullable */
   lastSuccessAt: string | null;
   /**
-   * @minimum 0
-   * @nullable
-   */
+     * @minimum 0
+     * @nullable
+     */
   lastSuccessAgeSeconds: number | null;
   /** @nullable */
   lastAttemptStatus: string | null;
   /** @nullable */
   lastRestoreTestAt: string | null;
   /**
-   * @minimum 0
-   * @nullable
-   */
+     * @minimum 0
+     * @nullable
+     */
   lastRestoreTestAgeSeconds: number | null;
   /** @nullable */
   lastRestoreStatus: string | null;
@@ -324,14 +322,14 @@ export interface OperationalBackupSignal {
   restoreCriticalAgeSeconds: number;
 }
 
-export type OperationalSecuritySignalStatus =
-  (typeof OperationalSecuritySignalStatus)[keyof typeof OperationalSecuritySignalStatus];
+export type OperationalSecuritySignalStatus = typeof OperationalSecuritySignalStatus[keyof typeof OperationalSecuritySignalStatus];
+
 
 export const OperationalSecuritySignalStatus = {
-  ok: "ok",
-  warning: "warning",
-  critical: "critical",
-  unknown: "unknown",
+  ok: 'ok',
+  warning: 'warning',
+  critical: 'critical',
+  unknown: 'unknown',
 } as const;
 
 export interface OperationalSecuritySignal {
@@ -347,12 +345,12 @@ export interface OperationalSecuritySignal {
   criticalEvents: number;
 }
 
-export type OperationalAlertSeverity =
-  (typeof OperationalAlertSeverity)[keyof typeof OperationalAlertSeverity];
+export type OperationalAlertSeverity = typeof OperationalAlertSeverity[keyof typeof OperationalAlertSeverity];
+
 
 export const OperationalAlertSeverity = {
-  warning: "warning",
-  critical: "critical",
+  warning: 'warning',
+  critical: 'critical',
 } as const;
 
 export interface OperationalAlert {
@@ -379,57 +377,57 @@ export interface OperationalSnapshot {
   activeAlerts: OperationalAlert[];
 }
 
-export type WatchdogStatusOverallStatus =
-  (typeof WatchdogStatusOverallStatus)[keyof typeof WatchdogStatusOverallStatus];
+export type WatchdogStatusOverallStatus = typeof WatchdogStatusOverallStatus[keyof typeof WatchdogStatusOverallStatus];
+
 
 export const WatchdogStatusOverallStatus = {
-  ok: "ok",
-  degraded: "degraded",
-  unknown: "unknown",
+  ok: 'ok',
+  degraded: 'degraded',
+  unknown: 'unknown',
 } as const;
 
-export type WatchdogStatusOperationalStatus =
-  (typeof WatchdogStatusOperationalStatus)[keyof typeof WatchdogStatusOperationalStatus];
+export type WatchdogStatusOperationalStatus = typeof WatchdogStatusOperationalStatus[keyof typeof WatchdogStatusOperationalStatus];
+
 
 export const WatchdogStatusOperationalStatus = {
-  ok: "ok",
-  warning: "warning",
-  critical: "critical",
-  unknown: "unknown",
+  ok: 'ok',
+  warning: 'warning',
+  critical: 'critical',
+  unknown: 'unknown',
 } as const;
 
-export type WatchdogStatusAlertTransport =
-  (typeof WatchdogStatusAlertTransport)[keyof typeof WatchdogStatusAlertTransport];
+export type WatchdogStatusAlertTransport = typeof WatchdogStatusAlertTransport[keyof typeof WatchdogStatusAlertTransport];
+
 
 export const WatchdogStatusAlertTransport = {
-  local_log_only: "local_log_only",
-  local_log_and_https_webhook: "local_log_and_https_webhook",
+  local_log_only: 'local_log_only',
+  local_log_and_https_webhook: 'local_log_and_https_webhook',
 } as const;
 
-export type OperationalAlertDeliveryStatusStatus =
-  (typeof OperationalAlertDeliveryStatusStatus)[keyof typeof OperationalAlertDeliveryStatusStatus];
+export type OperationalAlertDeliveryStatusStatus = typeof OperationalAlertDeliveryStatusStatus[keyof typeof OperationalAlertDeliveryStatusStatus];
+
 
 export const OperationalAlertDeliveryStatusStatus = {
-  available: "available",
-  unavailable: "unavailable",
+  available: 'available',
+  unavailable: 'unavailable',
 } as const;
 
 export interface OperationalAlertDeliveryStatus {
   status: OperationalAlertDeliveryStatusStatus;
   /**
-   * @minimum 0
-   * @nullable
-   */
+     * @minimum 0
+     * @nullable
+     */
   pending: number | null;
   /**
-   * @minimum 0
-   * @nullable
-   */
+     * @minimum 0
+     * @nullable
+     */
   delivering: number | null;
   /**
-   * @minimum 0
-   * @nullable
-   */
+     * @minimum 0
+     * @nullable
+     */
   deadLetter: number | null;
   /** @nullable */
   oldestPendingAt: string | null;
@@ -451,22 +449,22 @@ export interface WatchdogStatus {
   delivery: OperationalAlertDeliveryStatus;
 }
 
-export type OperationalAlertDeadLetterListItemSeverity =
-  (typeof OperationalAlertDeadLetterListItemSeverity)[keyof typeof OperationalAlertDeadLetterListItemSeverity];
+export type OperationalAlertDeadLetterListItemSeverity = typeof OperationalAlertDeadLetterListItemSeverity[keyof typeof OperationalAlertDeadLetterListItemSeverity];
+
 
 export const OperationalAlertDeadLetterListItemSeverity = {
-  warning: "warning",
-  critical: "critical",
+  warning: 'warning',
+  critical: 'critical',
 } as const;
 
-export type OperationalAlertDeadLetterListItemTransitionKind =
-  (typeof OperationalAlertDeadLetterListItemTransitionKind)[keyof typeof OperationalAlertDeadLetterListItemTransitionKind];
+export type OperationalAlertDeadLetterListItemTransitionKind = typeof OperationalAlertDeadLetterListItemTransitionKind[keyof typeof OperationalAlertDeadLetterListItemTransitionKind];
+
 
 export const OperationalAlertDeadLetterListItemTransitionKind = {
-  triggered: "triggered",
-  escalated: "escalated",
-  deescalated: "deescalated",
-  recovered: "recovered",
+  triggered: 'triggered',
+  escalated: 'escalated',
+  deescalated: 'deescalated',
+  recovered: 'recovered',
 } as const;
 
 export interface OperationalAlertDeadLetterListItem {
@@ -479,15 +477,15 @@ export interface OperationalAlertDeadLetterListItem {
   /** @minimum 1 */
   attemptCount: number;
   /**
-   * @maxLength 80
-   * @nullable
-   */
+     * @maxLength 80
+     * @nullable
+     */
   lastFailureCategory: string | null;
   /**
-   * @minimum 100
-   * @maximum 599
-   * @nullable
-   */
+     * @minimum 100
+     * @maximum 599
+     * @nullable
+     */
   lastHttpStatus: number | null;
   deadLetteredAt: string;
   createdAt: string;
@@ -498,14 +496,14 @@ export interface OperationalAlertDeadLetterList {
   items: OperationalAlertDeadLetterListItem[];
 }
 
-export type OperationalAlertDeadLetterRequeueInputReason =
-  (typeof OperationalAlertDeadLetterRequeueInputReason)[keyof typeof OperationalAlertDeadLetterRequeueInputReason];
+export type OperationalAlertDeadLetterRequeueInputReason = typeof OperationalAlertDeadLetterRequeueInputReason[keyof typeof OperationalAlertDeadLetterRequeueInputReason];
+
 
 export const OperationalAlertDeadLetterRequeueInputReason = {
-  receiver_configuration_corrected: "receiver_configuration_corrected",
-  receiver_recovered: "receiver_recovered",
-  transient_provider_outage_resolved: "transient_provider_outage_resolved",
-  operator_verified_safe_retry: "operator_verified_safe_retry",
+  receiver_configuration_corrected: 'receiver_configuration_corrected',
+  receiver_recovered: 'receiver_recovered',
+  transient_provider_outage_resolved: 'transient_provider_outage_resolved',
+  operator_verified_safe_retry: 'operator_verified_safe_retry',
 } as const;
 
 export interface OperationalAlertDeadLetterRequeueInput {
@@ -515,11 +513,11 @@ export interface OperationalAlertDeadLetterRequeueInput {
   reason: OperationalAlertDeadLetterRequeueInputReason;
 }
 
-export type OperationalAlertDeadLetterRequeueResultState =
-  (typeof OperationalAlertDeadLetterRequeueResultState)[keyof typeof OperationalAlertDeadLetterRequeueResultState];
+export type OperationalAlertDeadLetterRequeueResultState = typeof OperationalAlertDeadLetterRequeueResultState[keyof typeof OperationalAlertDeadLetterRequeueResultState];
+
 
 export const OperationalAlertDeadLetterRequeueResultState = {
-  pending: "pending",
+  pending: 'pending',
 } as const;
 
 export interface OperationalAlertDeadLetterRequeueResult {
@@ -532,12 +530,12 @@ export interface OperationalAlertDeadLetterRequeueResult {
   requeued: true;
 }
 
-export type HealthLogEntryOverallStatus =
-  (typeof HealthLogEntryOverallStatus)[keyof typeof HealthLogEntryOverallStatus];
+export type HealthLogEntryOverallStatus = typeof HealthLogEntryOverallStatus[keyof typeof HealthLogEntryOverallStatus];
+
 
 export const HealthLogEntryOverallStatus = {
-  ok: "ok",
-  degraded: "degraded",
+  ok: 'ok',
+  degraded: 'degraded',
 } as const;
 
 export interface HealthLogEntry {
@@ -555,24 +553,23 @@ export interface HealthLogEntry {
  * Customer-billing intent; null when the caller may not view billing data
  * @nullable
  */
-export type JobBillingIntent =
-  | (typeof JobBillingIntent)[keyof typeof JobBillingIntent]
-  | null;
+export type JobBillingIntent = typeof JobBillingIntent[keyof typeof JobBillingIntent] | null;
+
 
 export const JobBillingIntent = {
-  billable: "billable",
-  not_billable: "not_billable",
+  billable: 'billable',
+  not_billable: 'not_billable',
 } as const;
 
 /**
  * time_material: bill materials + job price; fixed_price: bill a single agreed-upon line at contractPrice
  */
-export type JobPricingMode =
-  (typeof JobPricingMode)[keyof typeof JobPricingMode];
+export type JobPricingMode = typeof JobPricingMode[keyof typeof JobPricingMode];
+
 
 export const JobPricingMode = {
-  time_material: "time_material",
-  fixed_price: "fixed_price",
+  time_material: 'time_material',
+  fixed_price: 'fixed_price',
 } as const;
 
 export interface Job {
@@ -581,30 +578,30 @@ export interface Job {
   jobNumber: number;
   title: string;
   /**
-   * Short internal identifier / reference number shown on cards
-   * @nullable
-   */
+     * Short internal identifier / reference number shown on cards
+     * @nullable
+     */
   shortName?: string | null;
   /** site_visit | consultation | planned_work | service_call | change | other */
   type: string;
   /** @nullable */
   clientSite?: string | null;
   /**
-   * Physical address for navigation (Waze/Maps)
-   * @nullable
-   */
+     * Physical address for navigation (Waze/Maps)
+     * @nullable
+     */
   address?: string | null;
   /** ISO date (YYYY-MM-DD) */
   date: string;
   /**
-   * HH:MM
-   * @nullable
-   */
+     * HH:MM
+     * @nullable
+     */
   startTime?: string | null;
   /**
-   * HH:MM
-   * @nullable
-   */
+     * HH:MM
+     * @nullable
+     */
   endTime?: string | null;
   /** planned | in_progress | done | cancelled */
   status: string;
@@ -619,9 +616,9 @@ export interface Job {
   /** @nullable */
   customerId?: number | null;
   /**
-   * Action/job-group containing this job
-   * @nullable
-   */
+     * Action/job-group containing this job
+     * @nullable
+     */
   groupId?: number | null;
   /** @nullable */
   customerCompanyName?: string | null;
@@ -636,9 +633,9 @@ export interface Job {
   /** True when hoursSpent was set from the planned start/end time */
   hoursFromPlan?: boolean;
   /**
-   * Previous actual hoursSpent, kept so plan time can be reverted
-   * @nullable
-   */
+     * Previous actual hoursSpent, kept so plan time can be reverted
+     * @nullable
+     */
   hoursBeforePlan?: number | null;
   /** @nullable */
   hoursVasek?: number | null;
@@ -655,14 +652,14 @@ export interface Job {
   /** @nullable */
   parking?: number | null;
   /**
-   * For service_call jobs — auto-create next occurrence this many days after completion
-   * @nullable
-   */
+     * For service_call jobs — auto-create next occurrence this many days after completion
+     * @nullable
+     */
   recurrenceIntervalDays?: number | null;
   /**
-   * ISO timestamp when timer was started
-   * @nullable
-   */
+     * ISO timestamp when timer was started
+     * @nullable
+     */
   timerStartedAt?: string | null;
   /** Manual ordering within a day (lower shows first) */
   sortOrder: number;
@@ -673,44 +670,44 @@ export interface Job {
   consumedMaterialCount?: number;
   plannedMaterialCount?: number;
   /**
-   * Sum of (quantity * pricePerUnit) for consumed materials on the job; null if no consumed priced materials
-   * @nullable
-   */
+     * Sum of (quantity * pricePerUnit) for consumed materials on the job; null if no consumed priced materials
+     * @nullable
+     */
   materialTotalCost?: number | null;
   /** True when the job is linked to at least one non-cancelled invoice */
   billingLinked: boolean;
   /**
-   * Customer-billing intent; null when the caller may not view billing data
-   * @nullable
-   */
+     * Customer-billing intent; null when the caller may not view billing data
+     * @nullable
+     */
   billingIntent: JobBillingIntent;
   /**
-   * Required internal reason when billingIntent is not_billable
-   * @nullable
-   */
+     * Required internal reason when billingIntent is not_billable
+     * @nullable
+     */
   billingExclusionReason: string | null;
   /**
-   * ISO timestamp of the last billing-intent change
-   * @nullable
-   */
+     * ISO timestamp of the last billing-intent change
+     * @nullable
+     */
   billingIntentChangedAt: string | null;
   /**
-   * User who last changed the billing intent
-   * @nullable
-   */
+     * User who last changed the billing intent
+     * @nullable
+     */
   billingIntentChangedByUserId: number | null;
   /** time_material: bill materials + job price; fixed_price: bill a single agreed-upon line at contractPrice */
   pricingMode?: JobPricingMode;
   /**
-   * Agreed-upon fixed price (only used when pricingMode = 'fixed_price')
-   * @nullable
-   */
+     * Agreed-upon fixed price (only used when pricingMode = 'fixed_price')
+     * @nullable
+     */
   contractPrice?: number | null;
   createdAt: string;
   /**
-   * ISO timestamp when the job was archived
-   * @nullable
-   */
+     * ISO timestamp when the job was archived
+     * @nullable
+     */
   archivedAt?: string | null;
   /** True when today's occurrence comes from a job visit */
   scheduledByVisit?: boolean;
@@ -720,51 +717,51 @@ export interface Job {
   /** @nullable */
   archivedByUserId?: number | null;
   /**
-   * Lifecycle status restored when the job is unarchived
-   * @nullable
-   */
+     * Lifecycle status restored when the job is unarchived
+     * @nullable
+     */
   statusBeforeArchive?: string | null;
   /**
-   * ISO timestamp when a signature request email was last sent
-   * @nullable
-   */
+     * ISO timestamp when a signature request email was last sent
+     * @nullable
+     */
   signatureRequestedAt?: string | null;
   /**
-   * ISO timestamp when the active signature token expires (7 days from request)
-   * @nullable
-   */
+     * ISO timestamp when the active signature token expires (7 days from request)
+     * @nullable
+     */
   signatureTokenExpiresAt?: string | null;
   /**
-   * ISO timestamp when the customer signed the handover protocol
-   * @nullable
-   */
+     * ISO timestamp when the customer signed the handover protocol
+     * @nullable
+     */
   signedAt?: string | null;
   /**
-   * Object-storage path to the customer's signature PNG
-   * @nullable
-   */
+     * Object-storage path to the customer's signature PNG
+     * @nullable
+     */
   signatureObjectPath?: string | null;
 }
 
 /**
  * Client-editable lifecycle status only. "vyfakturovano" (invoiced) is intentionally NOT accepted here — the authoritative invoiced state is set server-side by invoice-service when an invoice is issued (and reverted to "done" on storno), never by a direct client status write.
  */
-export type JobInputStatus =
-  (typeof JobInputStatus)[keyof typeof JobInputStatus];
+export type JobInputStatus = typeof JobInputStatus[keyof typeof JobInputStatus];
+
 
 export const JobInputStatus = {
-  planned: "planned",
-  in_progress: "in_progress",
-  done: "done",
-  cancelled: "cancelled",
+  planned: 'planned',
+  in_progress: 'in_progress',
+  done: 'done',
+  cancelled: 'cancelled',
 } as const;
 
-export type JobInputPricingMode =
-  (typeof JobInputPricingMode)[keyof typeof JobInputPricingMode];
+export type JobInputPricingMode = typeof JobInputPricingMode[keyof typeof JobInputPricingMode];
+
 
 export const JobInputPricingMode = {
-  time_material: "time_material",
-  fixed_price: "fixed_price",
+  time_material: 'time_material',
+  fixed_price: 'fixed_price',
 } as const;
 
 export interface TaskInput {
@@ -810,26 +807,26 @@ export interface JobInput {
   /** @nullable */
   assignedPersonId?: number | null;
   /**
-   * Additional workers created atomically with the job
-   * @maxItems 100
-   */
+     * Additional workers created atomically with the job
+     * @maxItems 100
+     */
   assigneeIds?: number[];
   /**
-   * Initial tasks created atomically with the job
-   * @maxItems 200
-   */
+     * Initial tasks created atomically with the job
+     * @maxItems 200
+     */
   tasks?: TaskInput[];
   /**
-   * Initial planned materials created atomically with the job; stock changes only after explicit consumption
-   * @maxItems 200
-   */
+     * Initial planned materials created atomically with the job; stock changes only after explicit consumption
+     * @maxItems 200
+     */
   materials?: MaterialInput[];
   /** @nullable */
   customerId?: number | null;
   /**
-   * Optional action/job-group assigned atomically on creation
-   * @nullable
-   */
+     * Optional action/job-group assigned atomically on creation
+     * @nullable
+     */
   groupId?: number | null;
   /** @nullable */
   notes?: string | null;
@@ -867,21 +864,21 @@ export interface JobReorderInput {
 /**
  * New status for all selected jobs. "vyfakturovano" (invoiced) is intentionally NOT accepted — the invoiced state is set server-side only when an invoice is issued, never by a direct client write.
  */
-export type JobBulkStatusUpdateStatus =
-  (typeof JobBulkStatusUpdateStatus)[keyof typeof JobBulkStatusUpdateStatus];
+export type JobBulkStatusUpdateStatus = typeof JobBulkStatusUpdateStatus[keyof typeof JobBulkStatusUpdateStatus];
+
 
 export const JobBulkStatusUpdateStatus = {
-  planned: "planned",
-  in_progress: "in_progress",
-  done: "done",
-  cancelled: "cancelled",
+  planned: 'planned',
+  in_progress: 'in_progress',
+  done: 'done',
+  cancelled: 'cancelled',
 } as const;
 
 export interface JobBulkStatusUpdate {
   /**
-   * IDs of jobs to update
-   * @minItems 1
-   */
+     * IDs of jobs to update
+     * @minItems 1
+     */
   ids: number[];
   /** New status for all selected jobs. "vyfakturovano" (invoiced) is intentionally NOT accepted — the invoiced state is set server-side only when an invoice is issued, never by a direct client write. */
   status: JobBulkStatusUpdateStatus;
@@ -894,12 +891,12 @@ export interface BulkUpdateResult {
   updated: number;
 }
 
-export type CalendarJobOccurrenceType =
-  (typeof CalendarJobOccurrenceType)[keyof typeof CalendarJobOccurrenceType];
+export type CalendarJobOccurrenceType = typeof CalendarJobOccurrenceType[keyof typeof CalendarJobOccurrenceType];
+
 
 export const CalendarJobOccurrenceType = {
-  job: "job",
-  visit: "visit",
+  job: 'job',
+  visit: 'visit',
 } as const;
 
 export interface CalendarJob {
@@ -914,14 +911,14 @@ export interface CalendarJob {
   /** ISO date (YYYY-MM-DD) */
   date: string;
   /**
-   * HH:MM
-   * @nullable
-   */
+     * HH:MM
+     * @nullable
+     */
   startTime?: string | null;
   /**
-   * HH:MM
-   * @nullable
-   */
+     * HH:MM
+     * @nullable
+     */
   endTime?: string | null;
   /** @nullable */
   assignedPersonId?: number | null;
@@ -941,22 +938,22 @@ export interface CalendarJob {
 /**
  * Client-editable lifecycle status only. "vyfakturovano" (invoiced) is intentionally NOT accepted here — the authoritative invoiced state is set server-side by invoice-service when an invoice is issued (and reverted to "done" on storno), never by a direct client status write.
  */
-export type JobUpdateStatus =
-  (typeof JobUpdateStatus)[keyof typeof JobUpdateStatus];
+export type JobUpdateStatus = typeof JobUpdateStatus[keyof typeof JobUpdateStatus];
+
 
 export const JobUpdateStatus = {
-  planned: "planned",
-  in_progress: "in_progress",
-  done: "done",
-  cancelled: "cancelled",
+  planned: 'planned',
+  in_progress: 'in_progress',
+  done: 'done',
+  cancelled: 'cancelled',
 } as const;
 
-export type JobUpdatePricingMode =
-  (typeof JobUpdatePricingMode)[keyof typeof JobUpdatePricingMode];
+export type JobUpdatePricingMode = typeof JobUpdatePricingMode[keyof typeof JobUpdatePricingMode];
+
 
 export const JobUpdatePricingMode = {
-  time_material: "time_material",
-  fixed_price: "fixed_price",
+  time_material: 'time_material',
+  fixed_price: 'fixed_price',
 } as const;
 
 export interface JobUpdate {
@@ -1018,14 +1015,14 @@ export interface JobAssigneesInput {
 /**
  * Client-editable lifecycle status only. "vyfakturovano" (invoiced) is intentionally NOT accepted here — the authoritative invoiced state is set server-side by invoice-service when an invoice is issued (and reverted to "done" on storno), never by a direct client status write.
  */
-export type JobStatusUpdateStatus =
-  (typeof JobStatusUpdateStatus)[keyof typeof JobStatusUpdateStatus];
+export type JobStatusUpdateStatus = typeof JobStatusUpdateStatus[keyof typeof JobStatusUpdateStatus];
+
 
 export const JobStatusUpdateStatus = {
-  planned: "planned",
-  in_progress: "in_progress",
-  done: "done",
-  cancelled: "cancelled",
+  planned: 'planned',
+  in_progress: 'in_progress',
+  done: 'done',
+  cancelled: 'cancelled',
 } as const;
 
 export interface JobStatusUpdate {
@@ -1068,22 +1065,22 @@ export interface JobStatusTransitionError {
   readiness?: JobCompletionReadiness;
 }
 
-export type JobBillingIntentUpdateBillingIntent =
-  (typeof JobBillingIntentUpdateBillingIntent)[keyof typeof JobBillingIntentUpdateBillingIntent];
+export type JobBillingIntentUpdateBillingIntent = typeof JobBillingIntentUpdateBillingIntent[keyof typeof JobBillingIntentUpdateBillingIntent];
+
 
 export const JobBillingIntentUpdateBillingIntent = {
-  billable: "billable",
-  not_billable: "not_billable",
+  billable: 'billable',
+  not_billable: 'not_billable',
 } as const;
 
 export interface JobBillingIntentUpdate {
   billingIntent: JobBillingIntentUpdateBillingIntent;
   /**
-   * Required when excluding a job from customer billing
-   * @minLength 3
-   * @maxLength 500
-   * @nullable
-   */
+     * Required when excluding a job from customer billing
+     * @minLength 3
+     * @maxLength 500
+     * @nullable
+     */
   reason?: string | null;
 }
 
@@ -1091,9 +1088,9 @@ export interface SendJobEmailInput {
   /** Base64-encoded PDF of the job sheet */
   pdfBase64: string;
   /**
-   * Optional override recipient; defaults to the customer's stored email
-   * @nullable
-   */
+     * Optional override recipient; defaults to the customer's stored email
+     * @nullable
+     */
   to?: string | null;
   /** @nullable */
   subject?: string | null;
@@ -1111,10 +1108,10 @@ export interface SaveJobSheetInput {
   /** Base64-encoded PDF of the job sheet */
   pdfBase64: string;
   /**
-   * Ignored legacy field; client-generated PDFs never constitute signature evidence
-   * @deprecated
-   * @nullable
-   */
+     * Ignored legacy field; client-generated PDFs never constitute signature evidence
+     * @deprecated
+     * @nullable
+     */
   signed?: boolean | null;
 }
 
@@ -1126,25 +1123,25 @@ export interface Attachment {
   /** @nullable */
   fileName?: string | null;
   /**
-   * base64 data URL or file path
-   * @nullable
-   */
+     * base64 data URL or file path
+     * @nullable
+     */
   url?: string | null;
   /** @nullable */
   description?: string | null;
   /**
-   * For manual items and invoices
-   * @nullable
-   */
+     * For manual items and invoices
+     * @nullable
+     */
   amount?: number | null;
   createdAt: string;
 }
 
 export interface RequestJobSignatureInput {
   /**
-   * Optional override recipient email; defaults to the customer's stored email
-   * @nullable
-   */
+     * Optional override recipient email; defaults to the customer's stored email
+     * @nullable
+     */
   to?: string | null;
 }
 
@@ -1171,12 +1168,12 @@ export interface JobSignatureTokenResult {
   snapshotSha256: Sha256Hex;
 }
 
-export type JobDocumentVersionEvidenceStatus =
-  (typeof JobDocumentVersionEvidenceStatus)[keyof typeof JobDocumentVersionEvidenceStatus];
+export type JobDocumentVersionEvidenceStatus = typeof JobDocumentVersionEvidenceStatus[keyof typeof JobDocumentVersionEvidenceStatus];
+
 
 export const JobDocumentVersionEvidenceStatus = {
-  pending_signature: "pending_signature",
-  signed: "signed",
+  pending_signature: 'pending_signature',
+  signed: 'signed',
 } as const;
 
 export type JobDocumentSnapshotJob = {
@@ -1223,22 +1220,22 @@ export interface JobDocumentVersionEvidence {
   createdAt: string;
 }
 
-export type JobSignatureEventEvidenceEventType =
-  (typeof JobSignatureEventEvidenceEventType)[keyof typeof JobSignatureEventEvidenceEventType];
+export type JobSignatureEventEvidenceEventType = typeof JobSignatureEventEvidenceEventType[keyof typeof JobSignatureEventEvidenceEventType];
+
 
 export const JobSignatureEventEvidenceEventType = {
-  signed: "signed",
-  superseded: "superseded",
-  cancelled: "cancelled",
+  signed: 'signed',
+  superseded: 'superseded',
+  cancelled: 'cancelled',
 } as const;
 
-export type JobSignatureEventEvidenceActorType =
-  (typeof JobSignatureEventEvidenceActorType)[keyof typeof JobSignatureEventEvidenceActorType];
+export type JobSignatureEventEvidenceActorType = typeof JobSignatureEventEvidenceActorType[keyof typeof JobSignatureEventEvidenceActorType];
+
 
 export const JobSignatureEventEvidenceActorType = {
-  public_signer: "public_signer",
-  admin: "admin",
-  system: "system",
+  public_signer: 'public_signer',
+  admin: 'admin',
+  system: 'system',
 } as const;
 
 export interface JobSignatureEventEvidence {
@@ -1268,9 +1265,9 @@ export interface JobSignatureEvidence {
 
 export interface DocumentRevisionInput {
   /**
-   * @minLength 3
-   * @maxLength 500
-   */
+     * @minLength 3
+     * @maxLength 500
+     */
   reason: string;
 }
 
@@ -1382,9 +1379,9 @@ export interface LinkableBillingDocumentLine {
 
 export interface MaterialLinkDocumentInput {
   /**
-   * ID of the approved billing-document line to link; null to unlink
-   * @nullable
-   */
+     * ID of the approved billing-document line to link; null to unlink
+     * @nullable
+     */
   billingDocumentLineId?: number | null;
 }
 
@@ -1434,117 +1431,114 @@ export interface ErrorEnvelope {
 
 export interface MergeJobDocumentPagesInput {
   /**
-   * @minItems 2
-   * @maxItems 50
-   */
+     * @minItems 2
+     * @maxItems 50
+     */
   orderedAttachmentIds: number[];
 }
 
-export type CostDocumentStatus =
-  (typeof CostDocumentStatus)[keyof typeof CostDocumentStatus];
+export type CostDocumentStatus = typeof CostDocumentStatus[keyof typeof CostDocumentStatus];
+
 
 export const CostDocumentStatus = {
-  uploaded: "uploaded",
-  needs_review: "needs_review",
-  reviewed: "reviewed",
-  approved: "approved",
-  ignored: "ignored",
-  duplicate: "duplicate",
-  merged: "merged",
+  uploaded: 'uploaded',
+  needs_review: 'needs_review',
+  reviewed: 'reviewed',
+  approved: 'approved',
+  ignored: 'ignored',
+  duplicate: 'duplicate',
+  merged: 'merged',
 } as const;
 
 /**
  * Derived, document-level material state aggregated from the document's material lines. "assigned" = every material line has its job assignment confirmed; "approved" = every material line is approved; null = no material lines or a mixed state.
  * @nullable
  */
-export type CostDocumentMaterialState =
-  | (typeof CostDocumentMaterialState)[keyof typeof CostDocumentMaterialState]
-  | null;
+export type CostDocumentMaterialState = typeof CostDocumentMaterialState[keyof typeof CostDocumentMaterialState] | null;
+
 
 export const CostDocumentMaterialState = {
-  assigned: "assigned",
-  approved: "approved",
+  assigned: 'assigned',
+  approved: 'approved',
 } as const;
 
-export type CostDocumentDocType =
-  (typeof CostDocumentDocType)[keyof typeof CostDocumentDocType];
+export type CostDocumentDocType = typeof CostDocumentDocType[keyof typeof CostDocumentDocType];
+
 
 export const CostDocumentDocType = {
-  unknown: "unknown",
-  receipt: "receipt",
-  delivery_note: "delivery_note",
-  invoice: "invoice",
-  credit_note: "credit_note",
+  unknown: 'unknown',
+  receipt: 'receipt',
+  delivery_note: 'delivery_note',
+  invoice: 'invoice',
+  credit_note: 'credit_note',
 } as const;
 
 /**
  * @nullable
  */
-export type CostDocumentDeclaredDocType =
-  | (typeof CostDocumentDeclaredDocType)[keyof typeof CostDocumentDeclaredDocType]
-  | null;
+export type CostDocumentDeclaredDocType = typeof CostDocumentDeclaredDocType[keyof typeof CostDocumentDeclaredDocType] | null;
+
 
 export const CostDocumentDeclaredDocType = {
-  receipt: "receipt",
-  delivery_note: "delivery_note",
-  invoice: "invoice",
-  credit_note: "credit_note",
+  receipt: 'receipt',
+  delivery_note: 'delivery_note',
+  invoice: 'invoice',
+  credit_note: 'credit_note',
 } as const;
 
 /**
  * @nullable
  */
-export type CostDocumentDetectedDocType =
-  | (typeof CostDocumentDetectedDocType)[keyof typeof CostDocumentDetectedDocType]
-  | null;
+export type CostDocumentDetectedDocType = typeof CostDocumentDetectedDocType[keyof typeof CostDocumentDetectedDocType] | null;
+
 
 export const CostDocumentDetectedDocType = {
-  receipt: "receipt",
-  delivery_note: "delivery_note",
-  invoice: "invoice",
-  credit_note: "credit_note",
+  receipt: 'receipt',
+  delivery_note: 'delivery_note',
+  invoice: 'invoice',
+  credit_note: 'credit_note',
 } as const;
 
-export type CostDocumentDocTypeSource =
-  (typeof CostDocumentDocTypeSource)[keyof typeof CostDocumentDocTypeSource];
+export type CostDocumentDocTypeSource = typeof CostDocumentDocTypeSource[keyof typeof CostDocumentDocTypeSource];
+
 
 export const CostDocumentDocTypeSource = {
-  unknown: "unknown",
-  user: "user",
-  ai: "ai",
-  conflict: "conflict",
-  admin: "admin",
+  unknown: 'unknown',
+  user: 'user',
+  ai: 'ai',
+  conflict: 'conflict',
+  admin: 'admin',
 } as const;
 
-export type CostDocumentSource =
-  (typeof CostDocumentSource)[keyof typeof CostDocumentSource];
+export type CostDocumentSource = typeof CostDocumentSource[keyof typeof CostDocumentSource];
+
 
 export const CostDocumentSource = {
-  manual: "manual",
-  job_attachment: "job_attachment",
-  isdoc: "isdoc",
-  email: "email",
+  manual: 'manual',
+  job_attachment: 'job_attachment',
+  isdoc: 'isdoc',
+  email: 'email',
 } as const;
 
-export type CostDocumentDeliveryNoteResolution =
-  (typeof CostDocumentDeliveryNoteResolution)[keyof typeof CostDocumentDeliveryNoteResolution];
+export type CostDocumentDeliveryNoteResolution = typeof CostDocumentDeliveryNoteResolution[keyof typeof CostDocumentDeliveryNoteResolution];
+
 
 export const CostDocumentDeliveryNoteResolution = {
-  unknown: "unknown",
-  required: "required",
-  not_required: "not_required",
-  waived: "waived",
+  unknown: 'unknown',
+  required: 'required',
+  not_required: 'not_required',
+  waived: 'waived',
 } as const;
 
-export type DeliveryNoteWorkflowState =
-  (typeof DeliveryNoteWorkflowState)[keyof typeof DeliveryNoteWorkflowState];
+export type DeliveryNoteWorkflowState = typeof DeliveryNoteWorkflowState[keyof typeof DeliveryNoteWorkflowState];
+
 
 export const DeliveryNoteWorkflowState = {
-  not_applicable: "not_applicable",
-  needs_decision: "needs_decision",
-  waiting_for_delivery_note: "waiting_for_delivery_note",
-  ready: "ready",
-  ready_without_delivery_note: "ready_without_delivery_note",
+  not_applicable: 'not_applicable',
+  needs_decision: 'needs_decision',
+  waiting_for_delivery_note: 'waiting_for_delivery_note',
+  ready: 'ready',
+  ready_without_delivery_note: 'ready_without_delivery_note',
 } as const;
 
 export interface DeliveryNoteWorkflow {
@@ -1558,9 +1552,9 @@ export interface CostDocument {
   id: number;
   status: CostDocumentStatus;
   /**
-   * Derived, document-level material state aggregated from the document's material lines. "assigned" = every material line has its job assignment confirmed; "approved" = every material line is approved; null = no material lines or a mixed state.
-   * @nullable
-   */
+     * Derived, document-level material state aggregated from the document's material lines. "assigned" = every material line has its job assignment confirmed; "approved" = every material line is approved; null = no material lines or a mixed state.
+     * @nullable
+     */
   materialState?: CostDocumentMaterialState;
   docType: CostDocumentDocType;
   /** @nullable */
@@ -1568,10 +1562,10 @@ export interface CostDocument {
   /** @nullable */
   detectedDocType?: CostDocumentDetectedDocType;
   /**
-   * @minimum 0
-   * @maximum 1
-   * @nullable
-   */
+     * @minimum 0
+     * @maximum 1
+     * @nullable
+     */
   detectedDocTypeConfidence?: number | null;
   docTypeSource?: CostDocumentDocTypeSource;
   /** @nullable */
@@ -1672,34 +1666,34 @@ export interface CostDocument {
   updatedAt: string;
 }
 
-export type CostDocumentLineLineType =
-  (typeof CostDocumentLineLineType)[keyof typeof CostDocumentLineLineType];
+export type CostDocumentLineLineType = typeof CostDocumentLineLineType[keyof typeof CostDocumentLineLineType];
+
 
 export const CostDocumentLineLineType = {
-  material: "material",
-  work: "work",
-  transport: "transport",
-  other: "other",
+  material: 'material',
+  work: 'work',
+  transport: 'transport',
+  other: 'other',
 } as const;
 
-export type CostDocumentLineVatMode =
-  (typeof CostDocumentLineVatMode)[keyof typeof CostDocumentLineVatMode];
+export type CostDocumentLineVatMode = typeof CostDocumentLineVatMode[keyof typeof CostDocumentLineVatMode];
+
 
 export const CostDocumentLineVatMode = {
-  standard: "standard",
-  reverse_charge: "reverse_charge",
-  zero: "zero",
-  non_vat: "non_vat",
+  standard: 'standard',
+  reverse_charge: 'reverse_charge',
+  zero: 'zero',
+  non_vat: 'non_vat',
 } as const;
 
-export type CostDocumentLineAllocationType =
-  (typeof CostDocumentLineAllocationType)[keyof typeof CostDocumentLineAllocationType];
+export type CostDocumentLineAllocationType = typeof CostDocumentLineAllocationType[keyof typeof CostDocumentLineAllocationType];
+
 
 export const CostDocumentLineAllocationType = {
-  rebill: "rebill",
-  internal: "internal",
-  stock: "stock",
-  not_rebilled: "not_rebilled",
+  rebill: 'rebill',
+  internal: 'internal',
+  stock: 'stock',
+  not_rebilled: 'not_rebilled',
 } as const;
 
 export interface CostDocumentLine {
@@ -1843,12 +1837,12 @@ export interface CostDocumentLinkedMaterial {
   invoicedInvoiceId?: number | null;
 }
 
-export type CostDocumentPageMergeStatus =
-  (typeof CostDocumentPageMergeStatus)[keyof typeof CostDocumentPageMergeStatus];
+export type CostDocumentPageMergeStatus = typeof CostDocumentPageMergeStatus[keyof typeof CostDocumentPageMergeStatus];
+
 
 export const CostDocumentPageMergeStatus = {
-  active: "active",
-  reverted: "reverted",
+  active: 'active',
+  reverted: 'reverted',
 } as const;
 
 export type CostDocumentPageMergeMembersItem = {
@@ -1888,9 +1882,9 @@ export interface Person {
   id: number;
   name: string;
   /**
-   * Email address used to send PPE confirmation links
-   * @nullable
-   */
+     * Email address used to send PPE confirmation links
+     * @nullable
+     */
   email?: string | null;
   createdAt: string;
 }
@@ -1899,9 +1893,9 @@ export interface PersonInput {
   /** @minLength 1 */
   name: string;
   /**
-   * Email address used to send PPE confirmation links
-   * @nullable
-   */
+     * Email address used to send PPE confirmation links
+     * @nullable
+     */
   email?: string | null;
 }
 
@@ -1918,12 +1912,12 @@ export interface PersonStats {
   ppeAttentionCount: number;
 }
 
-export type ActiveTimerKind =
-  (typeof ActiveTimerKind)[keyof typeof ActiveTimerKind];
+export type ActiveTimerKind = typeof ActiveTimerKind[keyof typeof ActiveTimerKind];
+
 
 export const ActiveTimerKind = {
-  job: "job",
-  activity: "activity",
+  job: 'job',
+  activity: 'activity',
 } as const;
 
 export interface ActiveTimer {
@@ -1943,14 +1937,14 @@ export interface PersonHourlyRate {
   /** @nullable */
   validTo: string | null;
   /**
-   * Null when the caller lacks rates.cost.view
-   * @nullable
-   */
+     * Null when the caller lacks rates.cost.view
+     * @nullable
+     */
   costRate: number | null;
   /**
-   * Null when the caller lacks rates.sale.view
-   * @nullable
-   */
+     * Null when the caller lacks rates.sale.view
+     * @nullable
+     */
   saleRate: number | null;
   reason: string;
   /** @nullable */
@@ -1971,27 +1965,27 @@ export interface PersonHourlyRateInput {
   /** @minimum 0 */
   saleRate: number;
   /**
-   * @minLength 3
-   * @maxLength 500
-   */
+     * @minLength 3
+     * @maxLength 500
+     */
   reason: string;
 }
 
 export interface VoidPersonHourlyRateInput {
   /**
-   * @minLength 3
-   * @maxLength 500
-   */
+     * @minLength 3
+     * @maxLength 500
+     */
   reason: string;
 }
 
-export type EmployeeLeaveType =
-  (typeof EmployeeLeaveType)[keyof typeof EmployeeLeaveType];
+export type EmployeeLeaveType = typeof EmployeeLeaveType[keyof typeof EmployeeLeaveType];
+
 
 export const EmployeeLeaveType = {
-  vacation: "vacation",
-  sick: "sick",
-  other: "other",
+  vacation: 'vacation',
+  sick: 'sick',
+  other: 'other',
 } as const;
 
 export interface EmployeeLeave {
@@ -2012,13 +2006,13 @@ export interface EmployeeLeave {
   updatedAt: string;
 }
 
-export type EmployeeLeaveInputType =
-  (typeof EmployeeLeaveInputType)[keyof typeof EmployeeLeaveInputType];
+export type EmployeeLeaveInputType = typeof EmployeeLeaveInputType[keyof typeof EmployeeLeaveInputType];
+
 
 export const EmployeeLeaveInputType = {
-  vacation: "vacation",
-  sick: "sick",
-  other: "other",
+  vacation: 'vacation',
+  sick: 'sick',
+  other: 'other',
 } as const;
 
 export interface EmployeeLeaveInput {
@@ -2071,19 +2065,19 @@ export interface LeaveSettings {
 
 export interface LeaveSettingsInput {
   /**
-   * Max vacation days per person per year
-   * @minimum 1
-   */
+     * Max vacation days per person per year
+     * @minimum 1
+     */
   vacationYearlyCap: number;
   /**
-   * Max sick days per person per year
-   * @minimum 1
-   */
+     * Max sick days per person per year
+     * @minimum 1
+     */
   sickYearlyCap: number;
   /**
-   * Max other leave days per person per year
-   * @minimum 1
-   */
+     * Max other leave days per person per year
+     * @minimum 1
+     */
   otherYearlyCap: number;
 }
 
@@ -2174,9 +2168,9 @@ export interface CustomerFinancialSummary {
   /** Sum of totalWithVat for non-cancelled unpaid invoices (CZK numeric string) */
   openBalance: string;
   /**
-   * Most recent paidDate across all invoices for this customer
-   * @nullable
-   */
+     * Most recent paidDate across all invoices for this customer
+     * @nullable
+     */
   lastPaymentDate: string | null;
   /** Sum of job.price for done unbilled jobs for this customer */
   unbilledJobsValue: number;
@@ -2450,9 +2444,9 @@ export interface CustomerSiteAttachment {
   /** @nullable */
   fileName?: string | null;
   /**
-   * object storage path
-   * @nullable
-   */
+     * object storage path
+     * @nullable
+     */
   url?: string | null;
   /** @nullable */
   description?: string | null;
@@ -2498,23 +2492,23 @@ export interface CustomerSiteAttachmentInput {
   description?: string | null;
 }
 
-export type CustomerDocumentDocStatus =
-  (typeof CustomerDocumentDocStatus)[keyof typeof CustomerDocumentDocStatus];
+export type CustomerDocumentDocStatus = typeof CustomerDocumentDocStatus[keyof typeof CustomerDocumentDocStatus];
+
 
 export const CustomerDocumentDocStatus = {
-  current: "current",
-  expiring: "expiring",
-  expired: "expired",
-  replaced: "replaced",
-  archived: "archived",
+  current: 'current',
+  expiring: 'expiring',
+  expired: 'expired',
+  replaced: 'replaced',
+  archived: 'archived',
 } as const;
 
 export interface CustomerDocument {
   id: number;
   /**
-   * customer_sites.id (null for customer-level docs)
-   * @nullable
-   */
+     * customer_sites.id (null for customer-level docs)
+     * @nullable
+     */
   siteId: number | null;
   /** @nullable */
   siteName?: string | null;
@@ -2525,9 +2519,9 @@ export interface CustomerDocument {
   /** @nullable */
   fileName?: string | null;
   /**
-   * object storage path
-   * @nullable
-   */
+     * object storage path
+     * @nullable
+     */
   url?: string | null;
   /** @nullable */
   description?: string | null;
@@ -2538,19 +2532,19 @@ export interface CustomerDocument {
   /** @nullable */
   revision?: string | null;
   /**
-   * YYYY-MM-DD
-   * @nullable
-   */
+     * YYYY-MM-DD
+     * @nullable
+     */
   issuedAt?: string | null;
   /**
-   * YYYY-MM-DD
-   * @nullable
-   */
+     * YYYY-MM-DD
+     * @nullable
+     */
   validFrom?: string | null;
   /**
-   * YYYY-MM-DD
-   * @nullable
-   */
+     * YYYY-MM-DD
+     * @nullable
+     */
   validUntil?: string | null;
   docStatus: CustomerDocumentDocStatus;
   /** @nullable */
@@ -2615,21 +2609,21 @@ export interface CustomerDocumentsSummary {
   noExpiry: number;
   total: number;
   /**
-   * ISO date of the nearest upcoming expiry (YYYY-MM-DD)
-   * @nullable
-   */
+     * ISO date of the nearest upcoming expiry (YYYY-MM-DD)
+     * @nullable
+     */
   nextExpiry?: string | null;
 }
 
-export type CustomerDocumentUpdateDocStatus =
-  (typeof CustomerDocumentUpdateDocStatus)[keyof typeof CustomerDocumentUpdateDocStatus];
+export type CustomerDocumentUpdateDocStatus = typeof CustomerDocumentUpdateDocStatus[keyof typeof CustomerDocumentUpdateDocStatus];
+
 
 export const CustomerDocumentUpdateDocStatus = {
-  current: "current",
-  expiring: "expiring",
-  expired: "expired",
-  replaced: "replaced",
-  archived: "archived",
+  current: 'current',
+  expiring: 'expiring',
+  expired: 'expired',
+  replaced: 'replaced',
+  archived: 'archived',
 } as const;
 
 export interface CustomerDocumentUpdate {
@@ -2730,22 +2724,22 @@ export interface DeviceCredentialInput {
   networkTopology?: NetworkDevice[];
 }
 
-export type CredentialAccessAuditInputAction =
-  (typeof CredentialAccessAuditInputAction)[keyof typeof CredentialAccessAuditInputAction];
+export type CredentialAccessAuditInputAction = typeof CredentialAccessAuditInputAction[keyof typeof CredentialAccessAuditInputAction];
+
 
 export const CredentialAccessAuditInputAction = {
-  view: "view",
-  copy: "copy",
+  view: 'view',
+  copy: 'copy',
 } as const;
 
-export type CredentialAccessAuditInputField =
-  (typeof CredentialAccessAuditInputField)[keyof typeof CredentialAccessAuditInputField];
+export type CredentialAccessAuditInputField = typeof CredentialAccessAuditInputField[keyof typeof CredentialAccessAuditInputField];
+
 
 export const CredentialAccessAuditInputField = {
-  pin: "pin",
-  password: "password",
-  card: "card",
-  username: "username",
+  pin: 'pin',
+  password: 'password',
+  card: 'card',
+  username: 'username',
 } as const;
 
 export interface CredentialAccessAuditInput {
@@ -2790,21 +2784,21 @@ export interface Machine {
   /** @nullable */
   purchaseDate?: string | null;
   /**
-   * SPZ (for kind=auto)
-   * @nullable
-   */
+     * SPZ (for kind=auto)
+     * @nullable
+     */
   licensePlate?: string | null;
   /** @nullable */
   vin?: string | null;
   /**
-   * Stav tachometru (for kind=auto)
-   * @nullable
-   */
+     * Stav tachometru (for kind=auto)
+     * @nullable
+     */
   mileageKm?: number | null;
   /**
-   * STK / revize (ISO date)
-   * @nullable
-   */
+     * STK / revize (ISO date)
+     * @nullable
+     */
   inspectionDate?: string | null;
   /** @nullable */
   assignedPersonId?: number | null;
@@ -2912,16 +2906,16 @@ export interface WarehouseItem {
   /** @nullable */
   supplierIc?: string | null;
   /**
-   * ISO date of the most recent purchase-price record
-   * @nullable
-   */
+     * ISO date of the most recent purchase-price record
+     * @nullable
+     */
   latestPriceDate?: string | null;
   /** True when at least one price-history record exists for this item */
   hasPriceHistory?: boolean;
   /**
-   * Number of OUT movements for this item where costPriceAtTime is not recorded; null when there are no such movements
-   * @nullable
-   */
+     * Number of OUT movements for this item where costPriceAtTime is not recorded; null when there are no such movements
+     * @nullable
+     */
   missingCostPriceCount?: number | null;
   /** True when the item has any OUT movements with no purchase price recorded (cost_price_at_time IS NULL) */
   hasCostGap: boolean;
@@ -2999,12 +2993,12 @@ export interface WarehousePriceHistory {
   createdAt: string;
 }
 
-export type WarehouseMovementDirection =
-  (typeof WarehouseMovementDirection)[keyof typeof WarehouseMovementDirection];
+export type WarehouseMovementDirection = typeof WarehouseMovementDirection[keyof typeof WarehouseMovementDirection];
+
 
 export const WarehouseMovementDirection = {
-  in: "in",
-  out: "out",
+  in: 'in',
+  out: 'out',
 } as const;
 
 export interface WarehouseMovement {
@@ -3037,12 +3031,12 @@ export interface WarehouseMovement {
   createdAt: string;
 }
 
-export type WarehouseMovementInputDirection =
-  (typeof WarehouseMovementInputDirection)[keyof typeof WarehouseMovementInputDirection];
+export type WarehouseMovementInputDirection = typeof WarehouseMovementInputDirection[keyof typeof WarehouseMovementInputDirection];
+
 
 export const WarehouseMovementInputDirection = {
-  in: "in",
-  out: "out",
+  in: 'in',
+  out: 'out',
 } as const;
 
 export interface WarehouseMovementInput {
@@ -3054,17 +3048,17 @@ export interface WarehouseMovementInput {
   /** @nullable */
   note?: string | null;
   /**
-   * Optional client-generated key; re-submitting the same key returns the existing movement (409) instead of creating a duplicate
-   * @nullable
-   */
+     * Optional client-generated key; re-submitting the same key returns the existing movement (409) instead of creating a duplicate
+     * @nullable
+     */
   idempotencyKey?: string | null;
 }
 
 export interface WarehouseMovementPatch {
   /**
-   * Purchase/cost price at the time of the OUT movement; null clears the value
-   * @nullable
-   */
+     * Purchase/cost price at the time of the OUT movement; null clears the value
+     * @nullable
+     */
   costPriceAtTime: number | null;
 }
 
@@ -3081,9 +3075,9 @@ export interface WarehouseJobMarginSummary {
   /** Qty issued where costPriceAtTime is known (used to compute cost coverage) */
   coveredCostQtyOut: number;
   /**
-   * (totalSaleValue − totalCostValue) / totalSaleValue × 100, null when totalSaleValue = 0
-   * @nullable
-   */
+     * (totalSaleValue − totalCostValue) / totalSaleValue × 100, null when totalSaleValue = 0
+     * @nullable
+     */
   marginPercent?: number | null;
 }
 
@@ -3101,9 +3095,9 @@ export interface WarehouseJobMarginTrendPoint {
   /** Running total of cost value up to and including this period */
   cumulativeCostValue: number;
   /**
-   * (cumulativeSaleValue − cumulativeCostValue) / cumulativeSaleValue × 100, null when cumulativeSaleValue = 0
-   * @nullable
-   */
+     * (cumulativeSaleValue − cumulativeCostValue) / cumulativeSaleValue × 100, null when cumulativeSaleValue = 0
+     * @nullable
+     */
   cumulativeMarginPct?: number | null;
 }
 
@@ -3161,35 +3155,35 @@ export interface DashboardSummary {
   doneCount: number;
   totalHoursThisWeek: number;
   /**
-   * Null without billing.view
-   * @nullable
-   */
+     * Null without billing.view
+     * @nullable
+     */
   totalRevenueThisWeek: number | null;
   /**
-   * Canonical ready-to-invoice value without VAT, including recorded work, materials, transport, parking and completed activities; null without billing.view
-   * @nullable
-   */
+     * Canonical ready-to-invoice value without VAT, including recorded work, materials, transport, parking and completed activities; null without billing.view
+     * @nullable
+     */
   unbilledValue: number | null;
   /** Total hours spent on all jobs this calendar month */
   hoursThisMonth: number;
   /** Count of active jobs that have no customer, no price, or are stale */
   problematicJobsCount: number;
   /**
-   * Days since the oldest done unbilled job date; null without billing.view or when no matching job exists
-   * @nullable
-   */
+     * Days since the oldest done unbilled job date; null without billing.view or when no matching job exists
+     * @nullable
+     */
   unbilledOldestDays?: number | null;
   /**
-   * Count of distinct customers with at least one done unbilled job older than 7 days; null without billing.view
-   * @nullable
-   */
+     * Count of distinct customers with at least one done unbilled job older than 7 days; null without billing.view
+     * @nullable
+     */
   overdueUnbilledCustomers: number | null;
 }
 
 /**
  * Query-parameter key/value pairs to pre-apply when navigating.
  */
-export type RiskMetricFilterParams = { [key: string]: string };
+export type RiskMetricFilterParams = {[key: string]: string};
 
 /**
  * Describes how a UI should navigate to the items counted by this metric.
@@ -3208,9 +3202,9 @@ export interface RiskMetric {
   /** Number of items in this risk bucket. */
   count: number;
   /**
-   * Optional monetary aggregate (CZK) relevant for this metric.
-   * @nullable
-   */
+     * Optional monetary aggregate (CZK) relevant for this metric.
+     * @nullable
+     */
   amount?: number | null;
   filter: RiskMetricFilter;
 }
@@ -3249,18 +3243,18 @@ export interface RiskSummary {
   computedAt: string;
 }
 
-export type PpeItemCategory =
-  (typeof PpeItemCategory)[keyof typeof PpeItemCategory];
+export type PpeItemCategory = typeof PpeItemCategory[keyof typeof PpeItemCategory];
+
 
 export const PpeItemCategory = {
-  hlava: "hlava",
-  ruky: "ruky",
-  telo: "telo",
-  nohy: "nohy",
-  oci: "oci",
-  sluch: "sluch",
-  dychaci: "dychaci",
-  ostatni: "ostatni",
+  hlava: 'hlava',
+  ruky: 'ruky',
+  telo: 'telo',
+  nohy: 'nohy',
+  oci: 'oci',
+  sluch: 'sluch',
+  dychaci: 'dychaci',
+  ostatni: 'ostatni',
 } as const;
 
 export interface PpeItem {
@@ -3279,18 +3273,18 @@ export interface PpeItem {
   createdAt: string;
 }
 
-export type PpeItemInputCategory =
-  (typeof PpeItemInputCategory)[keyof typeof PpeItemInputCategory];
+export type PpeItemInputCategory = typeof PpeItemInputCategory[keyof typeof PpeItemInputCategory];
+
 
 export const PpeItemInputCategory = {
-  hlava: "hlava",
-  ruky: "ruky",
-  telo: "telo",
-  nohy: "nohy",
-  oci: "oci",
-  sluch: "sluch",
-  dychaci: "dychaci",
-  ostatni: "ostatni",
+  hlava: 'hlava',
+  ruky: 'ruky',
+  telo: 'telo',
+  nohy: 'nohy',
+  oci: 'oci',
+  sluch: 'sluch',
+  dychaci: 'dychaci',
+  ostatni: 'ostatni',
 } as const;
 
 export interface PpeItemInput {
@@ -3308,15 +3302,15 @@ export interface PpeItemInput {
   notes?: string | null;
 }
 
-export type PpeAssignmentStatus =
-  (typeof PpeAssignmentStatus)[keyof typeof PpeAssignmentStatus];
+export type PpeAssignmentStatus = typeof PpeAssignmentStatus[keyof typeof PpeAssignmentStatus];
+
 
 export const PpeAssignmentStatus = {
-  issued: "issued",
-  returned: "returned",
-  damaged: "damaged",
-  lost: "lost",
-  disposed: "disposed",
+  issued: 'issued',
+  returned: 'returned',
+  damaged: 'damaged',
+  lost: 'lost',
+  disposed: 'disposed',
 } as const;
 
 export interface PpeHandoverDocument {
@@ -3369,9 +3363,9 @@ export interface PpeAssignment {
   /** True when an active signature link exists for this assignment */
   hasSignToken?: boolean;
   /**
-   * ISO timestamp when the confirmation link was emailed to the employee
-   * @nullable
-   */
+     * ISO timestamp when the confirmation link was emailed to the employee
+     * @nullable
+     */
   confirmEmailSentAt?: string | null;
   /** @nullable */
   notes?: string | null;
@@ -3403,15 +3397,15 @@ export interface PpeSignLinkResponse {
   expiresAt: string;
 }
 
-export type PpeAssignmentUpdateStatus =
-  (typeof PpeAssignmentUpdateStatus)[keyof typeof PpeAssignmentUpdateStatus];
+export type PpeAssignmentUpdateStatus = typeof PpeAssignmentUpdateStatus[keyof typeof PpeAssignmentUpdateStatus];
+
 
 export const PpeAssignmentUpdateStatus = {
-  issued: "issued",
-  returned: "returned",
-  damaged: "damaged",
-  lost: "lost",
-  disposed: "disposed",
+  issued: 'issued',
+  returned: 'returned',
+  damaged: 'damaged',
+  lost: 'lost',
+  disposed: 'disposed',
 } as const;
 
 export interface PpeAssignmentUpdate {
@@ -3445,9 +3439,9 @@ export interface PpeSignHandoverInput {
   /** PNG signature as data URL (data:image/png;base64,...) */
   signatureDataUrl: string;
   /**
-   * Name of the person signing (employee)
-   * @minLength 1
-   */
+     * Name of the person signing (employee)
+     * @minLength 1
+     */
   signatoryName: string;
   /** Confirmation text the employee agreed to */
   confirmationText: string;
@@ -3455,13 +3449,13 @@ export interface PpeSignHandoverInput {
   confirmationAccepted: boolean;
 }
 
-export type PpeHandoverEventEventType =
-  (typeof PpeHandoverEventEventType)[keyof typeof PpeHandoverEventEventType];
+export type PpeHandoverEventEventType = typeof PpeHandoverEventEventType[keyof typeof PpeHandoverEventEventType];
+
 
 export const PpeHandoverEventEventType = {
-  signed: "signed",
-  pdf_downloaded: "pdf_downloaded",
-  signature_viewed: "signature_viewed",
+  signed: 'signed',
+  pdf_downloaded: 'pdf_downloaded',
+  signature_viewed: 'signature_viewed',
 } as const;
 
 export interface PpeHandoverEvent {
@@ -3481,19 +3475,19 @@ export interface ClientErrorInput {
   /** @maxLength 2000 */
   message: string;
   /**
-   * @maxLength 10000
-   * @nullable
-   */
+     * @maxLength 10000
+     * @nullable
+     */
   stack?: string | null;
   /**
-   * @maxLength 10000
-   * @nullable
-   */
+     * @maxLength 10000
+     * @nullable
+     */
   componentStack?: string | null;
   /**
-   * @maxLength 2000
-   * @nullable
-   */
+     * @maxLength 2000
+     * @nullable
+     */
   path?: string | null;
 }
 
@@ -3534,20 +3528,20 @@ export interface LoginInput {
   password: string;
 }
 
-export type AuthUserAccountType =
-  (typeof AuthUserAccountType)[keyof typeof AuthUserAccountType];
+export type AuthUserAccountType = typeof AuthUserAccountType[keyof typeof AuthUserAccountType];
+
 
 export const AuthUserAccountType = {
-  internal: "internal",
-  external: "external",
+  internal: 'internal',
+  external: 'external',
 } as const;
 
-export type UserPermissionOverrideEffect =
-  (typeof UserPermissionOverrideEffect)[keyof typeof UserPermissionOverrideEffect];
+export type UserPermissionOverrideEffect = typeof UserPermissionOverrideEffect[keyof typeof UserPermissionOverrideEffect];
+
 
 export const UserPermissionOverrideEffect = {
-  allow: "allow",
-  deny: "deny",
+  allow: 'allow',
+  deny: 'deny',
 } as const;
 
 export interface UserPermissionOverride {
@@ -3560,9 +3554,9 @@ export interface AuthUser {
   username: string;
   name: string;
   /**
-   * Employee record used for personal time tracking
-   * @nullable
-   */
+     * Employee record used for personal time tracking
+     * @nullable
+     */
   personId: number | null;
   /** @nullable */
   email?: string | null;
@@ -3578,18 +3572,18 @@ export interface AuthUser {
 
 export interface VaultPasswordVerifyInput {
   /**
-   * @minLength 1
-   * @maxLength 256
-   */
+     * @minLength 1
+     * @maxLength 256
+     */
   password: string;
 }
 
-export type WebAuthnVerifyResultMethod =
-  (typeof WebAuthnVerifyResultMethod)[keyof typeof WebAuthnVerifyResultMethod];
+export type WebAuthnVerifyResultMethod = typeof WebAuthnVerifyResultMethod[keyof typeof WebAuthnVerifyResultMethod];
+
 
 export const WebAuthnVerifyResultMethod = {
-  password: "password",
-  webauthn: "webauthn",
+  password: 'password',
+  webauthn: 'webauthn',
 } as const;
 
 export interface WebAuthnVerifyResult {
@@ -3598,13 +3592,13 @@ export interface WebAuthnVerifyResult {
   expiresAt?: string;
 }
 
-export type MeResponseCacheMode =
-  (typeof MeResponseCacheMode)[keyof typeof MeResponseCacheMode];
+export type MeResponseCacheMode = typeof MeResponseCacheMode[keyof typeof MeResponseCacheMode];
+
 
 export const MeResponseCacheMode = {
-  none: "none",
-  "network-only": "network-only",
-  "offline-scoped": "offline-scoped",
+  none: 'none',
+  'network-only': 'network-only',
+  'offline-scoped': 'offline-scoped',
 } as const;
 
 export interface MeResponse {
@@ -3614,9 +3608,9 @@ export interface MeResponse {
   cacheMode: MeResponseCacheMode;
   user?: AuthUser;
   /**
-   * Opaque user and authorization epoch used only to partition browser offline storage
-   * @pattern ^[a-f0-9]{64}$
-   */
+     * Opaque user and authorization epoch used only to partition browser offline storage
+     * @pattern ^[a-f0-9]{64}$
+     */
   offlineScope?: string;
 }
 
@@ -3634,9 +3628,7 @@ export interface SetupInput {
 /**
  * PublicKeyCredentialCreationOptions or PublicKeyCredentialRequestOptions returned by @simplewebauthn/server
  */
-export interface WebAuthnOptions {
-  [key: string]: unknown;
-}
+export interface WebAuthnOptions { [key: string]: unknown }
 
 /**
  * RegistrationResponseJSON from @simplewebauthn/browser
@@ -3686,13 +3678,13 @@ export interface UserPreferencesInput {
 /**
  * Which configuration is currently active for sending: "db" (this saved config), "env" (SMTP_* environment fallback), or "none".
  */
-export type EmailSettingsSource =
-  (typeof EmailSettingsSource)[keyof typeof EmailSettingsSource];
+export type EmailSettingsSource = typeof EmailSettingsSource[keyof typeof EmailSettingsSource];
+
 
 export const EmailSettingsSource = {
-  db: "db",
-  env: "env",
-  none: "none",
+  db: 'db',
+  env: 'env',
+  none: 'none',
 } as const;
 
 export interface EmailSettings {
@@ -3726,9 +3718,9 @@ export interface EmailSettingsInput {
   /** @nullable */
   fromName: string | null;
   /**
-   * Write-only. Provide a non-empty string to set the password, an empty string to clear it, or omit / null to keep the existing password.
-   * @nullable
-   */
+     * Write-only. Provide a non-empty string to set the password, an empty string to clear it, or omit / null to keep the existing password.
+     * @nullable
+     */
   password?: string | null;
 }
 
@@ -3744,13 +3736,13 @@ export interface EmailTestResult {
 /**
  * Which configuration is active: "db" (this saved config), "env" (IMAP_* environment fallback), or "none".
  */
-export type EmailImportSettingsSource =
-  (typeof EmailImportSettingsSource)[keyof typeof EmailImportSettingsSource];
+export type EmailImportSettingsSource = typeof EmailImportSettingsSource[keyof typeof EmailImportSettingsSource];
+
 
 export const EmailImportSettingsSource = {
-  db: "db",
-  env: "env",
-  none: "none",
+  db: 'db',
+  env: 'env',
+  none: 'none',
 } as const;
 
 export interface EmailImportSettings {
@@ -3790,9 +3782,9 @@ export interface EmailImportSettingsInput {
   markSeen: boolean;
   pollMinutes: number;
   /**
-   * Write-only. Provide a non-empty string to set the password, an empty string to clear it, or omit / null to keep the existing password.
-   * @nullable
-   */
+     * Write-only. Provide a non-empty string to set the password, an empty string to clear it, or omit / null to keep the existing password.
+     * @nullable
+     */
   password?: string | null;
 }
 
@@ -3816,15 +3808,15 @@ export interface EmailImportPollResult {
 /**
  * `failed` is retried automatically on the next poll; `failed_permanent` exhausted the automatic-retry cap and is only re-attempted via the manual retry action.
  */
-export type EmailImportLogEntryStatus =
-  (typeof EmailImportLogEntryStatus)[keyof typeof EmailImportLogEntryStatus];
+export type EmailImportLogEntryStatus = typeof EmailImportLogEntryStatus[keyof typeof EmailImportLogEntryStatus];
+
 
 export const EmailImportLogEntryStatus = {
-  imported: "imported",
-  no_attachments: "no_attachments",
-  skipped: "skipped",
-  failed: "failed",
-  failed_permanent: "failed_permanent",
+  imported: 'imported',
+  no_attachments: 'no_attachments',
+  skipped: 'skipped',
+  failed: 'failed',
+  failed_permanent: 'failed_permanent',
 } as const;
 
 export interface EmailImportLogEntry {
@@ -3843,9 +3835,9 @@ export interface EmailImportLogEntry {
   attachmentsTotal: number;
   attachmentsImported: number;
   /**
-   * Comma-separated billing_documents ids created from this message.
-   * @nullable
-   */
+     * Comma-separated billing_documents ids created from this message.
+     * @nullable
+     */
   documentIds: string | null;
   /** @nullable */
   error: string | null;
@@ -3868,25 +3860,25 @@ export interface UserInput {
   isActive?: boolean;
 }
 
-export type ExternalAccountSummaryState =
-  (typeof ExternalAccountSummaryState)[keyof typeof ExternalAccountSummaryState];
+export type ExternalAccountSummaryState = typeof ExternalAccountSummaryState[keyof typeof ExternalAccountSummaryState];
+
 
 export const ExternalAccountSummaryState = {
-  draft: "draft",
-  active: "active",
-  suspended: "suspended",
-  revoked: "revoked",
-  expired: "expired",
+  draft: 'draft',
+  active: 'active',
+  suspended: 'suspended',
+  revoked: 'revoked',
+  expired: 'expired',
 } as const;
 
-export type ExternalAccountSummaryStatus =
-  (typeof ExternalAccountSummaryStatus)[keyof typeof ExternalAccountSummaryStatus];
+export type ExternalAccountSummaryStatus = typeof ExternalAccountSummaryStatus[keyof typeof ExternalAccountSummaryStatus];
+
 
 export const ExternalAccountSummaryStatus = {
-  draft: "draft",
-  active: "active",
-  suspended: "suspended",
-  revoked: "revoked",
+  draft: 'draft',
+  active: 'active',
+  suspended: 'suspended',
+  revoked: 'revoked',
 } as const;
 
 export interface ExternalAccountSummary {
@@ -3928,19 +3920,19 @@ export interface ExternalAccountList {
 
 export interface ExternalAccountCreateInput {
   /**
-   * @minLength 3
-   * @maxLength 80
-   */
+     * @minLength 3
+     * @maxLength 80
+     */
   username: string;
   /**
-   * @minLength 12
-   * @maxLength 200
-   */
+     * @minLength 12
+     * @maxLength 200
+     */
   password: string;
   /**
-   * @minLength 1
-   * @maxLength 160
-   */
+     * @minLength 1
+     * @maxLength 160
+     */
   name: string;
   /** @nullable */
   email?: string | null;
@@ -3949,20 +3941,20 @@ export interface ExternalAccountCreateInput {
   accessExpiresAt: string;
 }
 
-export type ExternalAccountScopeInputResourceType =
-  (typeof ExternalAccountScopeInputResourceType)[keyof typeof ExternalAccountScopeInputResourceType];
+export type ExternalAccountScopeInputResourceType = typeof ExternalAccountScopeInputResourceType[keyof typeof ExternalAccountScopeInputResourceType];
+
 
 export const ExternalAccountScopeInputResourceType = {
-  job: "job",
-  quote: "quote",
-  switchboard: "switchboard",
+  job: 'job',
+  quote: 'quote',
+  switchboard: 'switchboard',
 } as const;
 
-export type ExternalAccountScopeInputCapability =
-  (typeof ExternalAccountScopeInputCapability)[keyof typeof ExternalAccountScopeInputCapability];
+export type ExternalAccountScopeInputCapability = typeof ExternalAccountScopeInputCapability[keyof typeof ExternalAccountScopeInputCapability];
+
 
 export const ExternalAccountScopeInputCapability = {
-  read: "read",
+  read: 'read',
 } as const;
 
 export interface ExternalAccountScopeInput {
@@ -4012,33 +4004,33 @@ export interface ExternalAccountRevokeInput {
   /** @minimum 1 */
   expectedVersion: number;
   /**
-   * @minLength 3
-   * @maxLength 300
-   */
+     * @minLength 3
+     * @maxLength 300
+     */
   reason: string;
 }
 
-export type ExternalPortalResourceListCacheMode =
-  (typeof ExternalPortalResourceListCacheMode)[keyof typeof ExternalPortalResourceListCacheMode];
+export type ExternalPortalResourceListCacheMode = typeof ExternalPortalResourceListCacheMode[keyof typeof ExternalPortalResourceListCacheMode];
+
 
 export const ExternalPortalResourceListCacheMode = {
-  "network-only": "network-only",
+  'network-only': 'network-only',
 } as const;
 
-export type ExternalPortalResourceResourceType =
-  (typeof ExternalPortalResourceResourceType)[keyof typeof ExternalPortalResourceResourceType];
+export type ExternalPortalResourceResourceType = typeof ExternalPortalResourceResourceType[keyof typeof ExternalPortalResourceResourceType];
+
 
 export const ExternalPortalResourceResourceType = {
-  job: "job",
-  quote: "quote",
-  switchboard: "switchboard",
+  job: 'job',
+  quote: 'quote',
+  switchboard: 'switchboard',
 } as const;
 
-export type ExternalPortalResourceCapability =
-  (typeof ExternalPortalResourceCapability)[keyof typeof ExternalPortalResourceCapability];
+export type ExternalPortalResourceCapability = typeof ExternalPortalResourceCapability[keyof typeof ExternalPortalResourceCapability];
+
 
 export const ExternalPortalResourceCapability = {
-  read: "read",
+  read: 'read',
 } as const;
 
 export interface ExternalPortalResourcePayload {
@@ -4077,11 +4069,11 @@ export interface ExternalPortalResourceList {
   cacheMode: ExternalPortalResourceListCacheMode;
 }
 
-export type ExternalPortalResourceResponseCacheMode =
-  (typeof ExternalPortalResourceResponseCacheMode)[keyof typeof ExternalPortalResourceResponseCacheMode];
+export type ExternalPortalResourceResponseCacheMode = typeof ExternalPortalResourceResponseCacheMode[keyof typeof ExternalPortalResourceResponseCacheMode];
+
 
 export const ExternalPortalResourceResponseCacheMode = {
-  "network-only": "network-only",
+  'network-only': 'network-only',
 } as const;
 
 export interface ExternalPortalResourceResponse {
@@ -4089,45 +4081,44 @@ export interface ExternalPortalResourceResponse {
   cacheMode: ExternalPortalResourceResponseCacheMode;
 }
 
-export type ExternalGrantSummaryPurpose =
-  (typeof ExternalGrantSummaryPurpose)[keyof typeof ExternalGrantSummaryPurpose];
+export type ExternalGrantSummaryPurpose = typeof ExternalGrantSummaryPurpose[keyof typeof ExternalGrantSummaryPurpose];
+
 
 export const ExternalGrantSummaryPurpose = {
-  job_signature: "job_signature",
-  ppe_signature: "ppe_signature",
-  ppe_confirmation: "ppe_confirmation",
-  quote_decision: "quote_decision",
+  job_signature: 'job_signature',
+  ppe_signature: 'ppe_signature',
+  ppe_confirmation: 'ppe_confirmation',
+  quote_decision: 'quote_decision',
 } as const;
 
-export type ExternalGrantSummaryResourceType =
-  (typeof ExternalGrantSummaryResourceType)[keyof typeof ExternalGrantSummaryResourceType];
+export type ExternalGrantSummaryResourceType = typeof ExternalGrantSummaryResourceType[keyof typeof ExternalGrantSummaryResourceType];
+
 
 export const ExternalGrantSummaryResourceType = {
-  job: "job",
-  ppe_assignment: "ppe_assignment",
-  quote: "quote",
+  job: 'job',
+  ppe_assignment: 'ppe_assignment',
+  quote: 'quote',
 } as const;
 
-export type ExternalGrantSummaryState =
-  (typeof ExternalGrantSummaryState)[keyof typeof ExternalGrantSummaryState];
+export type ExternalGrantSummaryState = typeof ExternalGrantSummaryState[keyof typeof ExternalGrantSummaryState];
+
 
 export const ExternalGrantSummaryState = {
-  active: "active",
-  expired: "expired",
-  revoked: "revoked",
-  consumed: "consumed",
+  active: 'active',
+  expired: 'expired',
+  revoked: 'revoked',
+  consumed: 'consumed',
 } as const;
 
 /**
  * @nullable
  */
-export type ExternalGrantSummaryOwnerKind =
-  | (typeof ExternalGrantSummaryOwnerKind)[keyof typeof ExternalGrantSummaryOwnerKind]
-  | null;
+export type ExternalGrantSummaryOwnerKind = typeof ExternalGrantSummaryOwnerKind[keyof typeof ExternalGrantSummaryOwnerKind] | null;
+
 
 export const ExternalGrantSummaryOwnerKind = {
-  organization: "organization",
-  user: "user",
+  organization: 'organization',
+  user: 'user',
 } as const;
 
 export interface ExternalGrantSummary {
@@ -4137,9 +4128,9 @@ export interface ExternalGrantSummary {
   resourceId: number;
   artifactBindingStatus: string;
   /**
-   * @minLength 8
-   * @maxLength 8
-   */
+     * @minLength 8
+     * @maxLength 8
+     */
   tokenPrefix: string;
   state: ExternalGrantSummaryState;
   expiresAt: string;
@@ -4174,17 +4165,17 @@ export interface ExternalGrantList {
 
 export interface ExternalGrantRevokeInput {
   /**
-   * @minLength 3
-   * @maxLength 300
-   */
+     * @minLength 3
+     * @maxLength 300
+     */
   reason: string;
 }
 
-export type ExternalGrantRevokeResultState =
-  (typeof ExternalGrantRevokeResultState)[keyof typeof ExternalGrantRevokeResultState];
+export type ExternalGrantRevokeResultState = typeof ExternalGrantRevokeResultState[keyof typeof ExternalGrantRevokeResultState];
+
 
 export const ExternalGrantRevokeResultState = {
-  revoked: "revoked",
+  revoked: 'revoked',
 } as const;
 
 export interface ExternalGrantRevokeResult {
@@ -4193,25 +4184,24 @@ export interface ExternalGrantRevokeResult {
   revokedAt: string;
 }
 
-export type SwitchboardQrGrantSummaryState =
-  (typeof SwitchboardQrGrantSummaryState)[keyof typeof SwitchboardQrGrantSummaryState];
+export type SwitchboardQrGrantSummaryState = typeof SwitchboardQrGrantSummaryState[keyof typeof SwitchboardQrGrantSummaryState];
+
 
 export const SwitchboardQrGrantSummaryState = {
-  active: "active",
-  expired: "expired",
-  disabled: "disabled",
+  active: 'active',
+  expired: 'expired',
+  disabled: 'disabled',
 } as const;
 
 /**
  * @nullable
  */
-export type SwitchboardQrGrantSummaryOwnerKind =
-  | (typeof SwitchboardQrGrantSummaryOwnerKind)[keyof typeof SwitchboardQrGrantSummaryOwnerKind]
-  | null;
+export type SwitchboardQrGrantSummaryOwnerKind = typeof SwitchboardQrGrantSummaryOwnerKind[keyof typeof SwitchboardQrGrantSummaryOwnerKind] | null;
+
 
 export const SwitchboardQrGrantSummaryOwnerKind = {
-  resource: "resource",
-  user: "user",
+  resource: 'resource',
+  user: 'user',
 } as const;
 
 export interface SwitchboardQrGrantSummary {
@@ -4241,11 +4231,11 @@ export interface SwitchboardQrGrantList {
   nextBeforeId: number | null;
 }
 
-export type SwitchboardQrGrantDeactivateResultState =
-  (typeof SwitchboardQrGrantDeactivateResultState)[keyof typeof SwitchboardQrGrantDeactivateResultState];
+export type SwitchboardQrGrantDeactivateResultState = typeof SwitchboardQrGrantDeactivateResultState[keyof typeof SwitchboardQrGrantDeactivateResultState];
+
 
 export const SwitchboardQrGrantDeactivateResultState = {
-  disabled: "disabled",
+  disabled: 'disabled',
 } as const;
 
 export interface SwitchboardQrGrantDeactivateResult {
@@ -4263,9 +4253,9 @@ export interface UserUpdate {
   role?: string;
   isActive?: boolean;
   /**
-   * Only set when changing the password
-   * @minLength 12
-   */
+     * Only set when changing the password
+     * @minLength 12
+     */
   password?: string;
 }
 
@@ -4315,21 +4305,21 @@ export interface UserOffboardingPreview {
   handover: UserOffboardingHandoverInventory;
 }
 
-export type UserOffboardingInputReason =
-  (typeof UserOffboardingInputReason)[keyof typeof UserOffboardingInputReason];
+export type UserOffboardingInputReason = typeof UserOffboardingInputReason[keyof typeof UserOffboardingInputReason];
+
 
 export const UserOffboardingInputReason = {
-  employment_ended: "employment_ended",
-  contract_ended: "contract_ended",
-  access_no_longer_required: "access_no_longer_required",
-  security_response: "security_response",
+  employment_ended: 'employment_ended',
+  contract_ended: 'contract_ended',
+  access_no_longer_required: 'access_no_longer_required',
+  security_response: 'security_response',
 } as const;
 
-export type UserOffboardingInputConfirmation =
-  (typeof UserOffboardingInputConfirmation)[keyof typeof UserOffboardingInputConfirmation];
+export type UserOffboardingInputConfirmation = typeof UserOffboardingInputConfirmation[keyof typeof UserOffboardingInputConfirmation];
+
 
 export const UserOffboardingInputConfirmation = {
-  offboard_user: "offboard_user",
+  offboard_user: 'offboard_user',
 } as const;
 
 export interface UserOffboardingInput {
@@ -4450,34 +4440,34 @@ export interface Activity {
   /** @nullable */
   hoursSpent?: number | null;
   /**
-   * Optional fixed contract price (paušál) in CZK; when set, used as revenue base instead of summing material + extra-work lines
-   * @nullable
-   */
+     * Optional fixed contract price (paušál) in CZK; when set, used as revenue base instead of summing material + extra-work lines
+     * @nullable
+     */
   fixedPrice?: number | null;
   /**
-   * Internal hourly rate in CZK used for labour cost calculation in the profitability panel
-   * @nullable
-   */
+     * Internal hourly rate in CZK used for labour cost calculation in the profitability panel
+     * @nullable
+     */
   hourlyRate?: number | null;
   /**
-   * Computed revenue — fixedPrice if set, else materialsTotalCost + extraWorksTotalAmount
-   * @nullable
-   */
+     * Computed revenue — fixedPrice if set, else materialsTotalCost + extraWorksTotalAmount
+     * @nullable
+     */
   revenueTotal?: number | null;
   /**
-   * Computed cost — materials at purchase prices (warehouse lookup) + hoursSpent × hourlyRate
-   * @nullable
-   */
+     * Computed cost — materials at purchase prices (warehouse lookup) + hoursSpent × hourlyRate
+     * @nullable
+     */
   costTotal?: number | null;
   /**
-   * revenueTotal - costTotal (null when either component is null)
-   * @nullable
-   */
+     * revenueTotal - costTotal (null when either component is null)
+     * @nullable
+     */
   marginAmount?: number | null;
   /**
-   * marginAmount / revenueTotal × 100, null when revenue is zero or null
-   * @nullable
-   */
+     * marginAmount / revenueTotal × 100, null when revenue is zero or null
+     * @nullable
+     */
   marginPct?: number | null;
   materialsTotalCost: number;
   /** Count of photo-type attachments */
@@ -4489,40 +4479,40 @@ export interface Activity {
   /** Sum of extra work hours */
   extraWorksTotalHours: number;
   /**
-   * null = not tracked | billable | billed | not_billable
-   * @nullable
-   */
+     * null = not tracked | billable | billed | not_billable
+     * @nullable
+     */
   billingStatus?: string | null;
   /**
-   * Id of the non-cancelled invoice this activity is linked to (via invoice_source_links.activityId), or null if not billed
-   * @nullable
-   */
+     * Id of the non-cancelled invoice this activity is linked to (via invoice_source_links.activityId), or null if not billed
+     * @nullable
+     */
   billedInvoiceId?: number | null;
   /**
-   * Number of the linked invoice (null for draft invoices)
-   * @nullable
-   */
+     * Number of the linked invoice (null for draft invoices)
+     * @nullable
+     */
   billedInvoiceNumber?: string | null;
   /**
-   * Status of the linked invoice (draft | issued | sent | paid)
-   * @nullable
-   */
+     * Status of the linked invoice (draft | issued | sent | paid)
+     * @nullable
+     */
   billedInvoiceStatus?: string | null;
   /**
-   * ISO timestamp when the activity was marked done
-   * @nullable
-   */
+     * ISO timestamp when the activity was marked done
+     * @nullable
+     */
   completedAt?: string | null;
   isArchived: boolean;
   /**
-   * Date of the most recent completed/in_progress visit (YYYY-MM-DD)
-   * @nullable
-   */
+     * Date of the most recent completed/in_progress visit (YYYY-MM-DD)
+     * @nullable
+     */
   lastVisitDate?: string | null;
   /**
-   * Date of the nearest planned visit (YYYY-MM-DD)
-   * @nullable
-   */
+     * Date of the nearest planned visit (YYYY-MM-DD)
+     * @nullable
+     */
   nextVisitDate?: string | null;
   /** Total number of visits */
   visitsCount?: number;
@@ -4543,13 +4533,12 @@ export interface ActivityInput {
  * Editable billing intent only. "billed" is intentionally NOT accepted here — the authoritative billed state is derived from the invoice link (invoice_source_links / billedInvoiceId) and is set server-side when an invoice is issued. null | billable | not_billable
  * @nullable
  */
-export type ActivityUpdateBillingStatus =
-  | (typeof ActivityUpdateBillingStatus)[keyof typeof ActivityUpdateBillingStatus]
-  | null;
+export type ActivityUpdateBillingStatus = typeof ActivityUpdateBillingStatus[keyof typeof ActivityUpdateBillingStatus] | null;
+
 
 export const ActivityUpdateBillingStatus = {
-  billable: "billable",
-  not_billable: "not_billable",
+  billable: 'billable',
+  not_billable: 'not_billable',
 } as const;
 
 export interface ActivityUpdate {
@@ -4565,19 +4554,19 @@ export interface ActivityUpdate {
   completedAt?: string | null;
   isArchived?: boolean;
   /**
-   * Editable billing intent only. "billed" is intentionally NOT accepted here — the authoritative billed state is derived from the invoice link (invoice_source_links / billedInvoiceId) and is set server-side when an invoice is issued. null | billable | not_billable
-   * @nullable
-   */
+     * Editable billing intent only. "billed" is intentionally NOT accepted here — the authoritative billed state is derived from the invoice link (invoice_source_links / billedInvoiceId) and is set server-side when an invoice is issued. null | billable | not_billable
+     * @nullable
+     */
   billingStatus?: ActivityUpdateBillingStatus;
   /**
-   * Optional fixed contract price (paušál) in CZK
-   * @nullable
-   */
+     * Optional fixed contract price (paušál) in CZK
+     * @nullable
+     */
   fixedPrice?: number | null;
   /**
-   * Internal hourly rate in CZK for labour cost calculation
-   * @nullable
-   */
+     * Internal hourly rate in CZK for labour cost calculation
+     * @nullable
+     */
   hourlyRate?: number | null;
 }
 
@@ -4720,39 +4709,39 @@ export interface TimeEntryInput {
 export interface TimeEntryUpdate {
   hours: number;
   /**
-   * @minLength 3
-   * @maxLength 500
-   */
+     * @minLength 3
+     * @maxLength 500
+     */
   reason: string;
 }
 
-export type WorkSessionStatus =
-  (typeof WorkSessionStatus)[keyof typeof WorkSessionStatus];
+export type WorkSessionStatus = typeof WorkSessionStatus[keyof typeof WorkSessionStatus];
+
 
 export const WorkSessionStatus = {
-  active: "active",
-  completed: "completed",
-  voided: "voided",
+  active: 'active',
+  completed: 'completed',
+  voided: 'voided',
 } as const;
 
-export type WorkSessionSource =
-  (typeof WorkSessionSource)[keyof typeof WorkSessionSource];
+export type WorkSessionSource = typeof WorkSessionSource[keyof typeof WorkSessionSource];
+
 
 export const WorkSessionSource = {
-  timer: "timer",
-  manual: "manual",
-  correction: "correction",
-  legacy_manual: "legacy_manual",
-  legacy_timer: "legacy_timer",
+  timer: 'timer',
+  manual: 'manual',
+  correction: 'correction',
+  legacy_manual: 'legacy_manual',
+  legacy_timer: 'legacy_timer',
 } as const;
 
-export type WorkSessionReviewStatus =
-  (typeof WorkSessionReviewStatus)[keyof typeof WorkSessionReviewStatus];
+export type WorkSessionReviewStatus = typeof WorkSessionReviewStatus[keyof typeof WorkSessionReviewStatus];
+
 
 export const WorkSessionReviewStatus = {
-  not_required: "not_required",
-  needs_review: "needs_review",
-  approved: "approved",
+  not_required: 'not_required',
+  needs_review: 'needs_review',
+  approved: 'approved',
 } as const;
 
 export interface WorkSession {
@@ -4795,14 +4784,14 @@ export interface ManualWorkSessionInput {
   startedAt: string;
   endedAt: string;
   /**
-   * @minLength 3
-   * @maxLength 500
-   */
+     * @minLength 3
+     * @maxLength 500
+     */
   note: string;
   /**
-   * @minLength 8
-   * @maxLength 100
-   */
+     * @minLength 8
+     * @maxLength 100
+     */
   idempotencyKey?: string;
 }
 
@@ -4912,13 +4901,13 @@ export interface MyPpeSignResult {
   documentNumber: string;
 }
 
-export type JobVisitStatus =
-  (typeof JobVisitStatus)[keyof typeof JobVisitStatus];
+export type JobVisitStatus = typeof JobVisitStatus[keyof typeof JobVisitStatus];
+
 
 export const JobVisitStatus = {
-  planned: "planned",
-  done: "done",
-  cancelled: "cancelled",
+  planned: 'planned',
+  done: 'done',
+  cancelled: 'cancelled',
 } as const;
 
 export interface JobVisit {
@@ -4932,27 +4921,27 @@ export interface JobVisit {
   /** @nullable */
   note?: string | null;
   /**
-   * Optional HH:MM override; otherwise the job time is used
-   * @nullable
-   */
+     * Optional HH:MM override; otherwise the job time is used
+     * @nullable
+     */
   startTime?: string | null;
   /**
-   * Optional HH:MM override; otherwise the job time is used
-   * @nullable
-   */
+     * Optional HH:MM override; otherwise the job time is used
+     * @nullable
+     */
   endTime?: string | null;
   status: JobVisitStatus;
   createdAt: string;
   updatedAt: string;
 }
 
-export type JobVisitInputStatus =
-  (typeof JobVisitInputStatus)[keyof typeof JobVisitInputStatus];
+export type JobVisitInputStatus = typeof JobVisitInputStatus[keyof typeof JobVisitInputStatus];
+
 
 export const JobVisitInputStatus = {
-  planned: "planned",
-  done: "done",
-  cancelled: "cancelled",
+  planned: 'planned',
+  done: 'done',
+  cancelled: 'cancelled',
 } as const;
 
 export interface JobVisitInput {
@@ -4969,13 +4958,13 @@ export interface JobVisitInput {
   status?: JobVisitInputStatus;
 }
 
-export type JobVisitUpdateStatus =
-  (typeof JobVisitUpdateStatus)[keyof typeof JobVisitUpdateStatus];
+export type JobVisitUpdateStatus = typeof JobVisitUpdateStatus[keyof typeof JobVisitUpdateStatus];
+
 
 export const JobVisitUpdateStatus = {
-  planned: "planned",
-  done: "done",
-  cancelled: "cancelled",
+  planned: 'planned',
+  done: 'done',
+  cancelled: 'cancelled',
 } as const;
 
 export interface JobVisitUpdate {
@@ -5033,14 +5022,14 @@ export interface ActivityVisit {
   createdBy?: string | null;
 }
 
-export type ActivityVisitInputStatus =
-  (typeof ActivityVisitInputStatus)[keyof typeof ActivityVisitInputStatus];
+export type ActivityVisitInputStatus = typeof ActivityVisitInputStatus[keyof typeof ActivityVisitInputStatus];
+
 
 export const ActivityVisitInputStatus = {
-  planned: "planned",
-  in_progress: "in_progress",
-  completed: "completed",
-  cancelled: "cancelled",
+  planned: 'planned',
+  in_progress: 'in_progress',
+  completed: 'completed',
+  cancelled: 'cancelled',
 } as const;
 
 export interface ActivityVisitInput {
@@ -5059,14 +5048,14 @@ export interface ActivityVisitInput {
   nextStep?: string | null;
 }
 
-export type ActivityVisitUpdateStatus =
-  (typeof ActivityVisitUpdateStatus)[keyof typeof ActivityVisitUpdateStatus];
+export type ActivityVisitUpdateStatus = typeof ActivityVisitUpdateStatus[keyof typeof ActivityVisitUpdateStatus];
+
 
 export const ActivityVisitUpdateStatus = {
-  planned: "planned",
-  in_progress: "in_progress",
-  completed: "completed",
-  cancelled: "cancelled",
+  planned: 'planned',
+  in_progress: 'in_progress',
+  completed: 'completed',
+  cancelled: 'cancelled',
 } as const;
 
 export interface ActivityVisitUpdate {
@@ -5085,41 +5074,41 @@ export interface ActivityVisitUpdate {
   nextStep?: string | null;
 }
 
-export type BackupStatusProperty =
-  (typeof BackupStatusProperty)[keyof typeof BackupStatusProperty];
+export type BackupStatusProperty = typeof BackupStatusProperty[keyof typeof BackupStatusProperty];
+
 
 export const BackupStatusProperty = {
-  running: "running",
-  success: "success",
-  failed: "failed",
+  running: 'running',
+  success: 'success',
+  failed: 'failed',
 } as const;
 
-export type BackupTrigger = (typeof BackupTrigger)[keyof typeof BackupTrigger];
+export type BackupTrigger = typeof BackupTrigger[keyof typeof BackupTrigger];
+
 
 export const BackupTrigger = {
-  manual: "manual",
-  auto: "auto",
+  manual: 'manual',
+  auto: 'auto',
 } as const;
 
 /**
  * Result of the last restore test
  * @nullable
  */
-export type BackupRestoreStatus =
-  | (typeof BackupRestoreStatus)[keyof typeof BackupRestoreStatus]
-  | null;
+export type BackupRestoreStatus = typeof BackupRestoreStatus[keyof typeof BackupRestoreStatus] | null;
+
 
 export const BackupRestoreStatus = {
-  ok: "ok",
-  failed: "failed",
-  pending: "pending",
+  ok: 'ok',
+  failed: 'failed',
+  pending: 'pending',
 } as const;
 
 /**
  * Map of table name to row count verified during the last restore test
  * @nullable
  */
-export type BackupRestoreVerifiedTables = { [key: string]: number } | null;
+export type BackupRestoreVerifiedTables = {[key: string]: number} | null;
 
 export interface Backup {
   id: number;
@@ -5134,29 +5123,29 @@ export interface Backup {
   createdBy: string | null;
   createdAt: string;
   /**
-   * ISO timestamp of the last restore test; null if never tested
-   * @nullable
-   */
+     * ISO timestamp of the last restore test; null if never tested
+     * @nullable
+     */
   restoreTestedAt: string | null;
   /**
-   * Result of the last restore test
-   * @nullable
-   */
+     * Result of the last restore test
+     * @nullable
+     */
   restoreStatus: BackupRestoreStatus;
   /**
-   * Error message from the last failed restore test
-   * @nullable
-   */
+     * Error message from the last failed restore test
+     * @nullable
+     */
   restoreError: string | null;
   /**
-   * Duration of the last restore test in milliseconds
-   * @nullable
-   */
+     * Duration of the last restore test in milliseconds
+     * @nullable
+     */
   restoreDurationMs: number | null;
   /**
-   * Map of table name to row count verified during the last restore test
-   * @nullable
-   */
+     * Map of table name to row count verified during the last restore test
+     * @nullable
+     */
   restoreVerifiedTables: BackupRestoreVerifiedTables;
 }
 
@@ -5173,27 +5162,27 @@ export interface RestoreResult {
 
 export interface BackupSettings {
   /**
-   * Day of week for the weekly restore test (0=Sunday…6=Saturday); null=disabled
-   * @nullable
-   */
+     * Day of week for the weekly restore test (0=Sunday…6=Saturday); null=disabled
+     * @nullable
+     */
   restoreTestDayOfWeek: number | null;
   /**
-   * E-mail to notify on failure; null = all admins
-   * @nullable
-   */
+     * E-mail to notify on failure; null = all admins
+     * @nullable
+     */
   restoreNotifyEmail: string | null;
 }
 
 export interface BackupSettingsInput {
   /**
-   * Day of week for the weekly restore test (0=Sunday…6=Saturday); null=disabled
-   * @nullable
-   */
+     * Day of week for the weekly restore test (0=Sunday…6=Saturday); null=disabled
+     * @nullable
+     */
   restoreTestDayOfWeek?: number | null;
   /**
-   * E-mail to notify on failure; null = all admins
-   * @nullable
-   */
+     * E-mail to notify on failure; null = all admins
+     * @nullable
+     */
   restoreNotifyEmail?: string | null;
 }
 
@@ -5203,31 +5192,31 @@ export interface BackupStatus {
   /** Whether pg_dump is available and compatible with PostgreSQL 16 */
   pgDumpAvailable: boolean;
   /**
-   * pg_dump version string detected at startup; null if not available
-   * @nullable
-   */
+     * pg_dump version string detected at startup; null if not available
+     * @nullable
+     */
   pgDumpVersion?: string | null;
   /** Backup interval in hours (from BACKUP_INTERVAL_HOURS or default 24) */
   intervalHours: number;
   /**
-   * ISO timestamp of the most recent backup attempt (any status)
-   * @nullable
-   */
+     * ISO timestamp of the most recent backup attempt (any status)
+     * @nullable
+     */
   lastAttemptAt: string | null;
   /**
-   * Status of the most recent backup attempt (success/failed/running)
-   * @nullable
-   */
+     * Status of the most recent backup attempt (success/failed/running)
+     * @nullable
+     */
   lastAttemptStatus: string | null;
   /**
-   * ISO timestamp of the most recent successful restore test across all backups
-   * @nullable
-   */
+     * ISO timestamp of the most recent successful restore test across all backups
+     * @nullable
+     */
   lastVerifiedRestoreAt: string | null;
   /**
-   * Approximate ISO timestamp of the next scheduled auto backup; null if not determinable
-   * @nullable
-   */
+     * Approximate ISO timestamp of the next scheduled auto backup; null if not determinable
+     * @nullable
+     */
   nextScheduledAt: string | null;
 }
 
@@ -5260,15 +5249,15 @@ export interface BillingSummary {
 export interface WorkFinancialBucket {
   hours: number;
   /**
-   * Null without rates.cost.view
-   * @nullable
-   */
+     * Null without rates.cost.view
+     * @nullable
+     */
   cost: number | null;
   sale: number;
   /**
-   * Null without rates.cost.view
-   * @nullable
-   */
+     * Null without rates.cost.view
+     * @nullable
+     */
   margin: number | null;
   /** @nullable */
   marginPercent: number | null;
@@ -5277,14 +5266,14 @@ export interface WorkFinancialBucket {
   sessionCount: number;
 }
 
-export type WorkFinancialStatusBucketBillingStatus =
-  (typeof WorkFinancialStatusBucketBillingStatus)[keyof typeof WorkFinancialStatusBucketBillingStatus];
+export type WorkFinancialStatusBucketBillingStatus = typeof WorkFinancialStatusBucketBillingStatus[keyof typeof WorkFinancialStatusBucketBillingStatus];
+
 
 export const WorkFinancialStatusBucketBillingStatus = {
-  unbilled: "unbilled",
-  ready: "ready",
-  billed: "billed",
-  non_billable: "non_billable",
+  unbilled: 'unbilled',
+  ready: 'ready',
+  billed: 'billed',
+  non_billable: 'non_billable',
 } as const;
 
 export type WorkFinancialStatusBucket = WorkFinancialBucket & {
@@ -5307,23 +5296,23 @@ export interface BankStatementParseInput {
   contentBase64: string;
 }
 
-export type BankStatementPreviewFormat =
-  (typeof BankStatementPreviewFormat)[keyof typeof BankStatementPreviewFormat];
+export type BankStatementPreviewFormat = typeof BankStatementPreviewFormat[keyof typeof BankStatementPreviewFormat];
+
 
 export const BankStatementPreviewFormat = {
-  gpc: "gpc",
-  camt: "camt",
+  gpc: 'gpc',
+  camt: 'camt',
 } as const;
 
-export type BankMatchTransactionMatchStatus =
-  (typeof BankMatchTransactionMatchStatus)[keyof typeof BankMatchTransactionMatchStatus];
+export type BankMatchTransactionMatchStatus = typeof BankMatchTransactionMatchStatus[keyof typeof BankMatchTransactionMatchStatus];
+
 
 export const BankMatchTransactionMatchStatus = {
-  matched: "matched",
-  amount_mismatch: "amount_mismatch",
-  ambiguous: "ambiguous",
-  already_paid: "already_paid",
-  unmatched: "unmatched",
+  matched: 'matched',
+  amount_mismatch: 'amount_mismatch',
+  ambiguous: 'ambiguous',
+  already_paid: 'already_paid',
+  unmatched: 'unmatched',
 } as const;
 
 export interface BankMatchCandidate {
@@ -5397,14 +5386,14 @@ export interface BankPaymentsConfirmResult {
   skipped: BankPaymentSkipped[];
 }
 
-export type BillingSettingsVatModeDefault =
-  (typeof BillingSettingsVatModeDefault)[keyof typeof BillingSettingsVatModeDefault];
+export type BillingSettingsVatModeDefault = typeof BillingSettingsVatModeDefault[keyof typeof BillingSettingsVatModeDefault];
+
 
 export const BillingSettingsVatModeDefault = {
-  standard: "standard",
-  reverse_charge: "reverse_charge",
-  zero: "zero",
-  non_vat: "non_vat",
+  standard: 'standard',
+  reverse_charge: 'reverse_charge',
+  zero: 'zero',
+  non_vat: 'non_vat',
 } as const;
 
 export interface BillingSettings {
@@ -5435,9 +5424,9 @@ export interface BillingSettings {
   /** Default percent markup applied to material lines when proposing an invoice (0 = no markup) */
   materialMarkupPercent?: number;
   /**
-   * Default customer-facing transport price per kilometre, used when a job has no explicit transport cost
-   * @minimum 0
-   */
+     * Default customer-facing transport price per kilometre, used when a job has no explicit transport cost
+     * @minimum 0
+     */
   transportRatePerKm: number;
   /** Margin warning threshold in percent; the job-detail warehouse margin alert fires when the cumulative margin drops below this value (0 = warn only on a negative margin) */
   marginAlertThresholdPercent?: number;
@@ -5446,6 +5435,11 @@ export interface BillingSettings {
   /** @nullable */
   numberYear?: number | null;
   numberNextSeq: number;
+  advanceNumberPrefix: string;
+  advanceNumberFormat: string;
+  /** @nullable */
+  advanceNumberYear?: number | null;
+  advanceNumberNextSeq: number;
   reminderEnabled?: boolean;
   reminderDays?: string;
   quoteNumberPrefix?: string;
@@ -5483,20 +5477,20 @@ export interface BillingSettingsInput {
   /** @nullable */
   invoiceFooterNote?: string | null;
   /**
-   * Default percent markup applied to material lines (0 = no markup)
-   * @nullable
-   */
+     * Default percent markup applied to material lines (0 = no markup)
+     * @nullable
+     */
   materialMarkupPercent?: number | null;
   /**
-   * Default customer-facing transport price per kilometre
-   * @minimum 0
-   * @nullable
-   */
+     * Default customer-facing transport price per kilometre
+     * @minimum 0
+     * @nullable
+     */
   transportRatePerKm?: number | null;
   /**
-   * Margin warning threshold in percent for the job-detail margin alert (0 = warn only on a negative margin)
-   * @nullable
-   */
+     * Margin warning threshold in percent for the job-detail margin alert (0 = warn only on a negative margin)
+     * @nullable
+     */
   marginAlertThresholdPercent?: number | null;
   /** @nullable */
   numberPrefix?: string | null;
@@ -5506,6 +5500,14 @@ export interface BillingSettingsInput {
   numberYear?: number | null;
   /** @nullable */
   numberNextSeq?: number | null;
+  /** @nullable */
+  advanceNumberPrefix?: string | null;
+  /** @nullable */
+  advanceNumberFormat?: string | null;
+  /** @nullable */
+  advanceNumberYear?: number | null;
+  /** @nullable */
+  advanceNumberNextSeq?: number | null;
   /** @nullable */
   reminderEnabled?: boolean | null;
   /** @nullable */
@@ -5529,14 +5531,14 @@ export interface MaterialMarkupRuleList {
 
 export interface UpsertMaterialMarkupRuleInput {
   /**
-   * Warehouse-item category this rule applies to (matched case-insensitively)
-   * @minLength 1
-   */
+     * Warehouse-item category this rule applies to (matched case-insensitively)
+     * @minLength 1
+     */
   category: string;
   /**
-   * Default markup percent for materials in this category (0 = no markup)
-   * @minimum 0
-   */
+     * Default markup percent for materials in this category (0 = no markup)
+     * @minimum 0
+     */
   markupPercent: number;
 }
 
@@ -5552,23 +5554,23 @@ export interface UnbilledCustomer {
   totalFines: number;
   orientationalTotal: number;
   /**
-   * ISO date of the oldest unbilled done job for this customer (null if only activities)
-   * @nullable
-   */
+     * ISO date of the oldest unbilled done job for this customer (null if only activities)
+     * @nullable
+     */
   oldestDoneAt?: string | null;
   /**
-   * Calendar days since the oldest unbilled done job date (null if only activities)
-   * @nullable
-   */
+     * Calendar days since the oldest unbilled done job date (null if only activities)
+     * @nullable
+     */
   daysUnbilled?: number | null;
 }
 
-export type UnbilledJobPricingMode =
-  (typeof UnbilledJobPricingMode)[keyof typeof UnbilledJobPricingMode];
+export type UnbilledJobPricingMode = typeof UnbilledJobPricingMode[keyof typeof UnbilledJobPricingMode];
+
 
 export const UnbilledJobPricingMode = {
-  time_material: "time_material",
-  fixed_price: "fixed_price",
+  time_material: 'time_material',
+  fixed_price: 'fixed_price',
 } as const;
 
 export interface UnbilledJobMaterial {
@@ -5581,9 +5583,9 @@ export interface UnbilledJobMaterial {
   /** @nullable */
   pricePerUnit?: number | null;
   /**
-   * Category-default markup (%) resolved from the matching warehouse item's category, or null when no category rule applies (falls back to the invoice/settings default)
-   * @nullable
-   */
+     * Category-default markup (%) resolved from the matching warehouse item's category, or null when no category rule applies (falls back to the invoice/settings default)
+     * @nullable
+     */
   categoryMarkupPercent?: number | null;
 }
 
@@ -5599,9 +5601,9 @@ export interface UnbilledRecordedWork {
 export interface UnbilledJob {
   id: number;
   /**
-   * Sequential job number
-   * @nullable
-   */
+     * Sequential job number
+     * @nullable
+     */
   jobNumber?: number | null;
   title: string;
   /** @nullable */
@@ -5617,9 +5619,9 @@ export interface UnbilledJob {
   /** @nullable */
   transportKm?: number | null;
   /**
-   * Effective transport cost; explicit job override or kilometres multiplied by the current default rate
-   * @nullable
-   */
+     * Effective transport cost; explicit job override or kilometres multiplied by the current default rate
+     * @nullable
+     */
   transportCost?: number | null;
   /** True when transportCost was calculated from kilometres and the default rate */
   transportCostCalculated?: boolean;
@@ -5630,9 +5632,9 @@ export interface UnbilledJob {
   /** @nullable */
   fines?: number | null;
   /**
-   * Calendar days since the job date (null if date is missing)
-   * @nullable
-   */
+     * Calendar days since the job date (null if date is missing)
+     * @nullable
+     */
   daysUnbilled?: number | null;
   materials: UnbilledJobMaterial[];
   recordedWork: UnbilledRecordedWork;
@@ -5669,61 +5671,61 @@ export interface UnbilledCustomerDetail {
   activities: UnbilledActivity[];
 }
 
-export type QuoteJobGroupInvoiceDraftInputLabourBillingMode =
-  (typeof QuoteJobGroupInvoiceDraftInputLabourBillingMode)[keyof typeof QuoteJobGroupInvoiceDraftInputLabourBillingMode];
+export type QuoteJobGroupInvoiceDraftInputLabourBillingMode = typeof QuoteJobGroupInvoiceDraftInputLabourBillingMode[keyof typeof QuoteJobGroupInvoiceDraftInputLabourBillingMode];
+
 
 export const QuoteJobGroupInvoiceDraftInputLabourBillingMode = {
-  job_price: "job_price",
-  recorded_time: "recorded_time",
-  none: "none",
+  job_price: 'job_price',
+  recorded_time: 'recorded_time',
+  none: 'none',
 } as const;
 
-export type QuoteJobGroupInvoiceDraftInputWorkGrouping =
-  (typeof QuoteJobGroupInvoiceDraftInputWorkGrouping)[keyof typeof QuoteJobGroupInvoiceDraftInputWorkGrouping];
+export type QuoteJobGroupInvoiceDraftInputWorkGrouping = typeof QuoteJobGroupInvoiceDraftInputWorkGrouping[keyof typeof QuoteJobGroupInvoiceDraftInputWorkGrouping];
+
 
 export const QuoteJobGroupInvoiceDraftInputWorkGrouping = {
-  summary: "summary",
-  worker: "worker",
+  summary: 'summary',
+  worker: 'worker',
 } as const;
 
 /**
  * Display material as individual lines or as one amount per VAT rate
  */
-export type QuoteJobGroupInvoiceDraftInputMaterialDisplayMode =
-  (typeof QuoteJobGroupInvoiceDraftInputMaterialDisplayMode)[keyof typeof QuoteJobGroupInvoiceDraftInputMaterialDisplayMode];
+export type QuoteJobGroupInvoiceDraftInputMaterialDisplayMode = typeof QuoteJobGroupInvoiceDraftInputMaterialDisplayMode[keyof typeof QuoteJobGroupInvoiceDraftInputMaterialDisplayMode];
+
 
 export const QuoteJobGroupInvoiceDraftInputMaterialDisplayMode = {
-  detailed: "detailed",
-  summary: "summary",
+  detailed: 'detailed',
+  summary: 'summary',
 } as const;
 
-export type QuoteJobGroupInvoiceDraftInputVatModeDefault =
-  (typeof QuoteJobGroupInvoiceDraftInputVatModeDefault)[keyof typeof QuoteJobGroupInvoiceDraftInputVatModeDefault];
+export type QuoteJobGroupInvoiceDraftInputVatModeDefault = typeof QuoteJobGroupInvoiceDraftInputVatModeDefault[keyof typeof QuoteJobGroupInvoiceDraftInputVatModeDefault];
+
 
 export const QuoteJobGroupInvoiceDraftInputVatModeDefault = {
-  standard: "standard",
-  reverse_charge: "reverse_charge",
-  zero: "zero",
-  non_vat: "non_vat",
+  standard: 'standard',
+  reverse_charge: 'reverse_charge',
+  zero: 'zero',
+  non_vat: 'non_vat',
 } as const;
 
 /**
  * Which material table the id belongs to — a job material ("material") or an activity material ("activity_material"). Job and activity material ids come from separate sequences and collide, so this disambiguates them. Omitted = job material (backwards compatible).
  */
-export type MaterialMarkupOverrideSourceType =
-  (typeof MaterialMarkupOverrideSourceType)[keyof typeof MaterialMarkupOverrideSourceType];
+export type MaterialMarkupOverrideSourceType = typeof MaterialMarkupOverrideSourceType[keyof typeof MaterialMarkupOverrideSourceType];
+
 
 export const MaterialMarkupOverrideSourceType = {
-  material: "material",
-  activity_material: "activity_material",
+  material: 'material',
+  activity_material: 'activity_material',
 } as const;
 
 export interface MaterialMarkupOverride {
   materialId: number;
   /**
-   * Effective markup percent for this material line (0 = no markup)
-   * @minimum 0
-   */
+     * Effective markup percent for this material line (0 = no markup)
+     * @minimum 0
+     */
   markupPercent: number;
   /** Which material table the id belongs to — a job material ("material") or an activity material ("activity_material"). Job and activity material ids come from separate sequences and collide, so this disambiguates them. Omitted = job material (backwards compatible). */
   sourceType?: MaterialMarkupOverrideSourceType;
@@ -5754,64 +5756,81 @@ export interface QuoteJobGroupInvoiceDraftInput {
   notes?: string | null;
 }
 
-export type InvoiceDetailStatus =
-  (typeof InvoiceDetailStatus)[keyof typeof InvoiceDetailStatus];
+export type InvoiceDetailDocumentType = typeof InvoiceDetailDocumentType[keyof typeof InvoiceDetailDocumentType];
 
-export const InvoiceDetailStatus = {
-  draft: "draft",
-  issued: "issued",
-  sent: "sent",
-  paid: "paid",
-  cancelled: "cancelled",
+
+export const InvoiceDetailDocumentType = {
+  standard: 'standard',
+  advance: 'advance',
 } as const;
 
-export type InvoiceDetailVatModeDefault =
-  (typeof InvoiceDetailVatModeDefault)[keyof typeof InvoiceDetailVatModeDefault];
+export type InvoiceDetailStatus = typeof InvoiceDetailStatus[keyof typeof InvoiceDetailStatus];
+
+
+export const InvoiceDetailStatus = {
+  draft: 'draft',
+  issued: 'issued',
+  sent: 'sent',
+  paid: 'paid',
+  cancelled: 'cancelled',
+} as const;
+
+export type InvoiceDetailVatModeDefault = typeof InvoiceDetailVatModeDefault[keyof typeof InvoiceDetailVatModeDefault];
+
 
 export const InvoiceDetailVatModeDefault = {
-  standard: "standard",
-  reverse_charge: "reverse_charge",
-  zero: "zero",
-  non_vat: "non_vat",
+  standard: 'standard',
+  reverse_charge: 'reverse_charge',
+  zero: 'zero',
+  non_vat: 'non_vat',
 } as const;
 
 /**
- * Customer-facing material layout; source lines remain detailed
+ * Customer-facing layout; custom text is stored separately from source lines
  */
-export type InvoiceDetailMaterialDisplayMode =
-  (typeof InvoiceDetailMaterialDisplayMode)[keyof typeof InvoiceDetailMaterialDisplayMode];
+export type InvoiceDetailMaterialDisplayMode = typeof InvoiceDetailMaterialDisplayMode[keyof typeof InvoiceDetailMaterialDisplayMode];
+
 
 export const InvoiceDetailMaterialDisplayMode = {
-  detailed: "detailed",
-  summary: "summary",
+  detailed: 'detailed',
+  summary: 'summary',
+  custom: 'custom',
 } as const;
 
-export type InvoiceLineSourceType =
-  (typeof InvoiceLineSourceType)[keyof typeof InvoiceLineSourceType];
+export type InvoiceLineSourceType = typeof InvoiceLineSourceType[keyof typeof InvoiceLineSourceType];
+
 
 export const InvoiceLineSourceType = {
-  job: "job",
-  activity: "activity",
-  activity_material: "activity_material",
-  activity_work: "activity_work",
-  material: "material",
-  billing_document_line: "billing_document_line",
-  work_session: "work_session",
-  quote_item: "quote_item",
-  transport: "transport",
-  parking: "parking",
-  fine: "fine",
-  manual: "manual",
+  job: 'job',
+  activity: 'activity',
+  activity_material: 'activity_material',
+  activity_work: 'activity_work',
+  material: 'material',
+  billing_document_line: 'billing_document_line',
+  work_session: 'work_session',
+  quote_item: 'quote_item',
+  transport: 'transport',
+  parking: 'parking',
+  fine: 'fine',
+  manual: 'manual',
 } as const;
 
-export type InvoiceLineVatMode =
-  (typeof InvoiceLineVatMode)[keyof typeof InvoiceLineVatMode];
+export type InvoiceLineRowType = typeof InvoiceLineRowType[keyof typeof InvoiceLineRowType];
+
+
+export const InvoiceLineRowType = {
+  item: 'item',
+  section: 'section',
+} as const;
+
+export type InvoiceLineVatMode = typeof InvoiceLineVatMode[keyof typeof InvoiceLineVatMode];
+
 
 export const InvoiceLineVatMode = {
-  standard: "standard",
-  reverse_charge: "reverse_charge",
-  zero: "zero",
-  non_vat: "non_vat",
+  standard: 'standard',
+  reverse_charge: 'reverse_charge',
+  zero: 'zero',
+  non_vat: 'non_vat',
 } as const;
 
 export interface InvoiceLine {
@@ -5824,6 +5843,7 @@ export interface InvoiceLine {
   jobId?: number | null;
   /** @nullable */
   activityId?: number | null;
+  rowType: InvoiceLineRowType;
   description: string;
   quantity: number;
   /** @nullable */
@@ -5840,15 +5860,42 @@ export interface InvoiceLine {
   sortOrder: number;
 }
 
+export interface InvoicePresentationGroup {
+  /**
+     * Freely editable customer-facing text for the grouped sources
+     * @minLength 1
+     * @maxLength 500
+     */
+  description: string;
+  /**
+     * Zero-based indexes of immutable internal invoice source lines
+     * @minItems 1
+     * @maxItems 500
+     */
+  lineIndexes: number[];
+}
+
+export type InvoiceSourceJobBillingState = typeof InvoiceSourceJobBillingState[keyof typeof InvoiceSourceJobBillingState];
+
+
+export const InvoiceSourceJobBillingState = {
+  draft: 'draft',
+  partial: 'partial',
+  ready: 'ready',
+  billed: 'billed',
+  linked: 'linked',
+} as const;
+
 export interface InvoiceSourceJob {
   id: number;
   /**
-   * Sequential job number
-   * @nullable
-   */
+     * Sequential job number
+     * @nullable
+     */
   jobNumber?: number | null;
   title: string;
   date: string;
+  billingState?: InvoiceSourceJobBillingState;
 }
 
 export interface InvoiceSourceActivity {
@@ -5856,8 +5903,80 @@ export interface InvoiceSourceActivity {
   name: string;
 }
 
+export type InvoiceSourceAllocationStatus = typeof InvoiceSourceAllocationStatus[keyof typeof InvoiceSourceAllocationStatus];
+
+
+export const InvoiceSourceAllocationStatus = {
+  reserved: 'reserved',
+  billed: 'billed',
+  included_in_lump_sum: 'included_in_lump_sum',
+  not_charged: 'not_charged',
+  deferred: 'deferred',
+  released: 'released',
+  reversed: 'reversed',
+} as const;
+
+export type InvoiceSourceAllocationSettlementMethod = typeof InvoiceSourceAllocationSettlementMethod[keyof typeof InvoiceSourceAllocationSettlementMethod];
+
+
+export const InvoiceSourceAllocationSettlementMethod = {
+  direct: 'direct',
+  included_in_lump_sum: 'included_in_lump_sum',
+  not_charged: 'not_charged',
+  deferred: 'deferred',
+} as const;
+
+export interface InvoiceSourceAllocation {
+  id: number;
+  /** @nullable */
+  invoiceId: number | null;
+  invoiceIdSnapshot: number;
+  /** @nullable */
+  invoiceLineId: number | null;
+  sourceType: string;
+  sourceId: number;
+  /** @nullable */
+  jobId: number | null;
+  /** @nullable */
+  activityId: number | null;
+  sourceDescription: string;
+  /** @nullable */
+  sourceUnit: string | null;
+  originalQuantity: number;
+  allocatedQuantity: number;
+  sourceAmountWithoutVat: number;
+  status: InvoiceSourceAllocationStatus;
+  settlementMethod: InvoiceSourceAllocationSettlementMethod;
+  legacyIncomplete: boolean;
+  /** @nullable */
+  createdByUserId: number | null;
+  /** @nullable */
+  updatedByUserId: number | null;
+  createdAt: string;
+  updatedAt: string;
+  /** @nullable */
+  settledAt: string | null;
+  /** @nullable */
+  releasedAt: string | null;
+  /** @nullable */
+  reversedAt: string | null;
+}
+
+export interface InvoiceSourceSummary {
+  count: number;
+  workCount: number;
+  materialCount: number;
+  otherCount: number;
+  unresolvedCount: number;
+  deferredCount: number;
+  sourceTotalWithoutVat: number;
+  invoiceTotalWithoutVat: number;
+  differenceWithoutVat: number;
+}
+
 export interface InvoiceDetail {
   id: number;
+  documentType: InvoiceDetailDocumentType;
   /** @nullable */
   invoiceNumber?: string | null;
   status: InvoiceDetailStatus;
@@ -5872,6 +5991,8 @@ export interface InvoiceDetail {
   /** @nullable */
   customerAddress?: string | null;
   /** @nullable */
+  customerDeliveryAddress?: string | null;
+  /** @nullable */
   customerEmail?: string | null;
   /** @nullable */
   issueDate?: string | null;
@@ -5883,13 +6004,19 @@ export interface InvoiceDetail {
   /** @nullable */
   paymentMethod?: string | null;
   /** @nullable */
+  bankAccount?: string | null;
+  /** @nullable */
+  iban?: string | null;
+  /** @nullable */
+  bic?: string | null;
+  /** @nullable */
   variableSymbol?: string | null;
   /** @nullable */
   constantSymbol?: string | null;
   /** @nullable */
   specificSymbol?: string | null;
   vatModeDefault: InvoiceDetailVatModeDefault;
-  /** Customer-facing material layout; source lines remain detailed */
+  /** Customer-facing layout; custom text is stored separately from source lines */
   materialDisplayMode: InvoiceDetailMaterialDisplayMode;
   subtotalWithoutVat: number;
   totalVat: number;
@@ -5897,14 +6024,14 @@ export interface InvoiceDetail {
   /** @nullable */
   notes?: string | null;
   /**
-   * Payment date (ISO YYYY-MM-DD) when the invoice was paid
-   * @nullable
-   */
+     * Payment date (ISO YYYY-MM-DD) when the invoice was paid
+     * @nullable
+     */
   paidDate?: string | null;
   /**
-   * Amount actually received (supports partial payments)
-   * @nullable
-   */
+     * Amount actually received (supports partial payments)
+     * @nullable
+     */
   paidAmount?: number | null;
   /** @nullable */
   pdfObjectPath?: string | null;
@@ -5919,54 +6046,69 @@ export interface InvoiceDetail {
   /** @nullable */
   cancelledAt?: string | null;
   /**
-   * ID of the recurring template that generated this invoice (if any)
-   * @nullable
-   */
+     * ID of the recurring template that generated this invoice (if any)
+     * @nullable
+     */
   recurringTemplateId?: number | null;
   createdAt: string;
   updatedAt: string;
   lines: InvoiceLine[];
   /** Lines rendered on the customer invoice and PDF */
   presentationLines: InvoiceLine[];
+  /** Custom customer-facing groups; source lines remain immutable and linked */
+  presentationGroups: InvoicePresentationGroup[];
   sourceJobIds: number[];
   sourceActivityIds?: number[];
   sourceJobs?: InvoiceSourceJob[];
   sourceActivities?: InvoiceSourceActivity[];
+  sourceAllocations: InvoiceSourceAllocation[];
+  sourceSummary: InvoiceSourceSummary;
 }
 
-export type InvoiceStatus = (typeof InvoiceStatus)[keyof typeof InvoiceStatus];
+export type InvoiceDocumentType = typeof InvoiceDocumentType[keyof typeof InvoiceDocumentType];
 
-export const InvoiceStatus = {
-  draft: "draft",
-  issued: "issued",
-  sent: "sent",
-  paid: "paid",
-  cancelled: "cancelled",
+
+export const InvoiceDocumentType = {
+  standard: 'standard',
+  advance: 'advance',
 } as const;
 
-export type InvoiceVatModeDefault =
-  (typeof InvoiceVatModeDefault)[keyof typeof InvoiceVatModeDefault];
+export type InvoiceStatus = typeof InvoiceStatus[keyof typeof InvoiceStatus];
+
+
+export const InvoiceStatus = {
+  draft: 'draft',
+  issued: 'issued',
+  sent: 'sent',
+  paid: 'paid',
+  cancelled: 'cancelled',
+} as const;
+
+export type InvoiceVatModeDefault = typeof InvoiceVatModeDefault[keyof typeof InvoiceVatModeDefault];
+
 
 export const InvoiceVatModeDefault = {
-  standard: "standard",
-  reverse_charge: "reverse_charge",
-  zero: "zero",
-  non_vat: "non_vat",
+  standard: 'standard',
+  reverse_charge: 'reverse_charge',
+  zero: 'zero',
+  non_vat: 'non_vat',
 } as const;
 
 /**
- * Customer-facing material layout; source lines remain detailed
+ * Customer-facing layout; custom text is stored separately from source lines
  */
-export type InvoiceMaterialDisplayMode =
-  (typeof InvoiceMaterialDisplayMode)[keyof typeof InvoiceMaterialDisplayMode];
+export type InvoiceMaterialDisplayMode = typeof InvoiceMaterialDisplayMode[keyof typeof InvoiceMaterialDisplayMode];
+
 
 export const InvoiceMaterialDisplayMode = {
-  detailed: "detailed",
-  summary: "summary",
+  detailed: 'detailed',
+  summary: 'summary',
+  custom: 'custom',
 } as const;
 
 export interface Invoice {
   id: number;
+  documentType: InvoiceDocumentType;
   /** @nullable */
   invoiceNumber?: string | null;
   status: InvoiceStatus;
@@ -5981,6 +6123,8 @@ export interface Invoice {
   /** @nullable */
   customerAddress?: string | null;
   /** @nullable */
+  customerDeliveryAddress?: string | null;
+  /** @nullable */
   customerEmail?: string | null;
   /** @nullable */
   issueDate?: string | null;
@@ -5992,13 +6136,19 @@ export interface Invoice {
   /** @nullable */
   paymentMethod?: string | null;
   /** @nullable */
+  bankAccount?: string | null;
+  /** @nullable */
+  iban?: string | null;
+  /** @nullable */
+  bic?: string | null;
+  /** @nullable */
   variableSymbol?: string | null;
   /** @nullable */
   constantSymbol?: string | null;
   /** @nullable */
   specificSymbol?: string | null;
   vatModeDefault: InvoiceVatModeDefault;
-  /** Customer-facing material layout; source lines remain detailed */
+  /** Customer-facing layout; custom text is stored separately from source lines */
   materialDisplayMode: InvoiceMaterialDisplayMode;
   subtotalWithoutVat: number;
   totalVat: number;
@@ -6006,14 +6156,14 @@ export interface Invoice {
   /** @nullable */
   notes?: string | null;
   /**
-   * Payment date (ISO YYYY-MM-DD) when the invoice was paid
-   * @nullable
-   */
+     * Payment date (ISO YYYY-MM-DD) when the invoice was paid
+     * @nullable
+     */
   paidDate?: string | null;
   /**
-   * Amount actually received (supports partial payments)
-   * @nullable
-   */
+     * Amount actually received (supports partial payments)
+     * @nullable
+     */
   paidAmount?: number | null;
   /** @nullable */
   pdfObjectPath?: string | null;
@@ -6028,89 +6178,122 @@ export interface Invoice {
   /** @nullable */
   cancelledAt?: string | null;
   /**
-   * ID of the recurring template that generated this invoice (if any)
-   * @nullable
-   */
+     * ID of the recurring template that generated this invoice (if any)
+     * @nullable
+     */
   recurringTemplateId?: number | null;
   createdAt: string;
   updatedAt: string;
   sourceJobs?: InvoiceSourceJob[];
 }
 
+export type InvoiceCreateInputDocumentType = typeof InvoiceCreateInputDocumentType[keyof typeof InvoiceCreateInputDocumentType];
+
+
+export const InvoiceCreateInputDocumentType = {
+  standard: 'standard',
+  advance: 'advance',
+} as const;
+
 /**
  * Source of labour lines. automatic uses the contract price for fixed-price jobs, recorded time when a time-and-material job has completed sessions, and the legacy job price otherwise. recorded_time reserves immutable work sessions.
  */
-export type InvoiceCreateInputLabourBillingMode =
-  (typeof InvoiceCreateInputLabourBillingMode)[keyof typeof InvoiceCreateInputLabourBillingMode];
+export type InvoiceCreateInputLabourBillingMode = typeof InvoiceCreateInputLabourBillingMode[keyof typeof InvoiceCreateInputLabourBillingMode];
+
 
 export const InvoiceCreateInputLabourBillingMode = {
-  automatic: "automatic",
-  job_price: "job_price",
-  recorded_time: "recorded_time",
-  none: "none",
+  automatic: 'automatic',
+  job_price: 'job_price',
+  recorded_time: 'recorded_time',
+  none: 'none',
 } as const;
 
 /**
  * Group recorded-time lines by rate only or by worker and rate
  */
-export type InvoiceCreateInputWorkGrouping =
-  (typeof InvoiceCreateInputWorkGrouping)[keyof typeof InvoiceCreateInputWorkGrouping];
+export type InvoiceCreateInputWorkGrouping = typeof InvoiceCreateInputWorkGrouping[keyof typeof InvoiceCreateInputWorkGrouping];
+
 
 export const InvoiceCreateInputWorkGrouping = {
-  summary: "summary",
-  worker: "worker",
+  summary: 'summary',
+  worker: 'worker',
+} as const;
+
+/**
+ * Keep source rows grouped per job or combine compatible commercial rows across jobs
+ */
+export type InvoiceCreateInputSourceGrouping = typeof InvoiceCreateInputSourceGrouping[keyof typeof InvoiceCreateInputSourceGrouping];
+
+
+export const InvoiceCreateInputSourceGrouping = {
+  by_job: 'by_job',
+  combined: 'combined',
 } as const;
 
 /**
  * Display material as individual lines or as one amount per VAT rate
  */
-export type InvoiceCreateInputMaterialDisplayMode =
-  (typeof InvoiceCreateInputMaterialDisplayMode)[keyof typeof InvoiceCreateInputMaterialDisplayMode];
+export type InvoiceCreateInputMaterialDisplayMode = typeof InvoiceCreateInputMaterialDisplayMode[keyof typeof InvoiceCreateInputMaterialDisplayMode];
+
 
 export const InvoiceCreateInputMaterialDisplayMode = {
-  detailed: "detailed",
-  summary: "summary",
+  detailed: 'detailed',
+  summary: 'summary',
 } as const;
 
-export type InvoiceCreateInputVatModeDefault =
-  (typeof InvoiceCreateInputVatModeDefault)[keyof typeof InvoiceCreateInputVatModeDefault];
+export type InvoiceCreateInputVatModeDefault = typeof InvoiceCreateInputVatModeDefault[keyof typeof InvoiceCreateInputVatModeDefault];
+
 
 export const InvoiceCreateInputVatModeDefault = {
-  standard: "standard",
-  reverse_charge: "reverse_charge",
-  zero: "zero",
-  non_vat: "non_vat",
+  standard: 'standard',
+  reverse_charge: 'reverse_charge',
+  zero: 'zero',
+  non_vat: 'non_vat',
 } as const;
 
-export type InvoiceLineInputSourceType =
-  (typeof InvoiceLineInputSourceType)[keyof typeof InvoiceLineInputSourceType];
+export type InvoiceLineInputRowType = typeof InvoiceLineInputRowType[keyof typeof InvoiceLineInputRowType];
+
+
+export const InvoiceLineInputRowType = {
+  item: 'item',
+  section: 'section',
+} as const;
+
+export type InvoiceLineInputSourceType = typeof InvoiceLineInputSourceType[keyof typeof InvoiceLineInputSourceType];
+
 
 export const InvoiceLineInputSourceType = {
-  job: "job",
-  activity: "activity",
-  activity_material: "activity_material",
-  activity_work: "activity_work",
-  material: "material",
-  billing_document_line: "billing_document_line",
-  work_session: "work_session",
-  quote_item: "quote_item",
-  transport: "transport",
-  parking: "parking",
-  fine: "fine",
-  manual: "manual",
+  job: 'job',
+  activity: 'activity',
+  activity_material: 'activity_material',
+  activity_work: 'activity_work',
+  material: 'material',
+  billing_document_line: 'billing_document_line',
+  work_session: 'work_session',
+  quote_item: 'quote_item',
+  transport: 'transport',
+  parking: 'parking',
+  fine: 'fine',
+  manual: 'manual',
 } as const;
 
-export type InvoiceLineInputVatMode =
-  (typeof InvoiceLineInputVatMode)[keyof typeof InvoiceLineInputVatMode];
+export type InvoiceLineInputVatMode = typeof InvoiceLineInputVatMode[keyof typeof InvoiceLineInputVatMode];
+
 
 export const InvoiceLineInputVatMode = {
-  standard: "standard",
-  reverse_charge: "reverse_charge",
-  zero: "zero",
-  non_vat: "non_vat",
+  standard: 'standard',
+  reverse_charge: 'reverse_charge',
+  zero: 'zero',
+  non_vat: 'non_vat',
 } as const;
 
 export interface InvoiceLineInput {
+  /**
+     * Existing draft line id retained during in-place edits
+     * @nullable
+     */
+  id?: number | null;
+  rowType?: InvoiceLineInputRowType;
   sourceType?: InvoiceLineInputSourceType;
   /** @nullable */
   sourceId?: number | null;
@@ -6136,7 +6319,20 @@ export interface InvoiceLineInput {
 }
 
 export interface InvoiceCreateInput {
+  documentType?: InvoiceCreateInputDocumentType;
   customerId: number;
+  /** @nullable */
+  customerName?: string | null;
+  /** @nullable */
+  customerIc?: string | null;
+  /** @nullable */
+  customerDic?: string | null;
+  /** @nullable */
+  customerAddress?: string | null;
+  /** @nullable */
+  customerDeliveryAddress?: string | null;
+  /** @nullable */
+  customerEmail?: string | null;
   /** Done jobs to auto-propose lines from (práce/doprava/parkování/materiál) */
   jobIds?: number[];
   /** Completed actions (dlouhodobé akce) to auto-propose lines from (vícepráce + materiál) */
@@ -6145,12 +6341,14 @@ export interface InvoiceCreateInput {
   labourBillingMode?: InvoiceCreateInputLabourBillingMode;
   /** Group recorded-time lines by rate only or by worker and rate */
   workGrouping?: InvoiceCreateInputWorkGrouping;
+  /** Keep source rows grouped per job or combine compatible commercial rows across jobs */
+  sourceGrouping?: InvoiceCreateInputSourceGrouping;
   /** Subset of jobIds whose fines should also be billed (explicit opt-in) */
   billFineJobIds?: number[];
   /**
-   * Percent markup applied to auto-proposed material lines; defaults to the billing settings value when omitted
-   * @nullable
-   */
+     * Percent markup applied to auto-proposed material lines; defaults to the billing settings value when omitted
+     * @nullable
+     */
   materialMarkupPercent?: number | null;
   /** Per-material markup overrides (highest priority); each entry overrides the category default and the invoice/settings default for that material line */
   materialMarkupOverrides?: MaterialMarkupOverride[];
@@ -6167,6 +6365,18 @@ export interface InvoiceCreateInput {
   /** @nullable */
   paymentMethod?: string | null;
   /** @nullable */
+  bankAccount?: string | null;
+  /** @nullable */
+  iban?: string | null;
+  /** @nullable */
+  bic?: string | null;
+  /**
+     * @minLength 3
+     * @maxLength 3
+     * @nullable
+     */
+  currency?: string | null;
+  /** @nullable */
   variableSymbol?: string | null;
   /** @nullable */
   constantSymbol?: string | null;
@@ -6177,30 +6387,62 @@ export interface InvoiceCreateInput {
   notes?: string | null;
 }
 
-export type InvoiceUpdateInputVatModeDefault =
-  (typeof InvoiceUpdateInputVatModeDefault)[keyof typeof InvoiceUpdateInputVatModeDefault];
+export type InvoiceUpdateInputVatModeDefault = typeof InvoiceUpdateInputVatModeDefault[keyof typeof InvoiceUpdateInputVatModeDefault];
+
 
 export const InvoiceUpdateInputVatModeDefault = {
-  standard: "standard",
-  reverse_charge: "reverse_charge",
-  zero: "zero",
-  non_vat: "non_vat",
+  standard: 'standard',
+  reverse_charge: 'reverse_charge',
+  zero: 'zero',
+  non_vat: 'non_vat',
 } as const;
 
 /**
- * Display material as individual lines or as one amount per VAT rate
+ * Choose source lines, material summary, or custom customer-facing groups
  */
-export type InvoiceUpdateInputMaterialDisplayMode =
-  (typeof InvoiceUpdateInputMaterialDisplayMode)[keyof typeof InvoiceUpdateInputMaterialDisplayMode];
+export type InvoiceUpdateInputMaterialDisplayMode = typeof InvoiceUpdateInputMaterialDisplayMode[keyof typeof InvoiceUpdateInputMaterialDisplayMode];
+
 
 export const InvoiceUpdateInputMaterialDisplayMode = {
-  detailed: "detailed",
-  summary: "summary",
+  detailed: 'detailed',
+  summary: 'summary',
+  custom: 'custom',
 } as const;
+
+export type InvoiceUpdateInputSourceAllocationsItemSettlementMethod = typeof InvoiceUpdateInputSourceAllocationsItemSettlementMethod[keyof typeof InvoiceUpdateInputSourceAllocationsItemSettlementMethod];
+
+
+export const InvoiceUpdateInputSourceAllocationsItemSettlementMethod = {
+  direct: 'direct',
+  included_in_lump_sum: 'included_in_lump_sum',
+  not_charged: 'not_charged',
+  deferred: 'deferred',
+} as const;
+
+export type InvoiceUpdateInputSourceAllocationsItem = {
+  id: number;
+  settlementMethod: InvoiceUpdateInputSourceAllocationsItemSettlementMethod;
+  /** @nullable */
+  invoiceLineId?: number | null;
+};
 
 export interface InvoiceUpdateInput {
   /** @nullable */
   customerId?: number | null;
+  /** Explicit administrator override when source jobs belong to another customer */
+  allowCustomerMismatch?: boolean;
+  /** @nullable */
+  customerName?: string | null;
+  /** @nullable */
+  customerIc?: string | null;
+  /** @nullable */
+  customerDic?: string | null;
+  /** @nullable */
+  customerAddress?: string | null;
+  /** @nullable */
+  customerDeliveryAddress?: string | null;
+  /** @nullable */
+  customerEmail?: string | null;
   /** @nullable */
   issueDate?: string | null;
   /** @nullable */
@@ -6210,32 +6452,51 @@ export interface InvoiceUpdateInput {
   /** @nullable */
   paymentMethod?: string | null;
   /** @nullable */
+  bankAccount?: string | null;
+  /** @nullable */
+  iban?: string | null;
+  /** @nullable */
+  bic?: string | null;
+  /**
+     * @minLength 3
+     * @maxLength 3
+     * @nullable
+     */
+  currency?: string | null;
+  /** @nullable */
   variableSymbol?: string | null;
   /** @nullable */
   constantSymbol?: string | null;
   /** @nullable */
   specificSymbol?: string | null;
   vatModeDefault?: InvoiceUpdateInputVatModeDefault;
-  /** Display material as individual lines or as one amount per VAT rate */
+  /** Choose source lines, material summary, or custom customer-facing groups */
   materialDisplayMode?: InvoiceUpdateInputMaterialDisplayMode;
+  /**
+     * Custom customer-facing groups; every source line must be included exactly once
+     * @maxItems 500
+     */
+  presentationGroups?: InvoicePresentationGroup[];
   /** @nullable */
   notes?: string | null;
   /** If provided, replaces ALL lines of the draft */
   lines?: InvoiceLineInput[];
+  /** Explicit settlement of every operational source independent of commercial line layout */
+  sourceAllocations?: InvoiceUpdateInputSourceAllocationsItem[];
 }
 
 /**
  * Registered mandatory reason for the cancellation; arbitrary free text is not persisted
  */
-export type CancelInvoiceInputReasonCode =
-  (typeof CancelInvoiceInputReasonCode)[keyof typeof CancelInvoiceInputReasonCode];
+export type CancelInvoiceInputReasonCode = typeof CancelInvoiceInputReasonCode[keyof typeof CancelInvoiceInputReasonCode];
+
 
 export const CancelInvoiceInputReasonCode = {
-  customer_complaint: "customer_complaint",
-  incorrect_job: "incorrect_job",
-  billing_error: "billing_error",
-  duplicate_invoice: "duplicate_invoice",
-  order_cancelled: "order_cancelled",
+  customer_complaint: 'customer_complaint',
+  incorrect_job: 'incorrect_job',
+  billing_error: 'billing_error',
+  duplicate_invoice: 'duplicate_invoice',
+  order_cancelled: 'order_cancelled',
 } as const;
 
 export interface CancelInvoiceInput {
@@ -6245,25 +6506,25 @@ export interface CancelInvoiceInput {
   returnJobsToDone?: boolean;
 }
 
-export type InvoiceStatusUpdateStatus =
-  (typeof InvoiceStatusUpdateStatus)[keyof typeof InvoiceStatusUpdateStatus];
+export type InvoiceStatusUpdateStatus = typeof InvoiceStatusUpdateStatus[keyof typeof InvoiceStatusUpdateStatus];
+
 
 export const InvoiceStatusUpdateStatus = {
-  sent: "sent",
-  paid: "paid",
+  sent: 'sent',
+  paid: 'paid',
 } as const;
 
 export interface InvoiceStatusUpdate {
   status: InvoiceStatusUpdateStatus;
   /**
-   * Payment date (ISO YYYY-MM-DD) when marking paid; defaults to today
-   * @nullable
-   */
+     * Payment date (ISO YYYY-MM-DD) when marking paid; defaults to today
+     * @nullable
+     */
   paidDate?: string | null;
   /**
-   * Amount received when marking paid; defaults to the invoice total (with VAT)
-   * @nullable
-   */
+     * Amount received when marking paid; defaults to the invoice total (with VAT)
+     * @nullable
+     */
   paidAmount?: number | null;
 }
 
@@ -6323,15 +6584,15 @@ export interface ReviewQueueDocumentInfo {
   issueDate?: string | null;
 }
 
-export type ReviewQueueItemReasonsItem =
-  (typeof ReviewQueueItemReasonsItem)[keyof typeof ReviewQueueItemReasonsItem];
+export type ReviewQueueItemReasonsItem = typeof ReviewQueueItemReasonsItem[keyof typeof ReviewQueueItemReasonsItem];
+
 
 export const ReviewQueueItemReasonsItem = {
-  needs_review: "needs_review",
-  low_confidence: "low_confidence",
-  missing_job: "missing_job",
-  missing_warehouse_item: "missing_warehouse_item",
-  price_jump: "price_jump",
+  needs_review: 'needs_review',
+  low_confidence: 'low_confidence',
+  missing_job: 'missing_job',
+  missing_warehouse_item: 'missing_warehouse_item',
+  price_jump: 'price_jump',
 } as const;
 
 export interface ReviewQueueItem {
@@ -6440,58 +6701,57 @@ export interface AssignWarehouseResult {
 
 export interface MergeDocumentPagesInput {
   /**
-   * @minItems 2
-   * @maxItems 50
-   */
+     * @minItems 2
+     * @maxItems 50
+     */
   orderedDocumentIds: number[];
 }
 
-export type ConfirmDocumentTypeInputDocType =
-  (typeof ConfirmDocumentTypeInputDocType)[keyof typeof ConfirmDocumentTypeInputDocType];
+export type ConfirmDocumentTypeInputDocType = typeof ConfirmDocumentTypeInputDocType[keyof typeof ConfirmDocumentTypeInputDocType];
+
 
 export const ConfirmDocumentTypeInputDocType = {
-  receipt: "receipt",
-  delivery_note: "delivery_note",
-  invoice: "invoice",
-  credit_note: "credit_note",
+  receipt: 'receipt',
+  delivery_note: 'delivery_note',
+  invoice: 'invoice',
+  credit_note: 'credit_note',
 } as const;
 
 export interface ConfirmDocumentTypeInput {
   docType: ConfirmDocumentTypeInputDocType;
 }
 
-export type DeliveryNoteResolutionInputResolution =
-  (typeof DeliveryNoteResolutionInputResolution)[keyof typeof DeliveryNoteResolutionInputResolution];
+export type DeliveryNoteResolutionInputResolution = typeof DeliveryNoteResolutionInputResolution[keyof typeof DeliveryNoteResolutionInputResolution];
+
 
 export const DeliveryNoteResolutionInputResolution = {
-  unknown: "unknown",
-  required: "required",
-  not_required: "not_required",
-  waived: "waived",
+  unknown: 'unknown',
+  required: 'required',
+  not_required: 'not_required',
+  waived: 'waived',
 } as const;
 
 export interface DeliveryNoteResolutionInput {
   resolution: DeliveryNoteResolutionInputResolution;
   /**
-   * @minLength 3
-   * @maxLength 500
-   * @nullable
-   */
+     * @minLength 3
+     * @maxLength 500
+     * @nullable
+     */
   reason?: string | null;
 }
 
 /**
  * @nullable
  */
-export type CostDocumentUpdateInputDocType =
-  | (typeof CostDocumentUpdateInputDocType)[keyof typeof CostDocumentUpdateInputDocType]
-  | null;
+export type CostDocumentUpdateInputDocType = typeof CostDocumentUpdateInputDocType[keyof typeof CostDocumentUpdateInputDocType] | null;
+
 
 export const CostDocumentUpdateInputDocType = {
-  receipt: "receipt",
-  delivery_note: "delivery_note",
-  invoice: "invoice",
-  credit_note: "credit_note",
+  receipt: 'receipt',
+  delivery_note: 'delivery_note',
+  invoice: 'invoice',
+  credit_note: 'credit_note',
 } as const;
 
 export interface CostDocumentUpdateInput {
@@ -6531,39 +6791,39 @@ export interface CostDocumentUpdateInput {
   notes?: string | null;
 }
 
-export type CostDocumentStatusInputStatus =
-  (typeof CostDocumentStatusInputStatus)[keyof typeof CostDocumentStatusInputStatus];
+export type CostDocumentStatusInputStatus = typeof CostDocumentStatusInputStatus[keyof typeof CostDocumentStatusInputStatus];
+
 
 export const CostDocumentStatusInputStatus = {
-  needs_review: "needs_review",
-  reviewed: "reviewed",
-  ignored: "ignored",
-  duplicate: "duplicate",
+  needs_review: 'needs_review',
+  reviewed: 'reviewed',
+  ignored: 'ignored',
+  duplicate: 'duplicate',
 } as const;
 
 export interface CostDocumentStatusInput {
   status: CostDocumentStatusInputStatus;
   /**
-   * Povinný důvod při řízeném vrácení schváleného dokladu ke kontrole.
-   * @minLength 3
-   * @maxLength 1000
-   */
+     * Povinný důvod při řízeném vrácení schváleného dokladu ke kontrole.
+     * @minLength 3
+     * @maxLength 1000
+     */
   reason?: string;
 }
 
-export type CostDocumentEarlyDiscardInputMode =
-  (typeof CostDocumentEarlyDiscardInputMode)[keyof typeof CostDocumentEarlyDiscardInputMode];
+export type CostDocumentEarlyDiscardInputMode = typeof CostDocumentEarlyDiscardInputMode[keyof typeof CostDocumentEarlyDiscardInputMode];
+
 
 export const CostDocumentEarlyDiscardInputMode = {
-  early_discard: "early_discard",
+  early_discard: 'early_discard',
 } as const;
 
-export type CostDocumentEarlyDiscardInputReasonCode =
-  (typeof CostDocumentEarlyDiscardInputReasonCode)[keyof typeof CostDocumentEarlyDiscardInputReasonCode];
+export type CostDocumentEarlyDiscardInputReasonCode = typeof CostDocumentEarlyDiscardInputReasonCode[keyof typeof CostDocumentEarlyDiscardInputReasonCode];
+
 
 export const CostDocumentEarlyDiscardInputReasonCode = {
-  invalid_upload: "invalid_upload",
-  not_a_document: "not_a_document",
+  invalid_upload: 'invalid_upload',
+  not_a_document: 'not_a_document',
 } as const;
 
 export interface CostDocumentEarlyDiscardInput {
@@ -6572,35 +6832,33 @@ export interface CostDocumentEarlyDiscardInput {
   confirmed: true;
 }
 
-export type CostDocumentReviewedRejectionInputMode =
-  (typeof CostDocumentReviewedRejectionInputMode)[keyof typeof CostDocumentReviewedRejectionInputMode];
+export type CostDocumentReviewedRejectionInputMode = typeof CostDocumentReviewedRejectionInputMode[keyof typeof CostDocumentReviewedRejectionInputMode];
+
 
 export const CostDocumentReviewedRejectionInputMode = {
-  reviewed_rejection: "reviewed_rejection",
+  reviewed_rejection: 'reviewed_rejection',
 } as const;
 
-export type CostDocumentReviewedRejectionInputReasonCode =
-  (typeof CostDocumentReviewedRejectionInputReasonCode)[keyof typeof CostDocumentReviewedRejectionInputReasonCode];
+export type CostDocumentReviewedRejectionInputReasonCode = typeof CostDocumentReviewedRejectionInputReasonCode[keyof typeof CostDocumentReviewedRejectionInputReasonCode];
+
 
 export const CostDocumentReviewedRejectionInputReasonCode = {
-  duplicate_document: "duplicate_document",
-  invalid_document: "invalid_document",
+  duplicate_document: 'duplicate_document',
+  invalid_document: 'invalid_document',
 } as const;
 
 export interface CostDocumentReviewedRejectionInput {
   mode: CostDocumentReviewedRejectionInputMode;
   reasonCode: CostDocumentReviewedRejectionInputReasonCode;
   /**
-   * Bounded readable reason stored only in restricted immutable accounting evidence.
-   * @minLength 3
-   * @maxLength 1000
-   */
+     * Bounded readable reason stored only in restricted immutable accounting evidence.
+     * @minLength 3
+     * @maxLength 1000
+     */
   reason: string;
 }
 
-export type CostDocumentDispositionInput =
-  | CostDocumentEarlyDiscardInput
-  | CostDocumentReviewedRejectionInput;
+export type CostDocumentDispositionInput = CostDocumentEarlyDiscardInput | CostDocumentReviewedRejectionInput;
 
 export interface MarkCostDocumentDuplicateInput {
   /** The document this one should be paired as a duplicate of. */
@@ -6629,29 +6887,27 @@ export interface ReanalyzeJobAttachmentDocumentsResult {
 /**
  * @nullable
  */
-export type CostDocumentLineUpdateInputLineType =
-  | (typeof CostDocumentLineUpdateInputLineType)[keyof typeof CostDocumentLineUpdateInputLineType]
-  | null;
+export type CostDocumentLineUpdateInputLineType = typeof CostDocumentLineUpdateInputLineType[keyof typeof CostDocumentLineUpdateInputLineType] | null;
+
 
 export const CostDocumentLineUpdateInputLineType = {
-  material: "material",
-  work: "work",
-  transport: "transport",
-  other: "other",
+  material: 'material',
+  work: 'work',
+  transport: 'transport',
+  other: 'other',
 } as const;
 
 /**
  * @nullable
  */
-export type CostDocumentLineUpdateInputAllocationType =
-  | (typeof CostDocumentLineUpdateInputAllocationType)[keyof typeof CostDocumentLineUpdateInputAllocationType]
-  | null;
+export type CostDocumentLineUpdateInputAllocationType = typeof CostDocumentLineUpdateInputAllocationType[keyof typeof CostDocumentLineUpdateInputAllocationType] | null;
+
 
 export const CostDocumentLineUpdateInputAllocationType = {
-  rebill: "rebill",
-  internal: "internal",
-  stock: "stock",
-  not_rebilled: "not_rebilled",
+  rebill: 'rebill',
+  internal: 'internal',
+  stock: 'stock',
+  not_rebilled: 'not_rebilled',
 } as const;
 
 export interface CostDocumentLineUpdateInput {
@@ -6682,15 +6938,14 @@ export interface CostDocumentLineUpdateInput {
 /**
  * @nullable
  */
-export type CostDocumentLineSplitPartAllocationType =
-  | (typeof CostDocumentLineSplitPartAllocationType)[keyof typeof CostDocumentLineSplitPartAllocationType]
-  | null;
+export type CostDocumentLineSplitPartAllocationType = typeof CostDocumentLineSplitPartAllocationType[keyof typeof CostDocumentLineSplitPartAllocationType] | null;
+
 
 export const CostDocumentLineSplitPartAllocationType = {
-  rebill: "rebill",
-  internal: "internal",
-  stock: "stock",
-  not_rebilled: "not_rebilled",
+  rebill: 'rebill',
+  internal: 'internal',
+  stock: 'stock',
+  not_rebilled: 'not_rebilled',
 } as const;
 
 export interface CostDocumentLineSplitPart {
@@ -6707,19 +6962,19 @@ export interface CostDocumentLineSplitInput {
   parts: CostDocumentLineSplitPart[];
 }
 
-export type CostDocumentReferenceCreateInputReferenceType =
-  (typeof CostDocumentReferenceCreateInputReferenceType)[keyof typeof CostDocumentReferenceCreateInputReferenceType];
+export type CostDocumentReferenceCreateInputReferenceType = typeof CostDocumentReferenceCreateInputReferenceType[keyof typeof CostDocumentReferenceCreateInputReferenceType];
+
 
 export const CostDocumentReferenceCreateInputReferenceType = {
-  delivery_note: "delivery_note",
-  summary_delivery_note: "summary_delivery_note",
-  delivery: "delivery",
-  order: "order",
-  supplier_order: "supplier_order",
-  project: "project",
-  invoice: "invoice",
-  credit_note: "credit_note",
-  other: "other",
+  delivery_note: 'delivery_note',
+  summary_delivery_note: 'summary_delivery_note',
+  delivery: 'delivery',
+  order: 'order',
+  supplier_order: 'supplier_order',
+  project: 'project',
+  invoice: 'invoice',
+  credit_note: 'credit_note',
+  other: 'other',
 } as const;
 
 export interface CostDocumentReferenceCreateInput {
@@ -6734,20 +6989,19 @@ export interface CostDocumentReferenceCreateInput {
 /**
  * @nullable
  */
-export type CostDocumentReferenceUpdateInputReferenceType =
-  | (typeof CostDocumentReferenceUpdateInputReferenceType)[keyof typeof CostDocumentReferenceUpdateInputReferenceType]
-  | null;
+export type CostDocumentReferenceUpdateInputReferenceType = typeof CostDocumentReferenceUpdateInputReferenceType[keyof typeof CostDocumentReferenceUpdateInputReferenceType] | null;
+
 
 export const CostDocumentReferenceUpdateInputReferenceType = {
-  delivery_note: "delivery_note",
-  summary_delivery_note: "summary_delivery_note",
-  delivery: "delivery",
-  order: "order",
-  supplier_order: "supplier_order",
-  project: "project",
-  invoice: "invoice",
-  credit_note: "credit_note",
-  other: "other",
+  delivery_note: 'delivery_note',
+  summary_delivery_note: 'summary_delivery_note',
+  delivery: 'delivery',
+  order: 'order',
+  supplier_order: 'supplier_order',
+  project: 'project',
+  invoice: 'invoice',
+  credit_note: 'credit_note',
+  other: 'other',
 } as const;
 
 export interface CostDocumentReferenceUpdateInput {
@@ -6778,9 +7032,7 @@ export interface CostDocumentReferenceJobCandidate {
   reasons: string[];
 }
 
-export type CostDocumentMatchResultCandidatesByRef = {
-  [key: string]: CostDocumentReferenceJobCandidate[];
-};
+export type CostDocumentMatchResultCandidatesByRef = {[key: string]: CostDocumentReferenceJobCandidate[]};
 
 export interface CostDocumentMatchResult {
   document: CostDocument;
@@ -6802,13 +7054,13 @@ export interface CostDocumentSiblingMatch {
   reasons: string[];
 }
 
-export type WarehousePriceUpdateItemMatchedBy =
-  (typeof WarehousePriceUpdateItemMatchedBy)[keyof typeof WarehousePriceUpdateItemMatchedBy];
+export type WarehousePriceUpdateItemMatchedBy = typeof WarehousePriceUpdateItemMatchedBy[keyof typeof WarehousePriceUpdateItemMatchedBy];
+
 
 export const WarehousePriceUpdateItemMatchedBy = {
-  code: "code",
-  name: "name",
-  created: "created",
+  code: 'code',
+  name: 'name',
+  created: 'created',
 } as const;
 
 export interface WarehousePriceUpdateItem {
@@ -6849,13 +7101,13 @@ export interface ApprovedCostLine {
 /**
  * Which source provides the API key: "db" (saved in Settings), "env" (OPENAI_API_KEY fallback), or "none".
  */
-export type DocumentExtractionStatusSource =
-  (typeof DocumentExtractionStatusSource)[keyof typeof DocumentExtractionStatusSource];
+export type DocumentExtractionStatusSource = typeof DocumentExtractionStatusSource[keyof typeof DocumentExtractionStatusSource];
+
 
 export const DocumentExtractionStatusSource = {
-  db: "db",
-  env: "env",
-  none: "none",
+  db: 'db',
+  env: 'env',
+  none: 'none',
 } as const;
 
 export interface DocumentExtractionStatus {
@@ -6880,29 +7132,29 @@ export interface DocumentExtractionInput {
   /** @nullable */
   model: string | null;
   /**
-   * Instructions for the model. An empty string / null resets it to the built-in default prompt.
-   * @nullable
-   */
+     * Instructions for the model. An empty string / null resets it to the built-in default prompt.
+     * @nullable
+     */
   systemPrompt?: string | null;
   /**
-   * Max upload size sent to OpenAI; null falls back to env/default.
-   * @nullable
-   */
+     * Max upload size sent to OpenAI; null falls back to env/default.
+     * @nullable
+     */
   maxFileMb?: number | null;
   /**
-   * Per-request timeout in ms; null falls back to env/default.
-   * @nullable
-   */
+     * Per-request timeout in ms; null falls back to env/default.
+     * @nullable
+     */
   requestTimeoutMs?: number | null;
   /**
-   * Review threshold (0–1); null falls back to env/default.
-   * @nullable
-   */
+     * Review threshold (0–1); null falls back to env/default.
+     * @nullable
+     */
   confidenceThreshold?: number | null;
   /**
-   * Write-only. A non-empty string sets the OpenAI API key, an empty string clears it, and omitting / null keeps the existing key.
-   * @nullable
-   */
+     * Write-only. A non-empty string sets the OpenAI API key, an empty string clears it, and omitting / null keeps the existing key.
+     * @nullable
+     */
   apiKey?: string | null;
 }
 
@@ -6915,12 +7167,12 @@ export interface DocumentExtractionTestResult {
 /**
  * Which source provides the configuration: "db" (saved in Settings) or "env" (DOCUMENT_* env vars / built-in defaults before any save).
  */
-export type DocumentLinkingStatusSource =
-  (typeof DocumentLinkingStatusSource)[keyof typeof DocumentLinkingStatusSource];
+export type DocumentLinkingStatusSource = typeof DocumentLinkingStatusSource[keyof typeof DocumentLinkingStatusSource];
+
 
 export const DocumentLinkingStatusSource = {
-  db: "db",
-  env: "env",
+  db: 'db',
+  env: 'env',
 } as const;
 
 export interface DocumentLinkingStatus {
@@ -6940,14 +7192,14 @@ export interface DocumentLinkingInput {
   autoLinkEnabled: boolean;
   autoConfirmEnabled: boolean;
   /**
-   * 0–1 threshold; null falls back to env/default.
-   * @nullable
-   */
+     * 0–1 threshold; null falls back to env/default.
+     * @nullable
+     */
   autoLinkMinScore?: number | null;
   /**
-   * 0–1 threshold; null falls back to env/default.
-   * @nullable
-   */
+     * 0–1 threshold; null falls back to env/default.
+     * @nullable
+     */
   autoConfirmMinScore?: number | null;
 }
 
@@ -7068,13 +7320,13 @@ export interface EmailImportImportResult {
   duplicates: number;
 }
 
-export type RecurringInvoiceTemplateInterval =
-  (typeof RecurringInvoiceTemplateInterval)[keyof typeof RecurringInvoiceTemplateInterval];
+export type RecurringInvoiceTemplateInterval = typeof RecurringInvoiceTemplateInterval[keyof typeof RecurringInvoiceTemplateInterval];
+
 
 export const RecurringInvoiceTemplateInterval = {
-  monthly: "monthly",
-  quarterly: "quarterly",
-  yearly: "yearly",
+  monthly: 'monthly',
+  quarterly: 'quarterly',
+  yearly: 'yearly',
 } as const;
 
 export interface RecurringTemplateItem {
@@ -7111,13 +7363,13 @@ export interface RecurringInvoiceTemplate {
   updatedAt: string;
 }
 
-export type CreateRecurringTemplateInputInterval =
-  (typeof CreateRecurringTemplateInputInterval)[keyof typeof CreateRecurringTemplateInputInterval];
+export type CreateRecurringTemplateInputInterval = typeof CreateRecurringTemplateInputInterval[keyof typeof CreateRecurringTemplateInputInterval];
+
 
 export const CreateRecurringTemplateInputInterval = {
-  monthly: "monthly",
-  quarterly: "quarterly",
-  yearly: "yearly",
+  monthly: 'monthly',
+  quarterly: 'quarterly',
+  yearly: 'yearly',
 } as const;
 
 export interface CreateRecurringTemplateInput {
@@ -7161,13 +7413,13 @@ export interface RecurringGenerationResult {
   failed: number;
 }
 
-export type UpdateRecurringTemplateInputInterval =
-  (typeof UpdateRecurringTemplateInputInterval)[keyof typeof UpdateRecurringTemplateInputInterval];
+export type UpdateRecurringTemplateInputInterval = typeof UpdateRecurringTemplateInputInterval[keyof typeof UpdateRecurringTemplateInputInterval];
+
 
 export const UpdateRecurringTemplateInputInterval = {
-  monthly: "monthly",
-  quarterly: "quarterly",
-  yearly: "yearly",
+  monthly: 'monthly',
+  quarterly: 'quarterly',
+  yearly: 'yearly',
 } as const;
 
 export interface UpdateRecurringTemplateInput {
@@ -7193,14 +7445,15 @@ export interface AnalyzeJobDocumentsResult {
   skipped: number;
 }
 
-export type QuoteStatus = (typeof QuoteStatus)[keyof typeof QuoteStatus];
+export type QuoteStatus = typeof QuoteStatus[keyof typeof QuoteStatus];
+
 
 export const QuoteStatus = {
-  draft: "draft",
-  sent: "sent",
-  accepted: "accepted",
-  rejected: "rejected",
-  expired: "expired",
+  draft: 'draft',
+  sent: 'sent',
+  accepted: 'accepted',
+  rejected: 'rejected',
+  expired: 'expired',
 } as const;
 
 export interface Quote {
@@ -7233,13 +7486,13 @@ export interface Quote {
   updatedAt: string;
 }
 
-export type QuoteItemInputRowType =
-  (typeof QuoteItemInputRowType)[keyof typeof QuoteItemInputRowType];
+export type QuoteItemInputRowType = typeof QuoteItemInputRowType[keyof typeof QuoteItemInputRowType];
+
 
 export const QuoteItemInputRowType = {
-  item: "item",
-  section: "section",
-  spacer: "spacer",
+  item: 'item',
+  section: 'section',
+  spacer: 'spacer',
 } as const;
 
 export interface QuoteItemInput {
@@ -7250,14 +7503,14 @@ export interface QuoteItemInput {
   /** @nullable */
   unit?: string | null;
   /**
-   * @minimum 0
-   * @nullable
-   */
+     * @minimum 0
+     * @nullable
+     */
   unitPrice?: number | null;
   /**
-   * @minimum 0
-   * @nullable
-   */
+     * @minimum 0
+     * @nullable
+     */
   purchaseUnitPrice?: number | null;
   /** @nullable */
   vatRate?: number | null;
@@ -7277,24 +7530,24 @@ export interface CreateQuoteInput {
   items?: QuoteItemInput[];
 }
 
-export type QuoteDetailStatus =
-  (typeof QuoteDetailStatus)[keyof typeof QuoteDetailStatus];
+export type QuoteDetailStatus = typeof QuoteDetailStatus[keyof typeof QuoteDetailStatus];
+
 
 export const QuoteDetailStatus = {
-  draft: "draft",
-  sent: "sent",
-  accepted: "accepted",
-  rejected: "rejected",
-  expired: "expired",
+  draft: 'draft',
+  sent: 'sent',
+  accepted: 'accepted',
+  rejected: 'rejected',
+  expired: 'expired',
 } as const;
 
-export type QuoteItemRowType =
-  (typeof QuoteItemRowType)[keyof typeof QuoteItemRowType];
+export type QuoteItemRowType = typeof QuoteItemRowType[keyof typeof QuoteItemRowType];
+
 
 export const QuoteItemRowType = {
-  item: "item",
-  section: "section",
-  spacer: "spacer",
+  item: 'item',
+  section: 'section',
+  spacer: 'spacer',
 } as const;
 
 export interface QuoteItem {
@@ -7405,23 +7658,23 @@ export interface QuoteVersionEvidence {
   createdAt: string;
 }
 
-export type QuoteDecisionEventEvidenceAction =
-  (typeof QuoteDecisionEventEvidenceAction)[keyof typeof QuoteDecisionEventEvidenceAction];
+export type QuoteDecisionEventEvidenceAction = typeof QuoteDecisionEventEvidenceAction[keyof typeof QuoteDecisionEventEvidenceAction];
+
 
 export const QuoteDecisionEventEvidenceAction = {
-  accepted: "accepted",
-  rejected: "rejected",
-  expired: "expired",
-  superseded: "superseded",
+  accepted: 'accepted',
+  rejected: 'rejected',
+  expired: 'expired',
+  superseded: 'superseded',
 } as const;
 
-export type QuoteDecisionEventEvidenceActorType =
-  (typeof QuoteDecisionEventEvidenceActorType)[keyof typeof QuoteDecisionEventEvidenceActorType];
+export type QuoteDecisionEventEvidenceActorType = typeof QuoteDecisionEventEvidenceActorType[keyof typeof QuoteDecisionEventEvidenceActorType];
+
 
 export const QuoteDecisionEventEvidenceActorType = {
-  public_recipient: "public_recipient",
-  admin: "admin",
-  system: "system",
+  public_recipient: 'public_recipient',
+  admin: 'admin',
+  system: 'system',
 } as const;
 
 export interface QuoteDecisionEventEvidence {
@@ -7465,20 +7718,20 @@ export interface ConvertQuoteToJobResult {
 export type IdempotencyKeyParameter = string;
 
 export type ListJobsParams = {
-  /**
-   * ISO date string (YYYY-MM-DD)
-   */
-  from?: string;
-  /**
-   * ISO date string (YYYY-MM-DD)
-   */
-  to?: string;
-  status?: string;
-  /**
-   * @nullable
-   */
-  assignedPersonId?: number | null;
-  /**
+/**
+ * ISO date string (YYYY-MM-DD)
+ */
+from?: string;
+/**
+ * ISO date string (YYYY-MM-DD)
+ */
+to?: string;
+status?: string;
+/**
+ * @nullable
+ */
+assignedPersonId?: number | null;
+/**
  * Work-queue segment filter. Mutually exclusive with `status`.
 - `in_progress` — status = in_progress
 - `ready_to_bill` — status = done AND not linked to an active invoice
@@ -7488,209 +7741,208 @@ export type ListJobsParams = {
 - `cancelled` — status = cancelled
 
  */
-  segment?: ListJobsSegment;
-  /**
-   * For segment=problematic (and the risk summary): number of days in_progress before a job is considered stale (default 14).
-   */
-  staleDays?: number;
-  /**
-   * Include archived jobs. Requires jobs.manage permission.
-   */
-  includeArchived?: boolean;
+segment?: ListJobsSegment;
+/**
+ * For segment=problematic (and the risk summary): number of days in_progress before a job is considered stale (default 14).
+ */
+staleDays?: number;
+/**
+ * Include archived jobs. Requires jobs.manage permission.
+ */
+includeArchived?: boolean;
 };
 
-export type ListJobsSegment =
-  (typeof ListJobsSegment)[keyof typeof ListJobsSegment];
+export type ListJobsSegment = typeof ListJobsSegment[keyof typeof ListJobsSegment];
+
 
 export const ListJobsSegment = {
-  in_progress: "in_progress",
-  ready_to_bill: "ready_to_bill",
-  problematic: "problematic",
-  without_customer: "without_customer",
-  without_price: "without_price",
-  cancelled: "cancelled",
+  in_progress: 'in_progress',
+  ready_to_bill: 'ready_to_bill',
+  problematic: 'problematic',
+  without_customer: 'without_customer',
+  without_price: 'without_price',
+  cancelled: 'cancelled',
 } as const;
 
 export type GetJobsCalendarParams = {
-  /**
-   * ISO date (YYYY-MM-DD)
-   */
-  from: string;
-  /**
-   * ISO date (YYYY-MM-DD)
-   */
-  to: string;
+/**
+ * ISO date (YYYY-MM-DD)
+ */
+from: string;
+/**
+ * ISO date (YYYY-MM-DD)
+ */
+to: string;
 };
 
 export type ListLinkableDocumentLinesParams = {
-  /**
-   * Free-text search across description, supplier name and document number
-   */
-  q?: string;
+/**
+ * Free-text search across description, supplier name and document number
+ */
+q?: string;
 };
 
 export type UploadJobDocumentPageParams = {
-  name: string;
-  contentType: string;
-  groupToken: string;
-  groupComplete: boolean;
-  /**
-   * @minimum 0
-   */
-  pageIndex: number;
-  /**
-   * @minimum 1
-   * @maximum 50
-   */
-  pageCount: number;
-  docType?: UploadJobDocumentPageDocType;
+name: string;
+contentType: string;
+groupToken: string;
+groupComplete: boolean;
+/**
+ * @minimum 0
+ */
+pageIndex: number;
+/**
+ * @minimum 1
+ * @maximum 50
+ */
+pageCount: number;
+docType?: UploadJobDocumentPageDocType;
 };
 
-export type UploadJobDocumentPageDocType =
-  (typeof UploadJobDocumentPageDocType)[keyof typeof UploadJobDocumentPageDocType];
+export type UploadJobDocumentPageDocType = typeof UploadJobDocumentPageDocType[keyof typeof UploadJobDocumentPageDocType];
+
 
 export const UploadJobDocumentPageDocType = {
-  receipt: "receipt",
-  delivery_note: "delivery_note",
-  invoice: "invoice",
-  credit_note: "credit_note",
+  receipt: 'receipt',
+  delivery_note: 'delivery_note',
+  invoice: 'invoice',
+  credit_note: 'credit_note',
 } as const;
 
 export type ListLeavesParams = {
-  personId?: number;
-  /**
-   * ISO date YYYY-MM-DD
-   */
-  from?: string;
-  /**
-   * ISO date YYYY-MM-DD
-   */
-  to?: string;
-  type?: ListLeavesType;
+personId?: number;
+/**
+ * ISO date YYYY-MM-DD
+ */
+from?: string;
+/**
+ * ISO date YYYY-MM-DD
+ */
+to?: string;
+type?: ListLeavesType;
 };
 
-export type ListLeavesType =
-  (typeof ListLeavesType)[keyof typeof ListLeavesType];
+export type ListLeavesType = typeof ListLeavesType[keyof typeof ListLeavesType];
+
 
 export const ListLeavesType = {
-  vacation: "vacation",
-  sick: "sick",
-  other: "other",
+  vacation: 'vacation',
+  sick: 'sick',
+  other: 'other',
 } as const;
 
 export type ExportLeavesParams = {
-  /**
-   * Year (defaults to current year)
-   */
-  year?: number;
-  /**
-   * Filter to a single person
-   */
-  personId?: number;
-  format?: ExportLeavesFormat;
+/**
+ * Year (defaults to current year)
+ */
+year?: number;
+/**
+ * Filter to a single person
+ */
+personId?: number;
+format?: ExportLeavesFormat;
 };
 
-export type ExportLeavesFormat =
-  (typeof ExportLeavesFormat)[keyof typeof ExportLeavesFormat];
+export type ExportLeavesFormat = typeof ExportLeavesFormat[keyof typeof ExportLeavesFormat];
+
 
 export const ExportLeavesFormat = {
-  csv: "csv",
-  pdf: "pdf",
+  csv: 'csv',
+  pdf: 'pdf',
 } as const;
 
 export type GetLeavesSummaryParams = {
-  /**
-   * Year (defaults to current year)
-   */
-  year?: number;
+/**
+ * Year (defaults to current year)
+ */
+year?: number;
 };
 
 export type ListPublicHolidaysParams = {
-  /**
-   * Year (defaults to current year)
-   */
-  year?: number;
+/**
+ * Year (defaults to current year)
+ */
+year?: number;
 };
 
 export type GetStatsOverviewParams = {
-  /**
-   * ISO date string (YYYY-MM-DD), inclusive
-   */
-  from: string;
-  /**
-   * ISO date string (YYYY-MM-DD), inclusive
-   */
-  to: string;
-  /**
-   * Filter the 6-month trend by customer ID
-   */
-  trendCustomerId?: number;
-  /**
-   * Filter the 6-month trend by job type (e.g. site_visit, planned_work)
-   */
-  trendJobType?: string;
+/**
+ * ISO date string (YYYY-MM-DD), inclusive
+ */
+from: string;
+/**
+ * ISO date string (YYYY-MM-DD), inclusive
+ */
+to: string;
+/**
+ * Filter the 6-month trend by customer ID
+ */
+trendCustomerId?: number;
+/**
+ * Filter the 6-month trend by job type (e.g. site_visit, planned_work)
+ */
+trendJobType?: string;
 };
 
 export type ListCustomerDocumentsParams = {
-  /**
-   * @nullable
-   */
-  siteId?: number | null;
-  type?: string;
-  status?: string;
-  /**
-   * current | expiring | expired | noexpiry
-   */
-  validity?: string;
-  search?: string;
+/**
+ * @nullable
+ */
+siteId?: number | null;
+type?: string;
+status?: string;
+/**
+ * current | expiring | expired | noexpiry
+ */
+validity?: string;
+search?: string;
 };
 
 export type ListWarehouseItemsParams = {
-  category?: string;
-  supplierName?: string;
-  belowMin?: boolean;
-  noPrice?: boolean;
-  /**
-   * Filter items that have no current purchase price AND no price history at all
-   */
-  noPriceAtAll?: boolean;
-  /**
-   * When true, return only items that have at least one OUT movement without a costPriceAtTime recorded
-   */
-  missingCostPrice?: boolean;
-  /**
-   * Filter items that had any movement on or after this date (YYYY-MM-DD)
-   */
-  changedAfter?: string;
+category?: string;
+supplierName?: string;
+belowMin?: boolean;
+noPrice?: boolean;
+/**
+ * Filter items that have no current purchase price AND no price history at all
+ */
+noPriceAtAll?: boolean;
+/**
+ * When true, return only items that have at least one OUT movement without a costPriceAtTime recorded
+ */
+missingCostPrice?: boolean;
+/**
+ * Filter items that had any movement on or after this date (YYYY-MM-DD)
+ */
+changedAfter?: string;
 };
 
 export type GetWarehouseJobMarginSummaryParams = {
-  jobId: number;
+jobId: number;
 };
 
 export type GetWarehouseJobMarginTrendParams = {
-  jobId: number;
-  granularity?: GetWarehouseJobMarginTrendGranularity;
+jobId: number;
+granularity?: GetWarehouseJobMarginTrendGranularity;
 };
 
-export type GetWarehouseJobMarginTrendGranularity =
-  (typeof GetWarehouseJobMarginTrendGranularity)[keyof typeof GetWarehouseJobMarginTrendGranularity];
+export type GetWarehouseJobMarginTrendGranularity = typeof GetWarehouseJobMarginTrendGranularity[keyof typeof GetWarehouseJobMarginTrendGranularity];
+
 
 export const GetWarehouseJobMarginTrendGranularity = {
-  week: "week",
-  month: "month",
+  week: 'week',
+  month: 'month',
 } as const;
 
 export type GetWarehouseActivityMarginTrendParams = {
-  activityId: number;
+activityId: number;
 };
 
-export type RunWarehouseMaterialBackfill409Code =
-  (typeof RunWarehouseMaterialBackfill409Code)[keyof typeof RunWarehouseMaterialBackfill409Code];
+export type RunWarehouseMaterialBackfill409Code = typeof RunWarehouseMaterialBackfill409Code[keyof typeof RunWarehouseMaterialBackfill409Code];
+
 
 export const RunWarehouseMaterialBackfill409Code = {
-  warehouse_material_backfill_maintenance_required:
-    "warehouse_material_backfill_maintenance_required",
+  warehouse_material_backfill_maintenance_required: 'warehouse_material_backfill_maintenance_required',
 } as const;
 
 export type RunWarehouseMaterialBackfill409 = {
@@ -7698,12 +7950,11 @@ export type RunWarehouseMaterialBackfill409 = {
   error: string;
 };
 
-export type AssignWarehouseMaterialGroup409Code =
-  (typeof AssignWarehouseMaterialGroup409Code)[keyof typeof AssignWarehouseMaterialGroup409Code];
+export type AssignWarehouseMaterialGroup409Code = typeof AssignWarehouseMaterialGroup409Code[keyof typeof AssignWarehouseMaterialGroup409Code];
+
 
 export const AssignWarehouseMaterialGroup409Code = {
-  warehouse_material_backfill_maintenance_required:
-    "warehouse_material_backfill_maintenance_required",
+  warehouse_material_backfill_maintenance_required: 'warehouse_material_backfill_maintenance_required',
 } as const;
 
 export type AssignWarehouseMaterialGroup409 = {
@@ -7712,87 +7963,87 @@ export type AssignWarehouseMaterialGroup409 = {
 };
 
 export type ListWarehouseMovementsParams = {
-  warehouseItemId?: number;
-  jobId?: number;
-  billingDocumentId?: number;
-  direction?: ListWarehouseMovementsDirection;
-  from?: string;
-  to?: string;
-  limit?: number;
+warehouseItemId?: number;
+jobId?: number;
+billingDocumentId?: number;
+direction?: ListWarehouseMovementsDirection;
+from?: string;
+to?: string;
+limit?: number;
 };
 
-export type ListWarehouseMovementsDirection =
-  (typeof ListWarehouseMovementsDirection)[keyof typeof ListWarehouseMovementsDirection];
+export type ListWarehouseMovementsDirection = typeof ListWarehouseMovementsDirection[keyof typeof ListWarehouseMovementsDirection];
+
 
 export const ListWarehouseMovementsDirection = {
-  in: "in",
-  out: "out",
+  in: 'in',
+  out: 'out',
 } as const;
 
 export type GetRisksSummaryParams = {
-  /**
-   * Days a job must be in_progress before it is counted as stale (default 14).
-   */
-  staleDays?: number;
+/**
+ * Days a job must be in_progress before it is counted as stale (default 14).
+ */
+staleDays?: number;
 };
 
 export type ListPpeItemsParams = {
-  includeArchived?: boolean;
+includeArchived?: boolean;
 };
 
 export type ListPpeAssignmentsParams = {
-  personId?: number;
-  status?: string;
-  /**
-   * If true, return only assignments past their replace_by or next_inspection_at date
-   */
-  overdue?: boolean;
+personId?: number;
+status?: string;
+/**
+ * If true, return only assignments past their replace_by or next_inspection_at date
+ */
+overdue?: boolean;
 };
 
 export type ExportPpeAssignmentsParams = {
-  /**
-   * Output format — pdf (default) or csv
-   */
-  format?: ExportPpeAssignmentsFormat;
-  personId?: number;
-  status?: string;
-  /**
-   * Filter assignments issued on or after this date (YYYY-MM-DD)
-   */
-  issuedFrom?: string;
-  /**
-   * Filter assignments issued on or before this date (YYYY-MM-DD)
-   */
-  issuedTo?: string;
-  overdue?: boolean;
+/**
+ * Output format — pdf (default) or csv
+ */
+format?: ExportPpeAssignmentsFormat;
+personId?: number;
+status?: string;
+/**
+ * Filter assignments issued on or after this date (YYYY-MM-DD)
+ */
+issuedFrom?: string;
+/**
+ * Filter assignments issued on or before this date (YYYY-MM-DD)
+ */
+issuedTo?: string;
+overdue?: boolean;
 };
 
-export type ExportPpeAssignmentsFormat =
-  (typeof ExportPpeAssignmentsFormat)[keyof typeof ExportPpeAssignmentsFormat];
+export type ExportPpeAssignmentsFormat = typeof ExportPpeAssignmentsFormat[keyof typeof ExportPpeAssignmentsFormat];
+
 
 export const ExportPpeAssignmentsFormat = {
-  pdf: "pdf",
-  csv: "csv",
+  pdf: 'pdf',
+  csv: 'csv',
 } as const;
 
 export type ListClientErrorsParams = {
-  limit?: number;
-  offset?: number;
-  /**
-   * ISO datetime string; only return errors at or after this timestamp
-   */
-  since?: string;
+limit?: number;
+offset?: number;
+/**
+ * ISO datetime string; only return errors at or after this timestamp
+ */
+since?: string;
 };
 
 export type PurgeClientErrorsParams = {
-  /**
-   * Delete entries older than this many days (default from CLIENT_ERRORS_RETENTION_DAYS env or 90)
-   */
-  olderThanDays?: number;
+/**
+ * Delete entries older than this many days (default from CLIENT_ERRORS_RETENTION_DAYS env or 90)
+ */
+olderThanDays?: number;
 };
 
 export type ListWebAuthnCredentialsParams = {
-  userId?: number;
+userId?: number;
 };
 
 export type RetryEmailImportLog200 = {
@@ -7800,109 +8051,109 @@ export type RetryEmailImportLog200 = {
 };
 
 export type ListExternalAccountsParams = {
-  status?: ListExternalAccountsStatus;
-  /**
-   * @minimum 1
-   */
-  custodianUserId?: number;
-  /**
-   * @minimum 1
-   */
-  beforeId?: number;
-  /**
-   * @minimum 1
-   * @maximum 100
-   */
-  limit?: number;
+status?: ListExternalAccountsStatus;
+/**
+ * @minimum 1
+ */
+custodianUserId?: number;
+/**
+ * @minimum 1
+ */
+beforeId?: number;
+/**
+ * @minimum 1
+ * @maximum 100
+ */
+limit?: number;
 };
 
-export type ListExternalAccountsStatus =
-  (typeof ListExternalAccountsStatus)[keyof typeof ListExternalAccountsStatus];
+export type ListExternalAccountsStatus = typeof ListExternalAccountsStatus[keyof typeof ListExternalAccountsStatus];
+
 
 export const ListExternalAccountsStatus = {
-  draft: "draft",
-  active: "active",
-  suspended: "suspended",
-  revoked: "revoked",
-  expired: "expired",
-  all: "all",
+  draft: 'draft',
+  active: 'active',
+  suspended: 'suspended',
+  revoked: 'revoked',
+  expired: 'expired',
+  all: 'all',
 } as const;
 
 export type ListExternalGrantsParams = {
-  status?: ListExternalGrantsStatus;
-  purpose?: ListExternalGrantsPurpose;
-  resourceType?: ListExternalGrantsResourceType;
-  /**
-   * @minimum 1
-   */
-  resourceId?: number;
-  /**
-   * @minimum 1
-   */
-  beforeId?: number;
-  /**
-   * @minimum 1
-   * @maximum 100
-   */
-  limit?: number;
+status?: ListExternalGrantsStatus;
+purpose?: ListExternalGrantsPurpose;
+resourceType?: ListExternalGrantsResourceType;
+/**
+ * @minimum 1
+ */
+resourceId?: number;
+/**
+ * @minimum 1
+ */
+beforeId?: number;
+/**
+ * @minimum 1
+ * @maximum 100
+ */
+limit?: number;
 };
 
-export type ListExternalGrantsStatus =
-  (typeof ListExternalGrantsStatus)[keyof typeof ListExternalGrantsStatus];
+export type ListExternalGrantsStatus = typeof ListExternalGrantsStatus[keyof typeof ListExternalGrantsStatus];
+
 
 export const ListExternalGrantsStatus = {
-  active: "active",
-  expired: "expired",
-  revoked: "revoked",
-  consumed: "consumed",
-  all: "all",
+  active: 'active',
+  expired: 'expired',
+  revoked: 'revoked',
+  consumed: 'consumed',
+  all: 'all',
 } as const;
 
-export type ListExternalGrantsPurpose =
-  (typeof ListExternalGrantsPurpose)[keyof typeof ListExternalGrantsPurpose];
+export type ListExternalGrantsPurpose = typeof ListExternalGrantsPurpose[keyof typeof ListExternalGrantsPurpose];
+
 
 export const ListExternalGrantsPurpose = {
-  job_signature: "job_signature",
-  ppe_signature: "ppe_signature",
-  ppe_confirmation: "ppe_confirmation",
-  quote_decision: "quote_decision",
+  job_signature: 'job_signature',
+  ppe_signature: 'ppe_signature',
+  ppe_confirmation: 'ppe_confirmation',
+  quote_decision: 'quote_decision',
 } as const;
 
-export type ListExternalGrantsResourceType =
-  (typeof ListExternalGrantsResourceType)[keyof typeof ListExternalGrantsResourceType];
+export type ListExternalGrantsResourceType = typeof ListExternalGrantsResourceType[keyof typeof ListExternalGrantsResourceType];
+
 
 export const ListExternalGrantsResourceType = {
-  job: "job",
-  ppe_assignment: "ppe_assignment",
-  quote: "quote",
+  job: 'job',
+  ppe_assignment: 'ppe_assignment',
+  quote: 'quote',
 } as const;
 
 export type ListSwitchboardQrGrantsParams = {
-  status?: ListSwitchboardQrGrantsStatus;
-  /**
-   * @minimum 1
-   */
-  beforeId?: number;
-  /**
-   * @minimum 1
-   * @maximum 100
-   */
-  limit?: number;
+status?: ListSwitchboardQrGrantsStatus;
+/**
+ * @minimum 1
+ */
+beforeId?: number;
+/**
+ * @minimum 1
+ * @maximum 100
+ */
+limit?: number;
 };
 
-export type ListSwitchboardQrGrantsStatus =
-  (typeof ListSwitchboardQrGrantsStatus)[keyof typeof ListSwitchboardQrGrantsStatus];
+export type ListSwitchboardQrGrantsStatus = typeof ListSwitchboardQrGrantsStatus[keyof typeof ListSwitchboardQrGrantsStatus];
+
 
 export const ListSwitchboardQrGrantsStatus = {
-  active: "active",
-  expired: "expired",
-  disabled: "disabled",
-  all: "all",
+  active: 'active',
+  expired: 'expired',
+  disabled: 'disabled',
+  all: 'all',
 } as const;
 
 export type ListAllSessionsParams = {
-  userId?: number;
-  includeAnonymous?: boolean;
+userId?: number;
+includeAnonymous?: boolean;
 };
 
 export type PurgeExpiredSessions200 = {
@@ -7910,69 +8161,69 @@ export type PurgeExpiredSessions200 = {
 };
 
 export type ListAuditLogsParams = {
-  userId?: number;
-  entityType?: string;
-  /**
-   * Filter by action type (create, update, delete, erase, security, …)
-   */
-  action?: string;
-  /**
-   * ISO date/datetime — only entries on or after this time
-   */
-  from?: string;
-  /**
-   * ISO date/datetime — only entries on or before this time
-   */
-  to?: string;
-  limit?: number;
-  offset?: number;
+userId?: number;
+entityType?: string;
+/**
+ * Filter by action type (create, update, delete, erase, security, …)
+ */
+action?: string;
+/**
+ * ISO date/datetime — only entries on or after this time
+ */
+from?: string;
+/**
+ * ISO date/datetime — only entries on or before this time
+ */
+to?: string;
+limit?: number;
+offset?: number;
 };
 
 export type ExportSubjectDataParams = {
-  /**
-   * customer | contact | person
-   */
-  subjectType: string;
-  subjectId: number;
+/**
+ * customer | contact | person
+ */
+subjectType: string;
+subjectId: number;
 };
 
 export type ListActivitiesParams = {
-  archived?: boolean;
-  mine?: boolean;
+archived?: boolean;
+mine?: boolean;
 };
 
 export type ListActivityWorkSessionsParams = {
-  personId?: number;
+personId?: number;
 };
 
 export type ListJobWorkSessionsParams = {
-  personId?: number;
+personId?: number;
 };
 
 export type GetMyDoneJobsParams = {
-  limit?: number;
+limit?: number;
 };
 
 export type GetMyVisitsParams = {
-  /**
-   * Filter visits on or after this date (YYYY-MM-DD). Defaults to today when not provided.
-   */
-  from?: string;
-  /**
-   * Filter visits on or before this date (YYYY-MM-DD). Omit for no upper bound.
-   */
-  to?: string;
+/**
+ * Filter visits on or after this date (YYYY-MM-DD). Defaults to today when not provided.
+ */
+from?: string;
+/**
+ * Filter visits on or before this date (YYYY-MM-DD). Omit for no upper bound.
+ */
+to?: string;
 };
 
 export type GetActivityVisitsCalendarParams = {
-  /**
-   * ISO date (YYYY-MM-DD)
-   */
-  from: string;
-  /**
-   * ISO date (YYYY-MM-DD)
-   */
-  to: string;
+/**
+ * ISO date (YYYY-MM-DD)
+ */
+from: string;
+/**
+ * ISO date (YYYY-MM-DD)
+ */
+to: string;
 };
 
 export type TriggerBackup200 = {
@@ -7981,122 +8232,122 @@ export type TriggerBackup200 = {
 };
 
 export type GetWorkFinancialSummaryParams = {
-  from?: string;
-  to?: string;
-  personId?: number;
-  jobId?: number;
-  activityId?: number;
-  billingStatus?: GetWorkFinancialSummaryBillingStatus;
+from?: string;
+to?: string;
+personId?: number;
+jobId?: number;
+activityId?: number;
+billingStatus?: GetWorkFinancialSummaryBillingStatus;
 };
 
-export type GetWorkFinancialSummaryBillingStatus =
-  (typeof GetWorkFinancialSummaryBillingStatus)[keyof typeof GetWorkFinancialSummaryBillingStatus];
+export type GetWorkFinancialSummaryBillingStatus = typeof GetWorkFinancialSummaryBillingStatus[keyof typeof GetWorkFinancialSummaryBillingStatus];
+
 
 export const GetWorkFinancialSummaryBillingStatus = {
-  unbilled: "unbilled",
-  ready: "ready",
-  billed: "billed",
-  non_billable: "non_billable",
+  unbilled: 'unbilled',
+  ready: 'ready',
+  billed: 'billed',
+  non_billable: 'non_billable',
 } as const;
 
 export type ListInvoicesParams = {
-  status?: string;
-  /**
-   * @nullable
-   */
-  customerId?: number | null;
+status?: string;
+/**
+ * @nullable
+ */
+customerId?: number | null;
 };
 
 export type ListBillingReviewQueueParams = {
-  page?: number;
-  pageSize?: number;
-  /**
-   * Filter by review reason (needs_review | low_confidence | missing_job | missing_warehouse_item | price_jump)
-   */
-  reason?: ListBillingReviewQueueReason;
+page?: number;
+pageSize?: number;
+/**
+ * Filter by review reason (needs_review | low_confidence | missing_job | missing_warehouse_item | price_jump)
+ */
+reason?: ListBillingReviewQueueReason;
 };
 
-export type ListBillingReviewQueueReason =
-  (typeof ListBillingReviewQueueReason)[keyof typeof ListBillingReviewQueueReason];
+export type ListBillingReviewQueueReason = typeof ListBillingReviewQueueReason[keyof typeof ListBillingReviewQueueReason];
+
 
 export const ListBillingReviewQueueReason = {
-  needs_review: "needs_review",
-  low_confidence: "low_confidence",
-  missing_job: "missing_job",
-  missing_warehouse_item: "missing_warehouse_item",
-  price_jump: "price_jump",
+  needs_review: 'needs_review',
+  low_confidence: 'low_confidence',
+  missing_job: 'missing_job',
+  missing_warehouse_item: 'missing_warehouse_item',
+  price_jump: 'price_jump',
 } as const;
 
 export type ListCostDocumentsParams = {
-  status?: string;
-  /**
-   * Restrict the inbox to one detected or confirmed document type.
-   */
-  docType?: ListCostDocumentsDocType;
-  supplierIc?: string;
-  jobId?: number;
-  customerId?: number;
-  /**
-   * Only documents that were prefilled by AI extraction.
-   */
-  aiOnly?: boolean;
-  /**
+status?: string;
+/**
+ * Restrict the inbox to one detected or confirmed document type.
+ */
+docType?: ListCostDocumentsDocType;
+supplierIc?: string;
+jobId?: number;
+customerId?: number;
+/**
+ * Only documents that were prefilled by AI extraction.
+ */
+aiOnly?: boolean;
+/**
  * Sort order. `confidence_asc` puts the lowest AI confidence first
 (the review-queue ordering); default is newest first.
 
  */
-  sort?: ListCostDocumentsSort;
+sort?: ListCostDocumentsSort;
 };
 
-export type ListCostDocumentsDocType =
-  (typeof ListCostDocumentsDocType)[keyof typeof ListCostDocumentsDocType];
+export type ListCostDocumentsDocType = typeof ListCostDocumentsDocType[keyof typeof ListCostDocumentsDocType];
+
 
 export const ListCostDocumentsDocType = {
-  unknown: "unknown",
-  receipt: "receipt",
-  delivery_note: "delivery_note",
-  invoice: "invoice",
-  credit_note: "credit_note",
+  unknown: 'unknown',
+  receipt: 'receipt',
+  delivery_note: 'delivery_note',
+  invoice: 'invoice',
+  credit_note: 'credit_note',
 } as const;
 
-export type ListCostDocumentsSort =
-  (typeof ListCostDocumentsSort)[keyof typeof ListCostDocumentsSort];
+export type ListCostDocumentsSort = typeof ListCostDocumentsSort[keyof typeof ListCostDocumentsSort];
+
 
 export const ListCostDocumentsSort = {
-  confidence_asc: "confidence_asc",
+  confidence_asc: 'confidence_asc',
 } as const;
 
 export type ListApprovedCostLinesParams = {
-  customerId: number;
+customerId: number;
 };
 
 export type ListEmailImportMessagesParams = {
-  status?: ListEmailImportMessagesStatus;
+status?: ListEmailImportMessagesStatus;
 };
 
-export type ListEmailImportMessagesStatus =
-  (typeof ListEmailImportMessagesStatus)[keyof typeof ListEmailImportMessagesStatus];
+export type ListEmailImportMessagesStatus = typeof ListEmailImportMessagesStatus[keyof typeof ListEmailImportMessagesStatus];
+
 
 export const ListEmailImportMessagesStatus = {
-  new: "new",
-  imported: "imported",
-  ignored: "ignored",
-  error: "error",
+  new: 'new',
+  imported: 'imported',
+  ignored: 'ignored',
+  error: 'error',
 } as const;
 
 export type ListQuotesParams = {
-  customerId?: number;
-  status?: ListQuotesStatus;
+customerId?: number;
+status?: ListQuotesStatus;
 };
 
-export type ListQuotesStatus =
-  (typeof ListQuotesStatus)[keyof typeof ListQuotesStatus];
+export type ListQuotesStatus = typeof ListQuotesStatus[keyof typeof ListQuotesStatus];
+
 
 export const ListQuotesStatus = {
-  all: "all",
-  draft: "draft",
-  sent: "sent",
-  accepted: "accepted",
-  rejected: "rejected",
-  expired: "expired",
+  all: 'all',
+  draft: 'draft',
+  sent: 'sent',
+  accepted: 'accepted',
+  rejected: 'rejected',
+  expired: 'expired',
 } as const;

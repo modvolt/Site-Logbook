@@ -1,4 +1,11 @@
-import { pgTable, integer, text, boolean, timestamp, numeric } from "drizzle-orm/pg-core";
+import {
+  pgTable,
+  integer,
+  text,
+  boolean,
+  timestamp,
+  numeric,
+} from "drizzle-orm/pg-core";
 
 /**
  * Singleton (id = 1) configuration for the invoicing module: supplier identity
@@ -26,26 +33,37 @@ export const billingSettingsTable = pgTable("billing_settings", {
   bic: text("bic"),
   // Invoice defaults.
   defaultDueDays: integer("default_due_days").notNull().default(14),
-  defaultPaymentMethod: text("default_payment_method").notNull().default("bank"),
+  defaultPaymentMethod: text("default_payment_method")
+    .notNull()
+    .default("bank"),
   vatPayer: boolean("vat_payer").notNull().default(true),
   vatModeDefault: text("vat_mode_default").notNull().default("standard"),
   invoiceFooterNote: text("invoice_footer_note"),
   // Default percent markup (marže) added to material unit prices when proposing
   // invoice lines. Applies ONLY to material lines (never práce/doprava/pokuty).
   // 0 = bill materials at purchase price 1:1. Overridable per invoice at create.
-  materialMarkupPercent: numeric("material_markup_percent", { precision: 6, scale: 2 })
+  materialMarkupPercent: numeric("material_markup_percent", {
+    precision: 6,
+    scale: 2,
+  })
     .notNull()
     .default("0"),
   // Default customer-facing transport rate. A positive per-job transport cost
   // remains an explicit override; otherwise invoicing uses km * this rate.
-  transportRatePerKm: numeric("transport_rate_per_km", { precision: 10, scale: 2 })
+  transportRatePerKm: numeric("transport_rate_per_km", {
+    precision: 10,
+    scale: 2,
+  })
     .notNull()
     .default("0"),
   // Operator-configurable margin warning threshold (in percent). The job-detail
   // warehouse margin alert fires when the cumulative margin drops below this
   // value. Default 0 = warn only on a negative margin; a positive floor (e.g. 5)
   // warns earlier, a negative value (e.g. -10) only on a deep loss.
-  marginAlertThresholdPercent: numeric("margin_alert_threshold_percent", { precision: 6, scale: 2 })
+  marginAlertThresholdPercent: numeric("margin_alert_threshold_percent", {
+    precision: 6,
+    scale: 2,
+  })
     .notNull()
     .default("0"),
   // Number series.
@@ -53,6 +71,14 @@ export const billingSettingsTable = pgTable("billing_settings", {
   numberFormat: text("number_format").notNull().default("{PREFIX}{YYYY}{SEQ4}"),
   numberYear: integer("number_year"),
   numberNextSeq: integer("number_next_seq").notNull().default(1),
+  // Advance payment requests use their own sequence so they never consume or
+  // create gaps in the accounting invoice sequence.
+  advanceNumberPrefix: text("advance_number_prefix").notNull().default("ZAL"),
+  advanceNumberFormat: text("advance_number_format")
+    .notNull()
+    .default("{PREFIX}{YYYY}{SEQ4}"),
+  advanceNumberYear: integer("advance_number_year"),
+  advanceNumberNextSeq: integer("advance_number_next_seq").notNull().default(1),
   // Overdue reminders (upomínky). When enabled, the server periodically sends a
   // polite reminder e-mail for each issued/sent invoice once it crosses one of
   // the configured day thresholds past its due date (comma-separated days, e.g.

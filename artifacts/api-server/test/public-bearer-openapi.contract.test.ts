@@ -6,7 +6,7 @@ function source(relative: string): string {
   return readFileSync(
     fileURLToPath(new URL(relative, import.meta.url)),
     "utf8",
-  );
+  ).replace(/\r\n/g, "\n");
 }
 
 describe("public Bearer OpenAPI and generated-client contract", () => {
@@ -69,7 +69,7 @@ describe("public Bearer OpenAPI and generated-client contract", () => {
     expect(zodClient).toContain("export const GetPublicSwitchboardResponse");
     expect(zodClient).toContain("export const GetPublicPpeSignatureResponse");
     expect(zodClient).toMatch(
-      /ConfirmPpeAssignmentBody = zod\.object\(\{[\s\S]{0,300}\btoken:\s*zod\s*\.string\(\)\s*\.optional\(\)/,
+      /ConfirmPpeAssignmentBody = zod\.object\(\{[\s\S]{0,300}["']?token["']?\s*:\s*zod\s*\.string\(\)\s*\.optional\(\)/,
     );
   });
 });

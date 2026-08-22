@@ -67,6 +67,7 @@ const Billing = lazy(() => import("@/pages/billing"));
 const BillingUnbilled = lazy(() => import("@/pages/billing-unbilled"));
 const BillingUnbilledDetail = lazy(() => import("@/pages/billing-unbilled-detail"));
 const BillingInvoices = lazy(() => import("@/pages/billing-invoices"));
+const BillingInvoiceNew = lazy(() => import("@/pages/billing-invoice-new"));
 const BillingInvoiceDetail = lazy(() => import("@/pages/billing-invoice-detail"));
 const BillingInvoiceEdit = lazy(() => import("@/pages/billing-invoice-edit"));
 const BillingSettings = lazy(() => import("@/pages/billing-settings"));
@@ -253,6 +254,7 @@ function AuthenticatedApp() {
         <Route path="/billing/email-import">{() => <PermissionOnly component={BillingEmailImport} permission="billing.settings" />}</Route>
         <Route path="/billing/unbilled/:customerId">{() => <PermissionOnly component={BillingUnbilledDetail} permission="billing.view" />}</Route>
         <Route path="/billing/unbilled">{() => <PermissionOnly component={BillingUnbilled} permission="billing.view" />}</Route>
+        <Route path="/billing/invoices/new">{() => <PermissionOnly component={BillingInvoiceNew} permission="billing.manage" />}</Route>
         <Route path="/billing/invoices/:id/edit">{() => <PermissionOnly component={BillingInvoiceEdit} permission="billing.manage" />}</Route>
         <Route path="/billing/invoices/:id">{() => <PermissionOnly component={BillingInvoiceDetail} permission="billing.view" />}</Route>
         <Route path="/billing/invoices">{() => <PermissionOnly component={BillingInvoices} permission="billing.view" />}</Route>

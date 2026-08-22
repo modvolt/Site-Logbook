@@ -57,6 +57,9 @@ export interface ProductionRuntimeReleaseBinding {
   backupIntegritySha256: string;
   transitionChainSha256: string;
   activationApprovalSha256: string;
+  invoiceSchemaProjectionSha256?: string;
+  invoice0108MigrationReceiptSha256?: string;
+  invoice0108RoleReceiptSha256?: string;
   lineage: Record<string, unknown>;
 }
 
@@ -86,6 +89,11 @@ function objectValue(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+function expectedAlreadyDecision(latestExpectedTag: string | null): string | null {
+  const version = /^(\d{4})_/.exec(latestExpectedTag ?? "")?.[1];
+  return version ? `ALREADY_${version}` : null;
 }
 
 function binaryCompare(left: string, right: string): number {
@@ -284,7 +292,9 @@ export function productionRuntimeBindingMatches(
   latestExpectedTag: string | null,
   inventory: MigrationInventoryClassification,
 ): boolean {
+  const expectedDecision = expectedAlreadyDecision(latestExpectedTag);
   if (
+    expectedDecision === null ||
     !binding ||
     binding.schemaVersion !== "site-logbook.production-runtime-binding/v1" ||
     !SHA_PATTERN.test(binding.sourceSha) ||
@@ -328,11 +338,9 @@ export function productionRuntimeBindingMatches(
       "opaqueLegacyMeaningInferred",
       "excludedMigration0100Present",
     ]) ||
-    lineage.decision !== "ALREADY_0107" ||
+    lineage.decision !== expectedDecision ||
     lineage.mode !== "production-copy-restricted" ||
-    lineage.knownExpectedMigrations !== 107 ||
     lineage.knownExpectedMigrations !== inventory.knownExpectedMigrations ||
-    lineage.knownAppliedMigrations !== 107 ||
     lineage.knownAppliedMigrations !== inventory.knownAppliedMigrations ||
     lineage.knownAppliedRowsSha256 !== inventory.knownAppliedRowsSha256 ||
     lineage.latestKnownAppliedTag !== latestExpectedTag ||
@@ -345,5 +353,26 @@ export function productionRuntimeBindingMatches(
   ) {
     return false;
   }
-  return inventory.missingKnownMigrationTags.length === 0;
+  if (
+    expectedDecision === "ALREADY_0108" &&
+    ![
+      binding.invoiceSchemaProjectionSha256,
+      binding.invoice0108MigrationReceiptSha256,
+      binding.invoice0108RoleReceiptSha256,
+    ].every((value) => typeof value === "string" && SHA256_PATTERN.test(value))
+  ) {
+    return false;
+  }
+  if (
+    expectedDecision === "ALREADY_0107" &&
+    (binding.invoiceSchemaProjectionSha256 !== undefined ||
+      binding.invoice0108MigrationReceiptSha256 !== undefined ||
+      binding.invoice0108RoleReceiptSha256 !== undefined)
+  ) {
+    return false;
+  }
+  return (
+    inventory.knownAppliedMigrations === inventory.knownExpectedMigrations &&
+    inventory.missingKnownMigrationTags.length === 0
+  );
 }

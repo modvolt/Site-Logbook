@@ -16,6 +16,7 @@ export interface ProductionAuditDatabaseReadiness {
   databaseName: string;
   databaseUser: string;
   schemaFingerprintSha256: string;
+  invoiceSchemaProjectionSha256?: string;
   latestKnownAppliedTag: string;
   knownExpectedMigrations: number;
   knownAppliedMigrations: number;
@@ -28,6 +29,8 @@ export interface ProductionAuditDatabaseReadiness {
   integrityValid: boolean;
   postMigrationIntegrityValid: boolean;
   trustedAuditGenesis: boolean;
+  invoice0108Ready?: boolean;
+  roleDeltaReady?: boolean;
 }
 
 export interface ProductionStartupDependencies {
@@ -92,6 +95,12 @@ function requireObservedConfigurationBinding(
   );
 }
 
+function objectValue(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
 async function verifyRuntimeDatabaseAndCreateResult(
   env: NodeJS.ProcessEnv,
   embeddedBuildSha: string,
@@ -122,6 +131,7 @@ async function verifyRuntimeDatabaseAndCreateResult(
     expectedSchemaFingerprintSha256: release.schemaFingerprintSha256,
   };
   const lineage = release.lineage;
+  const invoice0108 = objectValue(lineage)?.decision === "ALREADY_0108";
   const verifyLiveReadiness = async (): Promise<boolean> => {
     const database = await verifyDatabase(readinessInput);
     requireEqual(database.databaseName, release.databaseName, "databaseName");
@@ -151,6 +161,37 @@ async function verifyRuntimeDatabaseAndCreateResult(
       "postMigrationIntegrityValid",
     );
     requireEqual(database.trustedAuditGenesis, true, "trustedAuditGenesis");
+    if (invoice0108) {
+      for (const [value, field] of [
+        [release.invoiceSchemaProjectionSha256, "invoiceSchemaProjectionSha256"],
+        [
+          release.invoice0108MigrationReceiptSha256,
+          "invoice0108MigrationReceiptSha256",
+        ],
+        [release.invoice0108RoleReceiptSha256, "invoice0108RoleReceiptSha256"],
+      ] as const) {
+        if (typeof value !== "string" || !/^sha256:[0-9a-f]{64}$/.test(value)) {
+          throw new Error(
+            `PRODUCTION_DATABASE_READINESS_INVALID: ${field} is not an exact v3 evidence digest.`,
+          );
+        }
+      }
+      requireEqual(database.invoice0108Ready, true, "invoice0108Ready");
+      requireEqual(database.roleDeltaReady, true, "roleDeltaReady");
+      requireEqual(
+        database.invoiceSchemaProjectionSha256,
+        release.invoiceSchemaProjectionSha256,
+        "invoiceSchemaProjectionSha256",
+      );
+    } else if (
+      release.invoiceSchemaProjectionSha256 !== undefined ||
+      release.invoice0108MigrationReceiptSha256 !== undefined ||
+      release.invoice0108RoleReceiptSha256 !== undefined
+    ) {
+      throw new Error(
+        "PRODUCTION_DATABASE_READINESS_INVALID: exact-0107 authority cannot carry invoice-0108 evidence.",
+      );
+    }
     return true;
   };
 

@@ -45,6 +45,7 @@ import {
   CalendarClock,
   Download,
   Loader2,
+  BriefcaseBusiness,
 } from "lucide-react";
 
 const STATUS_OPTIONS = [
@@ -301,7 +302,7 @@ export default function BillingInvoices() {
 
       <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
         <h1 className="text-2xl font-bold">Faktury</h1>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <Button
             variant="outline"
             className="h-10"
@@ -311,10 +312,17 @@ export default function BillingInvoices() {
             <Download className="h-4 w-4 mr-2" /> Stáhnout
           </Button>
           <Button
+            variant="outline"
             onClick={() => openDetail("/billing/unbilled")}
             className="h-10"
           >
-            <Plus className="h-4 w-4 mr-2" /> Vytvořit fakturu
+            <BriefcaseBusiness className="h-4 w-4 mr-2" /> Ze zakázek
+          </Button>
+          <Button
+            onClick={() => openDetail("/billing/invoices/new")}
+            className="h-10"
+          >
+            <Plus className="h-4 w-4 mr-2" /> Nový doklad
           </Button>
         </div>
       </div>
@@ -491,6 +499,11 @@ export default function BillingInvoices() {
                         {inv.invoiceNumber || "Koncept (bez čísla)"}
                       </p>
                       <InvoiceStatusBadge status={inv.status} />
+                      {inv.documentType === "advance" && (
+                        <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
+                          Záloha
+                        </span>
+                      )}
                       {overdue != null && <OverdueBadge days={overdue} />}
                       {inv.recurringTemplateId != null && (
                         <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300">

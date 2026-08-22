@@ -283,6 +283,9 @@ export interface ProductionReleaseSummary {
   backupIntegritySha256: string;
   transitionChainSha256: string;
   activationApprovalSha256: string;
+  invoiceSchemaProjectionSha256?: string;
+  invoice0108MigrationReceiptSha256?: string;
+  invoice0108RoleReceiptSha256?: string;
   lineage: Record<string, unknown>;
 }
 

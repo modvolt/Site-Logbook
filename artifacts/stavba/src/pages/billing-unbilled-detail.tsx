@@ -36,7 +36,17 @@ import {
 import { fmtKc, fmtDate } from "@/lib/billing-format";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
-import { ArrowLeft, Building2, FileEdit, Inbox, Receipt, Percent, Clock, AlertTriangle, Ban } from "lucide-react";
+import {
+  ArrowLeft,
+  Building2,
+  FileEdit,
+  Inbox,
+  Receipt,
+  Percent,
+  Clock,
+  AlertTriangle,
+  Ban,
+} from "lucide-react";
 import {
   InvoiceMaterialDisplayControl,
   type MaterialDisplayMode,
@@ -63,7 +73,8 @@ function apiErrorMessage(error: unknown): string | undefined {
 function jobMaterialTotal(job: UnbilledJob): number {
   let total = 0;
   for (const m of job.materials) {
-    if (m.quantity != null && m.pricePerUnit != null) total += m.quantity * m.pricePerUnit;
+    if (m.quantity != null && m.pricePerUnit != null)
+      total += m.quantity * m.pricePerUnit;
   }
   return total;
 }
@@ -95,8 +106,7 @@ function jobOrientationalTotal(
     (job.parking ?? 0);
   const materialsAreIncluded =
     job.pricingMode !== "fixed_price" ||
-    (labourBillingMode !== "automatic" &&
-      labourBillingMode !== "job_price");
+    (labourBillingMode !== "automatic" && labourBillingMode !== "job_price");
   if (materialsAreIncluded) {
     total += jobMaterialTotalWithMarkup(job, effectiveMarkupFor);
   }
@@ -137,8 +147,7 @@ function jobLabourAmount(
   }
   if (
     job.pricingMode === "fixed_price" &&
-    (labourBillingMode === "automatic" ||
-      labourBillingMode === "job_price")
+    (labourBillingMode === "automatic" || labourBillingMode === "job_price")
   ) {
     return job.contractPrice ?? job.price ?? 0;
   }
@@ -149,7 +158,8 @@ function jobLabourAmount(
 function activityMaterialTotal(activity: UnbilledActivity): number {
   let total = 0;
   for (const m of activity.materials) {
-    if (m.quantity != null && m.pricePerUnit != null) total += m.quantity * m.pricePerUnit;
+    if (m.quantity != null && m.pricePerUnit != null)
+      total += m.quantity * m.pricePerUnit;
   }
   return total;
 }
@@ -197,7 +207,10 @@ export default function BillingUnbilledDetail() {
   const canManageBilling = can("billing.manage");
 
   const { data, isLoading } = useGetUnbilledCustomerDetail(customerId, {
-    query: { queryKey: getGetUnbilledCustomerDetailQueryKey(customerId), enabled: !!customerId },
+    query: {
+      queryKey: getGetUnbilledCustomerDetailQueryKey(customerId),
+      enabled: !!customerId,
+    },
   });
   const { data: settings } = useGetBillingSettings({
     query: { queryKey: getGetBillingSettingsQueryKey() },
@@ -216,7 +229,9 @@ export default function BillingUnbilledDetail() {
   );
 
   const [selected, setSelected] = useState<Record<number, boolean>>({});
-  const [selectedActivities, setSelectedActivities] = useState<Record<number, boolean>>({});
+  const [selectedActivities, setSelectedActivities] = useState<
+    Record<number, boolean>
+  >({});
   const [fines, setFines] = useState<Record<number, boolean>>({});
   // Material markup (%) — prefilled with the saved default once settings load,
   // editable per invoice. Empty string is treated as 0 (no markup).
@@ -226,17 +241,28 @@ export default function BillingUnbilledDetail() {
   // `${sourceType}:${id}` key. Job materials and activity materials are separate
   // tables with colliding ids, so the namespace keeps their overrides distinct.
   // Stored as raw strings; an absent/blank entry means "use category → default".
-  const [materialMarkup, setMaterialMarkup] = useState<Record<string, string>>({});
+  const [materialMarkup, setMaterialMarkup] = useState<Record<string, string>>(
+    {},
+  );
   const [labourBillingMode, setLabourBillingMode] =
     useState<LabourBillingMode>("automatic");
-  const [workGrouping, setWorkGrouping] = useState<"summary" | "worker">("summary");
+  const [workGrouping, setWorkGrouping] = useState<"summary" | "worker">(
+    "summary",
+  );
   const [materialDisplayMode, setMaterialDisplayMode] =
     useState<MaterialDisplayMode>("detailed");
+  const [documentType, setDocumentType] = useState<"standard" | "advance">(
+    "standard",
+  );
+  const [sourceGrouping, setSourceGrouping] = useState<"by_job" | "combined">(
+    "by_job",
+  );
   const [excludedJob, setExcludedJob] = useState<UnbilledJob | null>(null);
   const [exclusionReason, setExclusionReason] = useState("");
 
   type MaterialSource = "material" | "activity_material";
-  const omKey = (sourceType: MaterialSource, id: number) => `${sourceType}:${id}`;
+  const omKey = (sourceType: MaterialSource, id: number) =>
+    `${sourceType}:${id}`;
 
   useEffect(() => {
     if (!markupTouched && settings) {
@@ -252,7 +278,10 @@ export default function BillingUnbilledDetail() {
   // Resolve the effective markup for a single material line:
   // per-line override → category default → invoice default. A blank/invalid
   // override falls through; an explicit 0 (override or category) wins.
-  const effectiveMarkupFor = (sourceType: MaterialSource, m: UnbilledMaterial): number => {
+  const effectiveMarkupFor = (
+    sourceType: MaterialSource,
+    m: UnbilledMaterial,
+  ): number => {
     const ov = materialMarkup[omKey(sourceType, m.id)];
     if (ov !== undefined && ov.trim() !== "") {
       const n = Number(ov);
@@ -274,13 +303,15 @@ export default function BillingUnbilledDetail() {
       const n = Number(ov);
       if (Number.isFinite(n) && n >= 0) return "override";
     }
-    if (m.categoryMarkupPercent != null && m.categoryMarkupPercent >= 0) return "category";
+    if (m.categoryMarkupPercent != null && m.categoryMarkupPercent >= 0)
+      return "category";
     return "default";
   };
 
   // Namespaced resolvers passed to the per-job / per-activity total helpers,
   // which call them as `(m) => number`.
-  const jobMarkupFor = (m: UnbilledMaterial) => effectiveMarkupFor("material", m);
+  const jobMarkupFor = (m: UnbilledMaterial) =>
+    effectiveMarkupFor("material", m);
   const activityMarkupFor = (m: UnbilledMaterial) =>
     effectiveMarkupFor("activity_material", m);
 
@@ -319,9 +350,9 @@ export default function BillingUnbilledDetail() {
     [activities, selectedActivities],
   );
 
-  const estimatedTotal = useMemo(
-    () => {
-      const base = jobs
+  const estimatedTotal = useMemo(() => {
+    const base =
+      jobs
         .filter((j) => isChecked(j.id))
         .reduce(
           (sum, j) =>
@@ -345,16 +376,21 @@ export default function BillingUnbilledDetail() {
               : 0),
           0,
         );
-      return base;
-    },
-    [jobs, activities, selected, selectedActivities, fines, markupPercent, materialMarkup, labourBillingMode],
-  );
+    return base;
+  }, [
+    jobs,
+    activities,
+    selected,
+    selectedActivities,
+    fines,
+    markupPercent,
+    materialMarkup,
+    labourBillingMode,
+  ]);
 
   const selectedRecordedWork = [
     ...jobs.filter(
-      (job) =>
-        isChecked(job.id) &&
-        jobUsesRecordedWork(job, labourBillingMode),
+      (job) => isChecked(job.id) && jobUsesRecordedWork(job, labourBillingMode),
     ),
     ...activities.filter(
       (activity) =>
@@ -363,7 +399,10 @@ export default function BillingUnbilledDetail() {
     ),
   ];
   const recordedWorkBlockers = selectedRecordedWork.reduce(
-    (sum, item) => sum + item.recordedWork.missingRateCount + item.recordedWork.needsReviewCount,
+    (sum, item) =>
+      sum +
+      item.recordedWork.missingRateCount +
+      item.recordedWork.needsReviewCount,
     0,
   );
   const selectedRecordedWorkHours = selectedRecordedWork.reduce(
@@ -381,7 +420,8 @@ export default function BillingUnbilledDetail() {
       item.recordedWork.needsReviewCount === 0,
   );
   const showWorkGrouping =
-    (labourBillingMode === "automatic" || labourBillingMode === "recorded_time") &&
+    (labourBillingMode === "automatic" ||
+      labourBillingMode === "recorded_time") &&
     hasUsableRecordedWork;
   const noRecordedTimeSelected =
     labourBillingMode === "recorded_time" &&
@@ -420,7 +460,8 @@ export default function BillingUnbilledDetail() {
         .filter((j) => isChecked(j.id))
         .reduce(
           (sum, j) =>
-            sum + (jobMaterialTotalWithMarkup(j, jobMarkupFor) - jobMaterialTotal(j)),
+            sum +
+            (jobMaterialTotalWithMarkup(j, jobMarkupFor) - jobMaterialTotal(j)),
           0,
         ) +
       activities
@@ -428,10 +469,18 @@ export default function BillingUnbilledDetail() {
         .reduce(
           (sum, a) =>
             sum +
-            (activityMaterialTotalWithMarkup(a, activityMarkupFor) - activityMaterialTotal(a)),
+            (activityMaterialTotalWithMarkup(a, activityMarkupFor) -
+              activityMaterialTotal(a)),
           0,
         ),
-    [jobs, activities, selected, selectedActivities, markupPercent, materialMarkup],
+    [
+      jobs,
+      activities,
+      selected,
+      selectedActivities,
+      markupPercent,
+      materialMarkup,
+    ],
   );
 
   const handleCreate = () => {
@@ -468,7 +517,11 @@ export default function BillingUnbilledDetail() {
       if (ov === undefined || ov.trim() === "") return;
       const n = Number(ov);
       if (Number.isFinite(n) && n >= 0) {
-        materialMarkupOverrides.push({ materialId: id, markupPercent: n, sourceType });
+        materialMarkupOverrides.push({
+          materialId: id,
+          markupPercent: n,
+          sourceType,
+        });
       }
     };
     for (const job of jobs) {
@@ -477,19 +530,26 @@ export default function BillingUnbilledDetail() {
     }
     for (const activity of activities) {
       if (!selectedActivityIds.has(activity.id)) continue;
-      for (const m of activity.materials) collectOverride("activity_material", m.id);
+      for (const m of activity.materials)
+        collectOverride("activity_material", m.id);
     }
     createInvoice.mutate(
       {
         data: {
+          documentType,
           customerId,
           jobIds: chosenJobIds,
-          ...(chosenActivityIds.length > 0 ? { activityIds: chosenActivityIds } : {}),
+          ...(chosenActivityIds.length > 0
+            ? { activityIds: chosenActivityIds }
+            : {}),
           labourBillingMode,
           workGrouping,
+          sourceGrouping,
           billFineJobIds,
           materialMarkupPercent: markupPercent,
-          ...(materialMarkupOverrides.length > 0 ? { materialMarkupOverrides } : {}),
+          ...(materialMarkupOverrides.length > 0
+            ? { materialMarkupOverrides }
+            : {}),
           materialDisplayMode,
           vatModeDefault: settings?.vatModeDefault ?? "standard",
           ...(costLineInputs.length > 0 ? { lines: costLineInputs } : {}),
@@ -498,7 +558,12 @@ export default function BillingUnbilledDetail() {
       {
         onSuccess: (invoice) => {
           invalidateData(queryClient, "billingInvoices");
-          toast({ title: "Koncept faktury vytvořen" });
+          toast({
+            title:
+              documentType === "advance"
+                ? "Zálohový koncept vytvořen"
+                : "Koncept faktury vytvořen",
+          });
           setLocation(preserveReturnTo(`/billing/invoices/${invoice.id}/edit`));
         },
         onError: (error) =>
@@ -590,27 +655,103 @@ export default function BillingUnbilledDetail() {
       <div className="mb-4 border-y py-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <div className="text-sm font-semibold flex items-center gap-2"><Clock className="h-4 w-4" /> Zdroj ceny práce</div>
-            <div className="text-xs text-muted-foreground mt-0.5">Automaticky zachová smluvní cenu; u zakázek v režimu Čas a materiál použije odpracovaný čas, a pokud chybí, cenu ze Souhrnu práce.</div>
+            <div className="text-sm font-semibold flex items-center gap-2">
+              <Clock className="h-4 w-4" /> Zdroj ceny práce
+            </div>
+            <div className="text-xs text-muted-foreground mt-0.5">
+              Automaticky zachová smluvní cenu; u zakázek v režimu Čas a
+              materiál použije odpracovaný čas, a pokud chybí, cenu ze Souhrnu
+              práce.
+            </div>
           </div>
           <div className="inline-flex flex-wrap rounded-md border p-1 bg-muted/30">
-            {([['automatic', 'Automaticky'], ['job_price', 'Cena ze souhrnu práce'], ['recorded_time', 'Odpracovaný čas × prodejní sazba'], ['none', 'Práci nefakturovat']] as const).map(([value, label]) => <Button key={value} type="button" size="sm" variant={labourBillingMode === value ? "default" : "ghost"} onClick={() => setLabourBillingMode(value)}>{label}</Button>)}
+            {(
+              [
+                ["automatic", "Automaticky"],
+                ["job_price", "Cena ze souhrnu práce"],
+                ["recorded_time", "Odpracovaný čas × prodejní sazba"],
+                ["none", "Práci nefakturovat"],
+              ] as const
+            ).map(([value, label]) => (
+              <Button
+                key={value}
+                type="button"
+                size="sm"
+                variant={labourBillingMode === value ? "default" : "ghost"}
+                onClick={() => setLabourBillingMode(value)}
+              >
+                {label}
+              </Button>
+            ))}
           </div>
         </div>
-        {showWorkGrouping && <div className="mt-3 space-y-2">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <div className="text-sm font-medium">Rozdělení řádků odpracovaného času</div>
-              <div className="text-xs text-muted-foreground">Vybráno {selectedRecordedWorkHours.toLocaleString("cs-CZ")} h za {fmtKc(selectedRecordedWorkAmount, 2)}</div>
+        {showWorkGrouping && (
+          <div className="mt-3 space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="text-sm font-medium">
+                  Rozdělení řádků odpracovaného času
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  Vybráno {selectedRecordedWorkHours.toLocaleString("cs-CZ")} h
+                  za {fmtKc(selectedRecordedWorkAmount, 2)}
+                </div>
+              </div>
+              <div className="inline-flex flex-wrap rounded-md border p-1">
+                <Button
+                  size="sm"
+                  variant={workGrouping === "summary" ? "secondary" : "ghost"}
+                  onClick={() => setWorkGrouping("summary")}
+                >
+                  Souhrn za zakázku a sazbu
+                </Button>
+                <Button
+                  size="sm"
+                  variant={workGrouping === "worker" ? "secondary" : "ghost"}
+                  onClick={() => setWorkGrouping("worker")}
+                >
+                  Podle pracovníků a sazby
+                </Button>
+              </div>
             </div>
-            <div className="inline-flex flex-wrap rounded-md border p-1"><Button size="sm" variant={workGrouping === "summary" ? "secondary" : "ghost"} onClick={() => setWorkGrouping("summary")}>Souhrn za zakázku a sazbu</Button><Button size="sm" variant={workGrouping === "worker" ? "secondary" : "ghost"} onClick={() => setWorkGrouping("worker")}>Podle pracovníků a sazby</Button></div>
+            <p className="text-xs text-muted-foreground">
+              Rozdělení mění pouze počet a názvy řádků práce; celková částka
+              zůstane stejná.
+            </p>
           </div>
-          <p className="text-xs text-muted-foreground">Rozdělení mění pouze počet a názvy řádků práce; celková částka zůstane stejná.</p>
-        </div>}
-        {(labourBillingMode === "automatic" || labourBillingMode === "recorded_time") && recordedWorkBlockers > 0 && <div className="mt-3 text-sm text-amber-700 dark:text-amber-300 flex items-start gap-1.5"><AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" /> {recordedWorkBlockers} časových záznamů vyžaduje doplnění sazby nebo kontrolu. Doplňte je, nebo zvolte jiný zdroj ceny práce.</div>}
-        {noRecordedTimeSelected && <div className="mt-3 text-sm text-amber-700 dark:text-amber-300 flex items-start gap-1.5"><AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" /> Vybrané zakázky a akce nemají použitelný odpracovaný čas. Koncept se vytvoří bez řádků práce; materiál a ostatní náklady zůstanou zahrnuté.</div>}
-        {missingContractPriceJobs.length > 0 && <div className="mt-3 text-sm text-amber-700 dark:text-amber-300 flex items-start gap-1.5"><AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" /> Některým vybraným zakázkám se smluvní cenou chybí smluvní cena. Doplňte ji v Souhrnu práce, nebo pro fakturu pouze za materiál zvolte Práci nefakturovat.</div>}
-        {missingStoredJobPriceJobs.length > 0 && <div className="mt-3 text-sm text-amber-700 dark:text-amber-300 flex items-start gap-1.5"><AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" /> Některé vybrané zakázky nemají v Souhrnu práce vyplněnou cenu práce. Jejich řádek práce se do konceptu nepřidá; materiál a ostatní náklady zůstanou zahrnuté.</div>}
+        )}
+        {(labourBillingMode === "automatic" ||
+          labourBillingMode === "recorded_time") &&
+          recordedWorkBlockers > 0 && (
+            <div className="mt-3 text-sm text-amber-700 dark:text-amber-300 flex items-start gap-1.5">
+              <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />{" "}
+              {recordedWorkBlockers} časových záznamů vyžaduje doplnění sazby
+              nebo kontrolu. Doplňte je, nebo zvolte jiný zdroj ceny práce.
+            </div>
+          )}
+        {noRecordedTimeSelected && (
+          <div className="mt-3 text-sm text-amber-700 dark:text-amber-300 flex items-start gap-1.5">
+            <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" /> Vybrané
+            zakázky a akce nemají použitelný odpracovaný čas. Koncept se vytvoří
+            bez řádků práce; materiál a ostatní náklady zůstanou zahrnuté.
+          </div>
+        )}
+        {missingContractPriceJobs.length > 0 && (
+          <div className="mt-3 text-sm text-amber-700 dark:text-amber-300 flex items-start gap-1.5">
+            <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" /> Některým
+            vybraným zakázkám se smluvní cenou chybí smluvní cena. Doplňte ji v
+            Souhrnu práce, nebo pro fakturu pouze za materiál zvolte Práci
+            nefakturovat.
+          </div>
+        )}
+        {missingStoredJobPriceJobs.length > 0 && (
+          <div className="mt-3 text-sm text-amber-700 dark:text-amber-300 flex items-start gap-1.5">
+            <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" /> Některé
+            vybrané zakázky nemají v Souhrnu práce vyplněnou cenu práce. Jejich
+            řádek práce se do konceptu nepřidá; materiál a ostatní náklady
+            zůstanou zahrnuté.
+          </div>
+        )}
       </div>
 
       <div className="flex items-center justify-between mb-3">
@@ -631,7 +772,10 @@ export default function BillingUnbilledDetail() {
         {jobs.map((job) => {
           const checked = isChecked(job.id);
           return (
-            <Card key={job.id} className={checked ? "border-primary/40" : "opacity-70"}>
+            <Card
+              key={job.id}
+              className={checked ? "border-primary/40" : "opacity-70"}
+            >
               <CardContent className="p-4">
                 <div className="flex items-start gap-3">
                   <Checkbox
@@ -643,7 +787,9 @@ export default function BillingUnbilledDetail() {
                   />
                   <div
                     className="flex-1 min-w-0 cursor-pointer"
-                    onClick={() => setSelected((p) => ({ ...p, [job.id]: !checked }))}
+                    onClick={() =>
+                      setSelected((p) => ({ ...p, [job.id]: !checked }))
+                    }
                   >
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="font-semibold truncate">{job.title}</p>
@@ -652,8 +798,16 @@ export default function BillingUnbilledDetail() {
                     <p className="text-xs text-muted-foreground mt-0.5">
                       {fmtDate(job.date)}
                       {job.daysUnbilled != null && job.daysUnbilled > 0 && (
-                        <span className={`ml-2 font-medium ${job.daysUnbilled > 7 ? "text-red-600 dark:text-red-400" : "text-muted-foreground"}`}>
-                          · {job.daysUnbilled} {job.daysUnbilled === 1 ? "den" : job.daysUnbilled <= 4 ? "dny" : "dní"} čeká
+                        <span
+                          className={`ml-2 font-medium ${job.daysUnbilled > 7 ? "text-red-600 dark:text-red-400" : "text-muted-foreground"}`}
+                        >
+                          · {job.daysUnbilled}{" "}
+                          {job.daysUnbilled === 1
+                            ? "den"
+                            : job.daysUnbilled <= 4
+                              ? "dny"
+                              : "dní"}{" "}
+                          čeká
                         </span>
                       )}
                     </p>
@@ -680,7 +834,11 @@ export default function BillingUnbilledDetail() {
                       />
                       <PriceItem label="Parkování" value={job.parking} />
                       {(job.fines ?? 0) > 0 && (
-                        <PriceItem label="Pokuty" value={job.fines} muted={!fines[job.id]} />
+                        <PriceItem
+                          label="Pokuty"
+                          value={job.fines}
+                          muted={!fines[job.id]}
+                        />
                       )}
                     </div>
                     {job.materials.length > 0 && (
@@ -822,13 +980,19 @@ export default function BillingUnbilledDetail() {
                     className="mt-1"
                     checked={checked}
                     onCheckedChange={(v) =>
-                      setSelectedActivities((p) => ({ ...p, [activity.id]: v === true }))
+                      setSelectedActivities((p) => ({
+                        ...p,
+                        [activity.id]: v === true,
+                      }))
                     }
                   />
                   <div
                     className="flex-1 min-w-0 cursor-pointer"
                     onClick={() =>
-                      setSelectedActivities((p) => ({ ...p, [activity.id]: !checked }))
+                      setSelectedActivities((p) => ({
+                        ...p,
+                        [activity.id]: !checked,
+                      }))
                     }
                   >
                     <div className="flex items-center gap-2 flex-wrap">
@@ -840,15 +1004,26 @@ export default function BillingUnbilledDetail() {
                     <p className="text-xs text-muted-foreground mt-0.5">
                       {fmtDate(activity.completedAt)}
                     </p>
-                    {activityUsesRecordedWork(activity, labourBillingMode) && activity.recordedWork.sessionCount > 0 && (
-                      <p className="text-sm mt-2"><span className="text-muted-foreground">Práce: </span><span className="font-medium">{activity.recordedWork.hours} h · {fmtKc(activity.recordedWork.amount, 2)}</span></p>
-                    )}
+                    {activityUsesRecordedWork(activity, labourBillingMode) &&
+                      activity.recordedWork.sessionCount > 0 && (
+                        <p className="text-sm mt-2">
+                          <span className="text-muted-foreground">Práce: </span>
+                          <span className="font-medium">
+                            {activity.recordedWork.hours} h ·{" "}
+                            {fmtKc(activity.recordedWork.amount, 2)}
+                          </span>
+                        </p>
+                      )}
                     {activity.extraWorks.length > 0 && (
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1 mt-2 text-sm">
                         {activity.extraWorks.map((w) => (
                           <div key={w.id}>
-                            <span className="text-muted-foreground">{w.description}: </span>
-                            <span className="font-medium">{fmtKc(w.amount, 0)}</span>
+                            <span className="text-muted-foreground">
+                              {w.description}:{" "}
+                            </span>
+                            <span className="font-medium">
+                              {fmtKc(w.amount, 0)}
+                            </span>
                           </div>
                         ))}
                       </div>
@@ -862,11 +1037,20 @@ export default function BillingUnbilledDetail() {
                           Materiál – přirážka
                         </p>
                         {activity.materials.map((m) => {
-                          const source = markupSourceFor("activity_material", m);
-                          const eff = effectiveMarkupFor("activity_material", m);
+                          const source = markupSourceFor(
+                            "activity_material",
+                            m,
+                          );
+                          const eff = effectiveMarkupFor(
+                            "activity_material",
+                            m,
+                          );
                           const mkKey = omKey("activity_material", m.id);
                           return (
-                            <div key={m.id} className="flex items-center gap-2 text-xs">
+                            <div
+                              key={m.id}
+                              className="flex items-center gap-2 text-xs"
+                            >
                               <span className="flex-1 min-w-0 truncate">
                                 {m.name}
                                 {m.quantity != null
@@ -929,7 +1113,16 @@ export default function BillingUnbilledDetail() {
                   </div>
                   <div className="text-right shrink-0">
                     <div className="font-bold">
-                      {fmtKc(activityOrientationalTotal(activity, activityMarkupFor) + (activityUsesRecordedWork(activity, labourBillingMode) ? activity.recordedWork.amount : 0), 0)}
+                      {fmtKc(
+                        activityOrientationalTotal(
+                          activity,
+                          activityMarkupFor,
+                        ) +
+                          (activityUsesRecordedWork(activity, labourBillingMode)
+                            ? activity.recordedWork.amount
+                            : 0),
+                        0,
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1006,8 +1199,8 @@ export default function BillingUnbilledDetail() {
               Schválené nákladové položky k přefakturaci
             </div>
             <p className="text-xs text-muted-foreground mb-3">
-              Tyto položky ze schválených přijatých dokladů se automaticky přidají
-              do nového konceptu faktury.
+              Tyto položky ze schválených přijatých dokladů se automaticky
+              přidají do nového konceptu faktury.
             </p>
             <div className="space-y-2">
               {costLines.map((line) => (
@@ -1033,7 +1226,9 @@ export default function BillingUnbilledDetail() {
               ))}
             </div>
             <div className="flex justify-between items-center mt-3 pt-2 border-t border-emerald-200/60 dark:border-emerald-800/50 text-sm">
-              <span className="text-muted-foreground">Náklady celkem bez DPH</span>
+              <span className="text-muted-foreground">
+                Náklady celkem bez DPH
+              </span>
               <span className="font-bold">{fmtKc(costLinesTotal, 2)}</span>
             </div>
           </CardContent>
@@ -1048,7 +1243,9 @@ export default function BillingUnbilledDetail() {
               Přirážka na materiál
             </div>
             <div className="flex items-center gap-3 flex-wrap">
-              <span className="text-sm text-muted-foreground">Výchozí přirážka</span>
+              <span className="text-sm text-muted-foreground">
+                Výchozí přirážka
+              </span>
               <Input
                 type="number"
                 min="0"
@@ -1064,12 +1261,20 @@ export default function BillingUnbilledDetail() {
             </div>
             <div className="mt-3 space-y-1 text-sm">
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Materiál (nákupní cena)</span>
+                <span className="text-muted-foreground">
+                  Materiál (nákupní cena)
+                </span>
                 <span>{fmtKc(selectedMaterialBase, 2)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Přirážka celkem</span>
-                <span className={markupAmount > 0 ? "text-emerald-600 dark:text-emerald-400" : ""}>
+                <span
+                  className={
+                    markupAmount > 0
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : ""
+                  }
+                >
                   {markupAmount > 0 ? "+ " : ""}
                   {fmtKc(markupAmount, 2)}
                 </span>
@@ -1081,11 +1286,11 @@ export default function BillingUnbilledDetail() {
             </div>
             <p className="text-xs text-muted-foreground mt-2">
               Výchozí přirážka platí pro materiál bez vlastní přirážky nebo
-              přirážky podle kategorie. Přirážku lze upravit u každé položky výše
-              (<span className="font-medium">vlastní</span> →{" "}
+              přirážky podle kategorie. Přirážku lze upravit u každé položky
+              výše (<span className="font-medium">vlastní</span> →{" "}
               <span className="font-medium">kategorie</span> →{" "}
-              <span className="font-medium">výchozí</span>). Přičte se pouze
-              k materiálu – práce, doprava ani pokuty se nemění.
+              <span className="font-medium">výchozí</span>). Přičte se pouze k
+              materiálu – práce, doprava ani pokuty se nemění.
             </p>
             <InvoiceMaterialDisplayControl
               value={materialDisplayMode}
@@ -1095,6 +1300,60 @@ export default function BillingUnbilledDetail() {
           </CardContent>
         </Card>
       )}
+
+      <Card className="mb-4">
+        <CardContent className="grid gap-5 p-4 md:grid-cols-2">
+          <div>
+            <p className="text-sm font-semibold">Typ dokladu</p>
+            <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+              Záloha převezme vybrané řádky, ale nevypořádá zakázku ani zdroje.
+            </p>
+            <div className="mt-2 inline-flex flex-wrap rounded-md border p-1">
+              <Button
+                type="button"
+                size="sm"
+                variant={documentType === "standard" ? "default" : "ghost"}
+                onClick={() => setDocumentType("standard")}
+              >
+                Běžná faktura
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={documentType === "advance" ? "default" : "ghost"}
+                onClick={() => setDocumentType("advance")}
+              >
+                Zálohová faktura
+              </Button>
+            </div>
+          </div>
+          <div>
+            <p className="text-sm font-semibold">Řádky z více zakázek</p>
+            <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+              Sloučení mění jen vzhled dokladu; vazba na každý původní zdroj
+              zůstane.
+            </p>
+            <div className="mt-2 inline-flex flex-wrap rounded-md border p-1">
+              <Button
+                type="button"
+                size="sm"
+                variant={sourceGrouping === "by_job" ? "secondary" : "ghost"}
+                onClick={() => setSourceGrouping("by_job")}
+              >
+                Zachovat po zakázkách
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={sourceGrouping === "combined" ? "secondary" : "ghost"}
+                onClick={() => setSourceGrouping("combined")}
+              >
+                Sloučit shodné řádky
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card className="sticky bottom-4 border-primary/30 bg-primary/5 backdrop-blur">
         <CardContent className="p-4 flex items-center justify-between gap-3">
@@ -1112,13 +1371,17 @@ export default function BillingUnbilledDetail() {
               (chosenJobIds.length === 0 &&
                 chosenActivityIds.length === 0 &&
                 costLines.length === 0) ||
-              createInvoice.isPending
-              || ((labourBillingMode === "automatic" || labourBillingMode === "recorded_time") && recordedWorkBlockers > 0)
+              createInvoice.isPending ||
+              ((labourBillingMode === "automatic" ||
+                labourBillingMode === "recorded_time") &&
+                recordedWorkBlockers > 0)
             }
             className="h-11"
           >
             <FileEdit className="h-4 w-4 mr-2" />
-            Vytvořit koncept faktury
+            {documentType === "advance"
+              ? "Vytvořit zálohový koncept"
+              : "Vytvořit koncept faktury"}
           </Button>
         </CardContent>
       </Card>

@@ -95,7 +95,11 @@ function handleError(
 
 function actorOf(req: import("express").Request): Actor {
   // The global permission middleware guarantees req.auth is present.
-  return { userId: req.auth!.userId, name: req.auth!.name };
+  return {
+    userId: req.auth!.userId,
+    name: req.auth!.name,
+    role: req.auth!.role,
+  };
 }
 
 function parseId(raw: string): number | null {
@@ -194,6 +198,10 @@ router.put("/billing/settings", async (req, res): Promise<void> => {
       numberNextSeq: d.numberNextSeq ?? undefined,
       // Nullable columns: a null explicitly clears the value.
       numberYear: d.numberYear,
+      advanceNumberPrefix: d.advanceNumberPrefix ?? undefined,
+      advanceNumberFormat: d.advanceNumberFormat ?? undefined,
+      advanceNumberYear: d.advanceNumberYear,
+      advanceNumberNextSeq: d.advanceNumberNextSeq ?? undefined,
       supplierIc: d.supplierIc,
       supplierDic: d.supplierDic,
       supplierAddress: d.supplierAddress,
@@ -333,11 +341,19 @@ router.post("/billing/invoices", async (req, res): Promise<void> => {
   }
   const d = parsed.data;
   const input: InvoiceCreateInput = {
+    documentType: d.documentType ?? undefined,
     customerId: d.customerId,
+    customerName: d.customerName,
+    customerIc: d.customerIc,
+    customerDic: d.customerDic,
+    customerAddress: d.customerAddress,
+    customerDeliveryAddress: d.customerDeliveryAddress,
+    customerEmail: d.customerEmail,
     jobIds: d.jobIds ?? undefined,
     activityIds: d.activityIds ?? undefined,
     labourBillingMode: d.labourBillingMode ?? undefined,
     workGrouping: d.workGrouping ?? undefined,
+    sourceGrouping: d.sourceGrouping ?? undefined,
     billFineJobIds: d.billFineJobIds ?? undefined,
     materialMarkupPercent: d.materialMarkupPercent ?? undefined,
     materialMarkupOverrides: d.materialMarkupOverrides ?? undefined,
@@ -347,6 +363,10 @@ router.post("/billing/invoices", async (req, res): Promise<void> => {
     taxableSupplyDate: d.taxableSupplyDate ?? undefined,
     dueDate: d.dueDate ?? undefined,
     paymentMethod: d.paymentMethod ?? undefined,
+    bankAccount: d.bankAccount,
+    iban: d.iban,
+    bic: d.bic,
+    currency: d.currency,
     variableSymbol: d.variableSymbol ?? undefined,
     constantSymbol: d.constantSymbol ?? undefined,
     specificSymbol: d.specificSymbol ?? undefined,
@@ -385,8 +405,7 @@ router.post(
           materialMarkupPercent: parsed.data.materialMarkupPercent ?? undefined,
           materialMarkupOverrides:
             parsed.data.materialMarkupOverrides ?? undefined,
-          materialDisplayMode:
-            parsed.data.materialDisplayMode ?? undefined,
+          materialDisplayMode: parsed.data.materialDisplayMode ?? undefined,
           issueDate: parsed.data.issueDate ?? undefined,
           taxableSupplyDate: parsed.data.taxableSupplyDate ?? undefined,
           dueDate: parsed.data.dueDate ?? undefined,
@@ -430,20 +449,34 @@ router.patch("/billing/invoices/:id", async (req, res): Promise<void> => {
   }
   const d = parsed.data;
   const input: InvoiceUpdateInput = {
+    customerId: d.customerId,
+    allowCustomerMismatch: d.allowCustomerMismatch ?? undefined,
+    customerName: d.customerName,
+    customerIc: d.customerIc,
+    customerDic: d.customerDic,
+    customerAddress: d.customerAddress,
+    customerDeliveryAddress: d.customerDeliveryAddress,
+    customerEmail: d.customerEmail,
     issueDate: d.issueDate ?? undefined,
     taxableSupplyDate: d.taxableSupplyDate ?? undefined,
     dueDate: d.dueDate ?? undefined,
     paymentMethod: d.paymentMethod ?? undefined,
+    bankAccount: d.bankAccount,
+    iban: d.iban,
+    bic: d.bic,
+    currency: d.currency,
     variableSymbol: d.variableSymbol ?? undefined,
     constantSymbol: d.constantSymbol ?? undefined,
     specificSymbol: d.specificSymbol ?? undefined,
     vatModeDefault: d.vatModeDefault ?? undefined,
     materialDisplayMode: d.materialDisplayMode ?? undefined,
+    presentationGroups: d.presentationGroups ?? undefined,
     notes: d.notes ?? undefined,
     lines: d.lines?.map(mapLineInput),
+    sourceAllocations: d.sourceAllocations ?? undefined,
   };
   try {
-    const updated = await updateDraft(id, input);
+    const updated = await updateDraft(id, input, actorOf(req));
     res.json(updated);
   } catch (err) {
     handleError(err, "Úprava konceptu faktury selhala.", res);
@@ -621,10 +654,13 @@ router.post(
       return;
     }
     const number = invoice.invoiceNumber ?? `#${id}`;
-    const subject = (parsed.data.subject ?? "").trim() || `Faktura ${number}`;
+    const documentLabel =
+      invoice.documentType === "advance" ? "Zálohová faktura" : "Faktura";
+    const subject =
+      (parsed.data.subject ?? "").trim() || `${documentLabel} ${number}`;
     const message =
       (parsed.data.message ?? "").trim() ||
-      `Dobrý den,\n\nv příloze zasíláme fakturu ${number}.\n\nS pozdravem`;
+      `Dobrý den,\n\nv příloze zasíláme ${invoice.documentType === "advance" ? "zálohovou fakturu" : "fakturu"} ${number}.\n\nS pozdravem`;
     try {
       const buffer = await objectStorage.getPrivateObjectBuffer(
         invoice.pdfObjectPath,
@@ -634,7 +670,7 @@ router.post(
         subject,
         text: message,
         pdfBase64: buffer.toString("base64"),
-        filename: `faktura-${number.replace(/[^\w.-]+/g, "-")}.pdf`,
+        filename: `${invoice.documentType === "advance" ? "zaloha" : "faktura"}-${number.replace(/[^\w.-]+/g, "-")}.pdf`,
       });
       res.json({ sent: true, to });
     } catch (err) {
@@ -727,9 +763,11 @@ router.get("/billing/invoices/:id/pdf", async (req, res): Promise<void> => {
     return;
   }
   const number = (invoice.invoiceNumber ?? `${id}`).replace(/[^\w.-]+/g, "-");
+  const filenamePrefix =
+    invoice.documentType === "advance" ? "zaloha" : "faktura";
   res.setHeader(
     "Content-Disposition",
-    `attachment; filename="faktura-${number}.pdf"`,
+    `attachment; filename="${filenamePrefix}-${number}.pdf"`,
   );
   try {
     await objectStorage.servePrivateObject(invoice.pdfObjectPath, res);
@@ -893,6 +931,8 @@ router.post(
 );
 
 function mapLineInput(line: {
+  id?: number | null;
+  rowType?: "item" | "section" | null;
   description: string;
   quantity?: number | null;
   unit?: string | null;
@@ -906,6 +946,8 @@ function mapLineInput(line: {
   activityId?: number | null;
 }): InvoiceLineInput {
   return {
+    id: line.id ?? undefined,
+    rowType: line.rowType ?? undefined,
     description: line.description,
     quantity: line.quantity ?? undefined,
     unit: line.unit ?? undefined,

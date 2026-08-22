@@ -10,6 +10,10 @@ import {
   type ComputedLine,
   type VatMode,
 } from "./invoice-calc";
+import {
+  invoiceDocumentLabels,
+  type InvoiceDocumentType,
+} from "./invoice-document-kind";
 
 // jsPDF's built-in fonts are WinAnsi-only and cannot render Czech diacritics
 // (ř, š, ě, ů…). We embed Roboto (regular + bold) — bundled into the server as
@@ -31,6 +35,7 @@ export interface InvoicePdfSupplier {
 }
 
 export interface InvoicePdfData {
+  documentType: InvoiceDocumentType;
   invoiceNumber: string;
   status: string;
   documentTitle?: string;
@@ -42,6 +47,7 @@ export interface InvoicePdfData {
   customerIc?: string | null;
   customerDic?: string | null;
   customerAddress?: string | null;
+  customerDeliveryAddress?: string | null;
   customerEmail?: string | null;
   issueDate?: string | null;
   taxableSupplyDate?: string | null;
@@ -54,7 +60,11 @@ export interface InvoicePdfData {
   vatModeDefault: VatMode;
   notes?: string | null;
   lines: ReadonlyArray<
-    ComputedLine & { description: string; unit?: string | null }
+    ComputedLine & {
+      rowType?: "item" | "section";
+      description: string;
+      unit?: string | null;
+    }
   >;
   subtotalWithoutVat: number;
   totalVat: number;
@@ -101,11 +111,14 @@ export function generateInvoicePdf(data: InvoicePdfData): Buffer {
   }
   registerFonts(doc);
 
+  const isAdvance = data.documentType === "advance";
   const isReverseCharge =
-    data.vatModeDefault === "reverse_charge" ||
-    data.lines.some((l) => l.vatMode === "reverse_charge");
+    !isAdvance &&
+    (data.vatModeDefault === "reverse_charge" ||
+      data.lines.some((l) => l.vatMode === "reverse_charge"));
   const taxDocument =
-    data.supplier.vatPayer && data.vatModeDefault !== "non_vat";
+    !isAdvance && data.supplier.vatPayer && data.vatModeDefault !== "non_vat";
+  const documentLabels = invoiceDocumentLabels(data.documentType, taxDocument);
 
   const pageWidth = doc.internal.pageSize.getWidth();
   const marginX = 14;
@@ -115,12 +128,18 @@ export function generateInvoicePdf(data: InvoicePdfData): Buffer {
   doc.setFont(PDF_FONT, "bold");
   doc.setFontSize(18);
   doc.text(
-    data.documentTitle ?? (taxDocument ? "FAKTURA – daňový doklad" : "FAKTURA"),
+    data.documentTitle ?? documentLabels.title,
     marginX,
     y,
   );
   doc.setFontSize(12);
   doc.text(data.invoiceNumber, pageWidth - marginX, y, { align: "right" });
+  if (documentLabels.legalNotice) {
+    y += 6;
+    doc.setFont(PDF_FONT, "normal");
+    doc.setFontSize(9);
+    doc.text(documentLabels.legalNotice, marginX, y);
+  }
   y += 10;
 
   // ---- Supplier (left) / Customer (right) blocks ----
@@ -143,6 +162,9 @@ export function generateInvoicePdf(data: InvoicePdfData): Buffer {
   const customerLines = [
     data.customerName || "—",
     data.customerAddress || "",
+    data.customerDeliveryAddress
+      ? `Dodací adresa: ${data.customerDeliveryAddress}`
+      : "",
     data.customerIc ? `IČ: ${data.customerIc}` : "",
     data.customerDic ? `DIČ: ${data.customerDic}` : "",
     data.customerEmail || "",
@@ -213,12 +235,28 @@ export function generateInvoicePdf(data: InvoicePdfData): Buffer {
   // A VAT tax document always shows the VAT columns/recap. PDP (reverse-charge)
   // lines are marked individually and carry no VAT — they must NOT suppress the
   // VAT breakdown for standard-rated lines on a mixed invoice.
-  const showVat = taxDocument;
+  // A payment request may show the expected VAT calculation for a clear amount
+  // to pay, while its heading explicitly states that it is not a tax document.
+  const showVat = data.supplier.vatPayer && data.vatModeDefault !== "non_vat";
   const head = showVat
     ? [["Popis", "Množ.", "MJ", "Cena/MJ", "Bez DPH", "DPH %", "DPH", "Celkem"]]
     : [["Popis", "Množ.", "MJ", "Cena/MJ", "Celkem"]];
 
   const body = data.lines.map((l) => {
+    if (l.rowType === "section") {
+      return [
+        {
+          content: l.description,
+          colSpan: showVat ? 8 : 5,
+          styles: {
+            font: PDF_FONT,
+            fontStyle: "bold" as const,
+            fillColor: [239, 246, 255] as [number, number, number],
+            textColor: [30, 64, 175] as [number, number, number],
+          },
+        },
+      ];
+    }
     const base = [
       l.description,
       String(num(l.quantity)),
@@ -354,7 +392,7 @@ export function generateInvoicePdf(data: InvoicePdfData): Buffer {
   y += 6;
   doc.setFont(PDF_FONT, "bold");
   doc.setFontSize(12);
-  doc.text(data.amountLabel ?? "Celkem k úhradě:", totalsX, y);
+  doc.text(data.amountLabel ?? documentLabels.amountDueLabel, totalsX, y);
   doc.text(
     formatCzk(data.totalWithVat, data.currency),
     pageWidth - marginX,

@@ -3,7 +3,8 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const root = resolve(import.meta.dirname, "../../..");
-const read = (path: string) => readFileSync(resolve(root, path), "utf8");
+const read = (path: string) =>
+  readFileSync(resolve(root, path), "utf8").replace(/\r\n/g, "\n");
 
 const expectedTail = [
   [96, 1786383352759, "0096_far_smiling_tiger"],
@@ -17,6 +18,7 @@ const expectedTail = [
   [105, 1786383367000, "0105_smooth_nitro"],
   [106, 1786459128910, "0106_graceful_frog_thor"],
   [107, 1786484628859, "0107_canonical_audit_evidence"],
+  [108, 1786986729921, "0108_invoice_source_allocations_and_advances"],
 ] as const;
 
 describe("integrated production-forward migration lineage", () => {
@@ -36,7 +38,7 @@ describe("integrated production-forward migration lineage", () => {
       .filter((entry) => entry.idx >= 96)
       .map((entry) => [entry.idx, entry.when, entry.tag]);
 
-    expect(journal.entries).toHaveLength(107);
+    expect(journal.entries).toHaveLength(108);
     expect(tail).toEqual(expectedTail);
     expect(new Set(journal.entries.map((entry) => entry.when)).size).toBe(
       journal.entries.length,

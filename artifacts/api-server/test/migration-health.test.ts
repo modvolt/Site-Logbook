@@ -7,6 +7,7 @@ import {
   knownMigrationRowsSha256,
   migrationReleaseBindingMatches,
   opaqueMigrationRowsSha256,
+  productionRuntimeBindingMatches,
   type ExpectedMigrationIdentity,
 } from "../src/lib/migration-health";
 
@@ -134,7 +135,7 @@ describe("migration health inventory", () => {
     ).toBe(false);
   });
 
-  it("reproduces the frozen canonical-LF 0107 known-row digest", () => {
+  it("reproduces the frozen canonical-LF 0108 known-row digest", () => {
     const migrationsRoot = resolve(repositoryRoot, "lib/db/migrations");
     const journal = JSON.parse(
       readFileSync(resolve(migrationsRoot, "meta/_journal.json"), "utf8"),
@@ -150,9 +151,78 @@ describe("migration health inventory", () => {
       };
     });
 
-    expect(rows).toHaveLength(107);
+    expect(rows).toHaveLength(108);
     expect(knownMigrationRowsSha256(rows)).toBe(
-      "sha256:c5477bc69313ef758fb2022cc7c781caa9a703c8cace8a11742294913cdd4313",
+      "sha256:2b18a1c2139f3a43b32bcf52f1bb3f7b8668cbbc5802de1788adc4b84bf90281",
     );
+  });
+
+  it("binds runtime parity to the signed exact-0108 lineage without a hard-coded count", () => {
+    const inventory = {
+      knownExpectedMigrations: 108,
+      knownAppliedMigrations: 108,
+      knownAppliedRowsSha256:
+        "sha256:2b18a1c2139f3a43b32bcf52f1bb3f7b8668cbbc5802de1788adc4b84bf90281",
+      opaqueAppliedMigrations: 2,
+      opaqueLegacyRowsSha256:
+        "sha256:d050765f2a0299a0c396bfa3687485aa63d05ce02c3e88ed66c2f280f3db6201",
+      missingKnownMigrationTags: [],
+    };
+    const digest = `sha256:${"d".repeat(64)}`;
+    const binding = {
+      schemaVersion: "site-logbook.production-runtime-binding/v1" as const,
+      sourceSha: "c".repeat(40),
+      apiImage: `ghcr.io/modvolt/site-logbook-api@sha256:${"a".repeat(64)}`,
+      apiImageDigest: `sha256:${"a".repeat(64)}`,
+      targetEvidenceSha256: digest,
+      releaseEvidenceSha256: digest,
+      resolvedComposeSha256: digest,
+      deployedConfigSha256: digest,
+      desiredConfigSha256: digest,
+      livePostgresTargetSha256: digest,
+      databaseName: "site_logbook",
+      databaseUser: "site_logbook_runtime",
+      schemaFingerprintSha256: digest,
+      preMigrationBackupEvidenceSha256: digest,
+      backupIntegritySha256: digest,
+      transitionChainSha256: digest,
+      activationApprovalSha256: digest,
+      invoiceSchemaProjectionSha256: digest,
+      invoice0108MigrationReceiptSha256: digest,
+      invoice0108RoleReceiptSha256: digest,
+      lineage: {
+        decision: "ALREADY_0108",
+        mode: "production-copy-restricted",
+        knownExpectedMigrations: 108,
+        knownAppliedMigrations: 108,
+        knownAppliedRowsSha256: inventory.knownAppliedRowsSha256,
+        latestKnownAppliedTag:
+          "0108_invoice_source_allocations_and_advances",
+        missingKnownToPredecessor: 0,
+        opaqueLegacyRowCount: 2,
+        opaqueLegacyRowsSha256: inventory.opaqueLegacyRowsSha256,
+        opaqueLegacyMeaningInferred: false,
+        excludedMigration0100Present: false,
+      },
+    };
+    expect(
+      productionRuntimeBindingMatches(
+        binding,
+        "c".repeat(40),
+        "0108_invoice_source_allocations_and_advances",
+        inventory,
+      ),
+    ).toBe(true);
+    expect(
+      productionRuntimeBindingMatches(
+        {
+          ...binding,
+          lineage: { ...binding.lineage, decision: "ALREADY_0107" },
+        },
+        "c".repeat(40),
+        "0108_invoice_source_allocations_and_advances",
+        inventory,
+      ),
+    ).toBe(false);
   });
 });

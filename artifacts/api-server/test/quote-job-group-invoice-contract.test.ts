@@ -3,7 +3,8 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const root = resolve(import.meta.dirname, "../../..");
-const read = (path: string) => readFileSync(resolve(root, path), "utf8");
+const read = (path: string) =>
+  readFileSync(resolve(root, path), "utf8").replace(/\r\n/g, "\n");
 
 describe("quote job-group invoice contract", () => {
   it("adds only an auditable lifecycle table and a guarded rollback", () => {
@@ -30,10 +31,8 @@ describe("quote job-group invoice contract", () => {
     expect(block).toContain('.for("update")');
     expect(block).toContain('quote.status !== "accepted"');
     expect(block).toContain("input.extraJobIds ?? []");
-    expect(block).toContain('jobIds: extraJobIds');
-    expect(block).toContain(
-      'workGrouping: input.workGrouping ?? "summary"',
-    );
+    expect(block).toContain("jobIds: extraJobIds");
+    expect(block).toContain('workGrouping: input.workGrouping ?? "summary"');
     expect(block).toContain('sourceType: "quote_item"');
     expect(block).toContain("unitPriceWithoutVat: num(item.unitPrice)");
     expect(block).toContain("ensureQuoteGroupSourceLinks");
@@ -48,8 +47,8 @@ describe("quote job-group invoice contract", () => {
     expect(service).toContain(
       'releaseQuoteInvoiceBilling(tx, id, actor.userId, "draft_deleted")',
     );
-    expect(service).toContain(
-      'releaseQuoteInvoiceBilling(tx, id, actor.userId, "invoice_cancelled")',
+    expect(service).toMatch(
+      /releaseQuoteInvoiceBilling\(\s*tx,\s*id,\s*actor\.userId,\s*"invoice_cancelled",?\s*\)/,
     );
     expect(service).toContain(
       '.set({ status: "billed", billedAt: new Date() })',
@@ -62,8 +61,8 @@ describe("quote job-group invoice contract", () => {
     const jobsRoute = read("artifacts/api-server/src/routes/jobs.ts");
     const groupsRoute = read("artifacts/api-server/src/routes/job-groups.ts");
     expect(service).toContain("async function ensureQuoteGroupSourceLinks");
-    expect(service).toContain(
-      "await ensureQuoteGroupSourceLinks(tx, id, quoteLink.jobGroupId)",
+    expect(service).toMatch(
+      /await ensureQuoteGroupSourceLinks\(\s*tx,\s*id,\s*quoteBilling\.jobGroupId,?\s*\)/,
     );
     expect(service).toContain(
       "Vazba faktury na přijatou nabídku už není platná.",

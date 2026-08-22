@@ -143,6 +143,7 @@ function cancellationPdfData(
   recordedAt: string,
 ): InvoicePdfData {
   return {
+    documentType: "standard",
     invoiceNumber: snapshot.invoice.invoiceNumber,
     status: "cancelled",
     documentTitle: "OZNÁMENÍ O STORNU FAKTURY",

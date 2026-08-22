@@ -45,6 +45,7 @@ export * from "./email-import-log";
 export * from "./backup-log";
 export * from "./backup-settings";
 export * from "./invoices";
+export * from "./invoice-source-allocations";
 export * from "./invoice-reminders";
 export * from "./billing-settings";
 export * from "./material-markup-rules";

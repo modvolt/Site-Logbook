@@ -48,6 +48,8 @@
     "rehearsal:production-exact-0096-restore": "node scripts/production-exact-0096-disposable-restore-rehearsal.mjs",
     "test:production-migration-control-plane": "node --test scripts/test/production-migration-control-plane.test.mjs scripts/test/production-migration-adapter.test.mjs",
     "test:production-migration-runner": "node --test scripts/test/production-migration-runner.test.mjs scripts/test/production-migration-runtime-authority.test.mjs scripts/test/production-migration-role-authority.test.mjs",
+    "test:production-invoice-0108-runner": "node --test scripts/test/production-invoice-0108-runner.test.mjs",
+    "test:production-role-0108-contract": "node --test scripts/test/production-role-separation-0108-contract.test.mjs",
     "test:production-migration-runner:pg16": "node --test scripts/test/production-migration-runner.pg16.test.mjs",
     "test:production-migration-role-bootstrap:pg16": "node --import ./lib/db/node_modules/tsx/dist/loader.mjs --test scripts/test/production-migration-role-bootstrap.pg16.test.ts",
     "test:production-runtime-db-credential-contract": "pnpm --filter @workspace/api-server run test:production-runtime-db-credential-contract",
