@@ -951,7 +951,6 @@ SELECT json_build_object(
   'identity', (SELECT row_to_json(identity_row) FROM (
     SELECT current_database()::text AS database_name,
            current_user::text AS database_user,
-           current_setting('data_directory')::text AS data_directory,
            current_setting('server_version')::text AS server_version,
            current_setting('server_version_num')::integer AS server_version_num,
            current_setting('transaction_isolation')::text AS isolation_level,
@@ -1121,7 +1120,6 @@ function parseDatabaseProjection(raw: string): {
     [
       "backend_pid",
       "client_address",
-      "data_directory",
       "database_name",
       "database_user",
       "isolation_level",
@@ -1197,7 +1195,6 @@ function validateIdentity(
     identity.client_address !== null ||
     identity.server_address !== null ||
     identity.server_tcp_port !== null ||
-    identity.data_directory !== input.volumeDestination ||
     identity.database_name !== input.databaseName ||
     identity.database_user !== input.databaseUser ||
     typeof identity.server_version_num !== "number" ||
@@ -1460,4 +1457,3 @@ export function assertProductionHostPostgresSecretFreeWithTestAuthority(
 ): void {
   assertSecretFree(value, "testProjection");
 }
-
