@@ -87,7 +87,7 @@ Produkční release `6ae3072` stále končí migrací `0096`; stabilní lokáln�
 - Oddělení DB rolí po `0107` ponechává budoucí objekty default-dark. Nová tabulka a serial sekvence proto vyžadují samostatný `0108` role kontrakt: runtime smí pouze `SELECT`, `INSERT`, `UPDATE` na `invoice_source_allocations` a `USAGE` na `invoice_source_allocations_id_seq`; `DELETE`, DDL, `PUBLIC`, třetí role a column grants jsou zakázané. Kontrakt je deaktivovaný ve výchozím stavu a vyžaduje exact-0107 plus default-dark pre-projekci.
 - Následná integrace nad veřejným login/activation mergem `8787d7f` přidala samostatný source-pinned runner `0107 -> 0108`, post-migration role autoritu, exact-0108 readiness a podepsaný activation protokol v3. Historický runner zůstává zmrazený na `0096 -> 0107` a pro `0108` se nepoužívá.
 - Nový control-plane exact-0107 backup producer vyžaduje zastavené runtime DB relace, vytvoří šifrovanou `mve1` zálohu bez retention prune, změří všechny tabulky ve stejném exportovaném snapshotu, provede disposable restore a až poté uloží no-clobber receipt/reference. Implementace ani artefakty samy neautorizují migraci nebo start aplikace; skutečný produkční běh zatím neproběhl.
-- Aktuální lokální gate nad `8787d7f` je zelený: Node 329 pass + 1 PG16 skip, activation/DB 30 pass + 3 PG16 skip, frontend 193, live-events 15 a API 1069 pass + 1 skip. Exact PostgreSQL 16 lifecycle a DB concurrency zůstávají před publikací povinné, nebo musí být jejich neprovedení výslovně přijato jako release riziko.
+- Aktuální lokální gate nad `8787d7f` je zelený: Node 329 pass + 1 PG16 skip, activation/DB 30 pass + 3 PG16 skip, frontend 193, live-events 15 a API 1069 pass + 1 skip. Cílený DB concurrency běh na novém disposable PostgreSQL 18 navíc prošel 11/11 scénářů. Exact PostgreSQL 16 lifecycle musí ještě potvrdit publikační CI nebo schválený izolovaný PG16 endpoint.
 
 ## Navazující integrační body (bez rozšíření rozsahu)
 
@@ -140,7 +140,7 @@ Přijatý doklad/fotografie/AI extrakce končí v `billing_documents` a `billing
 - Produkční build API: úspěšný.
 - Produkční build frontendu/PWA s `BASE_PATH=/`: úspěšný, 4 020 modulů a 234 precache položek; zůstává obecné upozornění Vite na některé chunky nad 500 kB.
 
-DB-backed integrační/souběhové testy nebyly v tomto pracovním prostředí spuštěny, protože není nastavena izolovaná `DATABASE_URL` a produkční databáze se pro testy nesmí použít. Test souběžného vytvoření konceptu a dvojího vystavení je doplněn, ale musí projít na dočasné PostgreSQL před integrací. Upravené UI také nebylo přihlášeně proklikáno proti lokálnímu backendu; produkční relace sloužila pouze k read-only auditu původního stavu.
+DB-backed test souběžného vytvoření konceptu, dvojího vystavení, storna a opakovaného vystavení prošel na novém disposable PostgreSQL 18: 1 soubor, 11/11 testů. Produkční databáze k testu použita nebyla a dočasný cluster byl po běhu zastaven a odstraněn. Upravené UI zatím nebylo přihlášeně proklikáno proti lokálnímu backendu; produkční relace sloužila pouze k read-only auditu původního stavu.
 
 ## Manuální testovací postup pro administrátora
 
@@ -161,9 +161,9 @@ Na izolované testovací databázi s kopií neprodukčních dat:
 
 ## Známá omezení
 
-- `0108` správně navazuje na commitnutou linii `0097`–`0107` a disposable PostgreSQL 18 lifecycle prošel. Exact PG16 a DB concurrency jsou stále otevřené release brány.
+- `0108` správně navazuje na commitnutou linii `0097`–`0107`; disposable PostgreSQL 18 lifecycle i DB concurrency prošly. Exact PG16 zůstává otevřenou release bránou.
 - Finální integrační základ je veřejný login/activation merge `8787d7f`; fakturační release a control-plane změny jsou zatím pouze v lokální větvi a nebyly publikovány ani nasazeny.
 - Zálohová faktura je v této změně platební výzva. Automatické vytvoření daňového dokladu k přijaté platbě ani automatický odečet zaplacené zálohy na konečné faktuře zatím implementovány nejsou; to vyžaduje navazující účetní fázi.
 - Částečný fakturační stav je odvozený `billingState`, nikoli nový provozní enum zakázky, aby se nerozbilo současné workflow `done`/`vyfakturovano`.
 - ISDOC zůstává mimo rozsah stejně jako v původním modulu; ověřuje se PDF a stávající exportní chování.
-- Bez exact PostgreSQL 16 concurrency brány a přihlášeného live smoke nelze tvrdit plné DB/E2E ani vizuální přijetí.
+- Bez exact PostgreSQL 16 lifecycle brány a přihlášeného live smoke nelze tvrdit plné DB/E2E ani vizuální přijetí.

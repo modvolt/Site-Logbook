@@ -87,27 +87,27 @@ no-clobber role receipt. Samotný kontrakt nadále neautorizuje start aplikace.
      receipt, live readiness a attended start approval;
    - runtime 0108 odmítne starý v2/exact-0107 bundle i starý build SHA;
    - nový podepsaný produkční bundle ještě nebyl vytvořen ani přenesen na host.
-5. **Lokální databázové brány – částečně hotovo**
+5. **Lokální databázové brány – PostgreSQL 18 hotovo, exact PG16 čeká**
    - disposable PostgreSQL 18 ověřil forward `0107 -> 0108`, nejmenší oprávnění,
      DOWN a druhý forward;
+   - na novém disposable PostgreSQL 18 prošel cílený DB souběh: 1 soubor,
+     11/11 scénářů rezervace, dvojího vystavení, storna a opakovaného vystavení;
    - exact PostgreSQL 16 lifecycle zůstává skip, dokud není dostupný schválený
-     izolovaný PG16/Docker endpoint;
-   - DB souběh dvojí rezervace/vystavení je stále povinná release brána.
+     izolovaný PG16/Docker endpoint.
 
 ## Přesný zbývající release postup
 
-1. Uzavřít nový backup producer do čistého lokálního commitu a zopakovat celý
-   release gate.
-2. Po samostatném schválení publikovat větev/PR; bez workflow dispatch.
-3. Po merge ověřit exact-SHA Quality a publikovat digestové runtime,
+1. Po samostatném schválení publikovat větev/PR; bez workflow dispatch. CI musí
+   znovu ověřit celý release gate a exact PostgreSQL 16 lifecycle.
+2. Po merge ověřit exact-SHA Quality a publikovat digestové runtime,
    control-plane a host-operator image.
-4. V maintenance window zastavit aplikační writer, spustit nový exact-0107
+3. V maintenance window zastavit aplikační writer, spustit nový exact-0107
    backup+disposable-restore one-shot a zachovat receipt/reference.
-5. Spustit `prepare`, jednu 0108 transakci, role delta a read-only readiness;
+4. Spustit `prepare`, jednu 0108 transakci, role delta a read-only readiness;
    při nejasném výsledku nic neopakovat a řídit se klasifikací recovery.
-6. Vytvořit attended approval a podepsaný v3 activation bundle, přenést jej
+5. Vytvořit attended approval a podepsaný v3 activation bundle, přenést jej
    samostatným V3 host commandem a teprve potom nasadit runtime image.
-7. Ověřit login, health, běžnou fakturu bez zakázky, zálohovou fakturu a vazby
+6. Ověřit login, health, běžnou fakturu bez zakázky, zálohovou fakturu a vazby
    přijatého dokladu/dodacího listu v produkčním smoke testu.
 
 ## Aktuálně ověřeno lokálně
@@ -120,7 +120,8 @@ no-clobber role receipt. Samotný kontrakt nadále neautorizuje start aplikace.
 - live-events: 15/15;
 - API unit: 1070 celkem, 1069 pass, 1 skip;
 - TypeScript, ESLint, API build a diff-check: úspěšné;
-- dřívější disposable PostgreSQL 18 0107/0108 lifecycle: úspěšný.
+- disposable PostgreSQL 18 0107/0108 lifecycle: úspěšný;
+- disposable PostgreSQL 18 DB concurrency: 1 soubor, 11/11 testů.
 
 Tyto výsledky dokazují lokální implementaci. Nedokazují nový CI run, publikaci
 image, skutečný produkční backup, migraci, deployment ani přihlášený live smoke.
