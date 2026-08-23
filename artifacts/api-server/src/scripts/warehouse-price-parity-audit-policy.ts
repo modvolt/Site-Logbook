@@ -164,7 +164,7 @@ select
   billing_document_line_id::text as billing_document_line_id,
   purchase_price::text as purchase_price,
   currency,
-  to_char(created_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as recorded_at
+  to_char(created_at, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as recorded_at
 from warehouse_price_history
 order by warehouse_item_id, id
 `;

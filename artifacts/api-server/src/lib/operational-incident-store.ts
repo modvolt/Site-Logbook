@@ -103,7 +103,9 @@ export async function reconcileOperationalIncidents(
     const byFingerprint = new Map(
       existing.map((incident) => [incident.fingerprint, incident]),
     );
-    const activeFingerprints = new Set(alerts.map((alert) => alert.fingerprint));
+    const activeFingerprints = new Set(
+      alerts.map((alert) => alert.fingerprint),
+    );
     const transitions: OperationalAlertTransition[] = [];
 
     for (const alert of alerts) {
@@ -137,7 +139,8 @@ export async function reconcileOperationalIncidents(
 
       const reopened = incident.status === "resolved";
       const severityChanged = incident.severity !== alert.severity;
-      const nextSequence = incident.sequence + (reopened || severityChanged ? 1 : 0);
+      const nextSequence =
+        incident.sequence + (reopened || severityChanged ? 1 : 0);
       await tx
         .update(operationalIncidentsTable)
         .set({
@@ -331,8 +334,12 @@ export async function markOperationalAlertFailed(
   claim: ClaimedOperationalAlert,
   failure: DeliveryFailure,
 ): Promise<"pending" | "dead_letter" | "lost_lease"> {
-  const deadLetter = !failure.retryable || claim.attemptCount >= MAX_DELIVERY_CYCLES;
-  const backoffSeconds = Math.min(900, 5 * 2 ** Math.max(0, claim.attemptCount - 1));
+  const deadLetter =
+    !failure.retryable || claim.attemptCount >= MAX_DELIVERY_CYCLES;
+  const backoffSeconds = Math.min(
+    900,
+    5 * 2 ** Math.max(0, claim.attemptCount - 1),
+  );
   const rows = await db
     .update(operationalAlertOutboxTable)
     .set({
@@ -466,28 +473,30 @@ export async function requeueOperationalAlertDeadLetter(
   input: OperationalAlertDeadLetterRequeueInput,
 ): Promise<OperationalAlertDeadLetterRequeueResult> {
   return db.transaction(async (tx) => {
-    const locked = await tx.execute(sql<{
-      id: number;
-      state: string;
-      attempt_count: number;
-      dead_lettered_at: Date | string | null;
-    }>`
-      select id, state, attempt_count, dead_lettered_at
-      from operational_alert_outbox
-      where id = ${input.outboxId}
-      for update
-    `);
-    const raw = locked.rows[0];
+    // Keep timestamp decoding on the schema-aware Drizzle path. A raw pg query
+    // interprets `timestamp without time zone` in the host timezone and can
+    // shift the optimistic-lock value away from the UTC value returned by the
+    // normal application queries.
+    const [raw] = await tx
+      .select({
+        id: operationalAlertOutboxTable.id,
+        state: operationalAlertOutboxTable.state,
+        attemptCount: operationalAlertOutboxTable.attemptCount,
+        deadLetteredAt: operationalAlertOutboxTable.deadLetteredAt,
+      })
+      .from(operationalAlertOutboxTable)
+      .where(eq(operationalAlertOutboxTable.id, input.outboxId))
+      .for("update");
     if (!raw) return { status: "not_found" } as const;
 
     const current = {
       id: Number(raw.id),
       state: String(raw.state),
-      attemptCount: Number(raw.attempt_count),
+      attemptCount: Number(raw.attemptCount),
       deadLetteredAt:
-        raw.dead_lettered_at === null
+        raw.deadLetteredAt === null
           ? null
-          : toIso(raw.dead_lettered_at, "Dead-letter"),
+          : toIso(raw.deadLetteredAt, "Dead-letter"),
     };
     if (
       !Number.isInteger(current.id) ||
