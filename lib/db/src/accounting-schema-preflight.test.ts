@@ -126,6 +126,8 @@ describe("accounting schema 0106 bundle", () => {
     assert.equal(bundle.all.length, ACCOUNTING_SCHEMA_EXPECTED_JOURNAL_COUNT);
     assert.equal(bundle.pre.length, 105);
     assert.equal(bundle.post.length, 106);
+    assert.ok(bundle.known.length >= bundle.post.length);
+    assert.deepEqual(bundle.known.slice(0, bundle.post.length), bundle.post);
     assert.deepEqual(
       bundle.all.at(-2),
       ACCOUNTING_SCHEMA_MIGRATIONS.predecessor,
@@ -143,12 +145,15 @@ describe("accounting schema 0106 bundle", () => {
     expectCode("JOURNAL_COUNT_MISMATCH", () =>
       validateAccountingSchemaMigrationBundle({
         ...original,
-        journalEntries: original.journalEntries.slice(0, -1),
+        journalEntries: original.journalEntries.slice(
+          0,
+          ACCOUNTING_SCHEMA_EXPECTED_JOURNAL_COUNT - 1,
+        ),
       }),
     );
 
     const wrongTail = original.journalEntries.map((entry, index) =>
-      index === original.journalEntries.length - 1
+      index === ACCOUNTING_SCHEMA_EXPECTED_JOURNAL_COUNT - 1
         ? { ...entry, tag: "0106_wrong" }
         : entry,
     );
@@ -193,9 +198,10 @@ describe("accounting schema 0106 bundle", () => {
 describe("accounting schema 0106 applied-set classification", () => {
   const bundle = loadAndValidateAccountingSchemaMigrationBundle(migrationsDir);
 
-  it("accepts only exact 105 predecessor and exact 106 target sets", () => {
+  it("accepts exact transition sets and only the full known steady lineage", () => {
     const preRows = applied(bundle.pre);
     const postRows = applied(bundle.post);
+    const steadyRows = applied(bundle.known);
     assert.equal(
       classifyAccountingSchemaAppliedMigrations(preRows, bundle).decision,
       "READY_0105",
@@ -206,7 +212,10 @@ describe("accounting schema 0106 applied-set classification", () => {
     );
     validateExactAccountingAppliedMigrationSet("pre", preRows, bundle);
     validateExactAccountingAppliedMigrationSet("post", postRows, bundle);
-    validateExactAccountingAppliedMigrationSet("steady", postRows, bundle);
+    validateExactAccountingAppliedMigrationSet("steady", steadyRows, bundle);
+    expectCode("APPLIED_COUNT_MISMATCH", () =>
+      validateExactAccountingAppliedMigrationSet("steady", postRows, bundle),
+    );
   });
 
   it("rejects missing, extra, duplicate and hash-drifted rows", () => {

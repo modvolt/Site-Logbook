@@ -20,6 +20,15 @@ const AUDIT_0107_ROLLBACK = readFileSync(
   "utf8",
 );
 
+const INVOICE_0108_ROLLBACK = readFileSync(
+  resolve(
+    import.meta.dirname,
+    "../../../lib/db/rollbacks/0108_invoice_source_allocations_and_advances.down.sql",
+  ),
+  "utf8",
+);
+const INVOICE_0108_CREATED_AT = 1786986729921;
+
 const EXPECTED_TABLES = [
   "accounting_aggregate_heads",
   "accounting_document_versions",
@@ -109,6 +118,12 @@ export async function rollbackAuditEvidence0107ToExact0106(
   pool: Pool,
   migrationsDir = resolve(import.meta.dirname, "../../../lib/db/migrations"),
 ): Promise<void> {
+  await rollbackInvoice0108ToExact0107IfPresent(pool);
+  // The generic test migrator records the checkout byte hash. On Windows the
+  // migration files may be CRLF, while the production rollback contract pins
+  // canonical LF identities. Freeze the disposable journal at exact 0107
+  // before exercising its fail-closed rollback guard.
+  await canonicalizeAppliedMigrationHashesForTest(pool, migrationsDir, 107);
   await pool.query(AUDIT_0107_ROLLBACK);
   await canonicalizeAppliedMigrationHashesForTest(pool, migrationsDir, 106);
   const expected = readExpectedMigrationTuples(migrationsDir, 106);
@@ -123,6 +138,57 @@ export async function rollbackAuditEvidence0107ToExact0106(
   if (JSON.stringify(result.rows) !== JSON.stringify(expected)) {
     throw new Error(
       `Failed to prepare exact 0106 test state: ${JSON.stringify(result.rows)}`,
+    );
+  }
+}
+
+export async function rollbackInvoice0108ToExact0107IfPresent(
+  pool: Pool,
+): Promise<void> {
+  const before = await pool.query<{
+    allocation_table: string | null;
+    journal_rows: string;
+  }>(`
+    select
+      to_regclass('public.invoice_source_allocations')::text as allocation_table,
+      (
+        select count(*)::text
+        from drizzle.__drizzle_migrations
+        where created_at = ${INVOICE_0108_CREATED_AT}
+      ) as journal_rows
+  `);
+  const state = before.rows[0];
+  const hasTable = state?.allocation_table != null;
+  const hasJournalRow = state?.journal_rows === "1";
+  if (
+    hasTable !== hasJournalRow ||
+    !["0", "1"].includes(state?.journal_rows ?? "")
+  ) {
+    throw new Error(
+      `Refusing inconsistent 0108 test rollback state: ${JSON.stringify(state)}`,
+    );
+  }
+  if (!hasTable) return;
+
+  await pool.query(INVOICE_0108_ROLLBACK);
+  const after = await pool.query<{
+    allocation_table: string | null;
+    journal_rows: string;
+  }>(`
+    select
+      to_regclass('public.invoice_source_allocations')::text as allocation_table,
+      (
+        select count(*)::text
+        from drizzle.__drizzle_migrations
+        where created_at = ${INVOICE_0108_CREATED_AT}
+      ) as journal_rows
+  `);
+  if (
+    after.rows[0]?.allocation_table != null ||
+    after.rows[0]?.journal_rows !== "0"
+  ) {
+    throw new Error(
+      `Failed to prepare exact 0107 test state: ${JSON.stringify(after.rows[0])}`,
     );
   }
 }
@@ -166,8 +232,9 @@ export function createHistorical0106MigrationsDirectory(
     const path = join(directory, "meta", snapshot);
     writeFileSync(path, canonicalLf(readFileSync(path, "utf8")), "utf8");
   }
-  const futureSnapshot = join(directory, "meta", "0107_snapshot.json");
-  unlinkSync(futureSnapshot);
+  for (const futureSnapshot of ["0107_snapshot.json", "0108_snapshot.json"]) {
+    unlinkSync(join(directory, "meta", futureSnapshot));
+  }
   return {
     directory,
     cleanup: () => rmSync(directory, { recursive: true, force: true }),
