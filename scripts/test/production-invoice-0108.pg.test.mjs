@@ -35,6 +35,7 @@ const DISPOSABLE_CONFIRMATION =
 const databaseName = "site_logbook_invoice_0108_fixture";
 const migratorRole = "site_logbook_invoice_0108_migrator";
 const runtimeRole = "site_logbook_invoice_0108_runtime";
+const runtimePassword = "invoice-0108-runtime-ci-only";
 const sourceSha = "32fb8ec737e513421ec359da63cc870c8e078c7f";
 const migrationsDirectory = path.resolve("lib/db/migrations");
 
@@ -62,9 +63,10 @@ function assertDisposableUrl(raw, confirmation) {
   return url;
 }
 
-function databaseUrl(base, user = base.username) {
+function databaseUrl(base, user = base.username, password = base.password) {
   const value = new URL(base);
   value.username = user;
+  value.password = password;
   value.pathname = `/${databaseName}`;
   return value.href;
 }
@@ -260,7 +262,9 @@ test(
       const version = await admin.query("SHOW server_version_num");
       assert.equal(Number(version.rows[0].server_version_num) >= 160000, true);
       await admin.query(`CREATE ROLE "${migratorRole}" NOLOGIN`);
-      await admin.query(`CREATE ROLE "${runtimeRole}" LOGIN`);
+      await admin.query(
+        `CREATE ROLE "${runtimeRole}" LOGIN PASSWORD '${runtimePassword}'`,
+      );
       await admin.query(
         `CREATE DATABASE "${databaseName}" OWNER "${migratorRole}"`,
       );
@@ -331,7 +335,7 @@ test(
       await runForward(executable, artifacts, clock, "a");
 
       const runtime = new Client({
-        connectionString: databaseUrl(base, runtimeRole),
+        connectionString: databaseUrl(base, runtimeRole, runtimePassword),
       });
       await runtime.connect();
       try {
