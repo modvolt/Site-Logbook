@@ -84,7 +84,9 @@ describe("R16-C2 authenticated external account surface", () => {
     expect(portal).toContain("Pouze online");
     expect(auth).toContain('data.cacheMode === "network-only"');
     expect(identity).toContain("networkOnlyIdentity");
-    expect(identity).toContain("if (activeScope)");
+    expect(identity).toContain(
+      "if (scope) headers.set(OFFLINE_SCOPE_HEADER, scope)",
+    );
   });
 
   it("keeps auth-aware PWA controls inside AuthProvider", () => {
