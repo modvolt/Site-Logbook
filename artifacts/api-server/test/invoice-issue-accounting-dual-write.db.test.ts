@@ -175,8 +175,12 @@ describe("issueInvoice accounting dual-write seam", () => {
       sizeBytes: String(uploadedPdf.length),
     });
 
-    await expect(issueInvoice(draft.id, actor)).rejects.toMatchObject({
-      statusCode: 409,
+    const replayed = await issueInvoice(draft.id, actor);
+    expect(replayed).toMatchObject({
+      id: issued.id,
+      status: "issued",
+      invoiceNumber: issued.invoiceNumber,
+      pdfObjectPath: issued.pdfObjectPath,
     });
     const replayRows = await evidenceRows(draft.id);
     expect(replayRows.versions).toHaveLength(1);

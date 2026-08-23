@@ -1,12 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
-import {
-  link,
-  lstat,
-  open,
-  realpath,
-  unlink,
-} from "node:fs/promises";
+import { link, lstat, open, realpath, unlink } from "node:fs/promises";
 import path from "node:path";
 
 export const PRODUCTION_HOST_OPERATOR_BUILD_PROFILE =
@@ -15,6 +9,10 @@ export const PRODUCTION_ACTIVATION_BUNDLE_TRANSFER_CONFIRMATION =
   "PUBLISH_DIGEST_VERIFIED_SITE_LOGBOOK_ACTIVATION_BUNDLE_V2_ON_HOST";
 export const PRODUCTION_ACTIVATION_BUNDLE_BASENAME =
   "activation-bundle-v2.json";
+export const PRODUCTION_ACTIVATION_0108_BUNDLE_TRANSFER_CONFIRMATION =
+  "PUBLISH_DIGEST_VERIFIED_SITE_LOGBOOK_ACTIVATION_BUNDLE_V3_ON_HOST";
+export const PRODUCTION_ACTIVATION_0108_BUNDLE_BASENAME =
+  "activation-bundle-v3.json";
 export const PRODUCTION_ACTIVATION_BUNDLE_MAX_BYTES = 1024 * 1024;
 
 const SOURCE_SHA = /^[0-9a-f]{40}$/;
@@ -50,6 +48,7 @@ export function productionHostOperatorUsage() {
     "  production-host-evidence-operator attest [the exact sealed host-evidence options]",
     "  production-host-evidence-operator verify [the exact sealed host-evidence options]",
     `  production-host-evidence-operator publish-activation-bundle --input ABSOLUTE_FILE --expected-sha256 sha256:HEX64 --evidence-dir ABSOLUTE_DIRECTORY --confirm ${PRODUCTION_ACTIVATION_BUNDLE_TRANSFER_CONFIRMATION}`,
+    `  production-host-evidence-operator publish-activation-0108-bundle --input ABSOLUTE_FILE --expected-sha256 sha256:HEX64 --evidence-dir ABSOLUTE_DIRECTORY --confirm ${PRODUCTION_ACTIVATION_0108_BUNDLE_TRANSFER_CONFIRMATION}`,
     "",
     "No command is the default-dark state. The image never receives a private key or transport credential.",
     `Build profile: ${PRODUCTION_HOST_OPERATOR_BUILD_PROFILE}`,
@@ -85,7 +84,7 @@ function absolutePath(value, field) {
   return path.resolve(value);
 }
 
-function parsePublishOptions(argv) {
+function parsePublishOptions(argv, protocolVersion = 2) {
   if (argv.length % 2 !== 0) {
     fail(
       "PRODUCTION_ACTIVATION_TRANSFER_ARGUMENTS_INVALID",
@@ -125,7 +124,11 @@ function parsePublishOptions(argv) {
       "publish-activation-bundle requires only the reviewed option set.",
     );
   }
-  if (options.confirm !== PRODUCTION_ACTIVATION_BUNDLE_TRANSFER_CONFIRMATION) {
+  const confirmation =
+    protocolVersion === 3
+      ? PRODUCTION_ACTIVATION_0108_BUNDLE_TRANSFER_CONFIRMATION
+      : PRODUCTION_ACTIVATION_BUNDLE_TRANSFER_CONFIRMATION;
+  if (options.confirm !== confirmation) {
     fail(
       "PRODUCTION_ACTIVATION_TRANSFER_DARK",
       "the exact attended host-publication confirmation is required.",
@@ -142,10 +145,7 @@ function parsePublishOptions(argv) {
   }
   return Object.freeze({
     input: absolutePath(options.input, "input"),
-    evidenceDirectory: absolutePath(
-      options["evidence-dir"],
-      "evidence-dir",
-    ),
+    evidenceDirectory: absolutePath(options["evidence-dir"], "evidence-dir"),
     expectedSha256: options["expected-sha256"],
   });
 }
@@ -230,10 +230,7 @@ function scanPrivateMaterial(value, field = "bundle") {
   }
   if (!isRecord(value)) return;
   for (const [key, entry] of Object.entries(value)) {
-    if (
-      PRIVATE_FIELD.test(key) &&
-      !PUBLIC_IDENTITY_OR_POLICY_FIELDS.has(key)
-    ) {
+    if (PRIVATE_FIELD.test(key) && !PUBLIC_IDENTITY_OR_POLICY_FIELDS.has(key)) {
       fail(
         "PRODUCTION_ACTIVATION_TRANSFER_PRIVATE_MATERIAL",
         `${field}.${key} is a forbidden private-material field.`,
@@ -331,7 +328,11 @@ export async function readStableSingleLinkFile(
   }
 }
 
-function parseCanonicalActivationBundle(bytes, expectedSourceSha) {
+function parseCanonicalActivationBundle(
+  bytes,
+  expectedSourceSha,
+  protocolVersion = 2,
+) {
   if (bytes.includes(0x0d)) {
     fail(
       "PRODUCTION_ACTIVATION_TRANSFER_CANONICAL_INVALID",
@@ -386,16 +387,18 @@ function parseCanonicalActivationBundle(bytes, expectedSourceSha) {
     ? bundle.hostAttestation
     : {};
   if (
-    activation.schemaVersion !== 2 ||
-    activation.kind !== "site-logbook-production-activation-bundle-v2" ||
+    activation.schemaVersion !== protocolVersion ||
+    activation.kind !==
+      `site-logbook-production-activation-bundle-v${protocolVersion}` ||
     activation.sourceSha !== expectedSourceSha ||
-    hostAttestation.schemaVersion !== 2 ||
-    hostAttestation.kind !== "site-logbook-production-host-attestation-v2" ||
+    hostAttestation.schemaVersion !== protocolVersion ||
+    hostAttestation.kind !==
+      `site-logbook-production-host-attestation-v${protocolVersion}` ||
     hostAttestation.sourceSha !== expectedSourceSha
   ) {
     fail(
       "PRODUCTION_ACTIVATION_TRANSFER_SOURCE_MISMATCH",
-      "bundle source and v2 kinds must match the immutable host-operator build.",
+      `bundle source and v${protocolVersion} kinds must match the immutable host-operator build.`,
     );
   }
   for (const [field, raw] of [
@@ -484,15 +487,13 @@ async function syncDirectory(directory) {
 async function publishAtomicNoClobber(
   directory,
   bytes,
+  outputBasename,
   dependencies = {},
 ) {
-  const destination = path.join(
-    directory,
-    PRODUCTION_ACTIVATION_BUNDLE_BASENAME,
-  );
+  const destination = path.join(directory, outputBasename);
   const temporary = path.join(
     directory,
-    `.activation-bundle-v2.${process.pid}.${randomBytes(16).toString("hex")}.tmp`,
+    `.${outputBasename}.${process.pid}.${randomBytes(16).toString("hex")}.tmp`,
   );
   const sync = dependencies.syncDirectory ?? syncDirectory;
   let temporaryExists = false;
@@ -522,7 +523,7 @@ async function publishAtomicNoClobber(
       if (error?.code === "EEXIST") {
         fail(
           "PRODUCTION_ACTIVATION_TRANSFER_DESTINATION_EXISTS",
-          "activation-bundle-v2.json already exists and will not be overwritten.",
+          `${outputBasename} already exists and will not be overwritten.`,
         );
       }
       throw error;
@@ -546,17 +547,19 @@ async function publishAtomicNoClobber(
   }
 }
 
-export async function publishTransferredActivationBundle(
+async function publishTransferredActivationBundleVersion(
   argv,
   embeddedSourceSha,
-  dependencies = {},
+  dependencies,
+  protocolVersion,
 ) {
   const sourceSha = immutableSourceSha(embeddedSourceSha);
-  const options = parsePublishOptions(argv);
-  const destination = path.join(
-    options.evidenceDirectory,
-    PRODUCTION_ACTIVATION_BUNDLE_BASENAME,
-  );
+  const outputBasename =
+    protocolVersion === 3
+      ? PRODUCTION_ACTIVATION_0108_BUNDLE_BASENAME
+      : PRODUCTION_ACTIVATION_BUNDLE_BASENAME;
+  const options = parsePublishOptions(argv, protocolVersion);
+  const destination = path.join(options.evidenceDirectory, outputBasename);
   if (path.resolve(options.input) === path.resolve(destination)) {
     fail(
       "PRODUCTION_ACTIVATION_TRANSFER_PATH_INVALID",
@@ -567,7 +570,7 @@ export async function publishTransferredActivationBundle(
     options.evidenceDirectory,
   );
   const bytes = await readStableSingleLinkFile(options.input);
-  parseCanonicalActivationBundle(bytes, sourceSha);
+  parseCanonicalActivationBundle(bytes, sourceSha, protocolVersion);
   const actualSha256 = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
   if (actualSha256 !== options.expectedSha256) {
     fail(
@@ -578,6 +581,7 @@ export async function publishTransferredActivationBundle(
   const output = await publishAtomicNoClobber(
     options.evidenceDirectory,
     bytes,
+    outputBasename,
     dependencies,
   );
   const directoryAfter = await inspectEvidenceDirectory(
@@ -595,15 +599,44 @@ export async function publishTransferredActivationBundle(
   return Object.freeze({ output, sha256: actualSha256, sourceSha });
 }
 
+export async function publishTransferredActivationBundle(
+  argv,
+  embeddedSourceSha,
+  dependencies = {},
+) {
+  return publishTransferredActivationBundleVersion(
+    argv,
+    embeddedSourceSha,
+    dependencies,
+    2,
+  );
+}
+
+export async function publishTransferredActivation0108Bundle(
+  argv,
+  embeddedSourceSha,
+  dependencies = {},
+) {
+  return publishTransferredActivationBundleVersion(
+    argv,
+    embeddedSourceSha,
+    dependencies,
+    3,
+  );
+}
+
 export async function runProductionHostOperator(argv, dependencies = {}) {
   const sourceSha = immutableSourceSha(dependencies.sourceSha);
   const [command, ...rest] = argv;
-  if (command === "publish-activation-bundle") {
-    const result = await publishTransferredActivationBundle(
-      rest,
-      sourceSha,
-      dependencies.publication,
-    );
+  if (
+    command === "publish-activation-bundle" ||
+    command === "publish-activation-0108-bundle"
+  ) {
+    const publish =
+      command === "publish-activation-0108-bundle"
+        ? publishTransferredActivation0108Bundle
+        : publishTransferredActivationBundle;
+    const result = await publish(rest, sourceSha, dependencies.publication);
     process.stdout.write(
       `activationBundle=${result.output}\nactivationBundleSha256=${result.sha256}\nsourceSha=${result.sourceSha}\n`,
     );

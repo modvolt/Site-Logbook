@@ -60,6 +60,11 @@ export const PRODUCTION_MIGRATION_ADAPTER_CONFIRMATION =
 export const PRODUCTION_MIGRATION_RUNTIME_OBSERVATION_SCHEMA =
   "site-logbook.production-migration-runtime-observation/v1";
 
+// This adapter is a frozen 0096 -> 0107 recovery/migration ceremony. The
+// repository journal is allowed to grow after that reviewed prefix, but later
+// migrations must never silently become steps of this already approved plan.
+const REVIEWED_PRODUCTION_MIGRATION_JOURNAL_ENTRIES = 107;
+
 const MAX_SQL_BYTES = 2 * 1024 * 1024;
 const STORAGE_ID = /^[a-z0-9][a-z0-9._-]{0,127}$/;
 const PG_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_$]{0,62}$/;
@@ -490,7 +495,15 @@ export async function loadProductionMigrationCatalog({
     );
   }
   if (
-    journal.entries.length !== 107 ||
+    journal.entries.length < REVIEWED_PRODUCTION_MIGRATION_JOURNAL_ENTRIES ||
+    journal.entries.length > 2048
+  ) {
+    fail(
+      "PRODUCTION_MIGRATION_CATALOG_INVALID",
+      "Reviewed catalog must retain the complete frozen 0000 through 0107 prefix.",
+    );
+  }
+  if (
     journal.entries.some(
       (entry) =>
         entry?.idx === 100 || /^0100(?:_|$)/.test(String(entry?.tag ?? "")),
@@ -498,7 +511,7 @@ export async function loadProductionMigrationCatalog({
   ) {
     fail(
       "PRODUCTION_MIGRATION_0100_PRESENT",
-      "Reviewed catalog must contain exactly 107 entries and exclude 0100.",
+      "Reviewed catalog and every later suffix must exclude 0100.",
     );
   }
   const expected = [];
@@ -517,6 +530,7 @@ export async function loadProductionMigrationCatalog({
         "Reviewed journal indices, timestamps or tags are not exact.",
       );
     }
+    if (index >= REVIEWED_PRODUCTION_MIGRATION_JOURNAL_ENTRIES) continue;
     let canonicalSql;
     try {
       canonicalSql = canonicalLfSql(
@@ -1131,6 +1145,41 @@ export function createNodeExclusiveArtifactStore({ directory }) {
         fail(
           "PRODUCTION_MIGRATION_ARTIFACT_READ_FAILED",
           "Descriptor-relative artifact read failed closed.",
+          { cause: error },
+        );
+      } finally {
+        await handle?.close();
+        await directoryHandle.close();
+      }
+    },
+    async readOptionalCanonical(storageId) {
+      const id = safeStorageId(storageId);
+      const directoryHandle = await openPinnedDirectory();
+      const target = descriptorRelativeTarget(directoryHandle, id);
+      let handle;
+      try {
+        handle = await open(
+          target,
+          fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW,
+        );
+        const metadata = await handle.stat();
+        if (
+          !metadata.isFile() ||
+          metadata.nlink !== 1 ||
+          metadata.size > 512 * 1024
+        ) {
+          fail(
+            "PRODUCTION_MIGRATION_STORAGE_INVALID",
+            "Stored artifact must be one bounded regular non-link file.",
+          );
+        }
+        return handle.readFile("utf8");
+      } catch (error) {
+        if (error?.code === "ENOENT") return null;
+        if (error instanceof ProductionMigrationAdapterError) throw error;
+        fail(
+          "PRODUCTION_MIGRATION_ARTIFACT_READ_FAILED",
+          "Descriptor-relative optional artifact read failed closed.",
           { cause: error },
         );
       } finally {

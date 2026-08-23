@@ -57,7 +57,7 @@ const workers = [
 ] as const;
 
 function readSource(path: string): string {
-  return readFileSync(resolve(root, path), "utf8");
+  return readFileSync(resolve(root, path), "utf8").replace(/\r\n/g, "\n");
 }
 
 describe("background worker stop-handle contract", () => {

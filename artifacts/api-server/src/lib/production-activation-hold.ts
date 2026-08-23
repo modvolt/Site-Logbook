@@ -64,8 +64,12 @@ export interface ProductionActivationBundleV2 {
   hostAttestationSignature: Readonly<Record<string, JsonValue>>;
 }
 
+export type ProductionActivationBundleV3 = ProductionActivationBundleV2;
+
 export interface ProductionActivationChallenge extends ProductionActivationExpectedBinding {
-  kind: "site-logbook-production-activation-challenge-v2";
+  kind:
+    | "site-logbook-production-activation-challenge-v2"
+    | "site-logbook-production-activation-challenge-v3";
 }
 
 export interface ProductionActivationSemanticVerifier<RuntimeAuthority = void> {
@@ -90,6 +94,7 @@ export interface ProductionActivationHoldOptions<RuntimeAuthority = void> {
   nonce?: string;
   pollIntervalMs?: number;
   closeTimeoutMs?: number;
+  protocolVersion?: 2 | 3;
   now?: () => number;
   loadSemanticVerifier: () => Promise<
     ProductionActivationSemanticVerifier<RuntimeAuthority>
@@ -407,19 +412,20 @@ function validateApiImageProvenance(value: unknown): void {
   }
 }
 
-function validateEvidence(value: unknown): Record<string, unknown> {
-  const evidence = exactObject(
-    value,
-    [
-      "activationApproval",
-      "apiImageProvenance",
-      "exact0096Backup",
-      "finalObservations",
-      "migration0096To0107",
-      "runtimeDatabaseCredentialCutover",
-    ],
-    "activation.evidence",
-  );
+function validateEvidence(
+  value: unknown,
+  protocolVersion: 2 | 3,
+): Record<string, unknown> {
+  const evidenceKeys = [
+    "activationApproval",
+    "apiImageProvenance",
+    "exact0096Backup",
+    "finalObservations",
+    "migration0096To0107",
+    "runtimeDatabaseCredentialCutover",
+  ];
+  if (protocolVersion === 3) evidenceKeys.push("migration0107To0108");
+  const evidence = exactObject(value, evidenceKeys, "activation.evidence");
   validateApiImageProvenance(evidence.apiImageProvenance);
   const backup = exactObject(
     evidence.exact0096Backup,
@@ -505,6 +511,35 @@ function validateEvidence(value: unknown): Record<string, unknown> {
     evidence.activationApproval,
     "activation.evidence.activationApproval",
   );
+  if (protocolVersion === 3) {
+    const invoice0108 = exactObject(
+      evidence.migration0107To0108,
+      [
+        "activationApproval",
+        "backupRestoreReference",
+        "intent",
+        "migrationReceipt",
+        "plan",
+        "roleReceipt",
+        "schemaReadiness",
+      ],
+      "activation.evidence.migration0107To0108",
+    );
+    for (const key of [
+      "activationApproval",
+      "backupRestoreReference",
+      "intent",
+      "migrationReceipt",
+      "plan",
+      "roleReceipt",
+      "schemaReadiness",
+    ] as const) {
+      validateArtifact(
+        invoice0108[key],
+        `activation.evidence.migration0107To0108.${key}`,
+      );
+    }
+  }
   return evidence;
 }
 
@@ -631,7 +666,14 @@ export async function validateProductionActivationBundleTransport(
   hostPublicKeyFile: string,
   hostPublicKeySha256: string,
   now = Date.now(),
+  protocolVersion: 2 | 3 = 2,
 ): Promise<ProductionActivationBundleV2> {
+  if (protocolVersion !== 2 && protocolVersion !== 3) {
+    fail(
+      "PRODUCTION_ACTIVATION_SCHEMA_INVALID",
+      "activation protocol version is invalid.",
+    );
+  }
   const parsed = parseCanonicalBundle(bytes);
   scanForPrivateMaterial(parsed);
   const root = exactObject(
@@ -665,10 +707,14 @@ export async function validateProductionActivationBundleTransport(
   );
   requireEqual(
     activation.kind,
-    "site-logbook-production-activation-bundle-v2",
+    `site-logbook-production-activation-bundle-v${protocolVersion}`,
     "activation.kind",
   );
-  requireEqual(activation.schemaVersion, 2, "activation.schemaVersion");
+  requireEqual(
+    activation.schemaVersion,
+    protocolVersion,
+    "activation.schemaVersion",
+  );
   requiredString(activation.sourceSha, "activation.sourceSha", SOURCE_SHA);
   requiredString(activation.apiImage, "activation.apiImage", IMAGE);
   requiredString(
@@ -705,7 +751,7 @@ export async function validateProductionActivationBundleTransport(
   );
   requireEqual(activation.nonce, expected.nonce, "activation.nonce");
 
-  const evidence = validateEvidence(activation.evidence);
+  const evidence = validateEvidence(activation.evidence, protocolVersion);
   const hostAttestation = exactObject(
     root.hostAttestation,
     [
@@ -725,12 +771,12 @@ export async function validateProductionActivationBundleTransport(
   );
   requireEqual(
     hostAttestation.kind,
-    "site-logbook-production-host-attestation-v2",
+    `site-logbook-production-host-attestation-v${protocolVersion}`,
     "hostAttestation.kind",
   );
   requireEqual(
     hostAttestation.schemaVersion,
-    2,
+    protocolVersion,
     "hostAttestation.schemaVersion",
   );
   for (const key of [
@@ -927,10 +973,17 @@ export async function readContainerId(
 export async function startProductionActivationHold<RuntimeAuthority = void>(
   options: ProductionActivationHoldOptions<RuntimeAuthority>,
 ): Promise<ProductionActivationHoldController> {
+  const protocolVersion = options.protocolVersion ?? 2;
+  if (protocolVersion !== 2 && protocolVersion !== 3) {
+    fail(
+      "PRODUCTION_ACTIVATION_CONFIGURATION_INVALID",
+      "protocolVersion must be exactly 2 or 3.",
+    );
+  }
   const nonce = options.nonce ?? randomBytes(32).toString("hex");
   requiredString(nonce, "nonce", NONCE);
   const challenge: ProductionActivationChallenge = Object.freeze({
-    kind: "site-logbook-production-activation-challenge-v2",
+    kind: `site-logbook-production-activation-challenge-v${protocolVersion}` as ProductionActivationChallenge["kind"],
     ...options.expected,
     nonce,
   });
@@ -1043,6 +1096,7 @@ export async function startProductionActivationHold<RuntimeAuthority = void>(
           options.hostPublicKeyFile,
           options.hostPublicKeySha256,
           now(),
+          protocolVersion,
         );
         const semanticVerifier = await options.loadSemanticVerifier();
         const runtimeAuthority = await semanticVerifier(bundle);

@@ -10,6 +10,8 @@
     "./external-schema-preflight": "./src/external-schema-preflight.ts",
     "./accounting-schema-preflight": "./src/accounting-schema-preflight.ts",
     "./audit-schema-preflight": "./src/audit-schema-preflight.ts",
+    "./invoice-0108-schema-preflight": "./src/invoice-0108-schema-preflight.ts",
+    "./production-migration-role-0108-authority": "./src/production-migration-role-0108-authority.ts",
     "./production-migration-role-authority": "./src/production-migration-role-ceremony.ts",
     "./staging-baseline-0104": "./src/staging-baseline-0104.ts",
     "./staging-exact-0104-recovery": "./src/staging-exact-0104-recovery.ts"
@@ -24,6 +26,7 @@
     "test:external-schema-preflight": "tsx --test ./src/external-schema-preflight.test.ts",
     "test:accounting-schema-preflight": "tsx --test ./src/accounting-schema-preflight.test.ts",
     "test:audit-schema-preflight": "tsx --test ./src/audit-schema-preflight.test.ts",
+    "test:invoice-0108-schema-preflight": "tsx --test ./src/invoice-0108-schema-preflight.test.ts",
     "test:migrate": "tsx ./src/test-migrate.ts",
     "test:auth-session-db": "tsx ./src/test-auth-session-db-suite.ts",
     "test:workflow-rollback": "tsx ./src/test-workflow-rollback.ts",

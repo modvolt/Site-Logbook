@@ -9,6 +9,7 @@ import {
   classifyAuditSchemaAppliedMigrations,
   loadAndValidateAuditSchemaMigrationBundle,
 } from "@workspace/db/audit-schema-preflight";
+import { rollbackInvoice0108ToExact0107IfPresent } from "./accounting-evidence-migration-helper";
 
 const repositoryRoot = resolve(
   dirname(fileURLToPath(import.meta.url)),
@@ -24,6 +25,7 @@ const rollbackSql = readFileSync(
 );
 
 async function freezeDisposableJournalAtCanonical0107(): Promise<void> {
+  await rollbackInvoice0108ToExact0107IfPresent(pool);
   const bundle = loadAndValidateAuditSchemaMigrationBundle(migrationsDir);
   expect(bundle.post).toHaveLength(107);
   expect(bundle.post.at(-1)).toEqual(AUDIT_SCHEMA_MIGRATIONS.target);

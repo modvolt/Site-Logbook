@@ -74,7 +74,7 @@ describe("R15-D dead-letter operator recovery contract", () => {
 
     expect(start).toBeGreaterThan(0);
     expect(requeue).toContain("db.transaction");
-    expect(requeue).toContain("for update");
+    expect(requeue).toContain('.for("update")');
     expect(requeue).toContain('current.state !== "dead_letter"');
     expect(requeue).toContain(
       "current.attemptCount !== input.expectedAttemptCount",

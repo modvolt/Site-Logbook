@@ -264,7 +264,21 @@ describe("audit schema 0107 bundle", () => {
     expectCode("JOURNAL_COUNT_MISMATCH", () =>
       validateAuditSchemaMigrationBundle({
         ...original,
-        journalEntries: original.journalEntries.slice(0, -1),
+        journalEntries: original.journalEntries.slice(
+          0,
+          AUDIT_SCHEMA_EXPECTED_JOURNAL_COUNT - 1,
+        ),
+      }),
+    );
+    const suffixDrift = original.journalEntries.map((entry, index) =>
+      index === AUDIT_SCHEMA_EXPECTED_JOURNAL_COUNT
+        ? { ...entry, idx: -1 }
+        : entry,
+    );
+    expectCode("JOURNAL_SUFFIX_INVALID", () =>
+      validateAuditSchemaMigrationBundle({
+        ...original,
+        journalEntries: suffixDrift,
       }),
     );
     const forbidden = original.journalEntries.map((entry, index) =>
@@ -650,8 +664,9 @@ describe("audit schema exact database state and environment", () => {
     assert.match(postProbe, /EXISTS \(SELECT 1 FROM audit_events LIMIT 1\)/);
     assert.doesNotMatch(postProbe, /count\(\*\)/i);
     const production = source.slice(
+      source.indexOf("async function verifyProductionAuditSchemaReadinessCore"),
       source.indexOf(
-        "export async function verifyProductionAuditSchemaReadiness",
+        "export async function verifyProductionAuditSchemaReadiness(",
       ),
     );
     assert.match(production, /readAuditDatabaseState\(client, "post"\)/);

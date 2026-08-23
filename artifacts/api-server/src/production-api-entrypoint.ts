@@ -9,7 +9,7 @@ import { PINNED_PRODUCTION_HOST_EVIDENCE_KEY_SHA256 } from "./lib/production-hos
 import { PINNED_PRODUCTION_PUBLISHER_PROVENANCE_KEY_SHA256 } from "./lib/production-publisher-provenance-pinned-keys.mjs";
 
 const EVIDENCE_FILE =
-  "/run/site-logbook-production-evidence/activation-bundle-v2.json";
+  "/run/site-logbook-production-evidence/activation-bundle-v3.json";
 const PUBLISHER_PUBLIC_KEY_FILE =
   "/run/site-logbook-production-evidence/activation-publisher-ed25519-public.pem";
 const HOST_PUBLIC_KEY_FILE =
@@ -106,15 +106,17 @@ async function main(): Promise<void> {
       apiImage: required(process.env, "PRODUCTION_API_IMAGE").toLowerCase(),
       containerId,
     },
+    protocolVersion: 3,
     loadSemanticVerifier: async () => {
-      const contract = await import("./lib/production-activation-contract");
-      return contract.verifyProductionActivationContractV2;
+      const contract =
+        await import("./lib/production-activation-0108-contract");
+      return contract.verifyProductionActivationContractV3;
     },
     startRuntime: async (release) => {
       process.removeListener("SIGTERM", onSigterm);
       process.removeListener("SIGINT", onSigint);
       // Keep the application and every worker out of the module graph while
-      // HOLD is active. The runtime bundle is loaded only after full v2
+      // HOLD is active. The runtime bundle is loaded only after full v3
       // semantic verification and after the HOLD listener has closed.
       const runtimeEntry = new URL("./index.mjs", import.meta.url);
       const runtimeModule = (await import(

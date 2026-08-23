@@ -53,7 +53,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { InvoiceStatusBadge, OverdueBadge } from "@/components/badges";
-import { fmtKc, fmtDate, vatModeLabel, overdueDays } from "@/lib/billing-format";
+import {
+  fmtKc,
+  fmtDate,
+  vatModeLabel,
+  overdueDays,
+} from "@/lib/billing-format";
 import { useToast } from "@/hooks/use-toast";
 import { useBillingReturnNavigation } from "@/hooks/use-billing-navigation";
 import {
@@ -79,6 +84,26 @@ import {
   Briefcase,
 } from "lucide-react";
 
+const SETTLEMENT_LABELS: Record<string, string> = {
+  direct: "Samostatně na dokladu",
+  included_in_lump_sum: "Zahrnuto v paušálu / jiné položce",
+  not_charged: "Neúčtováno",
+  deferred: "Přesunuto na další fakturu",
+};
+
+const SOURCE_LABELS: Record<string, string> = {
+  job: "Cena zakázky",
+  material: "Materiál",
+  activity_material: "Materiál akce",
+  activity_work: "Vícepráce akce",
+  work_session: "Odpracovaný čas",
+  billing_document_line: "Nákladový doklad",
+  transport: "Doprava",
+  parking: "Parkovné",
+  fine: "Pokuta / penále",
+  quote_item: "Položka nabídky",
+};
+
 export default function BillingInvoiceDetail() {
   const [, params] = useRoute("/billing/invoices/:id");
   const id = Number(params?.id);
@@ -97,7 +122,13 @@ export default function BillingInvoiceDetail() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const { data: inv, isLoading, isRefetching, isError: invError, refetch } = useGetInvoice(id, {
+  const {
+    data: inv,
+    isLoading,
+    isRefetching,
+    isError: invError,
+    refetch,
+  } = useGetInvoice(id, {
     query: { queryKey: getGetInvoiceQueryKey(id), enabled: !!id },
   });
 
@@ -137,16 +168,24 @@ export default function BillingInvoiceDetail() {
   const [emailError, setEmailError] = useState<string | null>(null);
   const [reminderError, setReminderError] = useState<string | null>(null);
 
-  useEffect(() => { if (!confirmIssue) setIssueError(null); }, [confirmIssue]);
+  useEffect(() => {
+    if (!confirmIssue) setIssueError(null);
+  }, [confirmIssue]);
   useEffect(() => {
     if (!confirmCancel) {
       setCancelError(null);
       setCancelReasonCode("");
     }
   }, [confirmCancel]);
-  useEffect(() => { if (!paidOpen) setPaidError(null); }, [paidOpen]);
-  useEffect(() => { if (!emailOpen) setEmailError(null); }, [emailOpen]);
-  useEffect(() => { if (!reminderOpen) setReminderError(null); }, [reminderOpen]);
+  useEffect(() => {
+    if (!paidOpen) setPaidError(null);
+  }, [paidOpen]);
+  useEffect(() => {
+    if (!emailOpen) setEmailError(null);
+  }, [emailOpen]);
+  useEffect(() => {
+    if (!reminderOpen) setReminderError(null);
+  }, [reminderOpen]);
 
   const invalidateAll = () => {
     invalidateData(queryClient, "billingInvoices", "jobs");
@@ -158,9 +197,15 @@ export default function BillingInvoiceDetail() {
       {
         onSuccess: () => {
           invalidateAll();
-          toast({ title: "Faktura přepočítána" });
+          toast({
+            title:
+              inv?.documentType === "advance"
+                ? "Zálohová faktura přepočítána"
+                : "Faktura přepočítána",
+          });
         },
-        onError: () => toast({ title: "Přepočet se nezdařil", variant: "destructive" }),
+        onError: () =>
+          toast({ title: "Přepočet se nezdařil", variant: "destructive" }),
       },
     );
 
@@ -172,10 +217,16 @@ export default function BillingInvoiceDetail() {
           invalidateAll();
           setIssueError(null);
           setConfirmIssue(false);
-          toast({ title: "Faktura vystavena" });
+          toast({
+            title:
+              inv?.documentType === "advance"
+                ? "Zálohová faktura vystavena"
+                : "Faktura vystavena",
+          });
         },
         onError: (err: unknown) => {
-          const msg = errMsg(err) ?? "Vystavení se nezdařilo. Zkuste to prosím znovu.";
+          const msg =
+            errMsg(err) ?? "Vystavení se nezdařilo. Zkuste to prosím znovu.";
           setIssueError(msg);
           toast({ title: "Vystavení se nezdařilo", variant: "destructive" });
         },
@@ -210,10 +261,16 @@ export default function BillingInvoiceDetail() {
           invalidateAll();
           setCancelError(null);
           setConfirmCancel(false);
-          toast({ title: "Faktura stornována" });
+          toast({
+            title:
+              inv?.documentType === "advance"
+                ? "Zálohová faktura stornována"
+                : "Faktura stornována",
+          });
         },
         onError: (err: unknown) => {
-          const msg = errMsg(err) ?? "Storno se nezdařilo. Zkuste to prosím znovu.";
+          const msg =
+            errMsg(err) ?? "Storno se nezdařilo. Zkuste to prosím znovu.";
           setCancelError(msg);
           toast({ title: "Storno se nezdařilo", variant: "destructive" });
         },
@@ -228,7 +285,12 @@ export default function BillingInvoiceDetail() {
         onSuccess: () => {
           invalidateAll();
           setStatusError(null);
-          toast({ title: status === "paid" ? "Označeno jako zaplaceno" : "Označeno jako odesláno" });
+          toast({
+            title:
+              status === "paid"
+                ? "Označeno jako zaplaceno"
+                : "Označeno jako odesláno",
+          });
         },
         onError: (err: unknown) => {
           const msg = errMsg(err) ?? "Změna stavu se nezdařila.";
@@ -251,7 +313,8 @@ export default function BillingInvoiceDetail() {
   };
 
   const handleMarkPaid = () => {
-    const amountNum = paidAmount.trim() === "" ? null : Number(paidAmount.replace(",", "."));
+    const amountNum =
+      paidAmount.trim() === "" ? null : Number(paidAmount.replace(",", "."));
     if (amountNum != null && (Number.isNaN(amountNum) || amountNum < 0)) {
       setPaidError("Zadejte platnou částku (nezáporné číslo).");
       return;
@@ -273,7 +336,8 @@ export default function BillingInvoiceDetail() {
           toast({ title: "Označeno jako zaplaceno" });
         },
         onError: (err: unknown) => {
-          const msg = errMsg(err) ?? "Změna stavu se nezdařila. Zkuste to prosím znovu.";
+          const msg =
+            errMsg(err) ?? "Změna stavu se nezdařila. Zkuste to prosím znovu.";
           setPaidError(msg);
           toast({ title: "Změna stavu se nezdařila", variant: "destructive" });
         },
@@ -302,7 +366,11 @@ export default function BillingInvoiceDetail() {
 
   const openEmail = () => {
     setEmailTo(inv?.customerEmail ?? "");
-    setEmailSubject(inv?.invoiceNumber ? `Faktura ${inv.invoiceNumber}` : "Faktura");
+    const label =
+      inv?.documentType === "advance" ? "Zálohová faktura" : "Faktura";
+    setEmailSubject(
+      inv?.invoiceNumber ? `${label} ${inv.invoiceNumber}` : label,
+    );
     setEmailMessage("");
     setEmailOpen(true);
   };
@@ -321,8 +389,13 @@ export default function BillingInvoiceDetail() {
         onSuccess: (res) => {
           invalidateAll();
           if (!res.sent) {
-            setEmailError("E-mail se nepodařilo odeslat. Zkontrolujte nastavení SMTP.");
-            toast({ title: "E-mail se nepodařilo odeslat", variant: "destructive" });
+            setEmailError(
+              "E-mail se nepodařilo odeslat. Zkontrolujte nastavení SMTP.",
+            );
+            toast({
+              title: "E-mail se nepodařilo odeslat",
+              variant: "destructive",
+            });
             return;
           }
           setEmailOpen(false);
@@ -332,9 +405,14 @@ export default function BillingInvoiceDetail() {
           });
         },
         onError: (err: unknown) => {
-          const msg = errMsg(err) ?? "Odeslání e-mailu se nezdařilo. Zkuste to prosím znovu.";
+          const msg =
+            errMsg(err) ??
+            "Odeslání e-mailu se nezdařilo. Zkuste to prosím znovu.";
           setEmailError(msg);
-          toast({ title: "Odeslání e-mailu se nezdařilo", variant: "destructive" });
+          toast({
+            title: "Odeslání e-mailu se nezdařilo",
+            variant: "destructive",
+          });
         },
       },
     );
@@ -351,7 +429,11 @@ export default function BillingInvoiceDetail() {
       setReminderSubject(preview.subject);
       setReminderMessage(preview.message);
     } catch (err) {
-      toast({ title: "Náhled upomínky se nepodařilo načíst", description: errMsg(err), variant: "destructive" });
+      toast({
+        title: "Náhled upomínky se nepodařilo načíst",
+        description: errMsg(err),
+        variant: "destructive",
+      });
     } finally {
       setReminderLoading(false);
     }
@@ -371,8 +453,13 @@ export default function BillingInvoiceDetail() {
         onSuccess: (res) => {
           invalidateAll();
           if (!res.sent) {
-            setReminderError("Upomínku se nepodařilo odeslat. Zkontrolujte nastavení SMTP.");
-            toast({ title: "Upomínku se nepodařilo odeslat", variant: "destructive" });
+            setReminderError(
+              "Upomínku se nepodařilo odeslat. Zkontrolujte nastavení SMTP.",
+            );
+            toast({
+              title: "Upomínku se nepodařilo odeslat",
+              variant: "destructive",
+            });
             return;
           }
           setReminderOpen(false);
@@ -382,9 +469,14 @@ export default function BillingInvoiceDetail() {
           });
         },
         onError: (err: unknown) => {
-          const msg = errMsg(err) ?? "Odeslání upomínky se nezdařilo. Zkuste to prosím znovu.";
+          const msg =
+            errMsg(err) ??
+            "Odeslání upomínky se nezdařilo. Zkuste to prosím znovu.";
           setReminderError(msg);
-          toast({ title: "Odeslání upomínky se nezdařilo", variant: "destructive" });
+          toast({
+            title: "Odeslání upomínky se nezdařilo",
+            variant: "destructive",
+          });
         },
       },
     );
@@ -428,16 +520,19 @@ export default function BillingInvoiceDetail() {
   }
 
   const isDraft = inv.status === "draft";
-  const isActive = inv.status === "issued" || inv.status === "sent" || inv.status === "paid";
+  const isActive =
+    inv.status === "issued" || inv.status === "sent" || inv.status === "paid";
   const showVat = inv.totalVat > 0;
   const overdue = overdueDays(inv.dueDate, inv.status);
   const displayLines = inv.presentationLines;
   const internalMaterialLines = inv.lines.filter((line) =>
     ["material", "activity_material"].includes(line.sourceType),
   );
+  const internalSourceLines =
+    inv.materialDisplayMode === "custom" ? inv.lines : internalMaterialLines;
 
   return (
-    <div className="p-4 md:p-8 max-w-4xl mx-auto w-full">
+    <div className="p-4 md:p-8 max-w-5xl mx-auto w-full">
       <Button
         variant="ghost"
         size="sm"
@@ -450,20 +545,38 @@ export default function BillingInvoiceDetail() {
       <div className="flex items-start justify-between gap-3 mb-4 flex-wrap">
         <div>
           <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-2xl font-bold">{inv.invoiceNumber || "Koncept faktury"}</h1>
+            <h1 className="text-2xl font-bold">
+              {inv.invoiceNumber ||
+                (inv.documentType === "advance"
+                  ? "Koncept zálohové faktury"
+                  : "Koncept faktury")}
+            </h1>
             <InvoiceStatusBadge status={inv.status} />
+            {inv.documentType === "advance" && (
+              <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
+                Zálohová · není daňový doklad
+              </span>
+            )}
             {overdue !== null && <OverdueBadge days={overdue} />}
             {inv.recurringTemplateId != null && (
               <button
                 type="button"
-                onClick={() => setLocation(childLocation(`/billing/recurring-templates/${inv.recurringTemplateId}`))}
+                onClick={() =>
+                  setLocation(
+                    childLocation(
+                      `/billing/recurring-templates/${inv.recurringTemplateId}`,
+                    ),
+                  )
+                }
                 className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300 hover:opacity-80 transition-opacity"
               >
                 <CalendarClock className="h-3 w-3" /> Paušál
               </button>
             )}
           </div>
-          <p className="text-sm text-muted-foreground mt-1">{inv.customerName || "—"}</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            {inv.customerName || "—"}
+          </p>
         </div>
       </div>
 
@@ -478,13 +591,30 @@ export default function BillingInvoiceDetail() {
       <div className="flex flex-wrap gap-2 mb-6">
         {isDraft && (
           <>
-            <Button onClick={() => setLocation(preserveReturnTo(`/billing/invoices/${id}/edit`))} className="h-10">
+            <Button
+              onClick={() =>
+                setLocation(preserveReturnTo(`/billing/invoices/${id}/edit`))
+              }
+              className="h-10"
+            >
               <Pencil className="h-4 w-4 mr-2" /> Upravit
             </Button>
-            <Button variant="outline" onClick={handleRecalc} disabled={recalc.isPending} className="h-10">
-              <RefreshCw className={`h-4 w-4 mr-2 ${recalc.isPending ? "animate-spin" : ""}`} /> Přepočítat
+            <Button
+              variant="outline"
+              onClick={handleRecalc}
+              disabled={recalc.isPending}
+              className="h-10"
+            >
+              <RefreshCw
+                className={`h-4 w-4 mr-2 ${recalc.isPending ? "animate-spin" : ""}`}
+              />{" "}
+              Přepočítat
             </Button>
-            <Button variant="outline" onClick={() => setConfirmIssue(true)} className="h-10">
+            <Button
+              variant="outline"
+              onClick={() => setConfirmIssue(true)}
+              className="h-10"
+            >
               <FileCheck2 className="h-4 w-4 mr-2" /> Vystavit
             </Button>
             <Button
@@ -498,8 +628,16 @@ export default function BillingInvoiceDetail() {
         )}
         {isActive && (
           <>
-            <Button onClick={handleDownload} disabled={downloading} className="h-10">
-              {downloading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
+            <Button
+              onClick={handleDownload}
+              disabled={downloading}
+              className="h-10"
+            >
+              {downloading ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4 mr-2" />
+              )}
               Stáhnout PDF
             </Button>
             <Button variant="outline" onClick={openEmail} className="h-10">
@@ -511,12 +649,22 @@ export default function BillingInvoiceDetail() {
               </Button>
             )}
             {inv.status === "issued" && (
-              <Button variant="outline" onClick={() => handleStatus("sent")} disabled={updateStatus.isPending} className="h-10">
+              <Button
+                variant="outline"
+                onClick={() => handleStatus("sent")}
+                disabled={updateStatus.isPending}
+                className="h-10"
+              >
                 <Send className="h-4 w-4 mr-2" /> Označit jako odesláno
               </Button>
             )}
             {inv.status !== "paid" && (
-              <Button variant="outline" onClick={openPaid} disabled={updateStatus.isPending} className="h-10">
+              <Button
+                variant="outline"
+                onClick={openPaid}
+                disabled={updateStatus.isPending}
+                className="h-10"
+              >
                 <CircleDollarSign className="h-4 w-4 mr-2" />
                 Označit jako zaplaceno
               </Button>
@@ -554,31 +702,60 @@ export default function BillingInvoiceDetail() {
           </CardHeader>
           <CardContent className="text-sm space-y-1">
             <p className="font-semibold">{inv.customerName || "—"}</p>
-            {inv.customerAddress && <p className="text-muted-foreground">{inv.customerAddress}</p>}
+            {inv.customerAddress && (
+              <p className="text-muted-foreground">{inv.customerAddress}</p>
+            )}
+            {inv.customerDeliveryAddress && (
+              <p className="text-muted-foreground">
+                Dodací adresa: {inv.customerDeliveryAddress}
+              </p>
+            )}
             <div className="flex gap-3 text-muted-foreground flex-wrap">
               {inv.customerIc && <span>IČ: {inv.customerIc}</span>}
               {inv.customerDic && <span>DIČ: {inv.customerDic}</span>}
             </div>
-            {inv.customerEmail && <p className="text-muted-foreground">{inv.customerEmail}</p>}
+            {inv.customerEmail && (
+              <p className="text-muted-foreground">{inv.customerEmail}</p>
+            )}
           </CardContent>
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Údaje faktury</CardTitle>
+            <CardTitle className="text-base">
+              {inv.documentType === "advance"
+                ? "Údaje zálohy"
+                : "Údaje faktury"}
+            </CardTitle>
           </CardHeader>
           <CardContent className="text-sm space-y-1.5">
             <InfoRow label="Datum vystavení" value={fmtDate(inv.issueDate)} />
-            <InfoRow label="Datum zd. plnění" value={fmtDate(inv.taxableSupplyDate)} />
+            {inv.documentType !== "advance" && (
+              <InfoRow
+                label="Datum zd. plnění"
+                value={fmtDate(inv.taxableSupplyDate)}
+              />
+            )}
             <InfoRow label="Splatnost" value={fmtDate(inv.dueDate)} />
             <InfoRow label="Způsob platby" value={inv.paymentMethod || "—"} />
-            <InfoRow label="Variabilní symbol" value={inv.variableSymbol || "—"} />
-            <InfoRow label="Režim DPH" value={vatModeLabel(inv.vatModeDefault)} />
+            <InfoRow label="Bankovní účet" value={inv.bankAccount || "—"} />
+            {inv.iban && <InfoRow label="IBAN" value={inv.iban} />}
+            <InfoRow label="Měna" value={inv.currency} />
             <InfoRow
-              label="Materiál na faktuře"
+              label="Variabilní symbol"
+              value={inv.variableSymbol || "—"}
+            />
+            <InfoRow
+              label="Režim DPH"
+              value={vatModeLabel(inv.vatModeDefault)}
+            />
+            <InfoRow
+              label="Podoba položek"
               value={
                 inv.materialDisplayMode === "summary"
-                  ? "Jednou částkou"
-                  : "Po položkách"
+                  ? "Materiál souhrnně"
+                  : inv.materialDisplayMode === "custom"
+                    ? "Vlastní texty"
+                    : "Po položkách"
               }
             />
             {inv.paidDate && (
@@ -592,11 +769,13 @@ export default function BillingInvoiceDetail() {
       </div>
 
       {/* Linked jobs / activities */}
-      {((inv.sourceJobs && inv.sourceJobs.length > 0) || (inv.sourceActivities && inv.sourceActivities.length > 0)) && (
+      {((inv.sourceJobs && inv.sourceJobs.length > 0) ||
+        (inv.sourceActivities && inv.sourceActivities.length > 0)) && (
         <Card className="mb-4">
           <CardContent className="p-4 flex flex-wrap gap-2 items-center">
             <span className="text-xs font-medium text-muted-foreground flex items-center gap-1 mr-1">
-              <Briefcase className="h-3.5 w-3.5" /> Zakázky:
+              <Briefcase className="h-3.5 w-3.5" />
+              {inv.documentType === "advance" ? "Reference:" : "Zakázky:"}
             </span>
             {(inv.sourceJobs ?? []).map((job) => (
               <button
@@ -605,9 +784,17 @@ export default function BillingInvoiceDetail() {
                 onClick={() => setLocation(`/jobs/${job.id}`)}
                 className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-muted hover:bg-accent transition-colors"
               >
-                {job.jobNumber != null && <span className="text-muted-foreground font-mono">#{job.jobNumber}</span>}
+                {job.jobNumber != null && (
+                  <span className="text-muted-foreground font-mono">
+                    #{job.jobNumber}
+                  </span>
+                )}
                 {job.title}
-                {job.date && <span className="text-muted-foreground">· {fmtDate(job.date)}</span>}
+                {job.date && (
+                  <span className="text-muted-foreground">
+                    · {fmtDate(job.date)}
+                  </span>
+                )}
               </button>
             ))}
             {(inv.sourceActivities ?? []).map((act) => (
@@ -620,6 +807,62 @@ export default function BillingInvoiceDetail() {
                 {act.name}
               </button>
             ))}
+            {inv.documentType === "advance" && (
+              <p className="basis-full pt-1 text-xs leading-5 text-muted-foreground">
+                Tyto vazby jsou pouze informační. Záloha nemění fakturační stav
+                zakázek, práce, materiálu ani skladu.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {inv.sourceAllocations.length > 0 && (
+        <Card className="mb-4">
+          <CardHeader>
+            <CardTitle className="text-base">
+              Vypořádání provozních zdrojů
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {inv.sourceAllocations.map((allocation) => (
+                <div
+                  key={allocation.id}
+                  className="flex flex-col justify-between gap-2 rounded-lg bg-muted/45 px-3 py-2 text-sm sm:flex-row sm:items-center"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">
+                      {allocation.sourceDescription}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {SOURCE_LABELS[allocation.sourceType] ??
+                        allocation.sourceType}
+                      {" · "}
+                      {fmtKc(allocation.sourceAmountWithoutVat)} bez DPH
+                    </p>
+                  </div>
+                  <span className="shrink-0 text-xs font-medium text-muted-foreground">
+                    {SETTLEMENT_LABELS[allocation.settlementMethod] ??
+                      allocation.settlementMethod}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 grid gap-2 border-t pt-3 text-sm sm:grid-cols-3">
+              <InfoMetric
+                label="Zdroje"
+                value={fmtKc(inv.sourceSummary.sourceTotalWithoutVat)}
+              />
+              <InfoMetric
+                label="Faktura"
+                value={fmtKc(inv.sourceSummary.invoiceTotalWithoutVat)}
+              />
+              <InfoMetric
+                label="Rozdíl"
+                value={fmtKc(inv.sourceSummary.differenceWithoutVat)}
+              />
+            </div>
           </CardContent>
         </Card>
       )}
@@ -637,30 +880,63 @@ export default function BillingInvoiceDetail() {
                   <TableHead className="min-w-[180px]">Popis</TableHead>
                   <TableHead className="text-right">Množství</TableHead>
                   <TableHead className="text-right">Cena/MJ</TableHead>
-                  {showVat && <TableHead className="text-right">DPH %</TableHead>}
+                  {showVat && (
+                    <TableHead className="text-right">DPH %</TableHead>
+                  )}
                   <TableHead className="text-right">Bez DPH</TableHead>
-                  {showVat && <TableHead className="text-right">S DPH</TableHead>}
+                  {showVat && (
+                    <TableHead className="text-right">S DPH</TableHead>
+                  )}
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {displayLines.map((line) => (
-                  <TableRow key={line.id}>
-                    <TableCell className="font-medium">{line.description}</TableCell>
-                    <TableCell className="text-right">
-                      {line.quantity}
-                      {line.unit ? ` ${line.unit}` : ""}
-                    </TableCell>
-                    <TableCell className="text-right">{fmtKc(line.unitPriceWithoutVat)}</TableCell>
-                    {showVat && (
-                      <TableCell className="text-right">{line.vatRate != null ? `${line.vatRate} %` : "—"}</TableCell>
-                    )}
-                    <TableCell className="text-right">{fmtKc(line.totalWithoutVat)}</TableCell>
-                    {showVat && <TableCell className="text-right">{fmtKc(line.totalWithVat)}</TableCell>}
-                  </TableRow>
-                ))}
+                {displayLines.map((line) =>
+                  line.rowType === "section" ? (
+                    <TableRow
+                      key={line.id}
+                      className="bg-blue-50/80 hover:bg-blue-50/80 dark:bg-blue-950/25 dark:hover:bg-blue-950/25"
+                    >
+                      <TableCell
+                        colSpan={showVat ? 6 : 4}
+                        className="font-semibold text-blue-950 dark:text-blue-100"
+                      >
+                        {line.description}
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    <TableRow key={line.id}>
+                      <TableCell className="font-medium">
+                        {line.description}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {line.quantity}
+                        {line.unit ? ` ${line.unit}` : ""}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {fmtKc(line.unitPriceWithoutVat)}
+                      </TableCell>
+                      {showVat && (
+                        <TableCell className="text-right">
+                          {line.vatRate != null ? `${line.vatRate} %` : "—"}
+                        </TableCell>
+                      )}
+                      <TableCell className="text-right">
+                        {fmtKc(line.totalWithoutVat)}
+                      </TableCell>
+                      {showVat && (
+                        <TableCell className="text-right">
+                          {fmtKc(line.totalWithVat)}
+                        </TableCell>
+                      )}
+                    </TableRow>
+                  ),
+                )}
                 {displayLines.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={showVat ? 6 : 4} className="text-center text-muted-foreground py-6">
+                    <TableCell
+                      colSpan={showVat ? 6 : 4}
+                      className="text-center text-muted-foreground py-6"
+                    >
                       Žádné položky.
                     </TableCell>
                   </TableRow>
@@ -668,33 +944,43 @@ export default function BillingInvoiceDetail() {
               </TableBody>
             </Table>
           </div>
-          {inv.materialDisplayMode === "summary" &&
-            internalMaterialLines.length > 1 && (
-              <details className="border-t px-4 py-3 sm:px-0">
-                <summary className="cursor-pointer text-sm font-medium">
-                  Interní rozpad materiálu ({internalMaterialLines.length})
-                </summary>
-                <div className="mt-3 space-y-2 text-sm">
-                  {internalMaterialLines.map((line) => (
-                    <div
-                      key={line.id}
-                      className="flex items-start justify-between gap-3"
-                    >
-                      <span className="min-w-0">
-                        {line.description}
-                        <span className="ml-1 text-muted-foreground">
-                          ({line.quantity}
-                          {line.unit ? ` ${line.unit}` : ""})
-                        </span>
+          {((inv.materialDisplayMode === "summary" &&
+            internalMaterialLines.length > 1) ||
+            (inv.materialDisplayMode === "custom" &&
+              internalSourceLines.length > 0)) && (
+            <details className="border-t px-4 py-3 sm:px-0">
+              <summary className="cursor-pointer text-sm font-medium">
+                {inv.materialDisplayMode === "custom"
+                  ? `Interní zdroje (${internalSourceLines.length})`
+                  : `Interní rozpad materiálu (${internalSourceLines.length})`}
+              </summary>
+              {inv.materialDisplayMode === "custom" && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Tyto zdroje zůstávají propojené se zakázkami a skladem a
+                  zákazník je na faktuře nevidí.
+                </p>
+              )}
+              <div className="mt-3 space-y-2 text-sm">
+                {internalSourceLines.map((line) => (
+                  <div
+                    key={line.id}
+                    className="flex items-start justify-between gap-3"
+                  >
+                    <span className="min-w-0">
+                      {line.description}
+                      <span className="ml-1 text-muted-foreground">
+                        ({line.quantity}
+                        {line.unit ? ` ${line.unit}` : ""})
                       </span>
-                      <span className="shrink-0 font-medium">
-                        {fmtKc(line.totalWithoutVat)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </details>
-            )}
+                    </span>
+                    <span className="shrink-0 font-medium">
+                      {fmtKc(line.totalWithoutVat)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
         </CardContent>
       </Card>
 
@@ -704,7 +990,9 @@ export default function BillingInvoiceDetail() {
           <div className="ml-auto max-w-xs space-y-1.5 text-sm">
             <div className="flex justify-between">
               <span className="text-muted-foreground">Základ bez DPH</span>
-              <span className="font-medium">{fmtKc(inv.subtotalWithoutVat)}</span>
+              <span className="font-medium">
+                {fmtKc(inv.subtotalWithoutVat)}
+              </span>
             </div>
             {showVat && (
               <div className="flex justify-between">
@@ -725,7 +1013,9 @@ export default function BillingInvoiceDetail() {
           <CardHeader>
             <CardTitle className="text-base">Poznámka</CardTitle>
           </CardHeader>
-          <CardContent className="text-sm whitespace-pre-wrap text-muted-foreground">{inv.notes}</CardContent>
+          <CardContent className="text-sm whitespace-pre-wrap text-muted-foreground">
+            {inv.notes}
+          </CardContent>
         </Card>
       )}
 
@@ -733,10 +1023,15 @@ export default function BillingInvoiceDetail() {
       <AlertDialog open={confirmIssue} onOpenChange={setConfirmIssue}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Vystavit fakturu?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {inv.documentType === "advance"
+                ? "Vystavit zálohovou fakturu?"
+                : "Vystavit fakturu?"}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              Faktuře bude přiřazeno číslo, vygeneruje se PDF a navázané zakázky se
-              označí jako „Vyfakturováno". Tuto akci nelze vrátit (lze pouze stornovat).
+              {inv.documentType === "advance"
+                ? "Záloze bude přiřazeno číslo z vlastní řady a vygeneruje se PDF platební výzvy. Zakázky ani provozní zdroje se nezmění."
+                : "Faktuře bude přiřazeno číslo, vygeneruje se PDF a vypořádané zdroje se uzavřou. Zakázka se označí jako vyfakturovaná jen tehdy, pokud na ní nic nezůstává."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           {issueError && (
@@ -808,10 +1103,15 @@ export default function BillingInvoiceDetail() {
               ))}
             </select>
           </div>
-          <label className="flex items-center gap-2 text-sm cursor-pointer py-1">
-            <Checkbox checked={returnJobs} onCheckedChange={(v) => setReturnJobs(v === true)} />
-            Vrátit navázané zakázky zpět do stavu „Hotovo"
-          </label>
+          {inv.documentType === "standard" && (
+            <label className="flex items-center gap-2 text-sm cursor-pointer py-1">
+              <Checkbox
+                checked={returnJobs}
+                onCheckedChange={(v) => setReturnJobs(v === true)}
+              />
+              Vrátit navázané zakázky zpět do stavu „Hotovo"
+            </label>
+          )}
           {cancelError && (
             <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive flex items-start gap-2">
               <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
@@ -844,7 +1144,11 @@ export default function BillingInvoiceDetail() {
           <div className="space-y-3">
             <div>
               <Label className="text-sm mb-1 block">Datum úhrady</Label>
-              <Input type="date" value={paidDate} onChange={(e) => setPaidDate(e.target.value)} />
+              <Input
+                type="date"
+                value={paidDate}
+                onChange={(e) => setPaidDate(e.target.value)}
+              />
             </div>
             <div>
               <Label className="text-sm mb-1 block">Uhrazená částka (Kč)</Label>
@@ -854,10 +1158,19 @@ export default function BillingInvoiceDetail() {
                 step="0.01"
                 min="0"
                 value={paidAmount}
-                onChange={(e) => { setPaidAmount(e.target.value); setPaidError(null); }}
-                placeholder={inv.totalWithVat != null ? String(inv.totalWithVat) : ""}
+                onChange={(e) => {
+                  setPaidAmount(e.target.value);
+                  setPaidError(null);
+                }}
+                placeholder={
+                  inv.totalWithVat != null ? String(inv.totalWithVat) : ""
+                }
                 aria-invalid={!!paidError}
-                className={paidError ? "border-destructive focus-visible:ring-destructive" : ""}
+                className={
+                  paidError
+                    ? "border-destructive focus-visible:ring-destructive"
+                    : ""
+                }
               />
               {paidError && (
                 <p className="text-destructive text-xs mt-1 flex items-center gap-1">
@@ -872,7 +1185,11 @@ export default function BillingInvoiceDetail() {
               Zrušit
             </Button>
             <Button onClick={handleMarkPaid} disabled={updateStatus.isPending}>
-              {updateStatus.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CircleDollarSign className="h-4 w-4 mr-2" />}
+              {updateStatus.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <CircleDollarSign className="h-4 w-4 mr-2" />
+              )}
               Uložit úhradu
             </Button>
           </DialogFooter>
@@ -884,20 +1201,37 @@ export default function BillingInvoiceDetail() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Odeslat fakturu e-mailem</DialogTitle>
-            <DialogDescription>Faktura se odešle jako PDF příloha.</DialogDescription>
+            <DialogDescription>
+              Faktura se odešle jako PDF příloha.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div>
               <Label className="text-sm mb-1 block">Příjemce</Label>
-              <Input type="email" value={emailTo} onChange={(e) => { setEmailTo(e.target.value); setEmailError(null); }} placeholder="email@firma.cz" />
+              <Input
+                type="email"
+                value={emailTo}
+                onChange={(e) => {
+                  setEmailTo(e.target.value);
+                  setEmailError(null);
+                }}
+                placeholder="email@firma.cz"
+              />
             </div>
             <div>
               <Label className="text-sm mb-1 block">Předmět</Label>
-              <Input value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} />
+              <Input
+                value={emailSubject}
+                onChange={(e) => setEmailSubject(e.target.value)}
+              />
             </div>
             <div>
               <Label className="text-sm mb-1 block">Zpráva</Label>
-              <Textarea value={emailMessage} onChange={(e) => setEmailMessage(e.target.value)} rows={4} />
+              <Textarea
+                value={emailMessage}
+                onChange={(e) => setEmailMessage(e.target.value)}
+                rows={4}
+              />
             </div>
             {emailError && (
               <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive flex items-start gap-2">
@@ -910,8 +1244,15 @@ export default function BillingInvoiceDetail() {
             <Button variant="ghost" onClick={() => setEmailOpen(false)}>
               Zrušit
             </Button>
-            <Button onClick={handleSendEmail} disabled={sendEmail.isPending || !emailTo.trim()}>
-              {sendEmail.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Mail className="h-4 w-4 mr-2" />}
+            <Button
+              onClick={handleSendEmail}
+              disabled={sendEmail.isPending || !emailTo.trim()}
+            >
+              {sendEmail.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Mail className="h-4 w-4 mr-2" />
+              )}
               Odeslat
             </Button>
           </DialogFooter>
@@ -924,7 +1265,8 @@ export default function BillingInvoiceDetail() {
           <DialogHeader>
             <DialogTitle>Poslat upomínku</DialogTitle>
             <DialogDescription>
-              Upomínka na neuhrazenou fakturu po splatnosti se odešle i s PDF přílohou.
+              Upomínka na neuhrazenou fakturu po splatnosti se odešle i s PDF
+              přílohou.
             </DialogDescription>
           </DialogHeader>
           {reminderLoading ? (
@@ -937,15 +1279,30 @@ export default function BillingInvoiceDetail() {
             <div className="space-y-3">
               <div>
                 <Label className="text-sm mb-1 block">Příjemce</Label>
-                <Input type="email" value={reminderTo} onChange={(e) => { setReminderTo(e.target.value); setReminderError(null); }} placeholder="email@firma.cz" />
+                <Input
+                  type="email"
+                  value={reminderTo}
+                  onChange={(e) => {
+                    setReminderTo(e.target.value);
+                    setReminderError(null);
+                  }}
+                  placeholder="email@firma.cz"
+                />
               </div>
               <div>
                 <Label className="text-sm mb-1 block">Předmět</Label>
-                <Input value={reminderSubject} onChange={(e) => setReminderSubject(e.target.value)} />
+                <Input
+                  value={reminderSubject}
+                  onChange={(e) => setReminderSubject(e.target.value)}
+                />
               </div>
               <div>
                 <Label className="text-sm mb-1 block">Zpráva</Label>
-                <Textarea value={reminderMessage} onChange={(e) => setReminderMessage(e.target.value)} rows={6} />
+                <Textarea
+                  value={reminderMessage}
+                  onChange={(e) => setReminderMessage(e.target.value)}
+                  rows={6}
+                />
               </div>
               {reminderError && (
                 <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive flex items-start gap-2">
@@ -959,8 +1316,17 @@ export default function BillingInvoiceDetail() {
             <Button variant="ghost" onClick={() => setReminderOpen(false)}>
               Zrušit
             </Button>
-            <Button onClick={handleSendReminder} disabled={sendReminder.isPending || reminderLoading || !reminderTo.trim()}>
-              {sendReminder.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <BellRing className="h-4 w-4 mr-2" />}
+            <Button
+              onClick={handleSendReminder}
+              disabled={
+                sendReminder.isPending || reminderLoading || !reminderTo.trim()
+              }
+            >
+              {sendReminder.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <BellRing className="h-4 w-4 mr-2" />
+              )}
               Odeslat upomínku
             </Button>
           </DialogFooter>
@@ -979,14 +1345,28 @@ function InfoRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+function InfoMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="mt-0.5 font-semibold">{value}</p>
+    </div>
+  );
+}
+
 function errMsg(err: unknown): string | undefined {
   if (err && typeof err === "object") {
     const data = (err as { data?: unknown }).data;
     if (data && typeof data === "object") {
-      const detail = (data as { detail?: unknown; title?: unknown }).detail ?? (data as { title?: unknown }).title;
+      const detail =
+        (data as { detail?: unknown; title?: unknown }).detail ??
+        (data as { title?: unknown }).title;
       if (typeof detail === "string") return detail;
     }
-    if ("message" in err && typeof (err as { message?: unknown }).message === "string") {
+    if (
+      "message" in err &&
+      typeof (err as { message?: unknown }).message === "string"
+    ) {
       return (err as { message: string }).message;
     }
   }

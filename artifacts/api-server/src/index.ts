@@ -6,6 +6,7 @@ import {
   requiresReleaseStartupGuard,
 } from "./lib/build-provenance";
 import { verifyLiveProductionAuditReadiness } from "./lib/production-audit-readiness";
+import { verifyLiveProductionInvoice0108Readiness } from "./lib/production-invoice-0108-readiness";
 import { installProductionRuntimeBinding } from "./lib/production-runtime-state";
 import {
   PRODUCTION_RUNTIME_SHUTDOWN_DRAIN_MS,
@@ -41,14 +42,19 @@ export async function startProductionApplicationRuntime(
     if (runtimeEnvironment === "production") {
       if (!activationAuthority) {
         throw new Error(
-          "PRODUCTION_RUNTIME_ACTIVATION_AUTHORITY_REQUIRED: production index startup is allowed only through the verified HOLD v2 entrypoint.",
+          "PRODUCTION_RUNTIME_ACTIVATION_AUTHORITY_REQUIRED: production index startup is allowed only through the verified HOLD v3 entrypoint.",
         );
       }
       const result = await runProductionActivationRuntimePreflight(
         process.env,
         embeddedBuildSha,
         activationAuthority,
-        { verifyDatabase: verifyLiveProductionAuditReadiness },
+        {
+          verifyDatabase:
+            activationAuthority.lineage.decision === "ALREADY_0108"
+              ? verifyLiveProductionInvoice0108Readiness
+              : verifyLiveProductionAuditReadiness,
+        },
       );
       installProductionRuntimeBinding(
         result.binding,

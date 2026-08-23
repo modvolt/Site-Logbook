@@ -8,7 +8,10 @@ const migrationSql = readFileSync(
   "utf8",
 );
 const rollbackSql = readFileSync(
-  resolve(process.cwd(), "../../lib/db/rollbacks/0087_chief_marvel_apes.down.sql"),
+  resolve(
+    process.cwd(),
+    "../../lib/db/rollbacks/0087_chief_marvel_apes.down.sql",
+  ),
   "utf8",
 );
 const invoiceService = readFileSync(
@@ -19,7 +22,10 @@ const materialsRoute = readFileSync(
   resolve(process.cwd(), "src/routes/materials.ts"),
   "utf8",
 );
-const statsRoute = readFileSync(resolve(process.cwd(), "src/routes/stats.ts"), "utf8");
+const statsRoute = readFileSync(
+  resolve(process.cwd(), "src/routes/stats.ts"),
+  "utf8",
+);
 const jobDetail = readFileSync(
   resolve(process.cwd(), "../stavba/src/pages/job-detail.tsx"),
   "utf8",
@@ -37,27 +43,44 @@ describe("job material planned/consumed policy", () => {
   });
 
   it("preserves the existing immediate issue behaviour for activity materials", () => {
-    expect(materialShouldIssueStock("activity_material", { done: false })).toBe(true);
+    expect(materialShouldIssueStock("activity_material", { done: false })).toBe(
+      true,
+    );
     expect(materialShouldIssueStock("activity_material", {})).toBe(true);
   });
 
   it("updates consumption metadata and reconciles stock in one transaction", () => {
-    const patchStart = materialsRoute.indexOf('router.patch("/jobs/:jobId/materials/:materialId"');
-    const patchEnd = materialsRoute.indexOf('router.delete("/jobs/:jobId/materials/:materialId"');
+    const patchStart = materialsRoute.indexOf(
+      'router.patch("/jobs/:jobId/materials/:materialId"',
+    );
+    const patchEnd = materialsRoute.indexOf(
+      'router.delete("/jobs/:jobId/materials/:materialId"',
+    );
     const patchRoute = materialsRoute.slice(patchStart, patchEnd);
 
     expect(patchRoute).toContain("db.transaction");
     expect(patchRoute).toContain("updateData.consumedAt");
     expect(patchRoute).toContain("updateData.consumedByUserId");
-    expect(patchRoute).toContain("reconcileMaterialStockMovement(tx, m, actor)");
-    expect(patchRoute).toContain('action: done ? "material_consumed" : "material_returned_to_plan"');
-    expect(patchRoute).toContain("Spotřebovaný materiál musí mít kladné množství.");
+    expect(patchRoute).toContain(
+      "reconcileMaterialStockMovement(tx, m, actor)",
+    );
+    expect(patchRoute).toContain(
+      'action: done ? "material_consumed" : "material_returned_to_plan"',
+    );
+    expect(patchRoute).toContain(
+      "Spotřebovaný materiál musí mít kladné množství.",
+    );
   });
 
   it("keeps planned materials out of every invoice and statistics material query", () => {
-    const consumedFilters = invoiceService.match(/eq\(materialsTable\.done, true\)/g) ?? [];
-    expect(consumedFilters).toHaveLength(3);
-    expect(statsRoute.match(/eq\(materialsTable\.done, true\)/g)).toHaveLength(4);
+    const consumedFilters =
+      invoiceService.match(/eq\(materialsTable\.done, true\)/g) ?? [];
+    // Standalone/source-allocation invoicing adds a fourth material query; every
+    // one must retain the consumed-only predicate.
+    expect(consumedFilters).toHaveLength(4);
+    expect(statsRoute.match(/eq\(materialsTable\.done, true\)/g)).toHaveLength(
+      4,
+    );
   });
 
   it("exposes a clear field action and queues it while offline", () => {
@@ -72,7 +95,9 @@ describe("job material consumption migration safety", () => {
   it("backfills legacy rows as consumed without deleting data", () => {
     expect(migrationSql).toContain('UPDATE "materials"');
     expect(migrationSql).toContain('"done" = true');
-    expect(migrationSql).toContain('"consumed_at" = COALESCE("consumed_at", "created_at")');
+    expect(migrationSql).toContain(
+      '"consumed_at" = COALESCE("consumed_at", "created_at")',
+    );
     expect(migrationSql).not.toMatch(/DELETE\s+FROM\s+"?materials"?/i);
   });
 

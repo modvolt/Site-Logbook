@@ -1190,6 +1190,7 @@ export async function readExternalSchemaDatabaseState(
     UNION ALL
     SELECT 'constraint', con.conname, con.convalidated, NULL::text
       FROM pg_constraint con JOIN rels r ON r.oid = con.conrelid
+     WHERE con.contype <> 'n'
     UNION ALL
     SELECT 'trigger', t.tgname, NULL::boolean, t.tgenabled::text
       FROM pg_trigger t JOIN rels r ON r.oid = t.tgrelid WHERE NOT t.tgisinternal`);

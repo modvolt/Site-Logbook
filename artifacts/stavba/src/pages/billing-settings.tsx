@@ -31,16 +31,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { QueryErrorState } from "@/components/query-error-state";
 import { VAT_MODE_LABELS } from "@/lib/billing-format";
-import { DecimalInput, parseDecimal, decimalError } from "@/components/decimal-input";
+import {
+  DecimalInput,
+  parseDecimal,
+  decimalError,
+} from "@/components/decimal-input";
 import { useToast } from "@/hooks/use-toast";
 import {
   ArrowLeft,
@@ -89,6 +88,10 @@ type Form = {
   numberFormat: string;
   numberYear: string;
   numberNextSeq: string;
+  advanceNumberPrefix: string;
+  advanceNumberFormat: string;
+  advanceNumberYear: string;
+  advanceNumberNextSeq: string;
   reminderEnabled: boolean;
   reminderDays: string;
   quoteNumberPrefix: string;
@@ -118,6 +121,11 @@ function toForm(s: BillingSettings): Form {
     numberFormat: s.numberFormat ?? "",
     numberYear: s.numberYear != null ? String(s.numberYear) : "",
     numberNextSeq: String(s.numberNextSeq ?? 1),
+    advanceNumberPrefix: s.advanceNumberPrefix ?? "ZAL",
+    advanceNumberFormat: s.advanceNumberFormat ?? "{PREFIX}{YYYY}{SEQ4}",
+    advanceNumberYear:
+      s.advanceNumberYear != null ? String(s.advanceNumberYear) : "",
+    advanceNumberNextSeq: String(s.advanceNumberNextSeq ?? 1),
     reminderEnabled: s.reminderEnabled ?? false,
     reminderDays: s.reminderDays ?? "3,14,30",
     quoteNumberPrefix: s.quoteNumberPrefix ?? "",
@@ -130,19 +138,26 @@ export default function BillingSettings() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const { data, isLoading, isError: settingsError, refetch: refetchSettings } = useGetBillingSettings({
+  const {
+    data,
+    isLoading,
+    isError: settingsError,
+    refetch: refetchSettings,
+  } = useGetBillingSettings({
     query: { queryKey: getGetBillingSettingsQueryKey() },
   });
   const update = useUpdateBillingSettings();
 
-  const { data: aiStatus, isLoading: aiLoading } = useGetDocumentExtractionStatus({
-    query: { queryKey: getGetDocumentExtractionStatusQueryKey() },
-  });
+  const { data: aiStatus, isLoading: aiLoading } =
+    useGetDocumentExtractionStatus({
+      query: { queryKey: getGetDocumentExtractionStatusQueryKey() },
+    });
   const testAi = useTestDocumentExtraction();
   const updateAi = useUpdateDocumentExtraction();
-  const [aiTestMsg, setAiTestMsg] = useState<{ ok: boolean; message: string } | null>(
-    null,
-  );
+  const [aiTestMsg, setAiTestMsg] = useState<{
+    ok: boolean;
+    message: string;
+  } | null>(null);
   const [aiForm, setAiForm] = useState<{
     enabled: boolean;
     apiKey: string;
@@ -167,7 +182,10 @@ export default function BillingSettings() {
     }
   }, [aiStatus, aiForm]);
 
-  const buildAiData = (form: NonNullable<typeof aiForm>, apiKey: string | null) => ({
+  const buildAiData = (
+    form: NonNullable<typeof aiForm>,
+    apiKey: string | null,
+  ) => ({
     enabled: form.enabled,
     model: form.model.trim() || null,
     systemPrompt: form.systemPrompt.trim() || null,
@@ -184,13 +202,18 @@ export default function BillingSettings() {
       { data: buildAiData(aiForm, apiKeyTyped === "" ? null : apiKeyTyped) },
       {
         onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: getGetDocumentExtractionStatusQueryKey() });
+          queryClient.invalidateQueries({
+            queryKey: getGetDocumentExtractionStatusQueryKey(),
+          });
           setAiForm((p) => (p ? { ...p, apiKey: "" } : p));
           setAiTestMsg(null);
           toast({ title: "Nastavení AI uloženo" });
         },
         onError: () =>
-          toast({ title: "Nepodařilo se uložit nastavení AI", variant: "destructive" }),
+          toast({
+            title: "Nepodařilo se uložit nastavení AI",
+            variant: "destructive",
+          }),
       },
     );
   };
@@ -201,12 +224,17 @@ export default function BillingSettings() {
       { data: buildAiData(aiForm, "") },
       {
         onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: getGetDocumentExtractionStatusQueryKey() });
+          queryClient.invalidateQueries({
+            queryKey: getGetDocumentExtractionStatusQueryKey(),
+          });
           setAiForm((p) => (p ? { ...p, apiKey: "" } : p));
           toast({ title: "API klíč odebrán" });
         },
         onError: () =>
-          toast({ title: "Nepodařilo se odebrat klíč", variant: "destructive" }),
+          toast({
+            title: "Nepodařilo se odebrat klíč",
+            variant: "destructive",
+          }),
       },
     );
   };
@@ -223,7 +251,9 @@ export default function BillingSettings() {
       },
       onError: (err) => {
         const message =
-          err instanceof Error ? err.message : "Test konfigurace OpenAI selhal.";
+          err instanceof Error
+            ? err.message
+            : "Test konfigurace OpenAI selhal.";
         setAiTestMsg({ ok: false, message });
         toast({ title: "Test selhal", variant: "destructive" });
       },
@@ -265,11 +295,16 @@ export default function BillingSettings() {
       },
       {
         onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: getGetDocumentLinkingQueryKey() });
+          queryClient.invalidateQueries({
+            queryKey: getGetDocumentLinkingQueryKey(),
+          });
           toast({ title: "Nastavení propojení uloženo" });
         },
         onError: () =>
-          toast({ title: "Nepodařilo se uložit nastavení propojení", variant: "destructive" }),
+          toast({
+            title: "Nepodařilo se uložit nastavení propojení",
+            variant: "destructive",
+          }),
       },
     );
   };
@@ -305,11 +340,17 @@ export default function BillingSettings() {
           invoiceFooterNote: trimOrNull(form.invoiceFooterNote),
           materialMarkupPercent: parseDecimal(form.materialMarkupPercent),
           transportRatePerKm: parseDecimal(form.transportRatePerKm),
-          marginAlertThresholdPercent: parseDecimal(form.marginAlertThresholdPercent),
+          marginAlertThresholdPercent: parseDecimal(
+            form.marginAlertThresholdPercent,
+          ),
           numberPrefix: trimOrNull(form.numberPrefix),
           numberFormat: trimOrNull(form.numberFormat),
           numberYear: parseDecimal(form.numberYear),
           numberNextSeq: parseDecimal(form.numberNextSeq),
+          advanceNumberPrefix: trimOrNull(form.advanceNumberPrefix),
+          advanceNumberFormat: trimOrNull(form.advanceNumberFormat),
+          advanceNumberYear: parseDecimal(form.advanceNumberYear),
+          advanceNumberNextSeq: parseDecimal(form.advanceNumberNextSeq),
           reminderEnabled: form.reminderEnabled,
           reminderDays: trimOrNull(form.reminderDays),
           quoteNumberPrefix: trimOrNull(form.quoteNumberPrefix),
@@ -318,11 +359,16 @@ export default function BillingSettings() {
       },
       {
         onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: getGetBillingSettingsQueryKey() });
+          queryClient.invalidateQueries({
+            queryKey: getGetBillingSettingsQueryKey(),
+          });
           toast({ title: "Nastavení uloženo" });
         },
         onError: () =>
-          toast({ title: "Nepodařilo se uložit nastavení", variant: "destructive" }),
+          toast({
+            title: "Nepodařilo se uložit nastavení",
+            variant: "destructive",
+          }),
       },
     );
   };
@@ -351,10 +397,21 @@ export default function BillingSettings() {
     defaultDueDays: decimalError(form.defaultDueDays, { positiveOnly: true }),
     materialMarkupPercent: decimalError(form.materialMarkupPercent),
     transportRatePerKm: decimalError(form.transportRatePerKm),
-    marginAlertThresholdPercent: decimalError(form.marginAlertThresholdPercent, { allowNegative: true }),
+    marginAlertThresholdPercent: decimalError(
+      form.marginAlertThresholdPercent,
+      { allowNegative: true },
+    ),
     numberYear: decimalError(form.numberYear, { positiveOnly: true }),
     numberNextSeq: decimalError(form.numberNextSeq, { positiveOnly: true }),
-    quoteNumberNextSeq: decimalError(form.quoteNumberNextSeq, { positiveOnly: true }),
+    advanceNumberYear: decimalError(form.advanceNumberYear, {
+      positiveOnly: true,
+    }),
+    advanceNumberNextSeq: decimalError(form.advanceNumberNextSeq, {
+      positiveOnly: true,
+    }),
+    quoteNumberNextSeq: decimalError(form.quoteNumberNextSeq, {
+      positiveOnly: true,
+    }),
   };
   const formHasErrors = Object.values(formErrors).some(Boolean);
 
@@ -372,7 +429,9 @@ export default function BillingSettings() {
   const linkFormErrors = linkForm
     ? {
         autoLinkMinScore: decimalError(linkForm.autoLinkMinScore, { max: 1 }),
-        autoConfirmMinScore: decimalError(linkForm.autoConfirmMinScore, { max: 1 }),
+        autoConfirmMinScore: decimalError(linkForm.autoConfirmMinScore, {
+          max: 1,
+        }),
       }
     : undefined;
   const linkFormHasErrors = linkFormErrors
@@ -395,19 +454,27 @@ export default function BillingSettings() {
     {
       label: "Platební účet",
       ok: hasAccount,
-      detail: hasAccount ? (form.iban || form.bankAccount) : "Doplňte číslo účtu nebo IBAN",
+      detail: hasAccount
+        ? form.iban || form.bankAccount
+        : "Doplňte číslo účtu nebo IBAN",
       tab: "firma",
     },
     {
       label: "Číslování faktur",
       ok: hasNumbering,
-      detail: hasNumbering ? (form.numberFormat || form.numberPrefix) : "Nastavte formát číslování",
+      detail: hasNumbering
+        ? form.numberFormat || form.numberPrefix
+        : "Nastavte formát číslování",
       tab: "cislovani",
     },
     {
       label: "AI vytěžování",
       ok: aiReady,
-      detail: aiReady ? "Aktivní" : aiConfigured ? "Zapnuto, klíč chybí" : "Vypnuto",
+      detail: aiReady
+        ? "Aktivní"
+        : aiConfigured
+          ? "Zapnuto, klíč chybí"
+          : "Vypnuto",
       tab: "ai",
       neutral: !aiReady && aiConfigured,
       optional: true,
@@ -525,25 +592,45 @@ export default function BillingSettings() {
             </CardHeader>
             <CardContent className="space-y-3">
               <Field label="Název / jméno dodavatele">
-                <Input value={form.supplierName} onChange={(e) => set("supplierName", e.target.value)} />
+                <Input
+                  value={form.supplierName}
+                  onChange={(e) => set("supplierName", e.target.value)}
+                />
               </Field>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <Field label="IČ">
-                  <Input value={form.supplierIc} onChange={(e) => set("supplierIc", e.target.value)} />
+                  <Input
+                    value={form.supplierIc}
+                    onChange={(e) => set("supplierIc", e.target.value)}
+                  />
                 </Field>
                 <Field label="DIČ">
-                  <Input value={form.supplierDic} onChange={(e) => set("supplierDic", e.target.value)} />
+                  <Input
+                    value={form.supplierDic}
+                    onChange={(e) => set("supplierDic", e.target.value)}
+                  />
                 </Field>
               </div>
               <Field label="Adresa">
-                <Input value={form.supplierAddress} onChange={(e) => set("supplierAddress", e.target.value)} />
+                <Input
+                  value={form.supplierAddress}
+                  onChange={(e) => set("supplierAddress", e.target.value)}
+                />
               </Field>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <Field label="E-mail">
-                  <Input type="email" value={form.supplierEmail} onChange={(e) => set("supplierEmail", e.target.value)} />
+                  <Input
+                    type="email"
+                    value={form.supplierEmail}
+                    onChange={(e) => set("supplierEmail", e.target.value)}
+                  />
                 </Field>
                 <Field label="Telefon">
-                  <Input type="tel" value={form.supplierPhone} onChange={(e) => set("supplierPhone", e.target.value)} />
+                  <Input
+                    type="tel"
+                    value={form.supplierPhone}
+                    onChange={(e) => set("supplierPhone", e.target.value)}
+                  />
                 </Field>
               </div>
             </CardContent>
@@ -558,22 +645,33 @@ export default function BillingSettings() {
             <CardContent className="space-y-3">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <Field label="Číslo účtu">
-                  <Input value={form.bankAccount} onChange={(e) => set("bankAccount", e.target.value)} />
+                  <Input
+                    value={form.bankAccount}
+                    onChange={(e) => set("bankAccount", e.target.value)}
+                  />
                 </Field>
                 <Field label="Způsob platby">
                   <Input
                     value={form.defaultPaymentMethod}
-                    onChange={(e) => set("defaultPaymentMethod", e.target.value)}
+                    onChange={(e) =>
+                      set("defaultPaymentMethod", e.target.value)
+                    }
                     placeholder="např. Převodem"
                   />
                 </Field>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <Field label="IBAN">
-                  <Input value={form.iban} onChange={(e) => set("iban", e.target.value)} />
+                  <Input
+                    value={form.iban}
+                    onChange={(e) => set("iban", e.target.value)}
+                  />
                 </Field>
                 <Field label="BIC / SWIFT">
-                  <Input value={form.bic} onChange={(e) => set("bic", e.target.value)} />
+                  <Input
+                    value={form.bic}
+                    onChange={(e) => set("bic", e.target.value)}
+                  />
                 </Field>
               </div>
               <Field label="Výchozí splatnost (dnů)">
@@ -587,7 +685,11 @@ export default function BillingSettings() {
             </CardContent>
           </Card>
 
-          <SaveRow saving={update.isPending} onSave={handleSave} hasErrors={formHasErrors} />
+          <SaveRow
+            saving={update.isPending}
+            onSave={handleSave}
+            hasErrors={formHasErrors}
+          />
         </TabsContent>
 
         {/* ── Tab: DPH a marže ── */}
@@ -606,10 +708,16 @@ export default function BillingSettings() {
                     Je dodavatel plátcem DPH?
                   </p>
                 </div>
-                <Switch checked={form.vatPayer} onCheckedChange={(v) => set("vatPayer", v)} />
+                <Switch
+                  checked={form.vatPayer}
+                  onCheckedChange={(v) => set("vatPayer", v)}
+                />
               </div>
               <Field label="Výchozí režim DPH">
-                <Select value={form.vatModeDefault} onValueChange={(v) => set("vatModeDefault", v)}>
+                <Select
+                  value={form.vatModeDefault}
+                  onValueChange={(v) => set("vatModeDefault", v)}
+                >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -630,9 +738,9 @@ export default function BillingSettings() {
                   error={formErrors.materialMarkupPercent}
                 />
                 <p className="text-xs text-muted-foreground mt-1">
-                  Procentní marže přičtená k nákupní ceně materiálu při fakturaci.
-                  0 = bez přirážky. Lze upravit i při vytváření konkrétní faktury.
-                  Netýká se práce, dopravy ani pokut.
+                  Procentní marže přičtená k nákupní ceně materiálu při
+                  fakturaci. 0 = bez přirážky. Lze upravit i při vytváření
+                  konkrétní faktury. Netýká se práce, dopravy ani pokut.
                 </p>
               </Field>
               <Field label="Cena dopravy za kilometr (Kč/km)">
@@ -688,7 +796,10 @@ export default function BillingSettings() {
             <CardContent className="space-y-3">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <Field label="Prefix">
-                  <Input value={form.numberPrefix} onChange={(e) => set("numberPrefix", e.target.value)} />
+                  <Input
+                    value={form.numberPrefix}
+                    onChange={(e) => set("numberPrefix", e.target.value)}
+                  />
                 </Field>
                 <Field label="Formát">
                   <Input
@@ -716,8 +827,54 @@ export default function BillingSettings() {
                 </Field>
               </div>
               <p className="text-xs text-muted-foreground">
-                Číslo se přiřazuje až při vystavení faktury. Pořadové číslo se po
-                přechodu na nový rok automaticky resetuje.
+                Číslo se přiřazuje až při vystavení faktury. Pořadové číslo se
+                po přechodu na nový rok automaticky resetuje.
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Hash className="h-5 w-5" /> Číslování zálohových faktur
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <Field label="Prefix záloh">
+                  <Input
+                    value={form.advanceNumberPrefix}
+                    onChange={(e) => set("advanceNumberPrefix", e.target.value)}
+                  />
+                </Field>
+                <Field label="Formát záloh">
+                  <Input
+                    value={form.advanceNumberFormat}
+                    onChange={(e) => set("advanceNumberFormat", e.target.value)}
+                    placeholder="např. ZAL{YYYY}{SEQ4}"
+                  />
+                </Field>
+              </div>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <Field label="Rok řady záloh">
+                  <DecimalInput
+                    value={form.advanceNumberYear}
+                    onChange={(v) => set("advanceNumberYear", v)}
+                    placeholder="automaticky"
+                    error={formErrors.advanceNumberYear}
+                  />
+                </Field>
+                <Field label="Další pořadové číslo zálohy">
+                  <DecimalInput
+                    value={form.advanceNumberNextSeq}
+                    onChange={(v) => set("advanceNumberNextSeq", v)}
+                    error={formErrors.advanceNumberNextSeq}
+                  />
+                </Field>
+              </div>
+              <p className="text-xs leading-5 text-muted-foreground">
+                Zálohy mají vlastní řadu, takže jejich vystavení nespotřebuje
+                číslo běžné faktury.
               </p>
             </CardContent>
           </Card>
@@ -731,7 +888,11 @@ export default function BillingSettings() {
             <CardContent className="space-y-3">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <Field label="Prefix nabídek">
-                  <Input value={form.quoteNumberPrefix} onChange={(e) => set("quoteNumberPrefix", e.target.value)} placeholder="NAB-" />
+                  <Input
+                    value={form.quoteNumberPrefix}
+                    onChange={(e) => set("quoteNumberPrefix", e.target.value)}
+                    placeholder="NAB-"
+                  />
                 </Field>
                 <Field label="Další pořadové číslo nabídky">
                   <DecimalInput
@@ -742,12 +903,17 @@ export default function BillingSettings() {
                 </Field>
               </div>
               <p className="text-xs text-muted-foreground">
-                Číslo nabídky se přiřazuje při odeslání zákazníkovi. Formát: {"{prefix}{rok}/{pořadí}"}.
+                Číslo nabídky se přiřazuje při odeslání zákazníkovi. Formát:{" "}
+                {"{prefix}{rok}/{pořadí}"}.
               </p>
             </CardContent>
           </Card>
 
-          <SaveRow saving={update.isPending} onSave={handleSave} hasErrors={formHasErrors} />
+          <SaveRow
+            saving={update.isPending}
+            onSave={handleSave}
+            hasErrors={formHasErrors}
+          />
         </TabsContent>
 
         {/* ── Tab: AI a doklady ── */}
@@ -794,14 +960,20 @@ export default function BillingSettings() {
                       ok={aiStatus.configured}
                     />
                     <div className="flex items-center justify-between px-3 py-2 text-sm">
-                      <span className="text-muted-foreground">Aktivní model</span>
-                      <span className="font-mono text-xs">{aiStatus.model}</span>
+                      <span className="text-muted-foreground">
+                        Aktivní model
+                      </span>
+                      <span className="font-mono text-xs">
+                        {aiStatus.model}
+                      </span>
                     </div>
                   </div>
 
                   <div className="flex items-center justify-between gap-3 rounded-md border p-3">
                     <div>
-                      <Label className="font-medium">Zapnout AI vytěžování</Label>
+                      <Label className="font-medium">
+                        Zapnout AI vytěžování
+                      </Label>
                       <p className="text-xs text-muted-foreground mt-0.5">
                         Po zapnutí se nahrané doklady automaticky předvyplní.
                       </p>
@@ -820,7 +992,9 @@ export default function BillingSettings() {
                       autoComplete="off"
                       value={aiForm.apiKey}
                       onChange={(e) =>
-                        setAiForm((p) => (p ? { ...p, apiKey: e.target.value } : p))
+                        setAiForm((p) =>
+                          p ? { ...p, apiKey: e.target.value } : p,
+                        )
                       }
                       placeholder={
                         aiStatus.configured
@@ -829,8 +1003,8 @@ export default function BillingSettings() {
                       }
                     />
                     <p className="text-xs text-muted-foreground mt-1">
-                      Klíč získáte na platform.openai.com. Z bezpečnostních důvodů se
-                      uložený klíč nikdy nezobrazuje.
+                      Klíč získáte na platform.openai.com. Z bezpečnostních
+                      důvodů se uložený klíč nikdy nezobrazuje.
                       {aiStatus.source === "db" && (
                         <>
                           {" "}
@@ -850,7 +1024,9 @@ export default function BillingSettings() {
                     <Input
                       value={aiForm.model}
                       onChange={(e) =>
-                        setAiForm((p) => (p ? { ...p, model: e.target.value } : p))
+                        setAiForm((p) =>
+                          p ? { ...p, model: e.target.value } : p,
+                        )
                       }
                       placeholder="gpt-4o"
                     />
@@ -862,7 +1038,9 @@ export default function BillingSettings() {
                       className="font-mono text-xs"
                       value={aiForm.systemPrompt}
                       onChange={(e) =>
-                        setAiForm((p) => (p ? { ...p, systemPrompt: e.target.value } : p))
+                        setAiForm((p) =>
+                          p ? { ...p, systemPrompt: e.target.value } : p,
+                        )
                       }
                     />
                     <p className="mt-1 text-xs text-muted-foreground">
@@ -870,13 +1048,19 @@ export default function BillingSettings() {
                       Prázdné pole obnoví výchozí instrukce.
                     </p>
                     {aiStatus?.defaultSystemPrompt &&
-                      aiForm.systemPrompt.trim() !== aiStatus.defaultSystemPrompt.trim() && (
+                      aiForm.systemPrompt.trim() !==
+                        aiStatus.defaultSystemPrompt.trim() && (
                         <button
                           type="button"
                           className="mt-1 text-xs text-primary underline underline-offset-2"
                           onClick={() =>
                             setAiForm((p) =>
-                              p ? { ...p, systemPrompt: aiStatus.defaultSystemPrompt } : p,
+                              p
+                                ? {
+                                    ...p,
+                                    systemPrompt: aiStatus.defaultSystemPrompt,
+                                  }
+                                : p,
                             )
                           }
                         >
@@ -918,8 +1102,8 @@ export default function BillingSettings() {
                     </Field>
                   </div>
                   <p className="-mt-2 text-xs text-muted-foreground">
-                    Výsledky pod prahem spolehlivosti se označí k pečlivé kontrole.
-                    Prázdná pole použijí výchozí hodnoty.
+                    Výsledky pod prahem spolehlivosti se označí k pečlivé
+                    kontrole. Prázdná pole použijí výchozí hodnoty.
                   </p>
 
                   {aiTestMsg && (
@@ -947,7 +1131,11 @@ export default function BillingSettings() {
                             <Button
                               onClick={handleSaveAi}
                               disabled={updateAi.isPending || aiFormHasErrors}
-                              style={aiFormHasErrors ? { pointerEvents: "none" } : undefined}
+                              style={
+                                aiFormHasErrors
+                                  ? { pointerEvents: "none" }
+                                  : undefined
+                              }
                             >
                               {updateAi.isPending ? (
                                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -959,7 +1147,9 @@ export default function BillingSettings() {
                           </span>
                         </TooltipTrigger>
                         {aiFormHasErrors && (
-                          <TooltipContent>Opravte chyby ve formuláři</TooltipContent>
+                          <TooltipContent>
+                            Opravte chyby ve formuláři
+                          </TooltipContent>
                         )}
                       </Tooltip>
                     </TooltipProvider>
@@ -978,9 +1168,9 @@ export default function BillingSettings() {
                   </div>
 
                   <p className="text-xs text-muted-foreground">
-                    Aplikace funguje i bez OpenAI – doklady se pak připraví k ruční
-                    kontrole. Klíč lze místo uložení zde nastavit i proměnnou prostředí{" "}
-                    <code>OPENAI_API_KEY</code>.
+                    Aplikace funguje i bez OpenAI – doklady se pak připraví k
+                    ruční kontrole. Klíč lze místo uložení zde nastavit i
+                    proměnnou prostředí <code>OPENAI_API_KEY</code>.
                   </p>
                 </>
               )}
@@ -998,8 +1188,8 @@ export default function BillingSettings() {
             </CardHeader>
             <CardContent className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                Po schválení dokladu se jeho položky mohou automaticky napárovat k
-                zakázce a přenést cena materiálu. Napárování je vždy jen{" "}
+                Po schválení dokladu se jeho položky mohou automaticky napárovat
+                k zakázce a přenést cena materiálu. Napárování je vždy jen{" "}
                 <strong>návrh ke kontrole</strong> – potvrzení necháte na sobě,
                 pokud nezapnete automatické potvrzování.
               </p>
@@ -1021,7 +1211,9 @@ export default function BillingSettings() {
                     <Switch
                       checked={linkForm.autoLinkEnabled}
                       onCheckedChange={(v) =>
-                        setLinkForm((p) => (p ? { ...p, autoLinkEnabled: v } : p))
+                        setLinkForm((p) =>
+                          p ? { ...p, autoLinkEnabled: v } : p,
+                        )
                       }
                     />
                   </div>
@@ -1051,7 +1243,9 @@ export default function BillingSettings() {
                       <DecimalInput
                         value={linkForm.autoLinkMinScore}
                         onChange={(v) =>
-                          setLinkForm((p) => (p ? { ...p, autoLinkMinScore: v } : p))
+                          setLinkForm((p) =>
+                            p ? { ...p, autoLinkMinScore: v } : p,
+                          )
                         }
                         placeholder="0.6"
                       />
@@ -1080,8 +1274,14 @@ export default function BillingSettings() {
                           <span className="inline-flex">
                             <Button
                               onClick={handleSaveLink}
-                              disabled={updateLink.isPending || linkFormHasErrors}
-                              style={linkFormHasErrors ? { pointerEvents: "none" } : undefined}
+                              disabled={
+                                updateLink.isPending || linkFormHasErrors
+                              }
+                              style={
+                                linkFormHasErrors
+                                  ? { pointerEvents: "none" }
+                                  : undefined
+                              }
                             >
                               {updateLink.isPending ? (
                                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -1093,7 +1293,9 @@ export default function BillingSettings() {
                           </span>
                         </TooltipTrigger>
                         {linkFormHasErrors && (
-                          <TooltipContent>Opravte chyby ve formuláři</TooltipContent>
+                          <TooltipContent>
+                            Opravte chyby ve formuláři
+                          </TooltipContent>
                         )}
                       </Tooltip>
                     </TooltipProvider>
@@ -1115,9 +1317,12 @@ export default function BillingSettings() {
             <CardContent className="space-y-3">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <Label className="font-medium">Posílat automatické upomínky</Label>
+                  <Label className="font-medium">
+                    Posílat automatické upomínky
+                  </Label>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Neuhrazené faktury po splatnosti automaticky upozorní odběratele e-mailem.
+                    Neuhrazené faktury po splatnosti automaticky upozorní
+                    odběratele e-mailem.
                   </p>
                 </div>
                 <Switch
@@ -1134,13 +1339,18 @@ export default function BillingSettings() {
                 />
               </Field>
               <p className="text-xs text-muted-foreground">
-                Čísla oddělená čárkou. Upomínka se odešle nejvýše jednou pro každý
-                práh a jen pokud je nastaven e-mail odběratele a SMTP server.
+                Čísla oddělená čárkou. Upomínka se odešle nejvýše jednou pro
+                každý práh a jen pokud je nastaven e-mail odběratele a SMTP
+                server.
               </p>
             </CardContent>
           </Card>
 
-          <SaveRow saving={update.isPending} onSave={handleSave} hasErrors={formHasErrors} />
+          <SaveRow
+            saving={update.isPending}
+            onSave={handleSave}
+            hasErrors={formHasErrors}
+          />
         </TabsContent>
       </Tabs>
     </div>
@@ -1201,7 +1411,9 @@ function MaterialMarkupRulesCard() {
   const rules = data?.rules ?? [];
 
   const invalidate = () =>
-    queryClient.invalidateQueries({ queryKey: getListMaterialMarkupRulesQueryKey() });
+    queryClient.invalidateQueries({
+      queryKey: getListMaterialMarkupRulesQueryKey(),
+    });
 
   const saveRule = (category: string, markupRaw: string) => {
     const cat = category.trim();
@@ -1211,7 +1423,10 @@ function MaterialMarkupRulesCard() {
     }
     const markup = parseDecimal(markupRaw);
     if (markup === null || markup < 0) {
-      toast({ title: "Přirážka musí být nezáporné číslo", variant: "destructive" });
+      toast({
+        title: "Přirážka musí být nezáporné číslo",
+        variant: "destructive",
+      });
       return;
     }
     upsert.mutate(
@@ -1224,7 +1439,10 @@ function MaterialMarkupRulesCard() {
           toast({ title: "Přirážka kategorie uložena" });
         },
         onError: () =>
-          toast({ title: "Nepodařilo se uložit přirážku", variant: "destructive" }),
+          toast({
+            title: "Nepodařilo se uložit přirážku",
+            variant: "destructive",
+          }),
       },
     );
   };
@@ -1238,7 +1456,10 @@ function MaterialMarkupRulesCard() {
           toast({ title: "Přirážka kategorie smazána" });
         },
         onError: () =>
-          toast({ title: "Nepodařilo se smazat přirážku", variant: "destructive" }),
+          toast({
+            title: "Nepodařilo se smazat přirážku",
+            variant: "destructive",
+          }),
       },
     );
   };
@@ -1372,10 +1593,18 @@ function MarkupRuleRow({
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
     <div>
-      <Label className="text-sm font-medium text-muted-foreground mb-1 block">{label}</Label>
+      <Label className="text-sm font-medium text-muted-foreground mb-1 block">
+        {label}
+      </Label>
       {children}
     </div>
   );

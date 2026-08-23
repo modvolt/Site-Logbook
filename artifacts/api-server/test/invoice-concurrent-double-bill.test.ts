@@ -36,7 +36,8 @@ import { ObjectStorageService } from "../src/lib/objectStorage";
  * The protection is a `FOR UPDATE` row lock taken inside the issueInvoice
  * transaction:
  *  - the invoice row is locked first (status re-checked under the lock), so the
- *    SAME draft issued twice serialises — the loser sees status != "draft".
+ *    SAME draft issued twice serialises and both callers receive the same
+ *    already-issued document (idempotent retry).
  *  - every linked job row is locked next; the first issue flips it to
  *    "vyfakturovano", so a competing draft for the SAME job sees status != "done"
  *    and 409s.
@@ -224,52 +225,29 @@ describe("concurrent invoice issue — double-bill guard", () => {
     ).rejects.toMatchObject({ statusCode: 400 });
   });
 
-  it("two competing drafts for the SAME done job: exactly one issues, the other 409s, job billed once", async () => {
+  it("two concurrent draft creations for the SAME done job: exactly one reserves it", async () => {
     const jobId = await makeDoneJob();
-
-    // Draft A is built normally. Draft B is inserted directly to bypass the
-    // createDraft already-billed guard (which now rejects a second draft up
-    // front), so we can still exercise the issue-time FOR UPDATE race where two
-    // drafts link one job and both are issued at once.
-    const draftA = await createDraft({ customerId, jobIds: [jobId] }, actor);
-    invoiceIds.push(draftA.id);
-
-    const [draftB] = await db
-      .insert(invoicesTable)
-      .values({
-        status: "draft",
-        customerId,
-        customerName: `Zákazník ${TAG}`,
-        vatModeDefault: "standard",
-      })
-      .returning();
-    invoiceIds.push(draftB.id);
-    await db.insert(invoiceSourceLinksTable).values({
-      invoiceId: draftB.id,
-      jobId,
-      amountWithoutVat: "5000",
-    });
-
     const results = await Promise.allSettled([
-      issueInvoice(draftA.id, actor),
-      issueInvoice(draftB.id, actor),
+      createDraft({ customerId, jobIds: [jobId] }, actor),
+      createDraft({ customerId, jobIds: [jobId] }, actor),
     ]);
-    const { issued, conflicts } = classify(results);
+    const created = results.filter(
+      (result): result is PromiseFulfilledResult<{ id: number }> =>
+        result.status === "fulfilled",
+    );
+    const rejected = results.filter(
+      (result) =>
+        result.status === "rejected" &&
+        [400, 409].includes(result.reason?.statusCode),
+    );
+    invoiceIds.push(...created.map((result) => result.value.id));
 
-    // The FOR UPDATE lock on the job row serialises the two issues.
-    expect(issued).toHaveLength(1);
-    expect(conflicts).toHaveLength(1);
-
-    // The job is billed exactly once and is now "vyfakturovano".
-    const [job] = await db
-      .select()
-      .from(jobsTable)
-      .where(eq(jobsTable.id, jobId));
-    expect(job.status).toBe("vyfakturovano");
-    expect(await countIssuedJobLinks(jobId)).toBe(1);
+    expect(created).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect(await countIssuedJobLinks(jobId)).toBe(0);
   });
 
-  it("the SAME job draft issued twice concurrently: exactly one issues, the other 409s", async () => {
+  it("the SAME job draft issued twice concurrently: both calls return the same issued invoice", async () => {
     const jobId = await makeDoneJob();
     const draft = await createDraft({ customerId, jobIds: [jobId] }, actor);
     invoiceIds.push(draft.id);
@@ -278,15 +256,27 @@ describe("concurrent invoice issue — double-bill guard", () => {
       issueInvoice(draft.id, actor),
       issueInvoice(draft.id, actor),
     ]);
-    const { issued, conflicts } = classify(results);
+    const issued = results.filter(
+      (
+        result,
+      ): result is PromiseFulfilledResult<{
+        id: number;
+        invoiceNumber: string | null;
+        status: string;
+      }> => result.status === "fulfilled" && result.value.status === "issued",
+    );
 
-    // The invoice row lock + status re-check stops a double issue of one draft.
-    expect(issued).toHaveLength(1);
-    expect(conflicts).toHaveLength(1);
+    expect(issued).toHaveLength(2);
+    expect(new Set(issued.map((result) => result.value.id))).toEqual(
+      new Set([draft.id]),
+    );
+    expect(
+      new Set(issued.map((result) => result.value.invoiceNumber)).size,
+    ).toBe(1);
     expect(await countIssuedJobLinks(jobId)).toBe(1);
   });
 
-  it("the SAME activity draft issued twice concurrently: exactly one issues, the other 409s, activity billed once", async () => {
+  it("the SAME activity draft issued twice concurrently: both calls return the same issued invoice", async () => {
     const actId = await makeCompletedActivity();
     const draft = await createDraft(
       { customerId, activityIds: [actId] },
@@ -298,71 +288,46 @@ describe("concurrent invoice issue — double-bill guard", () => {
       issueInvoice(draft.id, actor),
       issueInvoice(draft.id, actor),
     ]);
-    const { issued, conflicts } = classify(results);
+    const issued = results.filter(
+      (
+        result,
+      ): result is PromiseFulfilledResult<{
+        id: number;
+        invoiceNumber: string | null;
+        status: string;
+      }> => result.status === "fulfilled" && result.value.status === "issued",
+    );
 
-    // Activities share the issueInvoice path, so the same invoice-row lock holds.
-    expect(issued).toHaveLength(1);
-    expect(conflicts).toHaveLength(1);
+    expect(issued).toHaveLength(2);
+    expect(new Set(issued.map((result) => result.value.id))).toEqual(
+      new Set([draft.id]),
+    );
+    expect(
+      new Set(issued.map((result) => result.value.invoiceNumber)).size,
+    ).toBe(1);
     expect(await countIssuedActivityLinks(actId)).toBe(1);
   });
 
-  it("two competing drafts for the SAME activity: never double-billed (≤1 issued, never 2 live links)", async () => {
+  it("two concurrent draft creations for the SAME activity: exactly one reserves its raw sources", async () => {
     const actId = await makeCompletedActivity();
-
-    // Draft A is built normally. Draft B is inserted directly to bypass the
-    // createDraft already-billed guard (which would reject a second draft), so we
-    // can model the stale-draft race where two drafts link one activity and both
-    // are issued at once.
-    const draftA = await createDraft(
-      { customerId, activityIds: [actId] },
-      actor,
-    );
-    invoiceIds.push(draftA.id);
-
-    const [draftB] = await db
-      .insert(invoicesTable)
-      .values({
-        status: "draft",
-        customerId,
-        customerName: `Zákazník ${TAG}`,
-        vatModeDefault: "standard",
-      })
-      .returning();
-    invoiceIds.push(draftB.id);
-    await db.insert(invoiceSourceLinksTable).values({
-      invoiceId: draftB.id,
-      activityId: actId,
-      amountWithoutVat: "2000",
-    });
-
     const results = await Promise.allSettled([
-      issueInvoice(draftA.id, actor),
-      issueInvoice(draftB.id, actor),
+      createDraft({ customerId, activityIds: [actId] }, actor),
+      createDraft({ customerId, activityIds: [actId] }, actor),
     ]);
-    const { issued } = classify(results);
+    const created = results.filter(
+      (result): result is PromiseFulfilledResult<{ id: number }> =>
+        result.status === "fulfilled",
+    );
+    const rejected = results.filter(
+      (result) =>
+        result.status === "rejected" &&
+        [400, 409].includes(result.reason?.statusCode),
+    );
+    invoiceIds.push(...created.map((result) => result.value.id));
 
-    // The activity FOR UPDATE lock + already-billed check guarantee the activity
-    // is never committed onto two live invoices — at most one issue can win.
-    expect(issued.length).toBeLessThanOrEqual(1);
-    expect(await countIssuedActivityLinks(actId)).toBeLessThanOrEqual(1);
-
-    // And it is never linked to two non-cancelled invoices at once.
-    const liveLinks = await db
-      .select({ status: invoicesTable.status })
-      .from(invoiceSourceLinksTable)
-      .innerJoin(
-        invoicesTable,
-        eq(invoiceSourceLinksTable.invoiceId, invoicesTable.id),
-      )
-      .where(
-        and(
-          eq(invoiceSourceLinksTable.activityId, actId),
-          ne(invoicesTable.status, "cancelled"),
-          isNotNull(invoiceSourceLinksTable.activityId),
-        ),
-      );
-    const issuedLive = liveLinks.filter((l) => l.status === "issued");
-    expect(issuedLive.length).toBeLessThanOrEqual(1);
+    expect(created).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect(await countIssuedActivityLinks(actId)).toBe(0);
   });
 });
 

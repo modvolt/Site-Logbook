@@ -629,10 +629,13 @@ export function validateAuditSchemaMigrationBundle(
   input: AuditSchemaMigrationBundleInput,
 ): ValidatedAuditSchemaBundle {
   const entries = [...input.journalEntries];
-  if (entries.length !== AUDIT_SCHEMA_EXPECTED_JOURNAL_COUNT) {
+  if (
+    entries.length < AUDIT_SCHEMA_EXPECTED_JOURNAL_COUNT ||
+    entries.length > 2048
+  ) {
     fail(
       "JOURNAL_COUNT_MISMATCH",
-      `Expected exactly ${AUDIT_SCHEMA_EXPECTED_JOURNAL_COUNT} journal entries.`,
+      `Expected the complete reviewed ${AUDIT_SCHEMA_EXPECTED_JOURNAL_COUNT}-entry prefix and a bounded active suffix.`,
     );
   }
   const seenIdx = new Set<number>();
@@ -663,6 +666,20 @@ export function validateAuditSchemaMigrationBundle(
     seenWhen.add(entry.when);
     seenTag.add(entry.tag);
   }
+  const reviewedEntries = entries.slice(0, AUDIT_SCHEMA_EXPECTED_JOURNAL_COUNT);
+  const activeSuffix = entries.slice(AUDIT_SCHEMA_EXPECTED_JOURNAL_COUNT);
+  let previousSuffixIdx: number = AUDIT_SCHEMA_MIGRATIONS.target.idx;
+  let previousSuffixWhen: number = AUDIT_SCHEMA_MIGRATIONS.target.when;
+  for (const entry of activeSuffix) {
+    if (entry.idx <= previousSuffixIdx || entry.when <= previousSuffixWhen) {
+      fail(
+        "JOURNAL_SUFFIX_INVALID",
+        "Active migrations after the reviewed 0107 prefix must be strictly monotonic.",
+      );
+    }
+    previousSuffixIdx = entry.idx;
+    previousSuffixWhen = entry.when;
+  }
   if (
     entries.some(
       (entry) => entry.idx === 100 || /^0100(?:_|$)/i.test(entry.tag),
@@ -675,8 +692,12 @@ export function validateAuditSchemaMigrationBundle(
     );
   }
   for (const [actual, expected, label] of [
-    [entries.at(-2), AUDIT_SCHEMA_MIGRATIONS.predecessor, "predecessor"],
-    [entries.at(-1), AUDIT_SCHEMA_MIGRATIONS.target, "target"],
+    [
+      reviewedEntries.at(-2),
+      AUDIT_SCHEMA_MIGRATIONS.predecessor,
+      "predecessor",
+    ],
+    [reviewedEntries.at(-1), AUDIT_SCHEMA_MIGRATIONS.target, "target"],
   ] as const) {
     if (
       actual?.idx !== expected.idx ||
@@ -700,7 +721,7 @@ export function validateAuditSchemaMigrationBundle(
       "SQL files must match the exact journal tag set.",
     );
   }
-  const all = entries.map((entry): ExpectedAppliedMigration => {
+  const active = entries.map((entry): ExpectedAppliedMigration => {
     const sql = input.sqlByTag.get(entry.tag);
     if (sql === undefined)
       fail("MIGRATION_FILE_MISSING", `Missing SQL for ${entry.tag}.`);
@@ -711,6 +732,7 @@ export function validateAuditSchemaMigrationBundle(
       hash: sha256(sql),
     };
   });
+  const all = active.slice(0, AUDIT_SCHEMA_EXPECTED_JOURNAL_COUNT);
   for (const expected of Object.values(AUDIT_SCHEMA_MIGRATIONS)) {
     const actual = all.find((migration) => migration.tag === expected.tag);
     if (actual?.hash !== expected.hash) {
@@ -2286,13 +2308,76 @@ export interface ProductionAuditSchemaReadinessInput {
   expectedSchemaFingerprintSha256: string;
 }
 
-/**
- * Pure read-only production gate for the startup control plane. The production
- * lineage is fixed here rather than accepted from caller-controlled JSON.
- */
-export async function verifyProductionAuditSchemaReadiness(
+export interface ProductionAuditSchemaKnownSuffixExtension<T> {
+  knownSuffix: readonly ExpectedAppliedMigration[];
+  verifyAdditionalState(client: AuditSchemaCatalogQueryable): Promise<T>;
+}
+
+export type ProductionAuditSchemaExtendedReadiness<T> =
+  AuditSchemaSteadyStateSummary & {
+    additionalState: T;
+  };
+
+function withoutExactProductionKnownSuffix(
+  rows: readonly AppliedMigrationRow[],
+  suffix: readonly ExpectedAppliedMigration[],
+): readonly AppliedMigrationRow[] {
+  if (suffix.length === 0 || suffix.length > 64) {
+    fail(
+      "PRODUCTION_KNOWN_SUFFIX_INVALID",
+      "Production readiness extension requires a bounded non-empty known suffix.",
+    );
+  }
+  const remaining = [...rows];
+  let previousIdx: number = AUDIT_SCHEMA_MIGRATIONS.target.idx;
+  let previousWhen: number = AUDIT_SCHEMA_MIGRATIONS.target.when;
+  for (const migration of suffix) {
+    if (
+      !Number.isInteger(migration.idx) ||
+      migration.idx <= previousIdx ||
+      !Number.isSafeInteger(migration.when) ||
+      migration.when <= previousWhen ||
+      !/^\d{4}_[a-z0-9_]+$/.test(migration.tag) ||
+      !/^[0-9a-f]{64}$/.test(migration.hash)
+    ) {
+      fail(
+        "PRODUCTION_KNOWN_SUFFIX_INVALID",
+        "Production known suffix is not a strictly monotonic exact identity list.",
+      );
+    }
+    const matches = remaining
+      .map((row, index) => ({ row, index }))
+      .filter(
+        ({ row }) =>
+          Number(row.created_at) === migration.when &&
+          String(row.hash).toLowerCase() === migration.hash,
+      );
+    if (matches.length !== 1) {
+      fail(
+        "PRODUCTION_KNOWN_SUFFIX_MISMATCH",
+        `Live migration lineage does not contain exactly one ${migration.tag} identity.`,
+      );
+    }
+    remaining.splice(matches[0].index, 1);
+    previousIdx = migration.idx;
+    previousWhen = migration.when;
+  }
+  return remaining;
+}
+
+async function verifyProductionAuditSchemaReadinessCore<T>(
   input: ProductionAuditSchemaReadinessInput,
-): Promise<AuditSchemaSteadyStateSummary> {
+  extension?: ProductionAuditSchemaKnownSuffixExtension<T>,
+): Promise<{
+  summary: AuditSchemaSteadyStateSummary;
+  additionalState: T | undefined;
+}> {
+  if (extension && typeof extension.verifyAdditionalState !== "function") {
+    fail(
+      "PRODUCTION_KNOWN_SUFFIX_INVALID",
+      "Production readiness extension is missing its source-controlled verifier.",
+    );
+  }
   if (!/^[0-9a-f]{40}$/.test(input.buildSha)) {
     fail(
       "BUILD_SHA_INVALID",
@@ -2330,9 +2415,13 @@ export async function verifyProductionAuditSchemaReadiness(
     config.migrationsDir,
   );
   return withLockedReadOnly(config.databaseUrl, async (client) => {
+    const applied = await readAppliedMigrations(client);
+    const auditRows = extension
+      ? withoutExactProductionKnownSuffix(applied, extension.knownSuffix)
+      : applied;
     const classification = validateExactAuditAppliedMigrationSet(
       "steady",
-      await readAppliedMigrations(client),
+      auditRows,
       bundle,
       config.lineageMode,
       config.opaqueLegacyRows,
@@ -2359,7 +2448,7 @@ export async function verifyProductionAuditSchemaReadiness(
         "External-account state must remain empty at production startup.",
       );
     }
-    return {
+    const summary: AuditSchemaSteadyStateSummary = {
       schemaVersion: "site-logbook.audit-schema-steady-state/v1" as const,
       kind: "audit-schema-steady-state" as const,
       decision: "ALREADY_0107" as const,
@@ -2371,5 +2460,45 @@ export async function verifyProductionAuditSchemaReadiness(
       schema: schemaSummary(state, config.expectedSchemaFingerprintSha256),
       authorizesApplicationStart: true as const,
     };
+    const additionalState = extension
+      ? await extension.verifyAdditionalState(client)
+      : undefined;
+    return { summary, additionalState };
+  });
+}
+
+/**
+ * Pure read-only production gate for the startup control plane. The production
+ * lineage is fixed here rather than accepted from caller-controlled JSON.
+ */
+export async function verifyProductionAuditSchemaReadiness(
+  input: ProductionAuditSchemaReadinessInput,
+): Promise<AuditSchemaSteadyStateSummary> {
+  return (await verifyProductionAuditSchemaReadinessCore(input)).summary;
+}
+
+/**
+ * Additive production gate for a source-pinned migration suffix. The audit
+ * 0107 contract remains frozen; the suffix is stripped only after its exact
+ * live identity is proved, and its schema verifier runs in the same read-only
+ * transaction as the audit and external-account checks.
+ */
+export async function verifyProductionAuditSchemaReadinessWithKnownSuffix<T>(
+  input: ProductionAuditSchemaReadinessInput,
+  extension: ProductionAuditSchemaKnownSuffixExtension<T>,
+): Promise<ProductionAuditSchemaExtendedReadiness<T>> {
+  const result = await verifyProductionAuditSchemaReadinessCore(
+    input,
+    extension,
+  );
+  if (result.additionalState === undefined) {
+    fail(
+      "PRODUCTION_KNOWN_SUFFIX_INVALID",
+      "Production readiness extension returned no additional state.",
+    );
+  }
+  return Object.freeze({
+    ...result.summary,
+    additionalState: result.additionalState,
   });
 }

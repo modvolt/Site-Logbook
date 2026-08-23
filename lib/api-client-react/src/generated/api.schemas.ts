@@ -5446,6 +5446,11 @@ export interface BillingSettings {
   /** @nullable */
   numberYear?: number | null;
   numberNextSeq: number;
+  advanceNumberPrefix: string;
+  advanceNumberFormat: string;
+  /** @nullable */
+  advanceNumberYear?: number | null;
+  advanceNumberNextSeq: number;
   reminderEnabled?: boolean;
   reminderDays?: string;
   quoteNumberPrefix?: string;
@@ -5506,6 +5511,14 @@ export interface BillingSettingsInput {
   numberYear?: number | null;
   /** @nullable */
   numberNextSeq?: number | null;
+  /** @nullable */
+  advanceNumberPrefix?: string | null;
+  /** @nullable */
+  advanceNumberFormat?: string | null;
+  /** @nullable */
+  advanceNumberYear?: number | null;
+  /** @nullable */
+  advanceNumberNextSeq?: number | null;
   /** @nullable */
   reminderEnabled?: boolean | null;
   /** @nullable */
@@ -5754,6 +5767,14 @@ export interface QuoteJobGroupInvoiceDraftInput {
   notes?: string | null;
 }
 
+export type InvoiceDetailDocumentType =
+  (typeof InvoiceDetailDocumentType)[keyof typeof InvoiceDetailDocumentType];
+
+export const InvoiceDetailDocumentType = {
+  standard: "standard",
+  advance: "advance",
+} as const;
+
 export type InvoiceDetailStatus =
   (typeof InvoiceDetailStatus)[keyof typeof InvoiceDetailStatus];
 
@@ -5776,7 +5797,7 @@ export const InvoiceDetailVatModeDefault = {
 } as const;
 
 /**
- * Customer-facing material layout; source lines remain detailed
+ * Customer-facing layout; custom text is stored separately from source lines
  */
 export type InvoiceDetailMaterialDisplayMode =
   (typeof InvoiceDetailMaterialDisplayMode)[keyof typeof InvoiceDetailMaterialDisplayMode];
@@ -5784,6 +5805,7 @@ export type InvoiceDetailMaterialDisplayMode =
 export const InvoiceDetailMaterialDisplayMode = {
   detailed: "detailed",
   summary: "summary",
+  custom: "custom",
 } as const;
 
 export type InvoiceLineSourceType =
@@ -5802,6 +5824,14 @@ export const InvoiceLineSourceType = {
   parking: "parking",
   fine: "fine",
   manual: "manual",
+} as const;
+
+export type InvoiceLineRowType =
+  (typeof InvoiceLineRowType)[keyof typeof InvoiceLineRowType];
+
+export const InvoiceLineRowType = {
+  item: "item",
+  section: "section",
 } as const;
 
 export type InvoiceLineVatMode =
@@ -5824,6 +5854,7 @@ export interface InvoiceLine {
   jobId?: number | null;
   /** @nullable */
   activityId?: number | null;
+  rowType: InvoiceLineRowType;
   description: string;
   quantity: number;
   /** @nullable */
@@ -5840,6 +5871,32 @@ export interface InvoiceLine {
   sortOrder: number;
 }
 
+export interface InvoicePresentationGroup {
+  /**
+   * Freely editable customer-facing text for the grouped sources
+   * @minLength 1
+   * @maxLength 500
+   */
+  description: string;
+  /**
+   * Zero-based indexes of immutable internal invoice source lines
+   * @minItems 1
+   * @maxItems 500
+   */
+  lineIndexes: number[];
+}
+
+export type InvoiceSourceJobBillingState =
+  (typeof InvoiceSourceJobBillingState)[keyof typeof InvoiceSourceJobBillingState];
+
+export const InvoiceSourceJobBillingState = {
+  draft: "draft",
+  partial: "partial",
+  ready: "ready",
+  billed: "billed",
+  linked: "linked",
+} as const;
+
 export interface InvoiceSourceJob {
   id: number;
   /**
@@ -5849,6 +5906,7 @@ export interface InvoiceSourceJob {
   jobNumber?: number | null;
   title: string;
   date: string;
+  billingState?: InvoiceSourceJobBillingState;
 }
 
 export interface InvoiceSourceActivity {
@@ -5856,8 +5914,80 @@ export interface InvoiceSourceActivity {
   name: string;
 }
 
+export type InvoiceSourceAllocationStatus =
+  (typeof InvoiceSourceAllocationStatus)[keyof typeof InvoiceSourceAllocationStatus];
+
+export const InvoiceSourceAllocationStatus = {
+  reserved: "reserved",
+  billed: "billed",
+  included_in_lump_sum: "included_in_lump_sum",
+  not_charged: "not_charged",
+  deferred: "deferred",
+  released: "released",
+  reversed: "reversed",
+} as const;
+
+export type InvoiceSourceAllocationSettlementMethod =
+  (typeof InvoiceSourceAllocationSettlementMethod)[keyof typeof InvoiceSourceAllocationSettlementMethod];
+
+export const InvoiceSourceAllocationSettlementMethod = {
+  direct: "direct",
+  included_in_lump_sum: "included_in_lump_sum",
+  not_charged: "not_charged",
+  deferred: "deferred",
+} as const;
+
+export interface InvoiceSourceAllocation {
+  id: number;
+  /** @nullable */
+  invoiceId: number | null;
+  invoiceIdSnapshot: number;
+  /** @nullable */
+  invoiceLineId: number | null;
+  sourceType: string;
+  sourceId: number;
+  /** @nullable */
+  jobId: number | null;
+  /** @nullable */
+  activityId: number | null;
+  sourceDescription: string;
+  /** @nullable */
+  sourceUnit: string | null;
+  originalQuantity: number;
+  allocatedQuantity: number;
+  sourceAmountWithoutVat: number;
+  status: InvoiceSourceAllocationStatus;
+  settlementMethod: InvoiceSourceAllocationSettlementMethod;
+  legacyIncomplete: boolean;
+  /** @nullable */
+  createdByUserId: number | null;
+  /** @nullable */
+  updatedByUserId: number | null;
+  createdAt: string;
+  updatedAt: string;
+  /** @nullable */
+  settledAt: string | null;
+  /** @nullable */
+  releasedAt: string | null;
+  /** @nullable */
+  reversedAt: string | null;
+}
+
+export interface InvoiceSourceSummary {
+  count: number;
+  workCount: number;
+  materialCount: number;
+  otherCount: number;
+  unresolvedCount: number;
+  deferredCount: number;
+  sourceTotalWithoutVat: number;
+  invoiceTotalWithoutVat: number;
+  differenceWithoutVat: number;
+}
+
 export interface InvoiceDetail {
   id: number;
+  documentType: InvoiceDetailDocumentType;
   /** @nullable */
   invoiceNumber?: string | null;
   status: InvoiceDetailStatus;
@@ -5872,6 +6002,8 @@ export interface InvoiceDetail {
   /** @nullable */
   customerAddress?: string | null;
   /** @nullable */
+  customerDeliveryAddress?: string | null;
+  /** @nullable */
   customerEmail?: string | null;
   /** @nullable */
   issueDate?: string | null;
@@ -5883,13 +6015,19 @@ export interface InvoiceDetail {
   /** @nullable */
   paymentMethod?: string | null;
   /** @nullable */
+  bankAccount?: string | null;
+  /** @nullable */
+  iban?: string | null;
+  /** @nullable */
+  bic?: string | null;
+  /** @nullable */
   variableSymbol?: string | null;
   /** @nullable */
   constantSymbol?: string | null;
   /** @nullable */
   specificSymbol?: string | null;
   vatModeDefault: InvoiceDetailVatModeDefault;
-  /** Customer-facing material layout; source lines remain detailed */
+  /** Customer-facing layout; custom text is stored separately from source lines */
   materialDisplayMode: InvoiceDetailMaterialDisplayMode;
   subtotalWithoutVat: number;
   totalVat: number;
@@ -5928,11 +6066,23 @@ export interface InvoiceDetail {
   lines: InvoiceLine[];
   /** Lines rendered on the customer invoice and PDF */
   presentationLines: InvoiceLine[];
+  /** Custom customer-facing groups; source lines remain immutable and linked */
+  presentationGroups: InvoicePresentationGroup[];
   sourceJobIds: number[];
   sourceActivityIds?: number[];
   sourceJobs?: InvoiceSourceJob[];
   sourceActivities?: InvoiceSourceActivity[];
+  sourceAllocations: InvoiceSourceAllocation[];
+  sourceSummary: InvoiceSourceSummary;
 }
+
+export type InvoiceDocumentType =
+  (typeof InvoiceDocumentType)[keyof typeof InvoiceDocumentType];
+
+export const InvoiceDocumentType = {
+  standard: "standard",
+  advance: "advance",
+} as const;
 
 export type InvoiceStatus = (typeof InvoiceStatus)[keyof typeof InvoiceStatus];
 
@@ -5955,7 +6105,7 @@ export const InvoiceVatModeDefault = {
 } as const;
 
 /**
- * Customer-facing material layout; source lines remain detailed
+ * Customer-facing layout; custom text is stored separately from source lines
  */
 export type InvoiceMaterialDisplayMode =
   (typeof InvoiceMaterialDisplayMode)[keyof typeof InvoiceMaterialDisplayMode];
@@ -5963,10 +6113,12 @@ export type InvoiceMaterialDisplayMode =
 export const InvoiceMaterialDisplayMode = {
   detailed: "detailed",
   summary: "summary",
+  custom: "custom",
 } as const;
 
 export interface Invoice {
   id: number;
+  documentType: InvoiceDocumentType;
   /** @nullable */
   invoiceNumber?: string | null;
   status: InvoiceStatus;
@@ -5981,6 +6133,8 @@ export interface Invoice {
   /** @nullable */
   customerAddress?: string | null;
   /** @nullable */
+  customerDeliveryAddress?: string | null;
+  /** @nullable */
   customerEmail?: string | null;
   /** @nullable */
   issueDate?: string | null;
@@ -5992,13 +6146,19 @@ export interface Invoice {
   /** @nullable */
   paymentMethod?: string | null;
   /** @nullable */
+  bankAccount?: string | null;
+  /** @nullable */
+  iban?: string | null;
+  /** @nullable */
+  bic?: string | null;
+  /** @nullable */
   variableSymbol?: string | null;
   /** @nullable */
   constantSymbol?: string | null;
   /** @nullable */
   specificSymbol?: string | null;
   vatModeDefault: InvoiceVatModeDefault;
-  /** Customer-facing material layout; source lines remain detailed */
+  /** Customer-facing layout; custom text is stored separately from source lines */
   materialDisplayMode: InvoiceMaterialDisplayMode;
   subtotalWithoutVat: number;
   totalVat: number;
@@ -6037,6 +6197,14 @@ export interface Invoice {
   sourceJobs?: InvoiceSourceJob[];
 }
 
+export type InvoiceCreateInputDocumentType =
+  (typeof InvoiceCreateInputDocumentType)[keyof typeof InvoiceCreateInputDocumentType];
+
+export const InvoiceCreateInputDocumentType = {
+  standard: "standard",
+  advance: "advance",
+} as const;
+
 /**
  * Source of labour lines. automatic uses the contract price for fixed-price jobs, recorded time when a time-and-material job has completed sessions, and the legacy job price otherwise. recorded_time reserves immutable work sessions.
  */
@@ -6062,6 +6230,17 @@ export const InvoiceCreateInputWorkGrouping = {
 } as const;
 
 /**
+ * Keep source rows grouped per job or combine compatible commercial rows across jobs
+ */
+export type InvoiceCreateInputSourceGrouping =
+  (typeof InvoiceCreateInputSourceGrouping)[keyof typeof InvoiceCreateInputSourceGrouping];
+
+export const InvoiceCreateInputSourceGrouping = {
+  by_job: "by_job",
+  combined: "combined",
+} as const;
+
+/**
  * Display material as individual lines or as one amount per VAT rate
  */
 export type InvoiceCreateInputMaterialDisplayMode =
@@ -6080,6 +6259,14 @@ export const InvoiceCreateInputVatModeDefault = {
   reverse_charge: "reverse_charge",
   zero: "zero",
   non_vat: "non_vat",
+} as const;
+
+export type InvoiceLineInputRowType =
+  (typeof InvoiceLineInputRowType)[keyof typeof InvoiceLineInputRowType];
+
+export const InvoiceLineInputRowType = {
+  item: "item",
+  section: "section",
 } as const;
 
 export type InvoiceLineInputSourceType =
@@ -6111,6 +6298,12 @@ export const InvoiceLineInputVatMode = {
 } as const;
 
 export interface InvoiceLineInput {
+  /**
+   * Existing draft line id retained during in-place edits
+   * @nullable
+   */
+  id?: number | null;
+  rowType?: InvoiceLineInputRowType;
   sourceType?: InvoiceLineInputSourceType;
   /** @nullable */
   sourceId?: number | null;
@@ -6136,7 +6329,20 @@ export interface InvoiceLineInput {
 }
 
 export interface InvoiceCreateInput {
+  documentType?: InvoiceCreateInputDocumentType;
   customerId: number;
+  /** @nullable */
+  customerName?: string | null;
+  /** @nullable */
+  customerIc?: string | null;
+  /** @nullable */
+  customerDic?: string | null;
+  /** @nullable */
+  customerAddress?: string | null;
+  /** @nullable */
+  customerDeliveryAddress?: string | null;
+  /** @nullable */
+  customerEmail?: string | null;
   /** Done jobs to auto-propose lines from (práce/doprava/parkování/materiál) */
   jobIds?: number[];
   /** Completed actions (dlouhodobé akce) to auto-propose lines from (vícepráce + materiál) */
@@ -6145,6 +6351,8 @@ export interface InvoiceCreateInput {
   labourBillingMode?: InvoiceCreateInputLabourBillingMode;
   /** Group recorded-time lines by rate only or by worker and rate */
   workGrouping?: InvoiceCreateInputWorkGrouping;
+  /** Keep source rows grouped per job or combine compatible commercial rows across jobs */
+  sourceGrouping?: InvoiceCreateInputSourceGrouping;
   /** Subset of jobIds whose fines should also be billed (explicit opt-in) */
   billFineJobIds?: number[];
   /**
@@ -6167,6 +6375,18 @@ export interface InvoiceCreateInput {
   /** @nullable */
   paymentMethod?: string | null;
   /** @nullable */
+  bankAccount?: string | null;
+  /** @nullable */
+  iban?: string | null;
+  /** @nullable */
+  bic?: string | null;
+  /**
+   * @minLength 3
+   * @maxLength 3
+   * @nullable
+   */
+  currency?: string | null;
+  /** @nullable */
   variableSymbol?: string | null;
   /** @nullable */
   constantSymbol?: string | null;
@@ -6188,7 +6408,7 @@ export const InvoiceUpdateInputVatModeDefault = {
 } as const;
 
 /**
- * Display material as individual lines or as one amount per VAT rate
+ * Choose source lines, material summary, or custom customer-facing groups
  */
 export type InvoiceUpdateInputMaterialDisplayMode =
   (typeof InvoiceUpdateInputMaterialDisplayMode)[keyof typeof InvoiceUpdateInputMaterialDisplayMode];
@@ -6196,11 +6416,43 @@ export type InvoiceUpdateInputMaterialDisplayMode =
 export const InvoiceUpdateInputMaterialDisplayMode = {
   detailed: "detailed",
   summary: "summary",
+  custom: "custom",
 } as const;
+
+export type InvoiceUpdateInputSourceAllocationsItemSettlementMethod =
+  (typeof InvoiceUpdateInputSourceAllocationsItemSettlementMethod)[keyof typeof InvoiceUpdateInputSourceAllocationsItemSettlementMethod];
+
+export const InvoiceUpdateInputSourceAllocationsItemSettlementMethod = {
+  direct: "direct",
+  included_in_lump_sum: "included_in_lump_sum",
+  not_charged: "not_charged",
+  deferred: "deferred",
+} as const;
+
+export type InvoiceUpdateInputSourceAllocationsItem = {
+  id: number;
+  settlementMethod: InvoiceUpdateInputSourceAllocationsItemSettlementMethod;
+  /** @nullable */
+  invoiceLineId?: number | null;
+};
 
 export interface InvoiceUpdateInput {
   /** @nullable */
   customerId?: number | null;
+  /** Explicit administrator override when source jobs belong to another customer */
+  allowCustomerMismatch?: boolean;
+  /** @nullable */
+  customerName?: string | null;
+  /** @nullable */
+  customerIc?: string | null;
+  /** @nullable */
+  customerDic?: string | null;
+  /** @nullable */
+  customerAddress?: string | null;
+  /** @nullable */
+  customerDeliveryAddress?: string | null;
+  /** @nullable */
+  customerEmail?: string | null;
   /** @nullable */
   issueDate?: string | null;
   /** @nullable */
@@ -6210,18 +6462,37 @@ export interface InvoiceUpdateInput {
   /** @nullable */
   paymentMethod?: string | null;
   /** @nullable */
+  bankAccount?: string | null;
+  /** @nullable */
+  iban?: string | null;
+  /** @nullable */
+  bic?: string | null;
+  /**
+   * @minLength 3
+   * @maxLength 3
+   * @nullable
+   */
+  currency?: string | null;
+  /** @nullable */
   variableSymbol?: string | null;
   /** @nullable */
   constantSymbol?: string | null;
   /** @nullable */
   specificSymbol?: string | null;
   vatModeDefault?: InvoiceUpdateInputVatModeDefault;
-  /** Display material as individual lines or as one amount per VAT rate */
+  /** Choose source lines, material summary, or custom customer-facing groups */
   materialDisplayMode?: InvoiceUpdateInputMaterialDisplayMode;
+  /**
+   * Custom customer-facing groups; every source line must be included exactly once
+   * @maxItems 500
+   */
+  presentationGroups?: InvoicePresentationGroup[];
   /** @nullable */
   notes?: string | null;
   /** If provided, replaces ALL lines of the draft */
   lines?: InvoiceLineInput[];
+  /** Explicit settlement of every operational source independent of commercial line layout */
+  sourceAllocations?: InvoiceUpdateInputSourceAllocationsItem[];
 }
 
 /**

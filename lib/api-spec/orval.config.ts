@@ -29,7 +29,13 @@ export default defineConfig({
         // billing-pdf: binary PDF download streamed by the server; the frontend
         // opens it via a direct admin link, so no generated hook is needed.
         // The zod target (below) still generates schemas for both.
-        tags: ["StorageUpload", "CostDocumentUpload", "billing-pdf", "customerDocumentsUpload", "publicGrant"],
+        tags: [
+          "StorageUpload",
+          "CostDocumentUpload",
+          "billing-pdf",
+          "customerDocumentsUpload",
+          "publicGrant",
+        ],
       },
       override: {
         transformer: titleTransformer,
@@ -48,7 +54,10 @@ export default defineConfig({
           includeHttpResponseReturnType: false,
         },
         mutator: {
-          path: path.resolve(apiClientReactSrc, "custom-fetch.ts"),
+          // Keep this relative to the generated-client workspace. On Windows,
+          // Orval's mutator bundler can fail while walking from an absolute path
+          // through a linked pnpm store even though the file itself is readable.
+          path: "custom-fetch.ts",
           name: "customFetch",
         },
       },
@@ -71,10 +80,10 @@ export default defineConfig({
       override: {
         zod: {
           coerce: {
-            query: ['boolean', 'number', 'string'],
-            param: ['boolean', 'number', 'string'],
-            body: ['bigint', 'date'],
-            response: ['bigint', 'date'],
+            query: ["boolean", "number", "string"],
+            param: ["boolean", "number", "string"],
+            body: ["bigint", "date"],
+            response: ["bigint", "date"],
           },
         },
         useDates: true,

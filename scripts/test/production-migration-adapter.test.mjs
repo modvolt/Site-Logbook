@@ -281,8 +281,20 @@ function postCommitRoleEvidence(plan) {
   return { receipt, postCommit };
 }
 
-test("catalog canonicalizes LF, pins all ten exact SQL hashes and rejects 0100", async () => {
+test("catalog freezes 0096 through 0107 while accepting later journal suffixes", async () => {
   assert.equal(catalog.expected.length, 107);
+  const activeJournal = JSON.parse(
+    await readFile(
+      path.join(MIGRATIONS_DIRECTORY, "meta", "_journal.json"),
+      "utf8",
+    ),
+  );
+  assert.ok(activeJournal.entries.length > catalog.expected.length);
+  assert.equal(catalog.expected.at(-1)?.tag, "0107_canonical_audit_evidence");
+  assert.equal(
+    activeJournal.entries.at(-1)?.tag,
+    "0108_invoice_source_allocations_and_advances",
+  );
   assert.equal(
     catalog.expected.some((entry) => entry.idx === 100),
     false,
@@ -549,6 +561,11 @@ test("exclusive artifact store is durable, read-back exact and no-clobber", asyn
     const canonical = '{"authorizesApplicationStart":false}\n';
     await store.persistExclusive("receipt-01.json", canonical);
     assert.equal(await store.readCanonical("receipt-01.json"), canonical);
+    assert.equal(await store.readOptionalCanonical("missing.json"), null);
+    assert.equal(
+      await store.readOptionalCanonical("receipt-01.json"),
+      canonical,
+    );
     await assert.rejects(store.persistExclusive("receipt-01.json", canonical), {
       code: "PRODUCTION_MIGRATION_ARTIFACT_EXISTS",
     });

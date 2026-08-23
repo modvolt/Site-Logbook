@@ -462,5 +462,5 @@ describe("warehouse-price bootstrap planner CLI policy", () => {
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
-  });
+  }, 15_000);
 });

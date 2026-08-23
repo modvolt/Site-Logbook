@@ -116,9 +116,12 @@ export interface AccountingSchemaMigrationBundleInput {
 }
 
 export interface ValidatedAccountingSchemaBundle {
+  /** Exact historical 0106 contract used by the one-step transition. */
   all: readonly ExpectedAppliedMigration[];
   pre: readonly ExpectedAppliedMigration[];
   post: readonly ExpectedAppliedMigration[];
+  /** Full validated journal bundled in the current image for steady state. */
+  known: readonly ExpectedAppliedMigration[];
   expectedObjects: AccountingSchemaExpectedObjects;
   snapshot0105Sha256: string;
   snapshot0106Sha256: string;
@@ -212,8 +215,12 @@ function fail(code: string, message: string): never {
   throw new ExternalSchemaPreflightError(code, message);
 }
 
+function canonicalLf(value: string): string {
+  return value.replace(/\r\n?/g, "\n");
+}
+
 function sha256(value: string): string {
-  return createHash("sha256").update(value).digest("hex");
+  return createHash("sha256").update(canonicalLf(value)).digest("hex");
 }
 
 function required(env: NodeJS.ProcessEnv, key: string): string {
@@ -395,10 +402,10 @@ export function validateAccountingSchemaMigrationBundle(
   input: AccountingSchemaMigrationBundleInput,
 ): ValidatedAccountingSchemaBundle {
   const entries = [...input.journalEntries];
-  if (entries.length !== ACCOUNTING_SCHEMA_EXPECTED_JOURNAL_COUNT) {
+  if (entries.length < ACCOUNTING_SCHEMA_EXPECTED_JOURNAL_COUNT) {
     fail(
       "JOURNAL_COUNT_MISMATCH",
-      `Expected exactly ${ACCOUNTING_SCHEMA_EXPECTED_JOURNAL_COUNT} journal entries.`,
+      `Expected at least ${ACCOUNTING_SCHEMA_EXPECTED_JOURNAL_COUNT} journal entries.`,
     );
   }
 
@@ -444,8 +451,16 @@ export function validateAccountingSchemaMigrationBundle(
   }
 
   for (const [actual, expected, label] of [
-    [entries.at(-2), ACCOUNTING_SCHEMA_MIGRATIONS.predecessor, "predecessor"],
-    [entries.at(-1), ACCOUNTING_SCHEMA_MIGRATIONS.target, "target"],
+    [
+      entries[ACCOUNTING_SCHEMA_EXPECTED_JOURNAL_COUNT - 2],
+      ACCOUNTING_SCHEMA_MIGRATIONS.predecessor,
+      "predecessor",
+    ],
+    [
+      entries[ACCOUNTING_SCHEMA_EXPECTED_JOURNAL_COUNT - 1],
+      ACCOUNTING_SCHEMA_MIGRATIONS.target,
+      "target",
+    ],
   ] as const) {
     if (
       actual?.idx !== expected.idx ||
@@ -471,7 +486,7 @@ export function validateAccountingSchemaMigrationBundle(
     );
   }
 
-  const all = entries.map((entry): ExpectedAppliedMigration => {
+  const known = entries.map((entry): ExpectedAppliedMigration => {
     const sql = input.sqlByTag.get(entry.tag);
     if (sql === undefined) {
       fail(
@@ -487,7 +502,7 @@ export function validateAccountingSchemaMigrationBundle(
     };
   });
   for (const expected of Object.values(ACCOUNTING_SCHEMA_MIGRATIONS)) {
-    const actual = all.find((migration) => migration.tag === expected.tag);
+    const actual = known.find((migration) => migration.tag === expected.tag);
     if (actual?.hash !== expected.hash) {
       fail(
         "MIGRATION_HASH_MISMATCH",
@@ -513,10 +528,12 @@ export function validateAccountingSchemaMigrationBundle(
     );
   }
 
+  const all = known.slice(0, ACCOUNTING_SCHEMA_EXPECTED_JOURNAL_COUNT);
   return Object.freeze({
     all: Object.freeze(all),
     pre: Object.freeze(all.slice(0, -1)),
     post: Object.freeze(all),
+    known: Object.freeze(known),
     expectedObjects: snapshotExpectedObjects(target),
     snapshot0105Sha256,
     snapshot0106Sha256,
@@ -614,7 +631,8 @@ export function validateExactAccountingAppliedMigrationSet(
   rows: readonly AppliedMigrationRow[],
   bundle: ValidatedAccountingSchemaBundle,
 ): void {
-  const expected = mode === "pre" ? bundle.pre : bundle.post;
+  const expected =
+    mode === "pre" ? bundle.pre : mode === "post" ? bundle.post : bundle.known;
   if (rows.length !== expected.length) {
     fail(
       "APPLIED_COUNT_MISMATCH",
@@ -924,6 +942,7 @@ async function readAccountingDatabaseState(
     SELECT 'constraint', con.conname, con.convalidated, NULL::text,
            NULL::text, NULL::text, NULL::boolean
       FROM pg_constraint con JOIN accounting_rels r ON r.oid = con.conrelid
+     WHERE con.contype <> 'n'
     UNION ALL
     SELECT 'trigger', t.tgname, NULL::boolean, t.tgenabled::text,
            NULL::text, NULL::text, NULL::boolean

@@ -15,10 +15,12 @@ import {
   db,
   billingSettingsTable,
   materialMarkupRulesTable,
+  billingDocumentLinesTable,
   warehouseItemsTable,
   invoicesTable,
   invoiceLinesTable,
   invoiceSourceLinksTable,
+  invoiceSourceAllocationsTable,
   jobsTable,
   materialsTable,
   activitiesTable,
@@ -41,10 +43,11 @@ import {
   type MaterialMarkupRule,
   type Invoice,
   type InvoiceLine,
+  type InvoiceSourceAllocation,
+  type UserRole,
 } from "@workspace/db";
 import {
   computeLine,
-  deriveSourceLinks,
   applyMaterialMarkup,
   resolveMaterialMarkup,
   resolveLineMaterialMarkup,
@@ -75,8 +78,12 @@ import {
   releaseInvoicedMaterials,
 } from "./cost-document-service";
 import {
+  encodeInvoicePresentation,
+  getStoredInvoicePresentationGroups,
   normalizeMaterialDisplayMode,
   presentInvoiceLines,
+  type InvoicePresentationGroup,
+  type InvoicePresentationMode,
   type MaterialDisplayMode,
 } from "./invoice-line-presentation";
 import {
@@ -112,6 +119,15 @@ import {
   verifyCanonicalAccountingLifecycleEntryJsonBytes,
   type AccountingLifecycleEventV1,
 } from "./accounting-lifecycle-event-contract";
+import {
+  finalAllocationStatus,
+  isIdempotentIssueRetryStatus,
+  prepareCommercialLines,
+  settlementMethodForCommercialSource,
+  type CommercialPlanningLine,
+  type PreparedCommercialLines,
+  type SettlementMethod,
+} from "./invoice-source-planning";
 
 const objectStorage = new ObjectStorageService();
 
@@ -127,6 +143,7 @@ function appError(statusCode: number, message: string): AppError {
 export interface Actor {
   userId: number | null;
   name: string;
+  role?: UserRole;
 }
 
 // ---------------------------------------------------------------------------
@@ -220,6 +237,10 @@ export function serializeSettings(row: BillingSettings) {
     numberFormat: row.numberFormat,
     numberYear: row.numberYear,
     numberNextSeq: row.numberNextSeq,
+    advanceNumberPrefix: row.advanceNumberPrefix,
+    advanceNumberFormat: row.advanceNumberFormat,
+    advanceNumberYear: row.advanceNumberYear,
+    advanceNumberNextSeq: row.advanceNumberNextSeq,
     reminderEnabled: row.reminderEnabled,
     reminderDays: row.reminderDays,
     quoteNumberPrefix: row.quoteNumberPrefix,
@@ -250,6 +271,10 @@ export interface BillingSettingsInput {
   numberFormat?: string;
   numberYear?: number | null;
   numberNextSeq?: number;
+  advanceNumberPrefix?: string;
+  advanceNumberFormat?: string;
+  advanceNumberYear?: number | null;
+  advanceNumberNextSeq?: number;
   reminderEnabled?: boolean;
   reminderDays?: string;
   quoteNumberPrefix?: string;
@@ -314,6 +339,16 @@ export async function updateBillingSettings(
   }
   assign("numberYear", "numberYear");
   assign("numberNextSeq", "numberNextSeq");
+  assign("advanceNumberPrefix", "advanceNumberPrefix");
+  assign("advanceNumberFormat", "advanceNumberFormat");
+  if (
+    input.advanceNumberNextSeq !== undefined &&
+    input.advanceNumberNextSeq < 1
+  ) {
+    throw appError(400, "Další číslo zálohové faktury musí být alespoň 1.");
+  }
+  assign("advanceNumberYear", "advanceNumberYear");
+  assign("advanceNumberNextSeq", "advanceNumberNextSeq");
   assign("reminderEnabled", "reminderEnabled");
   if (input.reminderDays !== undefined) {
     set.reminderDays = normalizeReminderDays(input.reminderDays);
@@ -461,7 +496,7 @@ async function getCategoryMarkupByName(
 }
 
 // ---------------------------------------------------------------------------
-// Unbilled jobs (done, explicitly billable, not linked to a live invoice)
+// Unbilled jobs (done, explicitly billable, not reserved by another draft)
 // ---------------------------------------------------------------------------
 
 async function getBilledJobIds(): Promise<number[]> {
@@ -474,7 +509,8 @@ async function getBilledJobIds(): Promise<number[]> {
     )
     .where(
       and(
-        ne(invoicesTable.status, "cancelled"),
+        eq(invoicesTable.status, "draft"),
+        eq(invoicesTable.documentType, "standard"),
         isNotNull(invoiceSourceLinksTable.jobId),
       ),
     );
@@ -620,10 +656,9 @@ function jobOrientationalTotal(
 }
 
 // ---------------------------------------------------------------------------
-// Unbilled activities (dlouhodobé akce: completed, not linked to a non-cancelled
-// invoice). Mirrors the unbilled-jobs flow — billing provenance lives in
-// invoice_source_links.activityId, so a completed action drops from the pool
-// once it is linked to any non-cancelled invoice (draft included).
+// Unbilled activities (dlouhodobé akce: completed, not fully billed and not
+// reserved by another draft). Issued partial invoices deliberately do not hide
+// the whole activity; raw-source allocations prevent duplicate billing.
 // ---------------------------------------------------------------------------
 
 async function getBilledActivityIds(): Promise<number[]> {
@@ -636,7 +671,8 @@ async function getBilledActivityIds(): Promise<number[]> {
     )
     .where(
       and(
-        ne(invoicesTable.status, "cancelled"),
+        eq(invoicesTable.status, "draft"),
+        eq(invoicesTable.documentType, "standard"),
         isNotNull(invoiceSourceLinksTable.activityId),
       ),
     );
@@ -655,6 +691,10 @@ async function getUnbilledDoneActivities(
   const conditions = [
     isNotNull(activitiesTable.completedAt),
     eq(activitiesTable.isArchived, false),
+    or(
+      isNull(activitiesTable.billingStatus),
+      ne(activitiesTable.billingStatus, "billed"),
+    )!,
   ];
   if (customerId != null)
     conditions.push(eq(activitiesTable.customerId, customerId));
@@ -1305,6 +1345,7 @@ export async function getUnbilledCustomerDetail(customerId: number) {
 export function serializeInvoice(row: Invoice) {
   return {
     id: row.id,
+    documentType: row.documentType as "standard" | "advance",
     invoiceNumber: row.invoiceNumber,
     status: row.status,
     customerId: row.customerId,
@@ -1312,12 +1353,16 @@ export function serializeInvoice(row: Invoice) {
     customerIc: row.customerIc,
     customerDic: row.customerDic,
     customerAddress: row.customerAddress,
+    customerDeliveryAddress: row.customerDeliveryAddress,
     customerEmail: row.customerEmail,
     issueDate: row.issueDate,
     taxableSupplyDate: row.taxableSupplyDate,
     dueDate: row.dueDate,
     currency: row.currency,
     paymentMethod: row.paymentMethod,
+    bankAccount: row.bankAccount,
+    iban: row.iban,
+    bic: row.bic,
     variableSymbol: row.variableSymbol,
     constantSymbol: row.constantSymbol,
     specificSymbol: row.specificSymbol,
@@ -1349,6 +1394,7 @@ export function serializeLine(row: InvoiceLine) {
     sourceId: row.sourceId,
     jobId: row.jobId,
     activityId: row.activityId,
+    rowType: row.rowType as "item" | "section",
     description: row.description,
     quantity: num(row.quantity),
     unit: row.unit,
@@ -1361,6 +1407,34 @@ export function serializeLine(row: InvoiceLine) {
     totalVat: num(row.totalVat),
     totalWithVat: num(row.totalWithVat),
     sortOrder: row.sortOrder,
+  };
+}
+
+export function serializeSourceAllocation(row: InvoiceSourceAllocation) {
+  return {
+    id: row.id,
+    invoiceId: row.invoiceId,
+    invoiceIdSnapshot: row.invoiceIdSnapshot,
+    invoiceLineId: row.invoiceLineId,
+    sourceType: row.sourceType,
+    sourceId: row.sourceId,
+    jobId: row.jobId,
+    activityId: row.activityId,
+    sourceDescription: row.sourceDescription,
+    sourceUnit: row.sourceUnit,
+    originalQuantity: num(row.originalQuantity),
+    allocatedQuantity: num(row.allocatedQuantity),
+    sourceAmountWithoutVat: num(row.sourceAmountWithoutVat),
+    status: row.status,
+    settlementMethod: row.settlementMethod,
+    legacyIncomplete: row.legacyIncomplete,
+    createdByUserId: row.createdByUserId,
+    updatedByUserId: row.updatedByUserId,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+    settledAt: row.settledAt?.toISOString() ?? null,
+    releasedAt: row.releasedAt?.toISOString() ?? null,
+    reversedAt: row.reversedAt?.toISOString() ?? null,
   };
 }
 
@@ -1382,6 +1456,15 @@ export async function getInvoiceDetail(id: number) {
     })
     .from(invoiceSourceLinksTable)
     .where(eq(invoiceSourceLinksTable.invoiceId, id));
+  const allocations = await db
+    .select()
+    .from(invoiceSourceAllocationsTable)
+    .where(eq(invoiceSourceAllocationsTable.invoiceId, id))
+    .orderBy(
+      invoiceSourceAllocationsTable.jobId,
+      invoiceSourceAllocationsTable.activityId,
+      invoiceSourceAllocationsTable.id,
+    );
 
   const linkedJobIds = links
     .map((l) => l.jobId)
@@ -1408,16 +1491,104 @@ export async function getInvoiceDetail(id: number) {
         .where(inArray(activitiesTable.id, linkedActivityIds))
     : [];
 
+  const jobsWithOperationalLumpSources = new Set(
+    allocations
+      .filter(
+        (allocation) =>
+          allocation.jobId != null &&
+          allocation.settlementMethod === "included_in_lump_sum" &&
+          ["work_session", "material"].includes(allocation.sourceType),
+      )
+      .map((allocation) => allocation.jobId as number),
+  );
+  const sourceTotalWithoutVat = round2(
+    allocations.reduce((total, allocation) => {
+      if (
+        ["deferred", "not_charged"].includes(allocation.settlementMethod) ||
+        (allocation.sourceType === "job" &&
+          allocation.jobId != null &&
+          jobsWithOperationalLumpSources.has(allocation.jobId))
+      ) {
+        return total;
+      }
+      return total + num(allocation.sourceAmountWithoutVat);
+    }, 0),
+  );
+  const countBy = (predicate: (row: InvoiceSourceAllocation) => boolean) =>
+    allocations.filter(predicate).length;
+  const allocationsByJob = new Map<number, InvoiceSourceAllocation[]>();
+  for (const allocation of allocations) {
+    if (allocation.jobId == null) continue;
+    const rows = allocationsByJob.get(allocation.jobId) ?? [];
+    rows.push(allocation);
+    allocationsByJob.set(allocation.jobId, rows);
+  }
+  const sourceJobsWithBillingState = sourceJobs.map((job) => {
+    const rows = allocationsByJob.get(job.id) ?? [];
+    const hasDeferred = rows.some(
+      (row) => row.settlementMethod === "deferred" || row.status === "deferred",
+    );
+    const hasFinal = rows.some((row) =>
+      ["billed", "included_in_lump_sum", "not_charged"].includes(row.status),
+    );
+    const hasReserved = rows.some((row) => row.status === "reserved");
+    return {
+      ...job,
+      billingState: hasReserved
+        ? "draft"
+        : hasDeferred && hasFinal
+          ? "partial"
+          : hasDeferred
+            ? "ready"
+            : hasFinal
+              ? "billed"
+              : "linked",
+    };
+  });
+
   return {
     ...serializeInvoice(invoice),
     lines: lines.map(serializeLine),
     presentationLines: presentInvoiceLines(
       lines,
-      normalizeMaterialDisplayMode(invoice.materialDisplayMode),
+      invoice.materialDisplayMode,
     ).map(serializeLine),
+    presentationGroups: getStoredInvoicePresentationGroups(
+      invoice.materialDisplayMode,
+    ),
+    sourceAllocations: allocations.map(serializeSourceAllocation),
+    sourceSummary: {
+      count: allocations.length,
+      workCount: countBy((row) => row.sourceType === "work_session"),
+      materialCount: countBy((row) => row.sourceType.includes("material")),
+      otherCount: countBy(
+        (row) =>
+          row.sourceType !== "work_session" &&
+          !row.sourceType.includes("material"),
+      ),
+      unresolvedCount: countBy(
+        (row) =>
+          row.status === "reserved" &&
+          ![
+            "direct",
+            "included_in_lump_sum",
+            "not_charged",
+            "deferred",
+          ].includes(row.settlementMethod),
+      ),
+      deferredCount: countBy(
+        (row) =>
+          row.settlementMethod === "deferred" || row.status === "deferred",
+      ),
+      sourceTotalWithoutVat,
+      invoiceTotalWithoutVat: num(invoice.subtotalWithoutVat),
+      differenceWithoutVat: round2(
+        num(invoice.subtotalWithoutVat) - sourceTotalWithoutVat,
+      ),
+    },
     sourceJobIds: linkedJobIds,
     sourceActivityIds: linkedActivityIds,
-    sourceJobs,
+    sourceJobs: sourceJobsWithBillingState,
     sourceActivities,
   };
 }
@@ -1477,18 +1648,11 @@ export async function listInvoices(filter: {
 // Line building / persistence
 // ---------------------------------------------------------------------------
 
-interface RawLine {
-  sourceType: string;
-  sourceId?: number | null;
-  jobId?: number | null;
-  activityId?: number | null;
-  description: string;
-  unit?: string | null;
-  quantity?: number | null;
-  unitPriceWithoutVat?: number | null;
-  discountPercent?: number | null;
-  vatRate?: number | null;
-  vatMode?: VatMode | null;
+interface RawLine extends CommercialPlanningLine {
+  /** Existing commercial row retained during draft edits. */
+  existingId?: number | null;
+  /** Internal-only key used to attach raw sources to an aggregated row. */
+  allocationKey?: string;
 }
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -1527,9 +1691,9 @@ async function buildProposedLines(
     .for("update");
   const jobById = new Map(jobs.map((j) => [j.id, j]));
 
-  // Reject jobs already linked to a non-cancelled invoice up front, so a draft
-  // can never be built (and later issued) for a job another operator is already
-  // billing. Mirrors the activity guard in buildProposedActivityLines.
+  // A concurrent draft owns the parent while it is being edited. Once a partial
+  // invoice is issued, the parent becomes selectable again and the allocation
+  // ledger below excludes only the raw sources already settled.
   const alreadyBilled = await exec
     .select({
       jobId: invoiceSourceLinksTable.jobId,
@@ -1544,7 +1708,8 @@ async function buildProposedLines(
     .where(
       and(
         inArray(invoiceSourceLinksTable.jobId, jobIds),
-        ne(invoicesTable.status, "cancelled"),
+        eq(invoicesTable.status, "draft"),
+        eq(invoicesTable.documentType, "standard"),
       ),
     );
   if (alreadyBilled.length) {
@@ -1559,6 +1724,27 @@ async function buildProposedLines(
         : "jiné faktuře";
     throw appError(400, `Zakázka ${jobLabel} už je na ${invoiceLabel}.`);
   }
+
+  const activeAllocations = await exec
+    .select({
+      sourceType: invoiceSourceAllocationsTable.sourceType,
+      sourceId: invoiceSourceAllocationsTable.sourceId,
+    })
+    .from(invoiceSourceAllocationsTable)
+    .where(
+      and(
+        inArray(invoiceSourceAllocationsTable.jobId, jobIds),
+        inArray(invoiceSourceAllocationsTable.status, [
+          "reserved",
+          "billed",
+          "included_in_lump_sum",
+          "not_charged",
+        ]),
+      ),
+    );
+  const activeSourceKeys = new Set(
+    activeAllocations.map((row) => `${row.sourceType}:${row.sourceId}`),
+  );
 
   const materials = await exec
     .select()
@@ -1602,7 +1788,11 @@ async function buildProposedLines(
       opts.includeJobPrice !== false &&
       (opts.includeJobPriceIds == null || opts.includeJobPriceIds.has(jobId));
 
-    if (isFixedPrice && includeJobPrice) {
+    if (
+      isFixedPrice &&
+      includeJobPrice &&
+      !activeSourceKeys.has(`job:${jobId}`)
+    ) {
       // Fixed-price mode: one single line at the agreed contract price.
       // Materials, hours (no hour lines exist currently) are internal only.
       // Transport, parking and fines are still billed separately.
@@ -1626,7 +1816,11 @@ async function buildProposedLines(
       });
     } else {
       // time_material mode (default): bill job price + materials individually.
-      if (includeJobPrice && num(job.price) > 0) {
+      if (
+        includeJobPrice &&
+        num(job.price) > 0 &&
+        !activeSourceKeys.has(`job:${jobId}`)
+      ) {
         jobLines.push({
           sourceType: "job",
           jobId,
@@ -1669,10 +1863,11 @@ async function buildProposedLines(
       job,
       opts.transportRatePerKm ?? 0,
     );
-    if (transportCost > 0) {
+    if (transportCost > 0 && !activeSourceKeys.has(`transport:${jobId}`)) {
       const km = num(job.transportKm);
       jobLines.push({
         sourceType: "transport",
+        sourceId: jobId,
         jobId,
         description: km > 0 ? `Doprava (${km} km)` : "Doprava",
         quantity: 1,
@@ -1681,9 +1876,10 @@ async function buildProposedLines(
         vatMode: invoiceVatMode,
       });
     }
-    if (num(job.parking) > 0) {
+    if (num(job.parking) > 0 && !activeSourceKeys.has(`parking:${jobId}`)) {
       jobLines.push({
         sourceType: "parking",
+        sourceId: jobId,
         jobId,
         description: "Parkovné",
         quantity: 1,
@@ -1693,9 +1889,14 @@ async function buildProposedLines(
       });
     }
     // Fines are opt-in per job — only billed when explicitly selected.
-    if (fineSet.has(jobId) && num(job.fines) > 0) {
+    if (
+      fineSet.has(jobId) &&
+      num(job.fines) > 0 &&
+      !activeSourceKeys.has(`fine:${jobId}`)
+    ) {
       jobLines.push({
         sourceType: "fine",
+        sourceId: jobId,
         jobId,
         description: "Pokuta / penále",
         quantity: 1,
@@ -1742,8 +1943,8 @@ async function buildProposedActivityLines(
     .where(inArray(activitiesTable.id, activityIds));
   const activityById = new Map(activities.map((a) => [a.id, a]));
 
-  // Reject activities already linked to a non-cancelled invoice up front, so a
-  // draft can never be built (and later issued) for an already-billed activity.
+  // A draft temporarily owns the parent. Issued partial invoices do not: the
+  // allocation ledger below filters each already-settled raw source instead.
   const alreadyBilled = await exec
     .select({ activityId: invoiceSourceLinksTable.activityId })
     .from(invoiceSourceLinksTable)
@@ -1754,7 +1955,8 @@ async function buildProposedActivityLines(
     .where(
       and(
         inArray(invoiceSourceLinksTable.activityId, activityIds),
-        ne(invoicesTable.status, "cancelled"),
+        eq(invoicesTable.status, "draft"),
+        eq(invoicesTable.documentType, "standard"),
       ),
     );
   if (alreadyBilled.length) {
@@ -1766,6 +1968,27 @@ async function buildProposedActivityLines(
       `Akce „${name ?? `#${conflictId}`}" už je na jiné faktuře.`,
     );
   }
+
+  const activeAllocations = await exec
+    .select({
+      sourceType: invoiceSourceAllocationsTable.sourceType,
+      sourceId: invoiceSourceAllocationsTable.sourceId,
+    })
+    .from(invoiceSourceAllocationsTable)
+    .where(
+      and(
+        inArray(invoiceSourceAllocationsTable.activityId, activityIds),
+        inArray(invoiceSourceAllocationsTable.status, [
+          "reserved",
+          "billed",
+          "included_in_lump_sum",
+          "not_charged",
+        ]),
+      ),
+    );
+  const activeSourceKeys = new Set(
+    activeAllocations.map((row) => `${row.sourceType}:${row.sourceId}`),
+  );
 
   const materials = await exec
     .select()
@@ -1808,6 +2031,7 @@ async function buildProposedActivityLines(
     const activityLines: RawLine[] = [];
     for (const w of worksByActivity.get(activityId) ?? []) {
       if (num(w.amount) <= 0) continue;
+      if (activeSourceKeys.has(`activity_work:${w.id}`)) continue;
       activityLines.push({
         sourceType: "activity_work",
         activityId,
@@ -1821,6 +2045,7 @@ async function buildProposedActivityLines(
     }
     for (const m of materialsByActivity.get(activityId) ?? []) {
       if (m.pricePerUnit == null) continue;
+      if (activeSourceKeys.has(`activity_material:${m.id}`)) continue;
       const effectiveMarkup = resolveLineMaterialMarkup(
         opts.lineMarkupOverrides?.get(m.id),
         opts.categoryMarkupForName?.(m.name),
@@ -1858,10 +2083,27 @@ async function persistLines(
   invoiceId: number,
   rawLines: RawLine[],
   invoiceVatMode: VatMode,
-): Promise<ComputedLine[]> {
-  if (!rawLines.length) return [];
+): Promise<{ computed: ComputedLine[]; lines: InvoiceLine[] }> {
+  if (!rawLines.length) return { computed: [], lines: [] };
   const computed: ComputedLine[] = [];
   const values = rawLines.map((rl, idx) => {
+    const description = rl.description.trim();
+    if (!description) throw appError(400, `Položka ${idx + 1} nemá popis.`);
+    if (
+      rl.rowType !== "section" &&
+      (!Number.isFinite(num(rl.quantity ?? 1)) || num(rl.quantity ?? 1) === 0)
+    ) {
+      throw appError(400, `Položka ${idx + 1} musí mít nenulové množství.`);
+    }
+    if (
+      rl.discountPercent != null &&
+      (num(rl.discountPercent) < 0 || num(rl.discountPercent) > 100)
+    ) {
+      throw appError(400, `Sleva u položky ${idx + 1} musí být 0–100 %.`);
+    }
+    if (rl.vatRate != null && (num(rl.vatRate) < 0 || num(rl.vatRate) > 100)) {
+      throw appError(400, `DPH u položky ${idx + 1} musí být 0–100 %.`);
+    }
     const c = computeLine(rl, invoiceVatMode);
     computed.push(c);
     return {
@@ -1870,7 +2112,8 @@ async function persistLines(
       sourceId: rl.sourceId ?? null,
       jobId: rl.jobId ?? null,
       activityId: rl.activityId ?? null,
-      description: rl.description,
+      rowType: rl.rowType ?? "item",
+      description,
       quantity: String(c.quantity),
       unit: rl.unit ?? null,
       unitPriceWithoutVat: String(c.unitPriceWithoutVat),
@@ -1884,8 +2127,286 @@ async function persistLines(
       sortOrder: idx,
     };
   });
-  await exec.insert(invoiceLinesTable).values(values);
-  return computed;
+  const inserted = await exec
+    .insert(invoiceLinesTable)
+    .values(values)
+    .returning();
+  return {
+    computed,
+    lines: inserted.sort((a, b) => a.sortOrder - b.sortOrder),
+  };
+}
+
+/**
+ * Replace the editable commercial shape without replacing rows that still
+ * exist. Stable row ids keep optional allocation pointers intact while text,
+ * quantity, price, VAT and ordering remain fully editable.
+ */
+async function syncDraftLines(
+  tx: Tx,
+  invoiceId: number,
+  rawLines: RawLine[],
+  invoiceVatMode: VatMode,
+): Promise<{
+  computed: ComputedLine[];
+  lines: InvoiceLine[];
+  removedLineIds: number[];
+}> {
+  const existing = await tx
+    .select()
+    .from(invoiceLinesTable)
+    .where(eq(invoiceLinesTable.invoiceId, invoiceId))
+    .for("update");
+  const existingById = new Map(existing.map((line) => [line.id, line]));
+  const retainedIds = new Set<number>();
+  const computed: ComputedLine[] = [];
+  const persisted: InvoiceLine[] = [];
+
+  for (const [idx, rawLine] of rawLines.entries()) {
+    const description = rawLine.description.trim();
+    if (!description) throw appError(400, `Položka ${idx + 1} nemá popis.`);
+    if (
+      rawLine.rowType !== "section" &&
+      (!Number.isFinite(num(rawLine.quantity ?? 1)) ||
+        num(rawLine.quantity ?? 1) === 0)
+    ) {
+      throw appError(400, `Položka ${idx + 1} musí mít nenulové množství.`);
+    }
+    if (
+      rawLine.discountPercent != null &&
+      (num(rawLine.discountPercent) < 0 || num(rawLine.discountPercent) > 100)
+    ) {
+      throw appError(400, `Sleva u položky ${idx + 1} musí být 0–100 %.`);
+    }
+    if (
+      rawLine.vatRate != null &&
+      (num(rawLine.vatRate) < 0 || num(rawLine.vatRate) > 100)
+    ) {
+      throw appError(400, `DPH u položky ${idx + 1} musí být 0–100 %.`);
+    }
+
+    const lineComputed = computeLine(rawLine, invoiceVatMode);
+    computed.push(lineComputed);
+    const values = {
+      invoiceId,
+      sourceType: rawLine.sourceType,
+      sourceId: rawLine.sourceId ?? null,
+      jobId: rawLine.jobId ?? null,
+      activityId: rawLine.activityId ?? null,
+      rowType: rawLine.rowType ?? "item",
+      description,
+      quantity: String(lineComputed.quantity),
+      unit: rawLine.unit ?? null,
+      unitPriceWithoutVat: String(lineComputed.unitPriceWithoutVat),
+      discountPercent:
+        lineComputed.discountPercent == null
+          ? null
+          : String(lineComputed.discountPercent),
+      vatRate:
+        lineComputed.vatRate == null ? null : String(lineComputed.vatRate),
+      vatMode: lineComputed.vatMode,
+      totalWithoutVat: String(lineComputed.totalWithoutVat),
+      totalVat: String(lineComputed.totalVat),
+      totalWithVat: String(lineComputed.totalWithVat),
+      sortOrder: idx,
+      updatedAt: new Date(),
+    };
+
+    if (rawLine.existingId != null) {
+      if (!existingById.has(rawLine.existingId)) {
+        throw appError(
+          400,
+          `Položka #${rawLine.existingId} nepatří této faktuře.`,
+        );
+      }
+      if (retainedIds.has(rawLine.existingId)) {
+        throw appError(
+          400,
+          `Položka #${rawLine.existingId} je uvedena dvakrát.`,
+        );
+      }
+      retainedIds.add(rawLine.existingId);
+      const [updated] = await tx
+        .update(invoiceLinesTable)
+        .set(values)
+        .where(
+          and(
+            eq(invoiceLinesTable.id, rawLine.existingId),
+            eq(invoiceLinesTable.invoiceId, invoiceId),
+          ),
+        )
+        .returning();
+      persisted.push(updated);
+      continue;
+    }
+
+    const [inserted] = await tx
+      .insert(invoiceLinesTable)
+      .values(values)
+      .returning();
+    persisted.push(inserted);
+  }
+
+  const removedLineIds = existing
+    .map((line) => line.id)
+    .filter((lineId) => !retainedIds.has(lineId));
+  if (removedLineIds.length) {
+    await tx
+      .delete(invoiceLinesTable)
+      .where(
+        and(
+          eq(invoiceLinesTable.invoiceId, invoiceId),
+          inArray(invoiceLinesTable.id, removedLineIds),
+        ),
+      );
+  }
+
+  return { computed, lines: persisted, removedLineIds };
+}
+
+async function createSourceAllocations(
+  tx: Tx,
+  invoiceId: number,
+  rawLines: RawLine[],
+  prepared: PreparedCommercialLines<RawLine>,
+  persistedLines: InvoiceLine[],
+  recordedWork: ReservedWork[],
+  settlementOnlySources: SettlementOnlySource[],
+  invoiceVatMode: VatMode,
+  actor: Actor,
+): Promise<void> {
+  const values: Array<typeof invoiceSourceAllocationsTable.$inferInsert> = [];
+  const seen = new Set<string>();
+
+  rawLines.forEach((line, rawIndex) => {
+    if (
+      line.rowType === "section" ||
+      line.sourceType === "manual" ||
+      line.sourceType === "work_session" ||
+      line.sourceId == null
+    ) {
+      return;
+    }
+    const key = `${line.sourceType}:${line.sourceId}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    const commercialIndex = prepared.commercialIndexByRawIndex[rawIndex];
+    const persisted = persistedLines[commercialIndex];
+    const computed = computeLine(line, invoiceVatMode);
+    const grouped =
+      (prepared.sourceCountByCommercialIndex[commercialIndex] ?? 1) > 1;
+    const sourceQuantity = Math.abs(num(line.quantity ?? 1));
+    values.push({
+      invoiceId,
+      invoiceIdSnapshot: invoiceId,
+      invoiceLineId: persisted?.id ?? null,
+      sourceType: line.sourceType,
+      sourceId: line.sourceId,
+      jobId: line.jobId ?? null,
+      activityId: line.activityId ?? null,
+      sourceDescription: line.description,
+      sourceUnit: line.unit ?? null,
+      originalQuantity: String(sourceQuantity),
+      allocatedQuantity: String(sourceQuantity),
+      sourceAmountWithoutVat: String(computed.totalWithoutVat),
+      status: "reserved",
+      settlementMethod: settlementMethodForCommercialSource(grouped ? 2 : 1),
+      createdByUserId: actor.userId,
+      updatedByUserId: actor.userId,
+    });
+  });
+
+  for (const reservation of recordedWork) {
+    const key = `work_session:${reservation.sessionId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const rawIndex = rawLines.findIndex(
+      (line) =>
+        line.sourceType === "work_session" &&
+        line.allocationKey === reservation.allocationKey,
+    );
+    const commercialIndex =
+      rawIndex < 0 ? -1 : prepared.commercialIndexByRawIndex[rawIndex];
+    const persisted =
+      commercialIndex < 0 ? undefined : persistedLines[commercialIndex];
+    const grouped =
+      commercialIndex >= 0 &&
+      (prepared.sourceCountByCommercialIndex[commercialIndex] ?? 1) > 1;
+    const sourceHours = round2(Math.abs(reservation.durationSeconds) / 3600);
+    values.push({
+      invoiceId,
+      invoiceIdSnapshot: invoiceId,
+      invoiceLineId: persisted?.id ?? null,
+      sourceType: "work_session",
+      sourceId: reservation.sessionId,
+      jobId: reservation.jobId,
+      activityId: reservation.activityId,
+      sourceDescription:
+        reservation.sourceDescription ??
+        persisted?.description ??
+        "Odpracované práce",
+      sourceUnit: "h",
+      originalQuantity: String(sourceHours),
+      allocatedQuantity: String(sourceHours),
+      sourceAmountWithoutVat: String(reservation.amountWithoutVat),
+      status: "reserved",
+      settlementMethod: settlementMethodForCommercialSource(
+        grouped ? 2 : 1,
+        reservation.settlementMethod,
+      ),
+      createdByUserId: actor.userId,
+      updatedByUserId: actor.userId,
+    });
+  }
+
+  for (const source of settlementOnlySources) {
+    const key = `${source.sourceType}:${source.sourceId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    values.push({
+      invoiceId,
+      invoiceIdSnapshot: invoiceId,
+      invoiceLineId: null,
+      sourceType: source.sourceType,
+      sourceId: source.sourceId,
+      jobId: source.jobId,
+      activityId: source.activityId,
+      sourceDescription: source.sourceDescription,
+      sourceUnit: source.sourceUnit,
+      originalQuantity: String(source.originalQuantity),
+      allocatedQuantity: String(source.originalQuantity),
+      sourceAmountWithoutVat: String(source.sourceAmountWithoutVat),
+      status: "reserved",
+      settlementMethod: source.settlementMethod,
+      createdByUserId: actor.userId,
+      updatedByUserId: actor.userId,
+    });
+  }
+
+  if (values.length) {
+    try {
+      await tx.insert(invoiceSourceAllocationsTable).values(values);
+    } catch (error) {
+      const allocationConflict = [
+        error,
+        (error as { cause?: unknown } | null)?.cause,
+      ].some(
+        (candidate) =>
+          typeof candidate === "object" &&
+          candidate !== null &&
+          (candidate as { code?: unknown }).code === "23505" &&
+          (candidate as { constraint?: unknown }).constraint ===
+            "invoice_source_allocations_active_source_uq",
+      );
+      if (allocationConflict) {
+        throw appError(
+          409,
+          "Některý zdroj mezitím rezervoval jiný koncept. Obnovte výběr a zkuste to znovu.",
+        );
+      }
+      throw error;
+    }
+  }
 }
 
 async function writeTotals(
@@ -1910,6 +2431,8 @@ async function writeTotals(
 // ---------------------------------------------------------------------------
 
 export interface InvoiceLineInput {
+  id?: number | null;
+  rowType?: "item" | "section" | null;
   description: string;
   quantity?: number | null;
   unit?: string | null;
@@ -1940,11 +2463,19 @@ function materialIds(lines: RawLine[]): number[] {
 }
 
 export interface InvoiceCreateInput {
+  documentType?: "standard" | "advance";
   customerId: number;
+  customerName?: string | null;
+  customerIc?: string | null;
+  customerDic?: string | null;
+  customerAddress?: string | null;
+  customerDeliveryAddress?: string | null;
+  customerEmail?: string | null;
   jobIds?: number[];
   activityIds?: number[];
   labourBillingMode?: "automatic" | "job_price" | "recorded_time" | "none";
   workGrouping?: "summary" | "worker";
+  sourceGrouping?: "by_job" | "combined";
   billFineJobIds?: number[];
   materialMarkupPercent?: number;
   /**
@@ -1963,6 +2494,10 @@ export interface InvoiceCreateInput {
   taxableSupplyDate?: string | null;
   dueDate?: string | null;
   paymentMethod?: string | null;
+  bankAccount?: string | null;
+  iban?: string | null;
+  bic?: string | null;
+  currency?: string | null;
   variableSymbol?: string | null;
   constantSymbol?: string | null;
   specificSymbol?: string | null;
@@ -1988,9 +2523,26 @@ export interface QuoteJobGroupInvoiceDraftInput {
 
 type ReservedWork = {
   sessionId: number;
+  allocationKey: string;
+  jobId: number | null;
+  activityId: number | null;
   durationSeconds: number;
   saleRate: number;
   amountWithoutVat: number;
+  settlementMethod?: SettlementMethod;
+  sourceDescription?: string;
+};
+
+type SettlementOnlySource = {
+  sourceType: string;
+  sourceId: number;
+  jobId: number | null;
+  activityId: number | null;
+  sourceDescription: string;
+  sourceUnit: string | null;
+  originalQuantity: number;
+  sourceAmountWithoutVat: number;
+  settlementMethod: SettlementMethod;
 };
 
 async function resolveAutomaticLabourParents(
@@ -2197,6 +2749,9 @@ async function buildRecordedWorkLines(
     groups.set(key, group);
     reservations.push({
       sessionId: session.id,
+      allocationKey: key,
+      jobId: session.jobId,
+      activityId: session.activityId,
       durationSeconds: seconds,
       saleRate: rate,
       amountWithoutVat: round2(billableHours * rate),
@@ -2214,9 +2769,10 @@ async function buildRecordedWorkLines(
       );
   }
   return {
-    lines: [...groups.values()]
-      .filter((group) => group.hours !== 0)
-      .map((group) => ({
+    lines: [...groups.entries()]
+      .filter(([, group]) => group.hours !== 0)
+      .map(([allocationKey, group]) => ({
+        allocationKey,
         sourceType: "work_session",
         sourceId: null,
         jobId: group.jobId,
@@ -2233,6 +2789,194 @@ async function buildRecordedWorkLines(
   };
 }
 
+/**
+ * Preserve operational sources that deliberately have no customer-facing row.
+ *
+ * Fixed-price jobs still need every consumed material and completed work
+ * session in the settlement ledger, even though the customer sees one contract
+ * line. Likewise, choosing "job price" covers recorded job work with that
+ * lump-sum line, while choosing "none" reserves the work in the draft and
+ * explicitly defers it on issue. These records are never persisted as invoice
+ * lines and therefore cannot leak internal detail into the PDF.
+ */
+async function buildSettlementOnlySources(
+  tx: Tx,
+  jobIds: number[],
+  activityIds: number[],
+  labourBillingMode: InvoiceCreateInput["labourBillingMode"],
+  representedLines: RawLine[],
+  representedWork: ReservedWork[],
+): Promise<{
+  sources: SettlementOnlySource[];
+  workReservations: ReservedWork[];
+}> {
+  if (!jobIds.length && !activityIds.length) {
+    return { sources: [], workReservations: [] };
+  }
+
+  const represented = new Set(
+    representedLines
+      .filter((line) => line.sourceId != null)
+      .map((line) => `${line.sourceType}:${line.sourceId}`),
+  );
+  for (const work of representedWork) {
+    represented.add(`work_session:${work.sessionId}`);
+  }
+
+  const parentFilters = [];
+  if (jobIds.length)
+    parentFilters.push(inArray(workSessionsTable.jobId, jobIds));
+  if (activityIds.length)
+    parentFilters.push(inArray(workSessionsTable.activityId, activityIds));
+
+  const jobs = jobIds.length
+    ? await tx
+        .select({
+          id: jobsTable.id,
+          pricingMode: jobsTable.pricingMode,
+        })
+        .from(jobsTable)
+        .where(inArray(jobsTable.id, jobIds))
+    : [];
+  const activeAllocations = await tx
+    .select({
+      sourceType: invoiceSourceAllocationsTable.sourceType,
+      sourceId: invoiceSourceAllocationsTable.sourceId,
+    })
+    .from(invoiceSourceAllocationsTable)
+    .where(
+      and(
+        or(
+          jobIds.length
+            ? inArray(invoiceSourceAllocationsTable.jobId, jobIds)
+            : undefined,
+          activityIds.length
+            ? inArray(invoiceSourceAllocationsTable.activityId, activityIds)
+            : undefined,
+        ),
+        inArray(invoiceSourceAllocationsTable.status, [
+          "reserved",
+          "billed",
+          "included_in_lump_sum",
+          "not_charged",
+        ]),
+      ),
+    );
+  const workRows = parentFilters.length
+    ? await tx
+        .select({
+          id: workSessionsTable.id,
+          jobId: workSessionsTable.jobId,
+          activityId: workSessionsTable.activityId,
+          durationSeconds: workSessionsTable.durationSeconds,
+          saleRateSnapshot: workSessionsTable.saleRateSnapshot,
+        })
+        .from(workSessionsTable)
+        .where(
+          and(
+            or(...parentFilters),
+            eq(workSessionsTable.status, "completed"),
+            eq(workSessionsTable.billingStatus, "unbilled"),
+          ),
+        )
+        .for("update")
+    : [];
+  const fixedPriceMaterials = jobIds.length
+    ? await tx
+        .select({
+          id: materialsTable.id,
+          jobId: materialsTable.jobId,
+          name: materialsTable.name,
+          quantity: materialsTable.quantity,
+          unit: materialsTable.unit,
+          pricePerUnit: materialsTable.pricePerUnit,
+          invoicedInvoiceId: materialsTable.invoicedInvoiceId,
+        })
+        .from(materialsTable)
+        .where(
+          and(
+            inArray(materialsTable.jobId, jobIds),
+            eq(materialsTable.done, true),
+            isNotNull(materialsTable.pricePerUnit),
+          ),
+        )
+        .for("update")
+    : [];
+
+  const active = new Set(
+    activeAllocations.map((row) => `${row.sourceType}:${row.sourceId}`),
+  );
+  const fixedPriceJobIds = new Set(
+    jobs
+      .filter((job) => job.pricingMode === "fixed_price")
+      .map((job) => job.id),
+  );
+  const sources: SettlementOnlySource[] = [];
+
+  for (const material of fixedPriceMaterials) {
+    const key = `material:${material.id}`;
+    if (
+      !fixedPriceJobIds.has(material.jobId) ||
+      material.invoicedInvoiceId != null ||
+      represented.has(key) ||
+      active.has(key)
+    ) {
+      continue;
+    }
+    const quantity = Math.abs(num(material.quantity ?? 1));
+    sources.push({
+      sourceType: "material",
+      sourceId: material.id,
+      jobId: material.jobId,
+      activityId: null,
+      sourceDescription: material.name,
+      sourceUnit: material.unit ?? "ks",
+      originalQuantity: quantity,
+      sourceAmountWithoutVat: round2(quantity * num(material.pricePerUnit)),
+      settlementMethod: "included_in_lump_sum",
+    });
+  }
+
+  const workReservations: ReservedWork[] = [];
+  for (const session of workRows) {
+    const key = `work_session:${session.id}`;
+    if (represented.has(key) || active.has(key)) continue;
+    const hours = round2(Math.abs(session.durationSeconds ?? 0) / 3600);
+    if (hours === 0) continue;
+
+    let settlementMethod: SettlementMethod | null = null;
+    if (session.jobId != null && fixedPriceJobIds.has(session.jobId)) {
+      settlementMethod = "included_in_lump_sum";
+    } else if (session.jobId != null && labourBillingMode === "job_price") {
+      settlementMethod = "included_in_lump_sum";
+    } else if (
+      labourBillingMode === "none" ||
+      (session.activityId != null && labourBillingMode === "job_price")
+    ) {
+      settlementMethod = "deferred";
+    }
+    if (settlementMethod == null) continue;
+
+    const saleRate = num(session.saleRateSnapshot);
+    workReservations.push({
+      sessionId: session.id,
+      allocationKey: `settlement-only:${session.id}`,
+      jobId: session.jobId,
+      activityId: session.activityId,
+      durationSeconds: session.durationSeconds ?? 0,
+      saleRate,
+      amountWithoutVat: round2(hours * saleRate),
+      settlementMethod,
+      sourceDescription:
+        settlementMethod === "deferred"
+          ? "Odpracovaný čas – odloženo na další fakturu"
+          : "Odpracovaný čas – zahrnuto v ceně zakázky",
+    });
+  }
+
+  return { sources, workReservations };
+}
+
 export async function createDraft(
   input: InvoiceCreateInput,
   actor: Actor,
@@ -2246,6 +2990,12 @@ export async function createDraft(
     .where(eq(customersTable.id, input.customerId));
   if (!customer) throw appError(400, "Zákazník nenalezen.");
 
+  const documentType = input.documentType ?? "standard";
+  const sourceGrouping = input.sourceGrouping ?? "by_job";
+  const currency = (input.currency ?? "CZK").trim().toUpperCase();
+  if (!/^[A-Z]{3}$/.test(currency)) {
+    throw appError(400, "Měna musí být třípísmenný kód, např. CZK.");
+  }
   const vatModeDefault: VatMode =
     input.vatModeDefault ?? (settings.vatModeDefault as VatMode);
   const jobIds = input.jobIds ?? [];
@@ -2342,8 +3092,11 @@ export async function createDraft(
           };
 
     const rawManual: RawLine[] = (input.lines ?? []).map((l) => ({
+      rowType: l.rowType ?? "item",
       sourceType: l.sourceType ?? "manual",
       sourceId: l.sourceId ?? null,
+      jobId: l.jobId ?? null,
+      activityId: l.activityId ?? null,
       description: l.description,
       quantity: l.quantity ?? 1,
       unit: l.unit ?? null,
@@ -2378,12 +3131,28 @@ export async function createDraft(
       return true;
     });
 
-    const allLines = [
+    const allRawLines = [
       ...proposed,
       ...proposedActivity,
       ...recordedWork.lines,
       ...manual,
     ];
+    const settlementOnly =
+      documentType === "standard"
+        ? await buildSettlementOnlySources(
+            tx,
+            jobIds,
+            activityIds,
+            labourBillingMode,
+            allRawLines,
+            recordedWork.reservations,
+          )
+        : { sources: [], workReservations: [] };
+    const allWorkReservations = [
+      ...recordedWork.reservations,
+      ...settlementOnly.workReservations,
+    ];
+    const prepared = prepareCommercialLines(allRawLines, sourceGrouping);
     for (const [jobId, amount] of recordedWork.jobAmounts) {
       jobAmounts.set(jobId, round2((jobAmounts.get(jobId) ?? 0) + amount));
     }
@@ -2398,18 +3167,38 @@ export async function createDraft(
       .insert(invoicesTable)
       .values({
         status: "draft",
+        documentType,
         customerId: customer.id,
-        customerName: customer.companyName,
-        customerIc: customer.ic,
-        customerDic: customer.dic,
-        customerAddress: customer.address,
-        customerEmail: customer.email,
+        customerName:
+          input.customerName !== undefined
+            ? input.customerName
+            : customer.companyName,
+        customerIc:
+          input.customerIc !== undefined ? input.customerIc : customer.ic,
+        customerDic:
+          input.customerDic !== undefined ? input.customerDic : customer.dic,
+        customerAddress:
+          input.customerAddress !== undefined
+            ? input.customerAddress
+            : customer.address,
+        customerDeliveryAddress: input.customerDeliveryAddress ?? null,
+        customerEmail:
+          input.customerEmail !== undefined
+            ? input.customerEmail
+            : customer.email,
         issueDate: input.issueDate ?? null,
         taxableSupplyDate: input.taxableSupplyDate ?? null,
         dueDate: input.dueDate ?? null,
         paymentMethod: input.paymentMethod ?? settings.defaultPaymentMethod,
+        bankAccount:
+          input.bankAccount !== undefined
+            ? input.bankAccount
+            : settings.bankAccount,
+        iban: input.iban !== undefined ? input.iban : settings.iban,
+        bic: input.bic !== undefined ? input.bic : settings.bic,
+        currency,
         variableSymbol: input.variableSymbol ?? null,
-        constantSymbol: INVOICE_CONSTANT_SYMBOL,
+        constantSymbol: input.constantSymbol ?? INVOICE_CONSTANT_SYMBOL,
         specificSymbol: input.specificSymbol ?? null,
         vatModeDefault,
         materialDisplayMode: normalizeMaterialDisplayMode(
@@ -2420,18 +3209,36 @@ export async function createDraft(
       })
       .returning();
 
-    const computed = await persistLines(
+    const persisted = await persistLines(
       tx,
       invoice.id,
-      allLines,
+      prepared.lines,
       vatModeDefault,
     );
-    await writeTotals(tx, invoice.id, computed);
+    await writeTotals(tx, invoice.id, persisted.computed);
 
-    // Reserve any re-billed cost-document lines so they aren't offered twice.
-    await markLinesInvoiced(tx, invoice.id, billingDocLineIds(allLines));
-    // Reserve billed job materials (provenance only — never touches stock).
-    await markMaterialsInvoiced(tx, invoice.id, materialIds(allLines));
+    if (documentType === "standard") {
+      // Reserve re-billed cost lines and materials. This is customer-billing
+      // provenance only and never creates another warehouse movement.
+      await markLinesInvoiced(tx, invoice.id, billingDocLineIds(allRawLines));
+      await markMaterialsInvoiced(tx, invoice.id, [
+        ...materialIds(allRawLines),
+        ...settlementOnly.sources
+          .filter((source) => source.sourceType === "material")
+          .map((source) => source.sourceId),
+      ]);
+      await createSourceAllocations(
+        tx,
+        invoice.id,
+        allRawLines,
+        prepared,
+        persisted.lines,
+        allWorkReservations,
+        settlementOnly.sources,
+        vatModeDefault,
+        actor,
+      );
+    }
 
     // Source links — one per job/activity, with the billed amount (no VAT).
     const sourceLinkValues = [
@@ -2452,9 +3259,9 @@ export async function createDraft(
       await tx.insert(invoiceSourceLinksTable).values(sourceLinkValues);
     }
 
-    if (recordedWork.reservations.length) {
+    if (documentType === "standard" && allWorkReservations.length) {
       await tx.insert(workSessionBillingLinksTable).values(
-        recordedWork.reservations.map((item) => ({
+        allWorkReservations.map((item) => ({
           sessionId: item.sessionId,
           invoiceId: invoice.id,
           invoiceIdSnapshot: invoice.id,
@@ -2471,10 +3278,21 @@ export async function createDraft(
         .where(
           inArray(
             workSessionsTable.id,
-            recordedWork.reservations.map((item) => item.sessionId),
+            allWorkReservations.map((item) => item.sessionId),
           ),
         );
     }
+
+    await tx.insert(auditLogTable).values({
+      actorUserId: actor.userId,
+      actorName: actor.name,
+      action: "invoice_draft_created",
+      entityType: "invoices",
+      entityId: invoice.id,
+      summary: `${documentType === "advance" ? "Zálohový" : "Běžný"} koncept vytvořen; zakázky: ${jobIds.join(", ") || "bez zakázky"}; akce: ${activityIds.join(", ") || "žádné"}`,
+      method: "POST",
+      path: "/billing/invoices",
+    });
 
     return invoice.id;
   };
@@ -2726,8 +3544,21 @@ export async function createQuoteJobGroupInvoiceDraft(
 }
 
 export interface InvoiceUpdateInput {
+  customerId?: number | null;
+  allowCustomerMismatch?: boolean;
+  customerName?: string | null;
+  customerIc?: string | null;
+  customerDic?: string | null;
+  customerAddress?: string | null;
+  customerDeliveryAddress?: string | null;
+  customerEmail?: string | null;
+  bankAccount?: string | null;
+  iban?: string | null;
+  bic?: string | null;
+  currency?: string | null;
   vatModeDefault?: VatMode;
-  materialDisplayMode?: MaterialDisplayMode;
+  materialDisplayMode?: InvoicePresentationMode;
+  presentationGroups?: InvoicePresentationGroup[];
   issueDate?: string | null;
   taxableSupplyDate?: string | null;
   dueDate?: string | null;
@@ -2737,9 +3568,22 @@ export interface InvoiceUpdateInput {
   specificSymbol?: string | null;
   notes?: string | null;
   lines?: InvoiceLineInput[];
+  sourceAllocations?: Array<{
+    id: number;
+    settlementMethod:
+      | "direct"
+      | "included_in_lump_sum"
+      | "not_charged"
+      | "deferred";
+    invoiceLineId?: number | null;
+  }>;
 }
 
-export async function updateDraft(id: number, input: InvoiceUpdateInput) {
+export async function updateDraft(
+  id: number,
+  input: InvoiceUpdateInput,
+  actor: Actor = { userId: null, name: "Systém" },
+) {
   await db.transaction(async (tx) => {
     const [invoice] = await tx
       .select()
@@ -2753,11 +3597,98 @@ export async function updateDraft(id: number, input: InvoiceUpdateInput) {
 
     const vatModeDefault: VatMode =
       input.vatModeDefault ?? (invoice.vatModeDefault as VatMode);
+    const forcedSettlementAllocationIds = new Set<number>();
+    const settlementChanges: string[] = [];
 
     const set: Record<string, unknown> = {
       updatedAt: new Date(),
       vatModeDefault,
     };
+    let customerMismatchOverrideSummary: string | null = null;
+    if (input.customerId !== undefined) {
+      if (input.customerId == null) {
+        throw appError(400, "Faktura musí mít odběratele.");
+      }
+      const [selectedCustomer] = await tx
+        .select()
+        .from(customersTable)
+        .where(eq(customersTable.id, input.customerId));
+      if (!selectedCustomer) throw appError(400, "Odběratel nebyl nalezen.");
+      if (selectedCustomer.id !== invoice.customerId) {
+        const sourceParents = await tx
+          .select({
+            jobId: invoiceSourceLinksTable.jobId,
+            jobCustomerId: jobsTable.customerId,
+            activityId: invoiceSourceLinksTable.activityId,
+            activityCustomerId: activitiesTable.customerId,
+          })
+          .from(invoiceSourceLinksTable)
+          .leftJoin(jobsTable, eq(invoiceSourceLinksTable.jobId, jobsTable.id))
+          .leftJoin(
+            activitiesTable,
+            eq(invoiceSourceLinksTable.activityId, activitiesTable.id),
+          )
+          .where(eq(invoiceSourceLinksTable.invoiceId, id));
+        const mismatchedParents = sourceParents.filter((parent) => {
+          const sourceCustomerId =
+            parent.jobCustomerId ?? parent.activityCustomerId;
+          return (
+            sourceCustomerId != null && sourceCustomerId !== selectedCustomer.id
+          );
+        });
+        if (mismatchedParents.length) {
+          if (!input.allowCustomerMismatch) {
+            throw appError(
+              409,
+              "Zvolený odběratel se liší od odběratele zdrojových zakázek. Změnu musí správce výslovně potvrdit.",
+            );
+          }
+          if (actor.role !== "admin" && actor.role !== "master") {
+            throw appError(
+              403,
+              "Výjimku pro jiného odběratele může potvrdit pouze správce.",
+            );
+          }
+          const parentLabels = mismatchedParents.map((parent) =>
+            parent.jobId != null
+              ? `zakázka #${parent.jobId}`
+              : `akce #${parent.activityId}`,
+          );
+          customerMismatchOverrideSummary =
+            `Explicitní výjimka odběratele: ${invoice.customerId ?? "bez odběratele"} -> ${selectedCustomer.id}; ` +
+            `zdroje: ${parentLabels.join(", ")}`;
+        }
+      }
+      set.customerId = selectedCustomer.id;
+      if (input.customerName === undefined)
+        set.customerName = selectedCustomer.companyName;
+      if (input.customerIc === undefined) set.customerIc = selectedCustomer.ic;
+      if (input.customerDic === undefined)
+        set.customerDic = selectedCustomer.dic;
+      if (input.customerAddress === undefined)
+        set.customerAddress = selectedCustomer.address;
+      if (input.customerEmail === undefined)
+        set.customerEmail = selectedCustomer.email;
+    }
+    if (input.customerName !== undefined) set.customerName = input.customerName;
+    if (input.customerIc !== undefined) set.customerIc = input.customerIc;
+    if (input.customerDic !== undefined) set.customerDic = input.customerDic;
+    if (input.customerAddress !== undefined)
+      set.customerAddress = input.customerAddress;
+    if (input.customerDeliveryAddress !== undefined)
+      set.customerDeliveryAddress = input.customerDeliveryAddress;
+    if (input.customerEmail !== undefined)
+      set.customerEmail = input.customerEmail;
+    if (input.bankAccount !== undefined) set.bankAccount = input.bankAccount;
+    if (input.iban !== undefined) set.iban = input.iban;
+    if (input.bic !== undefined) set.bic = input.bic;
+    if (input.currency !== undefined) {
+      const currency = (input.currency ?? "").trim().toUpperCase();
+      if (!/^[A-Z]{3}$/.test(currency)) {
+        throw appError(400, "Měna musí být třípísmenný kód, např. CZK.");
+      }
+      set.currency = currency;
+    }
     if (input.issueDate !== undefined) set.issueDate = input.issueDate;
     if (input.taxableSupplyDate !== undefined)
       set.taxableSupplyDate = input.taxableSupplyDate;
@@ -2771,74 +3702,14 @@ export async function updateDraft(id: number, input: InvoiceUpdateInput) {
     if (input.specificSymbol !== undefined)
       set.specificSymbol = input.specificSymbol;
     if (input.notes !== undefined) set.notes = input.notes;
-    if (input.materialDisplayMode !== undefined) {
-      set.materialDisplayMode = normalizeMaterialDisplayMode(
-        input.materialDisplayMode,
-      );
-    }
     await tx.update(invoicesTable).set(set).where(eq(invoicesTable.id, id));
 
     if (input.lines !== undefined) {
-      const activeWorkLinks = await tx
-        .select({ id: workSessionBillingLinksTable.id })
-        .from(workSessionBillingLinksTable)
-        .where(
-          and(
-            eq(workSessionBillingLinksTable.invoiceId, id),
-            inArray(workSessionBillingLinksTable.status, [
-              "reserved",
-              "billed",
-            ]),
-          ),
-        );
-      if (activeWorkLinks.length) {
-        const currentWorkLines = await tx
-          .select()
-          .from(invoiceLinesTable)
-          .where(
-            and(
-              eq(invoiceLinesTable.invoiceId, id),
-              eq(invoiceLinesTable.sourceType, "work_session"),
-            ),
-          );
-        const signature = (line: {
-          description: string;
-          quantity?: unknown;
-          unitPriceWithoutVat?: unknown;
-          jobId?: number | null;
-          activityId?: number | null;
-        }) =>
-          JSON.stringify([
-            line.description,
-            round2(num(line.quantity)),
-            round2(num(line.unitPriceWithoutVat)),
-            line.jobId ?? null,
-            line.activityId ?? null,
-          ]);
-        const before = currentWorkLines.map(signature).sort();
-        const after = input.lines
-          .filter((line) => line.sourceType === "work_session")
-          .map(signature)
-          .sort();
-        if (JSON.stringify(before) !== JSON.stringify(after)) {
-          throw appError(
-            409,
-            "Položky skutečně odpracovaného času jsou svázané s konkrétními session a nelze je ručně měnit nebo odstranit.",
-          );
-        }
-      }
-      // Manual edit replaces ALL lines. Lines keep their `jobId` so job billing
-      // tracks the lines that actually remain: removing every line of a job drops
-      // its source link, returning the job to the unbilled pool (instead of being
-      // silently marked "vyfakturováno" with nothing on the invoice for it).
-      await tx
-        .delete(invoiceLinesTable)
-        .where(eq(invoiceLinesTable.invoiceId, id));
-      // Release previously-reserved cost-document lines + job materials; re-reserve
-      // below from the new line set, so removing a line frees it for re-billing.
-      await releaseInvoicedLines(tx, id);
-      await releaseInvoicedMaterials(tx, id);
+      // Commercial rows are editable in place. Only explicitly removed rows
+      // are deleted; the raw source records and invoice→job links remain intact.
       const lines: RawLine[] = input.lines.map((l) => ({
+        existingId: l.id ?? null,
+        rowType: l.rowType ?? "item",
         sourceType: l.sourceType ?? "manual",
         sourceId: l.sourceId ?? null,
         jobId: l.jobId ?? null,
@@ -2851,43 +3722,246 @@ export async function updateDraft(id: number, input: InvoiceUpdateInput) {
         vatRate: l.vatRate ?? null,
         vatMode: l.vatMode ?? vatModeDefault,
       }));
-      const computed = await persistLines(tx, id, lines, vatModeDefault);
-      await writeTotals(tx, id, computed);
+      const allocations = await tx
+        .select()
+        .from(invoiceSourceAllocationsTable)
+        .where(eq(invoiceSourceAllocationsTable.invoiceId, id))
+        .for("update");
+      const persisted = await syncDraftLines(tx, id, lines, vatModeDefault);
+      await writeTotals(tx, id, persisted.computed);
 
-      // Recompute source links from the surviving lines' job/activity ids so
-      // billing provenance stays in sync with the edited line set.
-      await tx
-        .delete(invoiceSourceLinksTable)
-        .where(eq(invoiceSourceLinksTable.invoiceId, id));
-      const sourceLinks = deriveSourceLinks(lines, computed);
-      if (sourceLinks.length) {
-        await tx.insert(invoiceSourceLinksTable).values(
-          sourceLinks.map((l) => ({
-            invoiceId: id,
-            jobId: l.jobId,
-            activityId: l.activityId,
-            amountWithoutVat: String(l.amountWithoutVat),
-          })),
+      const newLineBySource = new Map<string, number>();
+      lines.forEach((line, index) => {
+        if (line.sourceId == null) return;
+        const persistedId = persisted.lines[index]?.id;
+        if (persistedId != null) {
+          newLineBySource.set(
+            `${line.sourceType}:${line.sourceId}`,
+            persistedId,
+          );
+        }
+      });
+      const retainedLineIds = new Set(persisted.lines.map((line) => line.id));
+      const removedLineIds = new Set(persisted.removedLineIds);
+      const hasCommercialItem = lines.some(
+        (line) => line.rowType !== "section",
+      );
+      for (const allocation of allocations) {
+        const matchingLineId = newLineBySource.get(
+          `${allocation.sourceType}:${allocation.sourceId}`,
+        );
+        const retainedLineId =
+          allocation.invoiceLineId != null &&
+          retainedLineIds.has(allocation.invoiceLineId)
+            ? allocation.invoiceLineId
+            : null;
+        const targetLineId = retainedLineId ?? matchingLineId ?? null;
+        const lostDirectLine =
+          targetLineId == null &&
+          allocation.invoiceLineId != null &&
+          removedLineIds.has(allocation.invoiceLineId) &&
+          allocation.settlementMethod === "direct";
+        const nextMethod = lostDirectLine
+          ? hasCommercialItem
+            ? "included_in_lump_sum"
+            : "deferred"
+          : allocation.settlementMethod;
+        if (lostDirectLine) {
+          forcedSettlementAllocationIds.add(allocation.id);
+          settlementChanges.push(
+            `#${allocation.id}: ${allocation.settlementMethod} -> ${nextMethod}`,
+          );
+        }
+        await tx
+          .update(invoiceSourceAllocationsTable)
+          .set({
+            invoiceLineId: targetLineId,
+            settlementMethod: nextMethod,
+            updatedByUserId: actor.userId,
+            updatedAt: new Date(),
+          })
+          .where(eq(invoiceSourceAllocationsTable.id, allocation.id));
+      }
+
+      if (
+        normalizeMaterialDisplayMode(invoice.materialDisplayMode) ===
+          "custom" &&
+        input.materialDisplayMode === undefined &&
+        input.presentationGroups === undefined
+      ) {
+        await tx
+          .update(invoicesTable)
+          .set({ materialDisplayMode: "detailed", updatedAt: new Date() })
+          .where(eq(invoicesTable.id, id));
+      }
+    } else if (
+      input.vatModeDefault !== undefined &&
+      input.vatModeDefault !== invoice.vatModeDefault
+    ) {
+      // VAT mode changed — recompute existing lines under the new mode.
+      await recalcWithin(tx, id, vatModeDefault);
+    }
+
+    if (input.sourceAllocations !== undefined) {
+      const currentAllocations = await tx
+        .select()
+        .from(invoiceSourceAllocationsTable)
+        .where(eq(invoiceSourceAllocationsTable.invoiceId, id))
+        .for("update");
+      const byId = new Map(currentAllocations.map((row) => [row.id, row]));
+      const currentLineIds = new Set(
+        (
+          await tx
+            .select({ id: invoiceLinesTable.id })
+            .from(invoiceLinesTable)
+            .where(eq(invoiceLinesTable.invoiceId, id))
+        ).map((line) => line.id),
+      );
+      for (const requested of input.sourceAllocations) {
+        const current = byId.get(requested.id);
+        if (!current) {
+          throw appError(
+            400,
+            `Zdrojové vypořádání #${requested.id} nepatří této faktuře.`,
+          );
+        }
+        if (
+          requested.invoiceLineId != null &&
+          !currentLineIds.has(requested.invoiceLineId)
+        ) {
+          throw appError(
+            400,
+            `Položka #${requested.invoiceLineId} nepatří této faktuře.`,
+          );
+        }
+        if (
+          forcedSettlementAllocationIds.has(current.id) &&
+          requested.settlementMethod === "direct"
+        ) {
+          throw appError(
+            400,
+            `Zdroj #${current.id} přišel o svou položku. Zvolte paušál, neúčtovat nebo další fakturu.`,
+          );
+        }
+        if (
+          current.settlementMethod !== requested.settlementMethod ||
+          (requested.invoiceLineId !== undefined &&
+            current.invoiceLineId !== requested.invoiceLineId)
+        ) {
+          settlementChanges.push(
+            `#${current.id}: ${current.settlementMethod} -> ${requested.settlementMethod}`,
+          );
+        }
+        await tx
+          .update(invoiceSourceAllocationsTable)
+          .set({
+            settlementMethod: requested.settlementMethod,
+            invoiceLineId:
+              requested.invoiceLineId === undefined
+                ? current.invoiceLineId
+                : requested.invoiceLineId,
+            updatedByUserId: actor.userId,
+            updatedAt: new Date(),
+          })
+          .where(eq(invoiceSourceAllocationsTable.id, current.id));
+      }
+    }
+
+    if (settlementChanges.length) {
+      await tx.insert(auditLogTable).values({
+        actorUserId: actor.userId,
+        actorName: actor.name,
+        action: "invoice_source_settlement_changed",
+        entityType: "invoices",
+        entityId: id,
+        summary: `Změna vypořádání zdrojů: ${settlementChanges.join("; ")}`,
+        method: "PATCH",
+        path: `/billing/invoices/${id}`,
+      });
+    }
+
+    if (
+      input.materialDisplayMode !== undefined ||
+      input.presentationGroups !== undefined
+    ) {
+      const requestedMode =
+        input.materialDisplayMode ??
+        (input.presentationGroups !== undefined ? "custom" : undefined);
+      if (!requestedMode) {
+        throw appError(400, "Chybí způsob zobrazení faktury.");
+      }
+      if (
+        requestedMode !== "custom" &&
+        input.presentationGroups !== undefined
+      ) {
+        throw appError(
+          400,
+          "Vlastní skupiny lze uložit pouze v režimu vlastních textů.",
         );
       }
-      await markLinesInvoiced(tx, id, billingDocLineIds(lines));
-      await markMaterialsInvoiced(tx, id, materialIds(lines));
-      const [quoteLink] = await tx
-        .select({ jobGroupId: quoteInvoiceLinksTable.jobGroupId })
-        .from(quoteInvoiceLinksTable)
-        .where(
-          and(
-            eq(quoteInvoiceLinksTable.invoiceId, id),
-            inArray(quoteInvoiceLinksTable.status, ["reserved", "billed"]),
-          ),
-        )
-        .limit(1);
-      if (quoteLink?.jobGroupId != null) {
-        await ensureQuoteGroupSourceLinks(tx, id, quoteLink.jobGroupId);
+
+      if (requestedMode === "custom") {
+        const finalLines = await tx
+          .select()
+          .from(invoiceLinesTable)
+          .where(eq(invoiceLinesTable.invoiceId, id))
+          .orderBy(invoiceLinesTable.sortOrder, invoiceLinesTable.id);
+        const groups =
+          input.presentationGroups ??
+          (normalizeMaterialDisplayMode(invoice.materialDisplayMode) ===
+          "custom"
+            ? getStoredInvoicePresentationGroups(invoice.materialDisplayMode)
+            : finalLines.map((line, index) => ({
+                description: line.description,
+                lineIndexes: [index],
+              })));
+        let storedPresentation: string;
+        try {
+          storedPresentation = encodeInvoicePresentation(groups, finalLines);
+        } catch (error) {
+          throw appError(
+            400,
+            error instanceof Error
+              ? error.message
+              : "Vlastní podobu faktury nelze uložit.",
+          );
+        }
+        await tx
+          .update(invoicesTable)
+          .set({
+            materialDisplayMode: storedPresentation,
+            updatedAt: new Date(),
+          })
+          .where(eq(invoicesTable.id, id));
+      } else {
+        await tx
+          .update(invoicesTable)
+          .set({ materialDisplayMode: requestedMode, updatedAt: new Date() })
+          .where(eq(invoicesTable.id, id));
       }
-    } else {
-      // VAT mode may have changed — recompute existing lines under the new mode.
-      await recalcWithin(tx, id, vatModeDefault);
+    }
+
+    await tx.insert(auditLogTable).values({
+      actorUserId: actor.userId,
+      actorName: actor.name,
+      action: "invoice_draft_updated",
+      entityType: "invoices",
+      entityId: id,
+      summary: `Koncept upraven${input.lines !== undefined ? `; obchodních řádků: ${input.lines.length}` : ""}${input.customerId !== undefined ? "; změněn odběratel" : ""}`,
+      method: "PATCH",
+      path: `/billing/invoices/${id}`,
+    });
+    if (customerMismatchOverrideSummary) {
+      await tx.insert(auditLogTable).values({
+        actorUserId: actor.userId,
+        actorName: actor.name,
+        action: "invoice_customer_mismatch_override",
+        entityType: "invoices",
+        entityId: id,
+        summary: customerMismatchOverrideSummary,
+        method: "PATCH",
+        path: `/billing/invoices/${id}`,
+      });
     }
   });
   return getInvoiceDetail(id);
@@ -2903,6 +3977,7 @@ async function recalcWithin(exec: DbOrTx, id: number, vatModeDefault: VatMode) {
   for (const line of existing) {
     const c = computeLine(
       {
+        rowType: line.rowType as "item" | "section",
         quantity: num(line.quantity),
         unitPriceWithoutVat: num(line.unitPriceWithoutVat),
         discountPercent:
@@ -2962,8 +4037,28 @@ export async function deleteDraft(
     // Free any reserved cost-document lines + job materials before removal.
     await releaseInvoicedLines(tx, id);
     await releaseInvoicedMaterials(tx, id);
-    await releaseWorkSessionBilling(tx, id, null, "draft_deleted");
+    await releaseWorkSessionBilling(tx, id, actor.userId, "draft_deleted");
     await releaseQuoteInvoiceBilling(tx, id, actor.userId, "draft_deleted");
+    await tx
+      .update(invoiceSourceAllocationsTable)
+      .set({
+        status: "released",
+        invoiceLineId: null,
+        updatedByUserId: actor.userId,
+        updatedAt: new Date(),
+        releasedAt: new Date(),
+      })
+      .where(eq(invoiceSourceAllocationsTable.invoiceId, id));
+    await tx.insert(auditLogTable).values({
+      actorUserId: actor.userId,
+      actorName: actor.name,
+      action: "invoice_draft_deleted",
+      entityType: "invoices",
+      entityId: id,
+      summary: `${invoice.documentType === "advance" ? "Zálohový" : "Běžný"} koncept #${id} smazán; rezervace uvolněny`,
+      method: "DELETE",
+      path: `/billing/invoices/${id}`,
+    });
     await tx.delete(invoicesTable).where(eq(invoicesTable.id, id));
   });
 }
@@ -3087,18 +4182,23 @@ async function buildPaymentQrDataUrl(
 ): Promise<string | null> {
   if (invoice.paymentMethod === "cash" || invoice.paymentMethod === "card")
     return null;
-  const iban = resolveIban(settings.iban, settings.bankAccount);
+  const iban = resolveIban(
+    invoice.iban ?? settings.iban,
+    invoice.bankAccount ?? settings.bankAccount,
+  );
   if (!iban) return null;
   const amount = num(invoice.totalWithVat);
   if (!(amount > 0)) return null;
 
   const payload = buildSpayd({
     iban,
-    bic: settings.bic,
+    bic: invoice.bic ?? settings.bic,
     amount,
     currency: invoice.currency || "CZK",
     variableSymbol: invoice.variableSymbol,
-    message: invoice.invoiceNumber ? `Faktura ${invoice.invoiceNumber}` : null,
+    message: invoice.invoiceNumber
+      ? `${invoice.documentType === "advance" ? "Záloha" : "Faktura"} ${invoice.invoiceNumber}`
+      : null,
     dueDateIso: invoice.dueDate,
   });
   try {
@@ -3116,15 +4216,17 @@ async function buildPdfData(
   const paymentQrDataUrl = await buildPaymentQrDataUrl(invoice, settings);
   const presentationLines = presentInvoiceLines(
     lines,
-    normalizeMaterialDisplayMode(invoice.materialDisplayMode),
+    invoice.materialDisplayMode,
   );
   return {
+    documentType: invoice.documentType as "standard" | "advance",
     invoiceNumber: invoice.invoiceNumber ?? "—",
     status: invoice.status,
     customerName: invoice.customerName,
     customerIc: invoice.customerIc,
     customerDic: invoice.customerDic,
     customerAddress: invoice.customerAddress,
+    customerDeliveryAddress: invoice.customerDeliveryAddress,
     customerEmail: invoice.customerEmail,
     issueDate: invoice.issueDate,
     taxableSupplyDate: invoice.taxableSupplyDate,
@@ -3140,6 +4242,7 @@ async function buildPdfData(
     totalVat: num(invoice.totalVat),
     totalWithVat: num(invoice.totalWithVat),
     lines: presentationLines.map((l) => ({
+      rowType: l.rowType as "item" | "section",
       description: l.description,
       unit: l.unit,
       quantity: num(l.quantity),
@@ -3159,9 +4262,9 @@ async function buildPdfData(
       address: settings.supplierAddress,
       email: settings.supplierEmail,
       phone: settings.supplierPhone,
-      bankAccount: settings.bankAccount,
-      iban: settings.iban,
-      bic: settings.bic,
+      bankAccount: invoice.bankAccount ?? settings.bankAccount,
+      iban: invoice.iban ?? settings.iban,
+      bic: invoice.bic ?? settings.bic,
       footerNote: settings.invoiceFooterNote,
       vatPayer: settings.vatPayer,
     },
@@ -3181,13 +4284,46 @@ export async function issueInvoice(id: number, actor: Actor) {
       .for("update");
     if (!invoice) throw appError(404, "Faktura nenalezena.");
     if (invoice.status !== "draft") {
+      if (isIdempotentIssueRetryStatus(invoice.status)) {
+        // Invoice id is the idempotency key for finalisation. A retry returns
+        // the already-issued snapshot and never consumes another number.
+        return invoice.pdfObjectPath;
+      }
       throw appError(409, "Vystavit lze pouze koncept faktury.");
+    }
+    const isAdvance = invoice.documentType === "advance";
+    if (!invoice.customerName?.trim()) {
+      throw appError(400, "Před vystavením doplňte název odběratele.");
     }
 
     // Recompute every line + the invoice totals from the current line inputs
     // inside this same transaction, so the issued (immutable) document and its
     // PDF can never capture stale or tampered totals.
     await recalcWithin(tx, id, invoice.vatModeDefault as VatMode);
+    const issueLines = await tx
+      .select()
+      .from(invoiceLinesTable)
+      .where(eq(invoiceLinesTable.invoiceId, id))
+      .orderBy(invoiceLinesTable.sortOrder, invoiceLinesTable.id);
+    if (!issueLines.some((line) => line.rowType === "item")) {
+      throw appError(400, "Faktura musí obsahovat alespoň jednu položku.");
+    }
+    const allocations = isAdvance
+      ? []
+      : await tx
+          .select()
+          .from(invoiceSourceAllocationsTable)
+          .where(eq(invoiceSourceAllocationsTable.invoiceId, id))
+          .for("update");
+    const invalidAllocation = allocations.find(
+      (allocation) => allocation.status !== "reserved",
+    );
+    if (invalidAllocation) {
+      throw appError(
+        409,
+        `Zdroj #${invalidAllocation.id} už není rezervován tímto konceptem.`,
+      );
+    }
 
     const [quoteBilling] = await tx
       .select({
@@ -3203,7 +4339,7 @@ export async function issueInvoice(id: number, actor: Actor) {
       )
       .for("update")
       .limit(1);
-    if (quoteBilling?.jobGroupId != null) {
+    if (!isAdvance && quoteBilling?.jobGroupId != null) {
       const [sourceQuote] = await tx
         .select({
           status: quotesTable.status,
@@ -3275,7 +4411,7 @@ export async function issueInvoice(id: number, actor: Actor) {
     const activityIds = links
       .map((l) => l.activityId)
       .filter((x): x is number => x != null);
-    if (jobIds.length) {
+    if (!isAdvance && jobIds.length) {
       const jobs = await tx
         .select()
         .from(jobsTable)
@@ -3300,7 +4436,7 @@ export async function issueInvoice(id: number, actor: Actor) {
     // AND are not already billed by another non-cancelled invoice. Unlike jobs,
     // activities have no status transition to block re-billing, so the source
     // link is the only guard against a competing draft double-billing them.
-    if (activityIds.length) {
+    if (!isAdvance && activityIds.length) {
       const acts = await tx
         .select()
         .from(activitiesTable)
@@ -3326,7 +4462,8 @@ export async function issueInvoice(id: number, actor: Actor) {
           and(
             inArray(invoiceSourceLinksTable.activityId, activityIds),
             ne(invoiceSourceLinksTable.invoiceId, id),
-            ne(invoicesTable.status, "cancelled"),
+            eq(invoicesTable.status, "draft"),
+            eq(invoicesTable.documentType, "standard"),
           ),
         );
       if (alreadyBilled.length) {
@@ -3347,53 +4484,55 @@ export async function issueInvoice(id: number, actor: Actor) {
       .where(eq(billingSettingsTable.id, SETTINGS_ID))
       .for("update");
     const year = new Date().getFullYear();
-    const seq = settings.numberYear === year ? settings.numberNextSeq : 1;
+    const seq = isAdvance
+      ? settings.advanceNumberYear === year
+        ? settings.advanceNumberNextSeq
+        : 1
+      : settings.numberYear === year
+        ? settings.numberNextSeq
+        : 1;
     const invoiceNumber = buildInvoiceNumber(
-      settings.numberPrefix,
-      settings.numberFormat,
+      isAdvance ? settings.advanceNumberPrefix : settings.numberPrefix,
+      isAdvance ? settings.advanceNumberFormat : settings.numberFormat,
       year,
       seq,
     );
     await tx
       .update(billingSettingsTable)
-      .set({ numberYear: year, numberNextSeq: seq + 1, updatedAt: new Date() })
+      .set(
+        isAdvance
+          ? {
+              advanceNumberYear: year,
+              advanceNumberNextSeq: seq + 1,
+              updatedAt: new Date(),
+            }
+          : {
+              numberYear: year,
+              numberNextSeq: seq + 1,
+              updatedAt: new Date(),
+            },
+      )
       .where(eq(billingSettingsTable.id, SETTINGS_ID));
 
-    // Re-snapshot customer identity (legal immutability) if still linked.
-    let snapshot: Partial<Invoice> = {};
-    if (invoice.customerId != null) {
-      const [customer] = await tx
-        .select()
-        .from(customersTable)
-        .where(eq(customersTable.id, invoice.customerId));
-      if (customer) {
-        snapshot = {
-          customerName: customer.companyName,
-          customerIc: customer.ic,
-          customerDic: customer.dic,
-          customerAddress: customer.address,
-          customerEmail: customer.email,
-        };
-      }
-    }
-
     const issueDate = invoice.issueDate ?? todayIso();
-    const taxableSupplyDate = invoice.taxableSupplyDate ?? issueDate;
+    const taxableSupplyDate = isAdvance
+      ? invoice.taxableSupplyDate
+      : (invoice.taxableSupplyDate ?? issueDate);
     const dueDate =
       invoice.dueDate ?? addDaysIso(issueDate, settings.defaultDueDays);
-    const variableSymbol = invoiceVariableSymbol(invoiceNumber);
+    const variableSymbol =
+      invoice.variableSymbol || invoiceVariableSymbol(invoiceNumber);
 
     const [updated] = await tx
       .update(invoicesTable)
       .set({
-        ...snapshot,
         status: "issued",
         invoiceNumber,
         issueDate,
         taxableSupplyDate,
         dueDate,
         variableSymbol,
-        constantSymbol: INVOICE_CONSTANT_SYMBOL,
+        constantSymbol: invoice.constantSymbol ?? INVOICE_CONSTANT_SYMBOL,
         issuedByUserId: actor.userId,
         issuedAt: new Date(),
         updatedAt: new Date(),
@@ -3453,23 +4592,60 @@ export async function issueInvoice(id: number, actor: Actor) {
       .set({ pdfObjectPath: objectPath, updatedAt: new Date() })
       .where(eq(invoicesTable.id, id));
 
-    // Flip billed jobs → "vyfakturováno".
-    if (jobIds.length) {
+    const deferredJobIds = new Set(
+      allocations
+        .filter((row) => row.settlementMethod === "deferred")
+        .map((row) => row.jobId)
+        .filter((jobId): jobId is number => jobId != null),
+    );
+    const fullySettledJobIds = jobIds.filter(
+      (jobId) => !deferredJobIds.has(jobId),
+    );
+    // Advance payment requests never settle a job. A standard invoice marks a
+    // job fully billed only when none of its selected sources was deferred.
+    if (!isAdvance && fullySettledJobIds.length) {
       await tx
         .update(jobsTable)
         .set({ status: "vyfakturovano" })
-        .where(inArray(jobsTable.id, jobIds));
+        .where(inArray(jobsTable.id, fullySettledJobIds));
     }
     // Mark billed activities (cosmetic flag; the source link is the source of
     // truth for unbilled selection — see getBilledActivityIds).
-    if (activityIds.length) {
+    const deferredActivityIds = new Set(
+      allocations
+        .filter((row) => row.settlementMethod === "deferred")
+        .map((row) => row.activityId)
+        .filter((activityId): activityId is number => activityId != null),
+    );
+    const fullySettledActivityIds = activityIds.filter(
+      (activityId) => !deferredActivityIds.has(activityId),
+    );
+    if (!isAdvance && fullySettledActivityIds.length) {
       await tx
         .update(activitiesTable)
         .set({ billingStatus: "billed", updatedAt: new Date() })
-        .where(inArray(activitiesTable.id, activityIds));
+        .where(inArray(activitiesTable.id, fullySettledActivityIds));
     }
 
-    if (workLinks.length) {
+    const workAllocationBySession = new Map(
+      allocations
+        .filter((row) => row.sourceType === "work_session")
+        .map((row) => [row.sourceId, row]),
+    );
+    const billedWorkIds = workLinks
+      .map((link) => link.sessionId)
+      .filter((sessionId) => {
+        const allocation = workAllocationBySession.get(sessionId);
+        return allocation == null || allocation.settlementMethod !== "deferred";
+      });
+    const deferredWorkIds = workLinks
+      .map((link) => link.sessionId)
+      .filter(
+        (sessionId) =>
+          workAllocationBySession.get(sessionId)?.settlementMethod ===
+          "deferred",
+      );
+    if (!isAdvance && billedWorkIds.length) {
       await tx
         .update(workSessionBillingLinksTable)
         .set({ status: "billed", billedAt: new Date() })
@@ -3477,28 +4653,99 @@ export async function issueInvoice(id: number, actor: Actor) {
           and(
             eq(workSessionBillingLinksTable.invoiceId, id),
             eq(workSessionBillingLinksTable.status, "reserved"),
+            inArray(workSessionBillingLinksTable.sessionId, billedWorkIds),
           ),
         );
       await tx
         .update(workSessionsTable)
         .set({ billingStatus: "billed", updatedAt: new Date() })
+        .where(inArray(workSessionsTable.id, billedWorkIds));
+    }
+    if (!isAdvance && deferredWorkIds.length) {
+      await tx
+        .update(workSessionBillingLinksTable)
+        .set({
+          status: "released",
+          releasedAt: new Date(),
+          releasedByUserId: actor.userId,
+          releaseReason: "deferred_to_later_invoice",
+        })
         .where(
-          inArray(
-            workSessionsTable.id,
-            workLinks.map((link) => link.sessionId),
+          and(
+            eq(workSessionBillingLinksTable.invoiceId, id),
+            eq(workSessionBillingLinksTable.status, "reserved"),
+            inArray(workSessionBillingLinksTable.sessionId, deferredWorkIds),
+          ),
+        );
+      await tx
+        .update(workSessionsTable)
+        .set({ billingStatus: "unbilled", updatedAt: new Date() })
+        .where(inArray(workSessionsTable.id, deferredWorkIds));
+    }
+
+    if (!isAdvance) {
+      const deferredMaterialIds = allocations
+        .filter(
+          (row) =>
+            row.sourceType === "material" &&
+            row.settlementMethod === "deferred",
+        )
+        .map((row) => row.sourceId);
+      if (deferredMaterialIds.length) {
+        await tx
+          .update(materialsTable)
+          .set({ invoicedInvoiceId: null, invoicedAt: null })
+          .where(
+            and(
+              inArray(materialsTable.id, deferredMaterialIds),
+              eq(materialsTable.invoicedInvoiceId, id),
+            ),
+          );
+      }
+      const deferredCostLineIds = allocations
+        .filter(
+          (row) =>
+            row.sourceType === "billing_document_line" &&
+            row.settlementMethod === "deferred",
+        )
+        .map((row) => row.sourceId);
+      if (deferredCostLineIds.length) {
+        await tx
+          .update(billingDocumentLinesTable)
+          .set({ invoicedInvoiceId: null, updatedAt: new Date() })
+          .where(
+            and(
+              inArray(billingDocumentLinesTable.id, deferredCostLineIds),
+              eq(billingDocumentLinesTable.invoicedInvoiceId, id),
+            ),
+          );
+      }
+
+      for (const allocation of allocations) {
+        const finalStatus = finalAllocationStatus(
+          allocation.settlementMethod as SettlementMethod,
+        );
+        await tx
+          .update(invoiceSourceAllocationsTable)
+          .set({
+            status: finalStatus,
+            updatedByUserId: actor.userId,
+            updatedAt: new Date(),
+            settledAt: new Date(),
+          })
+          .where(eq(invoiceSourceAllocationsTable.id, allocation.id));
+      }
+
+      await tx
+        .update(quoteInvoiceLinksTable)
+        .set({ status: "billed", billedAt: new Date() })
+        .where(
+          and(
+            eq(quoteInvoiceLinksTable.invoiceId, id),
+            eq(quoteInvoiceLinksTable.status, "reserved"),
           ),
         );
     }
-
-    await tx
-      .update(quoteInvoiceLinksTable)
-      .set({ status: "billed", billedAt: new Date() })
-      .where(
-        and(
-          eq(quoteInvoiceLinksTable.invoiceId, id),
-          eq(quoteInvoiceLinksTable.status, "reserved"),
-        ),
-      );
 
     await tx.insert(auditLogTable).values({
       actorUserId: actor.userId,
@@ -3506,7 +4753,7 @@ export async function issueInvoice(id: number, actor: Actor) {
       action: "issue",
       entityType: "invoices",
       entityId: id,
-      summary: `Faktura ${invoiceNumber} vystavena${
+      summary: `${isAdvance ? "Zálohová faktura" : "Faktura"} ${invoiceNumber} vystavena${
         jobIds.length ? ` (zakázky: ${jobIds.join(", ")})` : ""
       }${activityIds.length ? ` (akce: ${activityIds.join(", ")})` : ""}`,
       method: "POST",
@@ -3673,11 +4920,65 @@ export async function cancelInvoice(
       })
       .where(eq(invoicesTable.id, id));
 
-    // Storno frees any re-billed cost-document lines + job materials for re-billing.
-    await releaseInvoicedLines(tx, id);
-    await releaseInvoicedMaterials(tx, id);
-    await releaseWorkSessionBilling(tx, id, actor.userId, "invoice_cancelled");
-    await releaseQuoteInvoiceBilling(tx, id, actor.userId, "invoice_cancelled");
+    const allocations = await tx
+      .select()
+      .from(invoiceSourceAllocationsTable)
+      .where(eq(invoiceSourceAllocationsTable.invoiceId, id))
+      .for("update");
+    const reservedAllocationIds = allocations
+      .filter((row) => row.status === "reserved")
+      .map((row) => row.id);
+    const finalAllocationIds = allocations
+      .filter((row) =>
+        ["billed", "included_in_lump_sum", "not_charged", "deferred"].includes(
+          row.status,
+        ),
+      )
+      .map((row) => row.id);
+    if (reservedAllocationIds.length) {
+      await tx
+        .update(invoiceSourceAllocationsTable)
+        .set({
+          status: "released",
+          updatedByUserId: actor.userId,
+          updatedAt: new Date(),
+          releasedAt: new Date(),
+        })
+        .where(
+          inArray(invoiceSourceAllocationsTable.id, reservedAllocationIds),
+        );
+    }
+    if (finalAllocationIds.length) {
+      await tx
+        .update(invoiceSourceAllocationsTable)
+        .set({
+          status: "reversed",
+          updatedByUserId: actor.userId,
+          updatedAt: new Date(),
+          reversedAt: new Date(),
+        })
+        .where(inArray(invoiceSourceAllocationsTable.id, finalAllocationIds));
+    }
+
+    // A payment request has no operational settlement to undo. A standard
+    // invoice releases customer-billing provenance only; stock consumption has
+    // already happened on the work/material event and is never moved here.
+    if (invoice.documentType === "standard") {
+      await releaseInvoicedLines(tx, id);
+      await releaseInvoicedMaterials(tx, id);
+      await releaseWorkSessionBilling(
+        tx,
+        id,
+        actor.userId,
+        "invoice_cancelled",
+      );
+      await releaseQuoteInvoiceBilling(
+        tx,
+        id,
+        actor.userId,
+        "invoice_cancelled",
+      );
+    }
 
     const links = await tx
       .select({
@@ -3693,7 +4994,11 @@ export async function cancelInvoice(
       .map((l) => l.activityId)
       .filter((x): x is number => x != null);
 
-    if (returnJobsToDone && jobIds.length) {
+    if (
+      invoice.documentType === "standard" &&
+      returnJobsToDone &&
+      jobIds.length
+    ) {
       // Only revert jobs we actually flipped (still "vyfakturováno").
       await tx
         .update(jobsTable)
@@ -3708,7 +5013,7 @@ export async function cancelInvoice(
     // Clear the cosmetic billed flag on the activities this invoice marked. The
     // storno already removes them from the billed set (cancelled invoices are
     // excluded), so they return to the unbilled pool regardless.
-    if (activityIds.length) {
+    if (invoice.documentType === "standard" && activityIds.length) {
       await tx
         .update(activitiesTable)
         .set({ billingStatus: null, updatedAt: new Date() })
@@ -3726,8 +5031,8 @@ export async function cancelInvoice(
       action: "cancel",
       entityType: "invoices",
       entityId: id,
-      summary: `Faktura ${invoice.invoiceNumber ?? `#${id}`} stornována${
-        returnJobsToDone && jobIds.length
+      summary: `${invoice.documentType === "advance" ? "Zálohová faktura" : "Faktura"} ${invoice.invoiceNumber ?? `#${id}`} stornována${
+        invoice.documentType === "standard" && returnJobsToDone && jobIds.length
           ? ` (zakázky vráceny: ${jobIds.join(", ")})`
           : ""
       }${activityIds.length ? ` (akce uvolněny: ${activityIds.join(", ")})` : ""} (důvod: ${reasonCode})`,

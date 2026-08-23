@@ -6,7 +6,8 @@ import { describe, expect, it } from "vitest";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const MIGRATION_TAG = "0107_canonical_audit_evidence";
-const read = (path: string) => readFileSync(resolve(ROOT, path), "utf8");
+const read = (path: string) =>
+  readFileSync(resolve(ROOT, path), "utf8").replace(/\r\n/g, "\n");
 const migrationSql = read(`lib/db/migrations/${MIGRATION_TAG}.sql`);
 const migrationHash = createHash("sha256")
   .update(migrationSql.replace(/\r\n/g, "\n"))
@@ -26,12 +27,12 @@ describe("R09 canonical audit evidence expand artifacts", () => {
       read("lib/db/migrations/meta/_journal.json"),
     ) as { entries: Array<{ idx: number; when: number; tag: string }> };
     const migrationFiles = readdirSync(resolve(ROOT, "lib/db/migrations"));
-    expect(journal.entries.at(-2)).toMatchObject({
+    expect(journal.entries.find((entry) => entry.idx === 106)).toMatchObject({
       idx: 106,
       when: 1786459128910,
       tag: "0106_graceful_frog_thor",
     });
-    expect(journal.entries.at(-1)).toMatchObject({
+    expect(journal.entries.find((entry) => entry.idx === 107)).toMatchObject({
       idx: 107,
       when: 1786484628859,
       tag: MIGRATION_TAG,

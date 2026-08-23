@@ -15618,6 +15618,9 @@ components:
         - numberPrefix
         - numberFormat
         - numberNextSeq
+        - advanceNumberPrefix
+        - advanceNumberFormat
+        - advanceNumberNextSeq
         - updatedAt
       properties:
         id:
@@ -15625,21 +15628,21 @@ components:
         supplierName:
           type: string
         supplierIc:
-          type: ["string", "null"]
+          type: ['string', 'null']
         supplierDic:
-          type: ["string", "null"]
+          type: ['string', 'null']
         supplierAddress:
-          type: ["string", "null"]
+          type: ['string', 'null']
         supplierEmail:
-          type: ["string", "null"]
+          type: ['string', 'null']
         supplierPhone:
-          type: ["string", "null"]
+          type: ['string', 'null']
         bankAccount:
-          type: ["string", "null"]
+          type: ['string', 'null']
         iban:
-          type: ["string", "null"]
+          type: ['string', 'null']
         bic:
-          type: ["string", "null"]
+          type: ['string', 'null']
         defaultDueDays:
           type: integer
         defaultPaymentMethod:
@@ -15650,7 +15653,7 @@ components:
           type: string
           enum: [standard, reverse_charge, zero, non_vat]
         invoiceFooterNote:
-          type: ["string", "null"]
+          type: ['string', 'null']
         materialMarkupPercent:
           type: number
           description: Default percent markup applied to material lines when proposing an invoice (0 = no markup)
@@ -15666,8 +15669,16 @@ components:
         numberFormat:
           type: string
         numberYear:
-          type: ["integer", "null"]
+          type: ['integer', 'null']
         numberNextSeq:
+          type: integer
+        advanceNumberPrefix:
+          type: string
+        advanceNumberFormat:
+          type: string
+        advanceNumberYear:
+          type: ['integer', 'null']
+        advanceNumberNextSeq:
           type: integer
         reminderEnabled:
           type: boolean
@@ -15684,64 +15695,73 @@ components:
       type: object
       properties:
         supplierName:
-          type: ["string", "null"]
+          type: ['string', 'null']
         supplierIc:
-          type: ["string", "null"]
+          type: ['string', 'null']
         supplierDic:
-          type: ["string", "null"]
+          type: ['string', 'null']
         supplierAddress:
-          type: ["string", "null"]
+          type: ['string', 'null']
         supplierEmail:
-          type: ["string", "null"]
+          type: ['string', 'null']
         supplierPhone:
-          type: ["string", "null"]
+          type: ['string', 'null']
         bankAccount:
-          type: ["string", "null"]
+          type: ['string', 'null']
         iban:
-          type: ["string", "null"]
+          type: ['string', 'null']
         bic:
-          type: ["string", "null"]
+          type: ['string', 'null']
         defaultDueDays:
-          type: ["integer", "null"]
+          type: ['integer', 'null']
         defaultPaymentMethod:
-          type: ["string", "null"]
+          type: ['string', 'null']
         vatPayer:
-          type: ["boolean", "null"]
+          type: ['boolean', 'null']
         vatModeDefault:
-          type: ["string", "null"]
+          type: ['string', 'null']
         invoiceFooterNote:
-          type: ["string", "null"]
+          type: ['string', 'null']
         materialMarkupPercent:
-          type: ["number", "null"]
+          type: ['number', 'null']
           description: Default percent markup applied to material lines (0 = no markup)
         transportRatePerKm:
-          type: ["number", "null"]
+          type: ['number', 'null']
           minimum: 0
           description: Default customer-facing transport price per kilometre
         marginAlertThresholdPercent:
-          type: ["number", "null"]
+          type: ['number', 'null']
           description: Margin warning threshold in percent for the job-detail margin alert (0 = warn only on a negative margin)
         numberPrefix:
-          type: ["string", "null"]
+          type: ['string', 'null']
         numberFormat:
-          type: ["string", "null"]
+          type: ['string', 'null']
         numberYear:
-          type: ["integer", "null"]
+          type: ['integer', 'null']
         numberNextSeq:
-          type: ["integer", "null"]
+          type: ['integer', 'null']
+        advanceNumberPrefix:
+          type: ['string', 'null']
+        advanceNumberFormat:
+          type: ['string', 'null']
+        advanceNumberYear:
+          type: ['integer', 'null']
+        advanceNumberNextSeq:
+          type: ['integer', 'null']
         reminderEnabled:
-          type: ["boolean", "null"]
+          type: ['boolean', 'null']
         reminderDays:
-          type: ["string", "null"]
+          type: ['string', 'null']
         quoteNumberPrefix:
-          type: ["string", "null"]
+          type: ['string', 'null']
         quoteNumberNextSeq:
-          type: ["integer", "null"]
+          type: ['integer', 'null']
 
     Invoice:
       type: object
       required:
         - id
+        - documentType
         - status
         - currency
         - vatModeDefault
@@ -15754,46 +15774,57 @@ components:
       properties:
         id:
           type: integer
+        documentType:
+          type: string
+          enum: [standard, advance]
         invoiceNumber:
-          type: ["string", "null"]
+          type: ['string', 'null']
         status:
           type: string
           enum: [draft, issued, sent, paid, cancelled]
         customerId:
-          type: ["integer", "null"]
+          type: ['integer', 'null']
         customerName:
-          type: ["string", "null"]
+          type: ['string', 'null']
         customerIc:
-          type: ["string", "null"]
+          type: ['string', 'null']
         customerDic:
-          type: ["string", "null"]
+          type: ['string', 'null']
         customerAddress:
-          type: ["string", "null"]
+          type: ['string', 'null']
+        customerDeliveryAddress:
+          type: ['string', 'null']
         customerEmail:
-          type: ["string", "null"]
+          type: ['string', 'null']
         issueDate:
-          type: ["string", "null"]
+          type: ['string', 'null']
         taxableSupplyDate:
-          type: ["string", "null"]
+          type: ['string', 'null']
         dueDate:
-          type: ["string", "null"]
+          type: ['string', 'null']
         currency:
           type: string
         paymentMethod:
-          type: ["string", "null"]
+          type: ['string', 'null']
+        bankAccount:
+          type: ['string', 'null']
+        iban:
+          type: ['string', 'null']
+        bic:
+          type: ['string', 'null']
         variableSymbol:
-          type: ["string", "null"]
+          type: ['string', 'null']
         constantSymbol:
-          type: ["string", "null"]
+          type: ['string', 'null']
         specificSymbol:
-          type: ["string", "null"]
+          type: ['string', 'null']
         vatModeDefault:
           type: string
           enum: [standard, reverse_charge, zero, non_vat]
         materialDisplayMode:
           type: string
-          enum: [detailed, summary]
-          description: Customer-facing material layout; source lines remain detailed
+          enum: [detailed, summary, custom]
+          description: Customer-facing layout; custom text is stored separately from source lines
         subtotalWithoutVat:
           type: number
         totalVat:
@@ -15801,27 +15832,27 @@ components:
         totalWithVat:
           type: number
         notes:
-          type: ["string", "null"]
+          type: ['string', 'null']
         paidDate:
-          type: ["string", "null"]
+          type: ['string', 'null']
           description: Payment date (ISO YYYY-MM-DD) when the invoice was paid
         paidAmount:
-          type: ["number", "null"]
+          type: ['number', 'null']
           description: Amount actually received (supports partial payments)
         pdfObjectPath:
-          type: ["string", "null"]
+          type: ['string', 'null']
         isdocObjectPath:
-          type: ["string", "null"]
+          type: ['string', 'null']
         createdByUserId:
-          type: ["integer", "null"]
+          type: ['integer', 'null']
         issuedByUserId:
-          type: ["integer", "null"]
+          type: ['integer', 'null']
         issuedAt:
-          type: ["string", "null"]
+          type: ['string', 'null']
         cancelledAt:
-          type: ["string", "null"]
+          type: ['string', 'null']
         recurringTemplateId:
-          type: ["integer", "null"]
+          type: ['integer', 'null']
           description: ID of the recurring template that generated this invoice (if any)
         createdAt:
           type: string
@@ -15830,7 +15861,7 @@ components:
         sourceJobs:
           type: array
           items:
-            $ref: "#/components/schemas/InvoiceSourceJob"
+            $ref: '#/components/schemas/InvoiceSourceJob'
 
     InvoiceSourceJob:
       type: object
@@ -15839,12 +15870,15 @@ components:
         id:
           type: integer
         jobNumber:
-          type: ["integer", "null"]
+          type: ['integer', 'null']
           description: Sequential job number
         title:
           type: string
         date:
           type: string
+        billingState:
+          type: string
+          enum: [draft, partial, ready, billed, linked]
 
     InvoiceSourceActivity:
       type: object
@@ -15855,12 +15889,91 @@ components:
         name:
           type: string
 
+    InvoiceSourceAllocation:
+      type: object
+      required:
+        - id
+        - invoiceId
+        - invoiceIdSnapshot
+        - invoiceLineId
+        - sourceType
+        - sourceId
+        - jobId
+        - activityId
+        - sourceDescription
+        - sourceUnit
+        - originalQuantity
+        - allocatedQuantity
+        - sourceAmountWithoutVat
+        - status
+        - settlementMethod
+        - legacyIncomplete
+        - createdByUserId
+        - updatedByUserId
+        - createdAt
+        - updatedAt
+        - settledAt
+        - releasedAt
+        - reversedAt
+      properties:
+        id: { type: integer }
+        invoiceId: { type: ['integer', 'null'] }
+        invoiceIdSnapshot: { type: integer }
+        invoiceLineId: { type: ['integer', 'null'] }
+        sourceType: { type: string }
+        sourceId: { type: integer }
+        jobId: { type: ['integer', 'null'] }
+        activityId: { type: ['integer', 'null'] }
+        sourceDescription: { type: string }
+        sourceUnit: { type: ['string', 'null'] }
+        originalQuantity: { type: number }
+        allocatedQuantity: { type: number }
+        sourceAmountWithoutVat: { type: number }
+        status:
+          type: string
+          enum: [reserved, billed, included_in_lump_sum, not_charged, deferred, released, reversed]
+        settlementMethod:
+          type: string
+          enum: [direct, included_in_lump_sum, not_charged, deferred]
+        legacyIncomplete: { type: boolean }
+        createdByUserId: { type: ['integer', 'null'] }
+        updatedByUserId: { type: ['integer', 'null'] }
+        createdAt: { type: string }
+        updatedAt: { type: string }
+        settledAt: { type: ['string', 'null'] }
+        releasedAt: { type: ['string', 'null'] }
+        reversedAt: { type: ['string', 'null'] }
+
+    InvoiceSourceSummary:
+      type: object
+      required:
+        - count
+        - workCount
+        - materialCount
+        - otherCount
+        - unresolvedCount
+        - deferredCount
+        - sourceTotalWithoutVat
+        - invoiceTotalWithoutVat
+        - differenceWithoutVat
+      properties:
+        count: { type: integer }
+        workCount: { type: integer }
+        materialCount: { type: integer }
+        otherCount: { type: integer }
+        unresolvedCount: { type: integer }
+        deferredCount: { type: integer }
+        sourceTotalWithoutVat: { type: number }
+        invoiceTotalWithoutVat: { type: number }
+        differenceWithoutVat: { type: number }
+
     InvoiceLine:
       type: object
       required:
         - id
         - invoiceId
         - sourceType
+        - rowType
         - description
         - quantity
         - unitPriceWithoutVat
@@ -15892,23 +16005,26 @@ components:
               manual,
             ]
         sourceId:
-          type: ["integer", "null"]
+          type: ['integer', 'null']
         jobId:
-          type: ["integer", "null"]
+          type: ['integer', 'null']
         activityId:
-          type: ["integer", "null"]
+          type: ['integer', 'null']
+        rowType:
+          type: string
+          enum: [item, section]
         description:
           type: string
         quantity:
           type: number
         unit:
-          type: ["string", "null"]
+          type: ['string', 'null']
         unitPriceWithoutVat:
           type: number
         discountPercent:
-          type: ["number", "null"]
+          type: ['number', 'null']
         vatRate:
-          type: ["number", "null"]
+          type: ['number', 'null']
         vatMode:
           type: string
           enum: [standard, reverse_charge, zero, non_vat]
@@ -15921,10 +16037,30 @@ components:
         sortOrder:
           type: integer
 
+    InvoicePresentationGroup:
+      type: object
+      required: [description, lineIndexes]
+      properties:
+        description:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: Freely editable customer-facing text for the grouped sources
+        lineIndexes:
+          type: array
+          minItems: 1
+          maxItems: 500
+          uniqueItems: true
+          description: Zero-based indexes of immutable internal invoice source lines
+          items:
+            type: integer
+            minimum: 0
+
     InvoiceDetail:
       type: object
       required:
         - id
+        - documentType
         - status
         - currency
         - vatModeDefault
@@ -15936,50 +16072,64 @@ components:
         - updatedAt
         - lines
         - presentationLines
+        - presentationGroups
         - sourceJobIds
+        - sourceAllocations
+        - sourceSummary
       properties:
         id:
           type: integer
+        documentType:
+          type: string
+          enum: [standard, advance]
         invoiceNumber:
-          type: ["string", "null"]
+          type: ['string', 'null']
         status:
           type: string
           enum: [draft, issued, sent, paid, cancelled]
         customerId:
-          type: ["integer", "null"]
+          type: ['integer', 'null']
         customerName:
-          type: ["string", "null"]
+          type: ['string', 'null']
         customerIc:
-          type: ["string", "null"]
+          type: ['string', 'null']
         customerDic:
-          type: ["string", "null"]
+          type: ['string', 'null']
         customerAddress:
-          type: ["string", "null"]
+          type: ['string', 'null']
+        customerDeliveryAddress:
+          type: ['string', 'null']
         customerEmail:
-          type: ["string", "null"]
+          type: ['string', 'null']
         issueDate:
-          type: ["string", "null"]
+          type: ['string', 'null']
         taxableSupplyDate:
-          type: ["string", "null"]
+          type: ['string', 'null']
         dueDate:
-          type: ["string", "null"]
+          type: ['string', 'null']
         currency:
           type: string
         paymentMethod:
-          type: ["string", "null"]
+          type: ['string', 'null']
+        bankAccount:
+          type: ['string', 'null']
+        iban:
+          type: ['string', 'null']
+        bic:
+          type: ['string', 'null']
         variableSymbol:
-          type: ["string", "null"]
+          type: ['string', 'null']
         constantSymbol:
-          type: ["string", "null"]
+          type: ['string', 'null']
         specificSymbol:
-          type: ["string", "null"]
+          type: ['string', 'null']
         vatModeDefault:
           type: string
           enum: [standard, reverse_charge, zero, non_vat]
         materialDisplayMode:
           type: string
-          enum: [detailed, summary]
-          description: Customer-facing material layout; source lines remain detailed
+          enum: [detailed, summary, custom]
+          description: Customer-facing layout; custom text is stored separately from source lines
         subtotalWithoutVat:
           type: number
         totalVat:
@@ -15987,27 +16137,27 @@ components:
         totalWithVat:
           type: number
         notes:
-          type: ["string", "null"]
+          type: ['string', 'null']
         paidDate:
-          type: ["string", "null"]
+          type: ['string', 'null']
           description: Payment date (ISO YYYY-MM-DD) when the invoice was paid
         paidAmount:
-          type: ["number", "null"]
+          type: ['number', 'null']
           description: Amount actually received (supports partial payments)
         pdfObjectPath:
-          type: ["string", "null"]
+          type: ['string', 'null']
         isdocObjectPath:
-          type: ["string", "null"]
+          type: ['string', 'null']
         createdByUserId:
-          type: ["integer", "null"]
+          type: ['integer', 'null']
         issuedByUserId:
-          type: ["integer", "null"]
+          type: ['integer', 'null']
         issuedAt:
-          type: ["string", "null"]
+          type: ['string', 'null']
         cancelledAt:
-          type: ["string", "null"]
+          type: ['string', 'null']
         recurringTemplateId:
-          type: ["integer", "null"]
+          type: ['integer', 'null']
           description: ID of the recurring template that generated this invoice (if any)
         createdAt:
           type: string
@@ -16016,12 +16166,17 @@ components:
         lines:
           type: array
           items:
-            $ref: "#/components/schemas/InvoiceLine"
+            $ref: '#/components/schemas/InvoiceLine'
         presentationLines:
           type: array
           description: Lines rendered on the customer invoice and PDF
           items:
-            $ref: "#/components/schemas/InvoiceLine"
+            $ref: '#/components/schemas/InvoiceLine'
+        presentationGroups:
+          type: array
+          description: Custom customer-facing groups; source lines remain immutable and linked
+          items:
+            $ref: '#/components/schemas/InvoicePresentationGroup'
         sourceJobIds:
           type: array
           items:
@@ -16033,16 +16188,28 @@ components:
         sourceJobs:
           type: array
           items:
-            $ref: "#/components/schemas/InvoiceSourceJob"
+            $ref: '#/components/schemas/InvoiceSourceJob'
         sourceActivities:
           type: array
           items:
-            $ref: "#/components/schemas/InvoiceSourceActivity"
+            $ref: '#/components/schemas/InvoiceSourceActivity'
+        sourceAllocations:
+          type: array
+          items:
+            $ref: '#/components/schemas/InvoiceSourceAllocation'
+        sourceSummary:
+          $ref: '#/components/schemas/InvoiceSourceSummary'
 
     InvoiceLineInput:
       type: object
       required: [description]
       properties:
+        id:
+          type: ['integer', 'null']
+          description: Existing draft line id retained during in-place edits
+        rowType:
+          type: string
+          enum: [item, section]
         sourceType:
           type: string
           enum:
@@ -16061,36 +16228,52 @@ components:
               manual,
             ]
         sourceId:
-          type: ["integer", "null"]
+          type: ['integer', 'null']
         jobId:
-          type: ["integer", "null"]
+          type: ['integer', 'null']
         activityId:
-          type: ["integer", "null"]
+          type: ['integer', 'null']
         description:
           type: string
           minLength: 1
         quantity:
-          type: ["number", "null"]
+          type: ['number', 'null']
         unit:
-          type: ["string", "null"]
+          type: ['string', 'null']
         unitPriceWithoutVat:
-          type: ["number", "null"]
+          type: ['number', 'null']
         discountPercent:
-          type: ["number", "null"]
+          type: ['number', 'null']
         vatRate:
-          type: ["number", "null"]
+          type: ['number', 'null']
         vatMode:
           type: string
           enum: [standard, reverse_charge, zero, non_vat]
         sortOrder:
-          type: ["integer", "null"]
+          type: ['integer', 'null']
 
     InvoiceCreateInput:
       type: object
       required: [customerId]
       properties:
+        documentType:
+          type: string
+          enum: [standard, advance]
+          default: standard
         customerId:
           type: integer
+        customerName:
+          type: ['string', 'null']
+        customerIc:
+          type: ['string', 'null']
+        customerDic:
+          type: ['string', 'null']
+        customerAddress:
+          type: ['string', 'null']
+        customerDeliveryAddress:
+          type: ['string', 'null']
+        customerEmail:
+          type: ['string', 'null']
         jobIds:
           type: array
           items:
@@ -16115,18 +16298,23 @@ components:
           enum: [summary, worker]
           default: summary
           description: Group recorded-time lines by rate only or by worker and rate
+        sourceGrouping:
+          type: string
+          enum: [by_job, combined]
+          default: by_job
+          description: Keep source rows grouped per job or combine compatible commercial rows across jobs
         billFineJobIds:
           type: array
           items:
             type: integer
           description: Subset of jobIds whose fines should also be billed (explicit opt-in)
         materialMarkupPercent:
-          type: ["number", "null"]
+          type: ['number', 'null']
           description: Percent markup applied to auto-proposed material lines; defaults to the billing settings value when omitted
         materialMarkupOverrides:
           type: array
           items:
-            $ref: "#/components/schemas/MaterialMarkupOverride"
+            $ref: '#/components/schemas/MaterialMarkupOverride'
           description: Per-material markup overrides (highest priority); each entry overrides the category default and the invoice/settings default for that material line
         materialDisplayMode:
           type: string
@@ -16136,27 +16324,37 @@ components:
         lines:
           type: array
           items:
-            $ref: "#/components/schemas/InvoiceLineInput"
+            $ref: '#/components/schemas/InvoiceLineInput'
           description: Extra manual lines appended after the auto-proposed ones
         issueDate:
-          type: ["string", "null"]
+          type: ['string', 'null']
         taxableSupplyDate:
-          type: ["string", "null"]
+          type: ['string', 'null']
         dueDate:
-          type: ["string", "null"]
+          type: ['string', 'null']
         paymentMethod:
-          type: ["string", "null"]
+          type: ['string', 'null']
+        bankAccount:
+          type: ['string', 'null']
+        iban:
+          type: ['string', 'null']
+        bic:
+          type: ['string', 'null']
+        currency:
+          type: ['string', 'null']
+          minLength: 3
+          maxLength: 3
         variableSymbol:
-          type: ["string", "null"]
+          type: ['string', 'null']
         constantSymbol:
-          type: ["string", "null"]
+          type: ['string', 'null']
         specificSymbol:
-          type: ["string", "null"]
+          type: ['string', 'null']
         vatModeDefault:
           type: string
           enum: [standard, reverse_charge, zero, non_vat]
         notes:
-          type: ["string", "null"]
+          type: ['string', 'null']
 
     QuoteJobGroupInvoiceDraftInput:
       type: object
@@ -16208,35 +16406,81 @@ components:
       type: object
       properties:
         customerId:
-          type: ["integer", "null"]
+          type: ['integer', 'null']
+        allowCustomerMismatch:
+          type: boolean
+          default: false
+          description: Explicit administrator override when source jobs belong to another customer
+        customerName:
+          type: ['string', 'null']
+        customerIc:
+          type: ['string', 'null']
+        customerDic:
+          type: ['string', 'null']
+        customerAddress:
+          type: ['string', 'null']
+        customerDeliveryAddress:
+          type: ['string', 'null']
+        customerEmail:
+          type: ['string', 'null']
         issueDate:
-          type: ["string", "null"]
+          type: ['string', 'null']
         taxableSupplyDate:
-          type: ["string", "null"]
+          type: ['string', 'null']
         dueDate:
-          type: ["string", "null"]
+          type: ['string', 'null']
         paymentMethod:
-          type: ["string", "null"]
+          type: ['string', 'null']
+        bankAccount:
+          type: ['string', 'null']
+        iban:
+          type: ['string', 'null']
+        bic:
+          type: ['string', 'null']
+        currency:
+          type: ['string', 'null']
+          minLength: 3
+          maxLength: 3
         variableSymbol:
-          type: ["string", "null"]
+          type: ['string', 'null']
         constantSymbol:
-          type: ["string", "null"]
+          type: ['string', 'null']
         specificSymbol:
-          type: ["string", "null"]
+          type: ['string', 'null']
         vatModeDefault:
           type: string
           enum: [standard, reverse_charge, zero, non_vat]
         materialDisplayMode:
           type: string
-          enum: [detailed, summary]
-          description: Display material as individual lines or as one amount per VAT rate
+          enum: [detailed, summary, custom]
+          description: Choose source lines, material summary, or custom customer-facing groups
+        presentationGroups:
+          type: array
+          maxItems: 500
+          description: Custom customer-facing groups; every source line must be included exactly once
+          items:
+            $ref: '#/components/schemas/InvoicePresentationGroup'
         notes:
-          type: ["string", "null"]
+          type: ['string', 'null']
         lines:
           type: array
           items:
-            $ref: "#/components/schemas/InvoiceLineInput"
+            $ref: '#/components/schemas/InvoiceLineInput'
           description: If provided, replaces ALL lines of the draft
+        sourceAllocations:
+          type: array
+          description: Explicit settlement of every operational source independent of commercial line layout
+          items:
+            type: object
+            required: [id, settlementMethod]
+            properties:
+              id:
+                type: integer
+              settlementMethod:
+                type: string
+                enum: [direct, included_in_lump_sum, not_charged, deferred]
+              invoiceLineId:
+                type: ['integer', 'null']
 
     InvoiceStatusUpdate:
       type: object

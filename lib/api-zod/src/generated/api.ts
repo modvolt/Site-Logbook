@@ -9782,6 +9782,10 @@ export const GetBillingSettingsResponse = zod.object({
   numberFormat: zod.string(),
   numberYear: zod.number().nullish(),
   numberNextSeq: zod.number(),
+  advanceNumberPrefix: zod.string(),
+  advanceNumberFormat: zod.string(),
+  advanceNumberYear: zod.number().nullish(),
+  advanceNumberNextSeq: zod.number(),
   reminderEnabled: zod.boolean().optional(),
   reminderDays: zod.string().optional(),
   quoteNumberPrefix: zod.string().optional(),
@@ -9830,6 +9834,10 @@ export const UpdateBillingSettingsBody = zod.object({
   numberFormat: zod.string().nullish(),
   numberYear: zod.number().nullish(),
   numberNextSeq: zod.number().nullish(),
+  advanceNumberPrefix: zod.string().nullish(),
+  advanceNumberFormat: zod.string().nullish(),
+  advanceNumberYear: zod.number().nullish(),
+  advanceNumberNextSeq: zod.number().nullish(),
   reminderEnabled: zod.boolean().nullish(),
   reminderDays: zod.string().nullish(),
   quoteNumberPrefix: zod.string().nullish(),
@@ -9876,6 +9884,10 @@ export const UpdateBillingSettingsResponse = zod.object({
   numberFormat: zod.string(),
   numberYear: zod.number().nullish(),
   numberNextSeq: zod.number(),
+  advanceNumberPrefix: zod.string(),
+  advanceNumberFormat: zod.string(),
+  advanceNumberYear: zod.number().nullish(),
+  advanceNumberNextSeq: zod.number(),
   reminderEnabled: zod.boolean().optional(),
   reminderDays: zod.string().optional(),
   quoteNumberPrefix: zod.string().optional(),
@@ -10156,6 +10168,7 @@ export const ListInvoicesQueryParams = zod.object({
 
 export const ListInvoicesResponseItem = zod.object({
   id: zod.number(),
+  documentType: zod.enum(["standard", "advance"]),
   invoiceNumber: zod.string().nullish(),
   status: zod.enum(["draft", "issued", "sent", "paid", "cancelled"]),
   customerId: zod.number().nullish(),
@@ -10163,19 +10176,25 @@ export const ListInvoicesResponseItem = zod.object({
   customerIc: zod.string().nullish(),
   customerDic: zod.string().nullish(),
   customerAddress: zod.string().nullish(),
+  customerDeliveryAddress: zod.string().nullish(),
   customerEmail: zod.string().nullish(),
   issueDate: zod.string().nullish(),
   taxableSupplyDate: zod.string().nullish(),
   dueDate: zod.string().nullish(),
   currency: zod.string(),
   paymentMethod: zod.string().nullish(),
+  bankAccount: zod.string().nullish(),
+  iban: zod.string().nullish(),
+  bic: zod.string().nullish(),
   variableSymbol: zod.string().nullish(),
   constantSymbol: zod.string().nullish(),
   specificSymbol: zod.string().nullish(),
   vatModeDefault: zod.enum(["standard", "reverse_charge", "zero", "non_vat"]),
   materialDisplayMode: zod
-    .enum(["detailed", "summary"])
-    .describe("Customer-facing material layout; source lines remain detailed"),
+    .enum(["detailed", "summary", "custom"])
+    .describe(
+      "Customer-facing layout; custom text is stored separately from source lines",
+    ),
   subtotalWithoutVat: zod.number(),
   totalVat: zod.number(),
   totalWithVat: zod.number(),
@@ -10209,6 +10228,9 @@ export const ListInvoicesResponseItem = zod.object({
         jobNumber: zod.number().nullish().describe("Sequential job number"),
         title: zod.string(),
         date: zod.string(),
+        billingState: zod
+          .enum(["draft", "partial", "ready", "billed", "linked"])
+          .optional(),
       }),
     )
     .optional(),
@@ -10218,14 +10240,27 @@ export const ListInvoicesResponse = zod.array(ListInvoicesResponseItem);
 /**
  * @summary Create a draft invoice (admin only); does not change job status
  */
+export const createInvoiceBodyDocumentTypeDefault = `standard`;
 export const createInvoiceBodyLabourBillingModeDefault = `automatic`;
 export const createInvoiceBodyWorkGroupingDefault = `summary`;
+export const createInvoiceBodySourceGroupingDefault = `by_job`;
 export const createInvoiceBodyMaterialMarkupOverridesItemMarkupPercentMin = 0;
 
 export const createInvoiceBodyMaterialDisplayModeDefault = `detailed`;
+export const createInvoiceBodyCurrencyMin = 3;
+export const createInvoiceBodyCurrencyMax = 3;
 
 export const CreateInvoiceBody = zod.object({
+  documentType: zod
+    .enum(["standard", "advance"])
+    .default(createInvoiceBodyDocumentTypeDefault),
   customerId: zod.number(),
+  customerName: zod.string().nullish(),
+  customerIc: zod.string().nullish(),
+  customerDic: zod.string().nullish(),
+  customerAddress: zod.string().nullish(),
+  customerDeliveryAddress: zod.string().nullish(),
+  customerEmail: zod.string().nullish(),
   jobIds: zod
     .array(zod.number())
     .optional()
@@ -10248,6 +10283,12 @@ export const CreateInvoiceBody = zod.object({
     .enum(["summary", "worker"])
     .default(createInvoiceBodyWorkGroupingDefault)
     .describe("Group recorded-time lines by rate only or by worker and rate"),
+  sourceGrouping: zod
+    .enum(["by_job", "combined"])
+    .default(createInvoiceBodySourceGroupingDefault)
+    .describe(
+      "Keep source rows grouped per job or combine compatible commercial rows across jobs",
+    ),
   billFineJobIds: zod
     .array(zod.number())
     .optional()
@@ -10291,6 +10332,11 @@ export const CreateInvoiceBody = zod.object({
   lines: zod
     .array(
       zod.object({
+        id: zod
+          .number()
+          .nullish()
+          .describe("Existing draft line id retained during in-place edits"),
+        rowType: zod.enum(["item", "section"]).optional(),
         sourceType: zod
           .enum([
             "job",
@@ -10328,6 +10374,14 @@ export const CreateInvoiceBody = zod.object({
   taxableSupplyDate: zod.string().nullish(),
   dueDate: zod.string().nullish(),
   paymentMethod: zod.string().nullish(),
+  bankAccount: zod.string().nullish(),
+  iban: zod.string().nullish(),
+  bic: zod.string().nullish(),
+  currency: zod
+    .string()
+    .min(createInvoiceBodyCurrencyMin)
+    .max(createInvoiceBodyCurrencyMax)
+    .nullish(),
   variableSymbol: zod.string().nullish(),
   constantSymbol: zod.string().nullish(),
   specificSymbol: zod.string().nullish(),
@@ -10344,8 +10398,15 @@ export const GetInvoiceParams = zod.object({
   id: zod.coerce.number(),
 });
 
+export const getInvoiceResponsePresentationGroupsItemDescriptionMax = 500;
+
+export const getInvoiceResponsePresentationGroupsItemLineIndexesItemMin = 0;
+
+export const getInvoiceResponsePresentationGroupsItemLineIndexesMax = 500;
+
 export const GetInvoiceResponse = zod.object({
   id: zod.number(),
+  documentType: zod.enum(["standard", "advance"]),
   invoiceNumber: zod.string().nullish(),
   status: zod.enum(["draft", "issued", "sent", "paid", "cancelled"]),
   customerId: zod.number().nullish(),
@@ -10353,19 +10414,25 @@ export const GetInvoiceResponse = zod.object({
   customerIc: zod.string().nullish(),
   customerDic: zod.string().nullish(),
   customerAddress: zod.string().nullish(),
+  customerDeliveryAddress: zod.string().nullish(),
   customerEmail: zod.string().nullish(),
   issueDate: zod.string().nullish(),
   taxableSupplyDate: zod.string().nullish(),
   dueDate: zod.string().nullish(),
   currency: zod.string(),
   paymentMethod: zod.string().nullish(),
+  bankAccount: zod.string().nullish(),
+  iban: zod.string().nullish(),
+  bic: zod.string().nullish(),
   variableSymbol: zod.string().nullish(),
   constantSymbol: zod.string().nullish(),
   specificSymbol: zod.string().nullish(),
   vatModeDefault: zod.enum(["standard", "reverse_charge", "zero", "non_vat"]),
   materialDisplayMode: zod
-    .enum(["detailed", "summary"])
-    .describe("Customer-facing material layout; source lines remain detailed"),
+    .enum(["detailed", "summary", "custom"])
+    .describe(
+      "Customer-facing layout; custom text is stored separately from source lines",
+    ),
   subtotalWithoutVat: zod.number(),
   totalVat: zod.number(),
   totalWithVat: zod.number(),
@@ -10413,6 +10480,7 @@ export const GetInvoiceResponse = zod.object({
       sourceId: zod.number().nullish(),
       jobId: zod.number().nullish(),
       activityId: zod.number().nullish(),
+      rowType: zod.enum(["item", "section"]),
       description: zod.string(),
       quantity: zod.number(),
       unit: zod.string().nullish(),
@@ -10448,6 +10516,7 @@ export const GetInvoiceResponse = zod.object({
         sourceId: zod.number().nullish(),
         jobId: zod.number().nullish(),
         activityId: zod.number().nullish(),
+        rowType: zod.enum(["item", "section"]),
         description: zod.string(),
         quantity: zod.number(),
         unit: zod.string().nullish(),
@@ -10462,6 +10531,32 @@ export const GetInvoiceResponse = zod.object({
       }),
     )
     .describe("Lines rendered on the customer invoice and PDF"),
+  presentationGroups: zod
+    .array(
+      zod.object({
+        description: zod
+          .string()
+          .min(1)
+          .max(getInvoiceResponsePresentationGroupsItemDescriptionMax)
+          .describe(
+            "Freely editable customer-facing text for the grouped sources",
+          ),
+        lineIndexes: zod
+          .array(
+            zod
+              .number()
+              .min(getInvoiceResponsePresentationGroupsItemLineIndexesItemMin),
+          )
+          .min(1)
+          .max(getInvoiceResponsePresentationGroupsItemLineIndexesMax)
+          .describe(
+            "Zero-based indexes of immutable internal invoice source lines",
+          ),
+      }),
+    )
+    .describe(
+      "Custom customer-facing groups; source lines remain immutable and linked",
+    ),
   sourceJobIds: zod.array(zod.number()),
   sourceActivityIds: zod.array(zod.number()).optional(),
   sourceJobs: zod
@@ -10471,6 +10566,9 @@ export const GetInvoiceResponse = zod.object({
         jobNumber: zod.number().nullish().describe("Sequential job number"),
         title: zod.string(),
         date: zod.string(),
+        billingState: zod
+          .enum(["draft", "partial", "ready", "billed", "linked"])
+          .optional(),
       }),
     )
     .optional(),
@@ -10482,6 +10580,57 @@ export const GetInvoiceResponse = zod.object({
       }),
     )
     .optional(),
+  sourceAllocations: zod.array(
+    zod.object({
+      id: zod.number(),
+      invoiceId: zod.number().nullable(),
+      invoiceIdSnapshot: zod.number(),
+      invoiceLineId: zod.number().nullable(),
+      sourceType: zod.string(),
+      sourceId: zod.number(),
+      jobId: zod.number().nullable(),
+      activityId: zod.number().nullable(),
+      sourceDescription: zod.string(),
+      sourceUnit: zod.string().nullable(),
+      originalQuantity: zod.number(),
+      allocatedQuantity: zod.number(),
+      sourceAmountWithoutVat: zod.number(),
+      status: zod.enum([
+        "reserved",
+        "billed",
+        "included_in_lump_sum",
+        "not_charged",
+        "deferred",
+        "released",
+        "reversed",
+      ]),
+      settlementMethod: zod.enum([
+        "direct",
+        "included_in_lump_sum",
+        "not_charged",
+        "deferred",
+      ]),
+      legacyIncomplete: zod.boolean(),
+      createdByUserId: zod.number().nullable(),
+      updatedByUserId: zod.number().nullable(),
+      createdAt: zod.string(),
+      updatedAt: zod.string(),
+      settledAt: zod.string().nullable(),
+      releasedAt: zod.string().nullable(),
+      reversedAt: zod.string().nullable(),
+    }),
+  ),
+  sourceSummary: zod.object({
+    count: zod.number(),
+    workCount: zod.number(),
+    materialCount: zod.number(),
+    otherCount: zod.number(),
+    unresolvedCount: zod.number(),
+    deferredCount: zod.number(),
+    sourceTotalWithoutVat: zod.number(),
+    invoiceTotalWithoutVat: zod.number(),
+    differenceWithoutVat: zod.number(),
+  }),
 });
 
 /**
@@ -10491,12 +10640,44 @@ export const UpdateInvoiceParams = zod.object({
   id: zod.coerce.number(),
 });
 
+export const updateInvoiceBodyAllowCustomerMismatchDefault = false;
+export const updateInvoiceBodyCurrencyMin = 3;
+export const updateInvoiceBodyCurrencyMax = 3;
+
+export const updateInvoiceBodyPresentationGroupsItemDescriptionMax = 500;
+
+export const updateInvoiceBodyPresentationGroupsItemLineIndexesItemMin = 0;
+
+export const updateInvoiceBodyPresentationGroupsItemLineIndexesMax = 500;
+
+export const updateInvoiceBodyPresentationGroupsMax = 500;
+
 export const UpdateInvoiceBody = zod.object({
   customerId: zod.number().nullish(),
+  allowCustomerMismatch: zod
+    .boolean()
+    .default(updateInvoiceBodyAllowCustomerMismatchDefault)
+    .describe(
+      "Explicit administrator override when source jobs belong to another customer",
+    ),
+  customerName: zod.string().nullish(),
+  customerIc: zod.string().nullish(),
+  customerDic: zod.string().nullish(),
+  customerAddress: zod.string().nullish(),
+  customerDeliveryAddress: zod.string().nullish(),
+  customerEmail: zod.string().nullish(),
   issueDate: zod.string().nullish(),
   taxableSupplyDate: zod.string().nullish(),
   dueDate: zod.string().nullish(),
   paymentMethod: zod.string().nullish(),
+  bankAccount: zod.string().nullish(),
+  iban: zod.string().nullish(),
+  bic: zod.string().nullish(),
+  currency: zod
+    .string()
+    .min(updateInvoiceBodyCurrencyMin)
+    .max(updateInvoiceBodyCurrencyMax)
+    .nullish(),
   variableSymbol: zod.string().nullish(),
   constantSymbol: zod.string().nullish(),
   specificSymbol: zod.string().nullish(),
@@ -10504,15 +10685,48 @@ export const UpdateInvoiceBody = zod.object({
     .enum(["standard", "reverse_charge", "zero", "non_vat"])
     .optional(),
   materialDisplayMode: zod
-    .enum(["detailed", "summary"])
+    .enum(["detailed", "summary", "custom"])
     .optional()
     .describe(
-      "Display material as individual lines or as one amount per VAT rate",
+      "Choose source lines, material summary, or custom customer-facing groups",
+    ),
+  presentationGroups: zod
+    .array(
+      zod.object({
+        description: zod
+          .string()
+          .min(1)
+          .max(updateInvoiceBodyPresentationGroupsItemDescriptionMax)
+          .describe(
+            "Freely editable customer-facing text for the grouped sources",
+          ),
+        lineIndexes: zod
+          .array(
+            zod
+              .number()
+              .min(updateInvoiceBodyPresentationGroupsItemLineIndexesItemMin),
+          )
+          .min(1)
+          .max(updateInvoiceBodyPresentationGroupsItemLineIndexesMax)
+          .describe(
+            "Zero-based indexes of immutable internal invoice source lines",
+          ),
+      }),
+    )
+    .max(updateInvoiceBodyPresentationGroupsMax)
+    .optional()
+    .describe(
+      "Custom customer-facing groups; every source line must be included exactly once",
     ),
   notes: zod.string().nullish(),
   lines: zod
     .array(
       zod.object({
+        id: zod
+          .number()
+          .nullish()
+          .describe("Existing draft line id retained during in-place edits"),
+        rowType: zod.enum(["item", "section"]).optional(),
         sourceType: zod
           .enum([
             "job",
@@ -10546,10 +10760,34 @@ export const UpdateInvoiceBody = zod.object({
     )
     .optional()
     .describe("If provided, replaces ALL lines of the draft"),
+  sourceAllocations: zod
+    .array(
+      zod.object({
+        id: zod.number(),
+        settlementMethod: zod.enum([
+          "direct",
+          "included_in_lump_sum",
+          "not_charged",
+          "deferred",
+        ]),
+        invoiceLineId: zod.number().nullish(),
+      }),
+    )
+    .optional()
+    .describe(
+      "Explicit settlement of every operational source independent of commercial line layout",
+    ),
 });
+
+export const updateInvoiceResponsePresentationGroupsItemDescriptionMax = 500;
+
+export const updateInvoiceResponsePresentationGroupsItemLineIndexesItemMin = 0;
+
+export const updateInvoiceResponsePresentationGroupsItemLineIndexesMax = 500;
 
 export const UpdateInvoiceResponse = zod.object({
   id: zod.number(),
+  documentType: zod.enum(["standard", "advance"]),
   invoiceNumber: zod.string().nullish(),
   status: zod.enum(["draft", "issued", "sent", "paid", "cancelled"]),
   customerId: zod.number().nullish(),
@@ -10557,19 +10795,25 @@ export const UpdateInvoiceResponse = zod.object({
   customerIc: zod.string().nullish(),
   customerDic: zod.string().nullish(),
   customerAddress: zod.string().nullish(),
+  customerDeliveryAddress: zod.string().nullish(),
   customerEmail: zod.string().nullish(),
   issueDate: zod.string().nullish(),
   taxableSupplyDate: zod.string().nullish(),
   dueDate: zod.string().nullish(),
   currency: zod.string(),
   paymentMethod: zod.string().nullish(),
+  bankAccount: zod.string().nullish(),
+  iban: zod.string().nullish(),
+  bic: zod.string().nullish(),
   variableSymbol: zod.string().nullish(),
   constantSymbol: zod.string().nullish(),
   specificSymbol: zod.string().nullish(),
   vatModeDefault: zod.enum(["standard", "reverse_charge", "zero", "non_vat"]),
   materialDisplayMode: zod
-    .enum(["detailed", "summary"])
-    .describe("Customer-facing material layout; source lines remain detailed"),
+    .enum(["detailed", "summary", "custom"])
+    .describe(
+      "Customer-facing layout; custom text is stored separately from source lines",
+    ),
   subtotalWithoutVat: zod.number(),
   totalVat: zod.number(),
   totalWithVat: zod.number(),
@@ -10617,6 +10861,7 @@ export const UpdateInvoiceResponse = zod.object({
       sourceId: zod.number().nullish(),
       jobId: zod.number().nullish(),
       activityId: zod.number().nullish(),
+      rowType: zod.enum(["item", "section"]),
       description: zod.string(),
       quantity: zod.number(),
       unit: zod.string().nullish(),
@@ -10652,6 +10897,7 @@ export const UpdateInvoiceResponse = zod.object({
         sourceId: zod.number().nullish(),
         jobId: zod.number().nullish(),
         activityId: zod.number().nullish(),
+        rowType: zod.enum(["item", "section"]),
         description: zod.string(),
         quantity: zod.number(),
         unit: zod.string().nullish(),
@@ -10666,6 +10912,34 @@ export const UpdateInvoiceResponse = zod.object({
       }),
     )
     .describe("Lines rendered on the customer invoice and PDF"),
+  presentationGroups: zod
+    .array(
+      zod.object({
+        description: zod
+          .string()
+          .min(1)
+          .max(updateInvoiceResponsePresentationGroupsItemDescriptionMax)
+          .describe(
+            "Freely editable customer-facing text for the grouped sources",
+          ),
+        lineIndexes: zod
+          .array(
+            zod
+              .number()
+              .min(
+                updateInvoiceResponsePresentationGroupsItemLineIndexesItemMin,
+              ),
+          )
+          .min(1)
+          .max(updateInvoiceResponsePresentationGroupsItemLineIndexesMax)
+          .describe(
+            "Zero-based indexes of immutable internal invoice source lines",
+          ),
+      }),
+    )
+    .describe(
+      "Custom customer-facing groups; source lines remain immutable and linked",
+    ),
   sourceJobIds: zod.array(zod.number()),
   sourceActivityIds: zod.array(zod.number()).optional(),
   sourceJobs: zod
@@ -10675,6 +10949,9 @@ export const UpdateInvoiceResponse = zod.object({
         jobNumber: zod.number().nullish().describe("Sequential job number"),
         title: zod.string(),
         date: zod.string(),
+        billingState: zod
+          .enum(["draft", "partial", "ready", "billed", "linked"])
+          .optional(),
       }),
     )
     .optional(),
@@ -10686,6 +10963,57 @@ export const UpdateInvoiceResponse = zod.object({
       }),
     )
     .optional(),
+  sourceAllocations: zod.array(
+    zod.object({
+      id: zod.number(),
+      invoiceId: zod.number().nullable(),
+      invoiceIdSnapshot: zod.number(),
+      invoiceLineId: zod.number().nullable(),
+      sourceType: zod.string(),
+      sourceId: zod.number(),
+      jobId: zod.number().nullable(),
+      activityId: zod.number().nullable(),
+      sourceDescription: zod.string(),
+      sourceUnit: zod.string().nullable(),
+      originalQuantity: zod.number(),
+      allocatedQuantity: zod.number(),
+      sourceAmountWithoutVat: zod.number(),
+      status: zod.enum([
+        "reserved",
+        "billed",
+        "included_in_lump_sum",
+        "not_charged",
+        "deferred",
+        "released",
+        "reversed",
+      ]),
+      settlementMethod: zod.enum([
+        "direct",
+        "included_in_lump_sum",
+        "not_charged",
+        "deferred",
+      ]),
+      legacyIncomplete: zod.boolean(),
+      createdByUserId: zod.number().nullable(),
+      updatedByUserId: zod.number().nullable(),
+      createdAt: zod.string(),
+      updatedAt: zod.string(),
+      settledAt: zod.string().nullable(),
+      releasedAt: zod.string().nullable(),
+      reversedAt: zod.string().nullable(),
+    }),
+  ),
+  sourceSummary: zod.object({
+    count: zod.number(),
+    workCount: zod.number(),
+    materialCount: zod.number(),
+    otherCount: zod.number(),
+    unresolvedCount: zod.number(),
+    deferredCount: zod.number(),
+    sourceTotalWithoutVat: zod.number(),
+    invoiceTotalWithoutVat: zod.number(),
+    differenceWithoutVat: zod.number(),
+  }),
 });
 
 /**
@@ -10702,8 +11030,15 @@ export const RecalculateInvoiceParams = zod.object({
   id: zod.coerce.number(),
 });
 
+export const recalculateInvoiceResponsePresentationGroupsItemDescriptionMax = 500;
+
+export const recalculateInvoiceResponsePresentationGroupsItemLineIndexesItemMin = 0;
+
+export const recalculateInvoiceResponsePresentationGroupsItemLineIndexesMax = 500;
+
 export const RecalculateInvoiceResponse = zod.object({
   id: zod.number(),
+  documentType: zod.enum(["standard", "advance"]),
   invoiceNumber: zod.string().nullish(),
   status: zod.enum(["draft", "issued", "sent", "paid", "cancelled"]),
   customerId: zod.number().nullish(),
@@ -10711,19 +11046,25 @@ export const RecalculateInvoiceResponse = zod.object({
   customerIc: zod.string().nullish(),
   customerDic: zod.string().nullish(),
   customerAddress: zod.string().nullish(),
+  customerDeliveryAddress: zod.string().nullish(),
   customerEmail: zod.string().nullish(),
   issueDate: zod.string().nullish(),
   taxableSupplyDate: zod.string().nullish(),
   dueDate: zod.string().nullish(),
   currency: zod.string(),
   paymentMethod: zod.string().nullish(),
+  bankAccount: zod.string().nullish(),
+  iban: zod.string().nullish(),
+  bic: zod.string().nullish(),
   variableSymbol: zod.string().nullish(),
   constantSymbol: zod.string().nullish(),
   specificSymbol: zod.string().nullish(),
   vatModeDefault: zod.enum(["standard", "reverse_charge", "zero", "non_vat"]),
   materialDisplayMode: zod
-    .enum(["detailed", "summary"])
-    .describe("Customer-facing material layout; source lines remain detailed"),
+    .enum(["detailed", "summary", "custom"])
+    .describe(
+      "Customer-facing layout; custom text is stored separately from source lines",
+    ),
   subtotalWithoutVat: zod.number(),
   totalVat: zod.number(),
   totalWithVat: zod.number(),
@@ -10771,6 +11112,7 @@ export const RecalculateInvoiceResponse = zod.object({
       sourceId: zod.number().nullish(),
       jobId: zod.number().nullish(),
       activityId: zod.number().nullish(),
+      rowType: zod.enum(["item", "section"]),
       description: zod.string(),
       quantity: zod.number(),
       unit: zod.string().nullish(),
@@ -10806,6 +11148,7 @@ export const RecalculateInvoiceResponse = zod.object({
         sourceId: zod.number().nullish(),
         jobId: zod.number().nullish(),
         activityId: zod.number().nullish(),
+        rowType: zod.enum(["item", "section"]),
         description: zod.string(),
         quantity: zod.number(),
         unit: zod.string().nullish(),
@@ -10820,6 +11163,34 @@ export const RecalculateInvoiceResponse = zod.object({
       }),
     )
     .describe("Lines rendered on the customer invoice and PDF"),
+  presentationGroups: zod
+    .array(
+      zod.object({
+        description: zod
+          .string()
+          .min(1)
+          .max(recalculateInvoiceResponsePresentationGroupsItemDescriptionMax)
+          .describe(
+            "Freely editable customer-facing text for the grouped sources",
+          ),
+        lineIndexes: zod
+          .array(
+            zod
+              .number()
+              .min(
+                recalculateInvoiceResponsePresentationGroupsItemLineIndexesItemMin,
+              ),
+          )
+          .min(1)
+          .max(recalculateInvoiceResponsePresentationGroupsItemLineIndexesMax)
+          .describe(
+            "Zero-based indexes of immutable internal invoice source lines",
+          ),
+      }),
+    )
+    .describe(
+      "Custom customer-facing groups; source lines remain immutable and linked",
+    ),
   sourceJobIds: zod.array(zod.number()),
   sourceActivityIds: zod.array(zod.number()).optional(),
   sourceJobs: zod
@@ -10829,6 +11200,9 @@ export const RecalculateInvoiceResponse = zod.object({
         jobNumber: zod.number().nullish().describe("Sequential job number"),
         title: zod.string(),
         date: zod.string(),
+        billingState: zod
+          .enum(["draft", "partial", "ready", "billed", "linked"])
+          .optional(),
       }),
     )
     .optional(),
@@ -10840,6 +11214,57 @@ export const RecalculateInvoiceResponse = zod.object({
       }),
     )
     .optional(),
+  sourceAllocations: zod.array(
+    zod.object({
+      id: zod.number(),
+      invoiceId: zod.number().nullable(),
+      invoiceIdSnapshot: zod.number(),
+      invoiceLineId: zod.number().nullable(),
+      sourceType: zod.string(),
+      sourceId: zod.number(),
+      jobId: zod.number().nullable(),
+      activityId: zod.number().nullable(),
+      sourceDescription: zod.string(),
+      sourceUnit: zod.string().nullable(),
+      originalQuantity: zod.number(),
+      allocatedQuantity: zod.number(),
+      sourceAmountWithoutVat: zod.number(),
+      status: zod.enum([
+        "reserved",
+        "billed",
+        "included_in_lump_sum",
+        "not_charged",
+        "deferred",
+        "released",
+        "reversed",
+      ]),
+      settlementMethod: zod.enum([
+        "direct",
+        "included_in_lump_sum",
+        "not_charged",
+        "deferred",
+      ]),
+      legacyIncomplete: zod.boolean(),
+      createdByUserId: zod.number().nullable(),
+      updatedByUserId: zod.number().nullable(),
+      createdAt: zod.string(),
+      updatedAt: zod.string(),
+      settledAt: zod.string().nullable(),
+      releasedAt: zod.string().nullable(),
+      reversedAt: zod.string().nullable(),
+    }),
+  ),
+  sourceSummary: zod.object({
+    count: zod.number(),
+    workCount: zod.number(),
+    materialCount: zod.number(),
+    otherCount: zod.number(),
+    unresolvedCount: zod.number(),
+    deferredCount: zod.number(),
+    sourceTotalWithoutVat: zod.number(),
+    invoiceTotalWithoutVat: zod.number(),
+    differenceWithoutVat: zod.number(),
+  }),
 });
 
 /**
@@ -10849,8 +11274,15 @@ export const IssueInvoiceParams = zod.object({
   id: zod.coerce.number(),
 });
 
+export const issueInvoiceResponsePresentationGroupsItemDescriptionMax = 500;
+
+export const issueInvoiceResponsePresentationGroupsItemLineIndexesItemMin = 0;
+
+export const issueInvoiceResponsePresentationGroupsItemLineIndexesMax = 500;
+
 export const IssueInvoiceResponse = zod.object({
   id: zod.number(),
+  documentType: zod.enum(["standard", "advance"]),
   invoiceNumber: zod.string().nullish(),
   status: zod.enum(["draft", "issued", "sent", "paid", "cancelled"]),
   customerId: zod.number().nullish(),
@@ -10858,19 +11290,25 @@ export const IssueInvoiceResponse = zod.object({
   customerIc: zod.string().nullish(),
   customerDic: zod.string().nullish(),
   customerAddress: zod.string().nullish(),
+  customerDeliveryAddress: zod.string().nullish(),
   customerEmail: zod.string().nullish(),
   issueDate: zod.string().nullish(),
   taxableSupplyDate: zod.string().nullish(),
   dueDate: zod.string().nullish(),
   currency: zod.string(),
   paymentMethod: zod.string().nullish(),
+  bankAccount: zod.string().nullish(),
+  iban: zod.string().nullish(),
+  bic: zod.string().nullish(),
   variableSymbol: zod.string().nullish(),
   constantSymbol: zod.string().nullish(),
   specificSymbol: zod.string().nullish(),
   vatModeDefault: zod.enum(["standard", "reverse_charge", "zero", "non_vat"]),
   materialDisplayMode: zod
-    .enum(["detailed", "summary"])
-    .describe("Customer-facing material layout; source lines remain detailed"),
+    .enum(["detailed", "summary", "custom"])
+    .describe(
+      "Customer-facing layout; custom text is stored separately from source lines",
+    ),
   subtotalWithoutVat: zod.number(),
   totalVat: zod.number(),
   totalWithVat: zod.number(),
@@ -10918,6 +11356,7 @@ export const IssueInvoiceResponse = zod.object({
       sourceId: zod.number().nullish(),
       jobId: zod.number().nullish(),
       activityId: zod.number().nullish(),
+      rowType: zod.enum(["item", "section"]),
       description: zod.string(),
       quantity: zod.number(),
       unit: zod.string().nullish(),
@@ -10953,6 +11392,7 @@ export const IssueInvoiceResponse = zod.object({
         sourceId: zod.number().nullish(),
         jobId: zod.number().nullish(),
         activityId: zod.number().nullish(),
+        rowType: zod.enum(["item", "section"]),
         description: zod.string(),
         quantity: zod.number(),
         unit: zod.string().nullish(),
@@ -10967,6 +11407,34 @@ export const IssueInvoiceResponse = zod.object({
       }),
     )
     .describe("Lines rendered on the customer invoice and PDF"),
+  presentationGroups: zod
+    .array(
+      zod.object({
+        description: zod
+          .string()
+          .min(1)
+          .max(issueInvoiceResponsePresentationGroupsItemDescriptionMax)
+          .describe(
+            "Freely editable customer-facing text for the grouped sources",
+          ),
+        lineIndexes: zod
+          .array(
+            zod
+              .number()
+              .min(
+                issueInvoiceResponsePresentationGroupsItemLineIndexesItemMin,
+              ),
+          )
+          .min(1)
+          .max(issueInvoiceResponsePresentationGroupsItemLineIndexesMax)
+          .describe(
+            "Zero-based indexes of immutable internal invoice source lines",
+          ),
+      }),
+    )
+    .describe(
+      "Custom customer-facing groups; source lines remain immutable and linked",
+    ),
   sourceJobIds: zod.array(zod.number()),
   sourceActivityIds: zod.array(zod.number()).optional(),
   sourceJobs: zod
@@ -10976,6 +11444,9 @@ export const IssueInvoiceResponse = zod.object({
         jobNumber: zod.number().nullish().describe("Sequential job number"),
         title: zod.string(),
         date: zod.string(),
+        billingState: zod
+          .enum(["draft", "partial", "ready", "billed", "linked"])
+          .optional(),
       }),
     )
     .optional(),
@@ -10987,6 +11458,57 @@ export const IssueInvoiceResponse = zod.object({
       }),
     )
     .optional(),
+  sourceAllocations: zod.array(
+    zod.object({
+      id: zod.number(),
+      invoiceId: zod.number().nullable(),
+      invoiceIdSnapshot: zod.number(),
+      invoiceLineId: zod.number().nullable(),
+      sourceType: zod.string(),
+      sourceId: zod.number(),
+      jobId: zod.number().nullable(),
+      activityId: zod.number().nullable(),
+      sourceDescription: zod.string(),
+      sourceUnit: zod.string().nullable(),
+      originalQuantity: zod.number(),
+      allocatedQuantity: zod.number(),
+      sourceAmountWithoutVat: zod.number(),
+      status: zod.enum([
+        "reserved",
+        "billed",
+        "included_in_lump_sum",
+        "not_charged",
+        "deferred",
+        "released",
+        "reversed",
+      ]),
+      settlementMethod: zod.enum([
+        "direct",
+        "included_in_lump_sum",
+        "not_charged",
+        "deferred",
+      ]),
+      legacyIncomplete: zod.boolean(),
+      createdByUserId: zod.number().nullable(),
+      updatedByUserId: zod.number().nullable(),
+      createdAt: zod.string(),
+      updatedAt: zod.string(),
+      settledAt: zod.string().nullable(),
+      releasedAt: zod.string().nullable(),
+      reversedAt: zod.string().nullable(),
+    }),
+  ),
+  sourceSummary: zod.object({
+    count: zod.number(),
+    workCount: zod.number(),
+    materialCount: zod.number(),
+    otherCount: zod.number(),
+    unresolvedCount: zod.number(),
+    deferredCount: zod.number(),
+    sourceTotalWithoutVat: zod.number(),
+    invoiceTotalWithoutVat: zod.number(),
+    differenceWithoutVat: zod.number(),
+  }),
 });
 
 /**
@@ -11014,8 +11536,15 @@ export const CancelInvoiceBody = zod.object({
     .describe('If true, linked jobs are returned to \"done\"'),
 });
 
+export const cancelInvoiceResponsePresentationGroupsItemDescriptionMax = 500;
+
+export const cancelInvoiceResponsePresentationGroupsItemLineIndexesItemMin = 0;
+
+export const cancelInvoiceResponsePresentationGroupsItemLineIndexesMax = 500;
+
 export const CancelInvoiceResponse = zod.object({
   id: zod.number(),
+  documentType: zod.enum(["standard", "advance"]),
   invoiceNumber: zod.string().nullish(),
   status: zod.enum(["draft", "issued", "sent", "paid", "cancelled"]),
   customerId: zod.number().nullish(),
@@ -11023,19 +11552,25 @@ export const CancelInvoiceResponse = zod.object({
   customerIc: zod.string().nullish(),
   customerDic: zod.string().nullish(),
   customerAddress: zod.string().nullish(),
+  customerDeliveryAddress: zod.string().nullish(),
   customerEmail: zod.string().nullish(),
   issueDate: zod.string().nullish(),
   taxableSupplyDate: zod.string().nullish(),
   dueDate: zod.string().nullish(),
   currency: zod.string(),
   paymentMethod: zod.string().nullish(),
+  bankAccount: zod.string().nullish(),
+  iban: zod.string().nullish(),
+  bic: zod.string().nullish(),
   variableSymbol: zod.string().nullish(),
   constantSymbol: zod.string().nullish(),
   specificSymbol: zod.string().nullish(),
   vatModeDefault: zod.enum(["standard", "reverse_charge", "zero", "non_vat"]),
   materialDisplayMode: zod
-    .enum(["detailed", "summary"])
-    .describe("Customer-facing material layout; source lines remain detailed"),
+    .enum(["detailed", "summary", "custom"])
+    .describe(
+      "Customer-facing layout; custom text is stored separately from source lines",
+    ),
   subtotalWithoutVat: zod.number(),
   totalVat: zod.number(),
   totalWithVat: zod.number(),
@@ -11083,6 +11618,7 @@ export const CancelInvoiceResponse = zod.object({
       sourceId: zod.number().nullish(),
       jobId: zod.number().nullish(),
       activityId: zod.number().nullish(),
+      rowType: zod.enum(["item", "section"]),
       description: zod.string(),
       quantity: zod.number(),
       unit: zod.string().nullish(),
@@ -11118,6 +11654,7 @@ export const CancelInvoiceResponse = zod.object({
         sourceId: zod.number().nullish(),
         jobId: zod.number().nullish(),
         activityId: zod.number().nullish(),
+        rowType: zod.enum(["item", "section"]),
         description: zod.string(),
         quantity: zod.number(),
         unit: zod.string().nullish(),
@@ -11132,6 +11669,34 @@ export const CancelInvoiceResponse = zod.object({
       }),
     )
     .describe("Lines rendered on the customer invoice and PDF"),
+  presentationGroups: zod
+    .array(
+      zod.object({
+        description: zod
+          .string()
+          .min(1)
+          .max(cancelInvoiceResponsePresentationGroupsItemDescriptionMax)
+          .describe(
+            "Freely editable customer-facing text for the grouped sources",
+          ),
+        lineIndexes: zod
+          .array(
+            zod
+              .number()
+              .min(
+                cancelInvoiceResponsePresentationGroupsItemLineIndexesItemMin,
+              ),
+          )
+          .min(1)
+          .max(cancelInvoiceResponsePresentationGroupsItemLineIndexesMax)
+          .describe(
+            "Zero-based indexes of immutable internal invoice source lines",
+          ),
+      }),
+    )
+    .describe(
+      "Custom customer-facing groups; source lines remain immutable and linked",
+    ),
   sourceJobIds: zod.array(zod.number()),
   sourceActivityIds: zod.array(zod.number()).optional(),
   sourceJobs: zod
@@ -11141,6 +11706,9 @@ export const CancelInvoiceResponse = zod.object({
         jobNumber: zod.number().nullish().describe("Sequential job number"),
         title: zod.string(),
         date: zod.string(),
+        billingState: zod
+          .enum(["draft", "partial", "ready", "billed", "linked"])
+          .optional(),
       }),
     )
     .optional(),
@@ -11152,6 +11720,57 @@ export const CancelInvoiceResponse = zod.object({
       }),
     )
     .optional(),
+  sourceAllocations: zod.array(
+    zod.object({
+      id: zod.number(),
+      invoiceId: zod.number().nullable(),
+      invoiceIdSnapshot: zod.number(),
+      invoiceLineId: zod.number().nullable(),
+      sourceType: zod.string(),
+      sourceId: zod.number(),
+      jobId: zod.number().nullable(),
+      activityId: zod.number().nullable(),
+      sourceDescription: zod.string(),
+      sourceUnit: zod.string().nullable(),
+      originalQuantity: zod.number(),
+      allocatedQuantity: zod.number(),
+      sourceAmountWithoutVat: zod.number(),
+      status: zod.enum([
+        "reserved",
+        "billed",
+        "included_in_lump_sum",
+        "not_charged",
+        "deferred",
+        "released",
+        "reversed",
+      ]),
+      settlementMethod: zod.enum([
+        "direct",
+        "included_in_lump_sum",
+        "not_charged",
+        "deferred",
+      ]),
+      legacyIncomplete: zod.boolean(),
+      createdByUserId: zod.number().nullable(),
+      updatedByUserId: zod.number().nullable(),
+      createdAt: zod.string(),
+      updatedAt: zod.string(),
+      settledAt: zod.string().nullable(),
+      releasedAt: zod.string().nullable(),
+      reversedAt: zod.string().nullable(),
+    }),
+  ),
+  sourceSummary: zod.object({
+    count: zod.number(),
+    workCount: zod.number(),
+    materialCount: zod.number(),
+    otherCount: zod.number(),
+    unresolvedCount: zod.number(),
+    deferredCount: zod.number(),
+    sourceTotalWithoutVat: zod.number(),
+    invoiceTotalWithoutVat: zod.number(),
+    differenceWithoutVat: zod.number(),
+  }),
 });
 
 /**
@@ -11179,6 +11798,7 @@ export const UpdateInvoiceStatusBody = zod.object({
 
 export const UpdateInvoiceStatusResponse = zod.object({
   id: zod.number(),
+  documentType: zod.enum(["standard", "advance"]),
   invoiceNumber: zod.string().nullish(),
   status: zod.enum(["draft", "issued", "sent", "paid", "cancelled"]),
   customerId: zod.number().nullish(),
@@ -11186,19 +11806,25 @@ export const UpdateInvoiceStatusResponse = zod.object({
   customerIc: zod.string().nullish(),
   customerDic: zod.string().nullish(),
   customerAddress: zod.string().nullish(),
+  customerDeliveryAddress: zod.string().nullish(),
   customerEmail: zod.string().nullish(),
   issueDate: zod.string().nullish(),
   taxableSupplyDate: zod.string().nullish(),
   dueDate: zod.string().nullish(),
   currency: zod.string(),
   paymentMethod: zod.string().nullish(),
+  bankAccount: zod.string().nullish(),
+  iban: zod.string().nullish(),
+  bic: zod.string().nullish(),
   variableSymbol: zod.string().nullish(),
   constantSymbol: zod.string().nullish(),
   specificSymbol: zod.string().nullish(),
   vatModeDefault: zod.enum(["standard", "reverse_charge", "zero", "non_vat"]),
   materialDisplayMode: zod
-    .enum(["detailed", "summary"])
-    .describe("Customer-facing material layout; source lines remain detailed"),
+    .enum(["detailed", "summary", "custom"])
+    .describe(
+      "Customer-facing layout; custom text is stored separately from source lines",
+    ),
   subtotalWithoutVat: zod.number(),
   totalVat: zod.number(),
   totalWithVat: zod.number(),
@@ -11232,6 +11858,9 @@ export const UpdateInvoiceStatusResponse = zod.object({
         jobNumber: zod.number().nullish().describe("Sequential job number"),
         title: zod.string(),
         date: zod.string(),
+        billingState: zod
+          .enum(["draft", "partial", "ready", "billed", "linked"])
+          .optional(),
       }),
     )
     .optional(),
