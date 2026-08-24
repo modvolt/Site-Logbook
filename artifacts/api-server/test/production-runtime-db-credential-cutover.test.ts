@@ -1216,7 +1216,10 @@ describe("production runtime credential CLI boundary", () => {
     const privateDirectory = path.join(directory, "private");
     await Promise.all([mkdir(evidence), mkdir(privateDirectory)]);
     if (process.platform !== "win32") {
-      await chmod(privateDirectory, 0o700);
+      await Promise.all([
+        chmod(evidence, 0o700),
+        chmod(privateDirectory, 0o700),
+      ]);
     }
     try {
       const secretPath = path.join(privateDirectory, "runtime.secret");
