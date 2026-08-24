@@ -7,6 +7,7 @@ import {
   PRODUCTION_ROLE_0108_MIGRATION_SHA256,
   PRODUCTION_ROLE_0108_PROJECTION_SQL,
   buildProductionRole0108Plan,
+  overlayProductionRole0108Projection,
   validateProductionRole0108Projection,
   type ProductionRole0108Plan,
   type ProductionRole0108Projection,
@@ -108,17 +109,12 @@ function exactNow(now: () => Date): Date {
   return value;
 }
 
-function overlay0108Projection(
+function normalize0108Projection(
   raw: unknown,
   basePlan: ProductionRolePlan,
 ): ProductionRole0108Projection {
   const base = normalizeProductionMigrationRoleProjection(raw, basePlan);
-  return Object.freeze({
-    ...base,
-    schemaVersion: PRODUCTION_ROLE_0108_CONTRACT_SCHEMA,
-    migration: PRODUCTION_ROLE_0108_MIGRATION,
-    migrationSha256: PRODUCTION_ROLE_0108_MIGRATION_SHA256,
-  });
+  return overlayProductionRole0108Projection(base);
 }
 
 function assertProjection(
@@ -260,7 +256,7 @@ export function createProductionMigrationRole0108Authority(
         "Projection query returned no exact row.",
       );
     }
-    const projection = overlay0108Projection(raw, basePlan);
+    const projection = normalize0108Projection(raw, basePlan);
     assertProjection(projection, phase);
     return projection;
   }
@@ -424,3 +420,14 @@ export function createProductionMigrationRole0108Authority(
     },
   });
 }
+
+export {
+  PRODUCTION_ROLE_0108_CONTRACT_SCHEMA,
+  PRODUCTION_ROLE_0108_MIGRATION,
+  PRODUCTION_ROLE_0108_MIGRATION_SHA256,
+  PRODUCTION_ROLE_0108_PROJECTION_SQL,
+  deriveProductionRole0108PostProjection,
+  overlayProductionRole0108Projection,
+  validateProductionRole0108Projection,
+} from "./production-role-separation-0108-contract.js";
+export type { ProductionRole0108Projection } from "./production-role-separation-0108-contract.js";

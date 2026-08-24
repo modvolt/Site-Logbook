@@ -328,6 +328,50 @@ export function buildProductionRole0108Plan(input: {
 export const PRODUCTION_ROLE_0108_PROJECTION_SQL =
   PRODUCTION_ROLE_PROJECTION_SQL;
 
+export function overlayProductionRole0108Projection(
+  projection: ProductionRoleProjection,
+): ProductionRole0108Projection {
+  return Object.freeze({
+    ...projection,
+    schemaVersion: PRODUCTION_ROLE_0108_CONTRACT_SCHEMA,
+    migration: PRODUCTION_ROLE_0108_MIGRATION,
+    migrationSha256: PRODUCTION_ROLE_0108_MIGRATION_SHA256,
+  });
+}
+
+export function deriveProductionRole0108PostProjection(
+  base0107: ProductionRoleProjection,
+): ProductionRole0108Projection {
+  const baseValidation = validateProductionRoleProjection(base0107);
+  if (!baseValidation.ok) {
+    const first = baseValidation.errors[0];
+    throw new Error(
+      `ROLE_0108_BASE_PROJECTION_INVALID:${first?.code ?? "UNKNOWN"}:${first?.path ?? "$"}`,
+    );
+  }
+  const objects = Object.freeze(
+    [
+      ...base0107.objects,
+      ...expectedProductionRole0108Objects(base0107.migratorRole.name, "post"),
+    ].sort((left, right) => {
+      const leftKey = `${left.kind}:${left.schema}:${left.name}:${left.identityArguments}`;
+      const rightKey = `${right.kind}:${right.schema}:${right.name}:${right.identityArguments}`;
+      return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
+    }),
+  );
+  const projection = overlayProductionRole0108Projection(
+    Object.freeze({ ...base0107, objects }),
+  );
+  const validation = validateProductionRole0108Projection(projection, "post");
+  if (!validation.ok) {
+    const first = validation.errors[0];
+    throw new Error(
+      `ROLE_0108_DERIVED_PROJECTION_INVALID:${first?.code ?? "UNKNOWN"}:${first?.path ?? "$"}`,
+    );
+  }
+  return projection;
+}
+
 export function expectedProductionRole0108Objects(
   owner: string,
   phase: "pre" | "post" = "post",
