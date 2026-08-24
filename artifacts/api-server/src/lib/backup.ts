@@ -1,12 +1,13 @@
 import { createHash, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, open, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { desc, eq, lt, lte, and, inArray, isNotNull } from "drizzle-orm";
 import pg from "pg";
 import {
   db,
+  pool as applicationDatabasePool,
   backupLogTable,
   backupSettingsTable,
   usersTable,
@@ -36,6 +37,11 @@ const objectStorage = new ObjectStorageService();
 // pg_dump / pg_restore binaries; override with PG_DUMP_PATH / PG_RESTORE_PATH.
 const PG_DUMP = process.env.PG_DUMP_PATH || "pg_dump";
 const PG_RESTORE = process.env.PG_RESTORE_PATH || "pg_restore";
+const PRODUCTION_PG_RESTORE = "/usr/bin/pg_restore";
+const PRODUCTION_PSQL = "/usr/bin/psql";
+const PRODUCTION_RESTORE_DEADLINE_MS = 15 * 60 * 1000;
+const PRODUCTION_RESTORE_KILL_GRACE_MS = 5_000;
+const PRODUCTION_RESTORE_MAX_SQL_BYTES = 8 * 1024 * 1024 * 1024;
 
 // ─── pg_dump availability check ──────────────────────────────────────────────
 
@@ -1247,59 +1253,316 @@ export async function readBackupDump(
   }
 }
 
-export async function restoreBackup(id: number): Promise<void> {
+const PRODUCTION_RESTORE_ENV_ALLOWLIST = [
+  "PATH",
+  "LANG",
+  "LC_ALL",
+  "TZ",
+  "SSL_CERT_FILE",
+  "SSL_CERT_DIR",
+] as const;
+
+export function productionRestoreProcessBoundary(
+  databaseUrl: string,
+  restoreRole: string,
+  inheritedEnvironment: NodeJS.ProcessEnv = process.env,
+): Readonly<{
+  databaseArgument: string;
+  environment: NodeJS.ProcessEnv;
+}> {
+  if (!/^[a-z_][a-z0-9_]{0,62}$/.test(restoreRole)) {
+    throw new Error("Restore role is not a canonical PostgreSQL identifier.");
+  }
+  let connection: URL;
+  try {
+    connection = new URL(databaseUrl);
+  } catch {
+    throw new Error("Restore database connection is invalid.");
+  }
+  if (
+    !["postgres:", "postgresql:"].includes(connection.protocol) ||
+    connection.hostname.length === 0 ||
+    connection.pathname.length < 2 ||
+    connection.hash.length !== 0
+  ) {
+    throw new Error("Restore database connection is invalid.");
+  }
+  for (const key of connection.searchParams.keys()) {
+    const normalized = key.toLowerCase();
+    if (
+      normalized.includes("password") ||
+      ["options", "passfile", "service", "servicefile"].includes(normalized)
+    ) {
+      throw new Error("Restore database connection parameters are unsafe.");
+    }
+  }
+  let password: string;
+  try {
+    password = decodeURIComponent(connection.password);
+  } catch {
+    throw new Error("Restore database connection is invalid.");
+  }
+  connection.password = "";
+  const environment: NodeJS.ProcessEnv = {};
+  for (const key of PRODUCTION_RESTORE_ENV_ALLOWLIST) {
+    const value = inheritedEnvironment[key];
+    if (value !== undefined) environment[key] = value;
+  }
+  environment.PGOPTIONS = `-c role=${restoreRole}`;
+  if (password.length > 0) environment.PGPASSWORD = password;
+  return Object.freeze({
+    databaseArgument: connection.toString(),
+    environment,
+  });
+}
+
+let applicationDatabasePoolSealed = false;
+
+export async function sealApplicationDatabasePoolForProductionRestore(): Promise<void> {
+  if (applicationDatabasePoolSealed) return;
+  await applicationDatabasePool.end();
+  applicationDatabasePoolSealed = true;
+}
+
+async function runProductionRestoreChild(input: {
+  command: string;
+  args: readonly string[];
+  environment: NodeJS.ProcessEnv;
+  stdout: "ignore" | number;
+  label: "pg_restore" | "psql";
+}): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(input.command, [...input.args], {
+      stdio: ["ignore", input.stdout, "pipe"],
+      env: input.environment,
+    });
+    let settled = false;
+    let timedOut = false;
+    let forceKill: NodeJS.Timeout | undefined;
+    const deadline = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+      forceKill = setTimeout(
+        () => child.kill("SIGKILL"),
+        PRODUCTION_RESTORE_KILL_GRACE_MS,
+      );
+      forceKill.unref();
+    }, PRODUCTION_RESTORE_DEADLINE_MS);
+    deadline.unref();
+    let stderrBytes = 0;
+    child.stderr?.on("data", (value: Buffer) => {
+      // Drain a bounded prefix so the child cannot block. Never surface raw
+      // stderr: connection or restored row material must not reach output.
+      if (stderrBytes < 64 * 1024) {
+        stderrBytes += Math.min(value.byteLength, 64 * 1024 - stderrBytes);
+      }
+    });
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(deadline);
+      if (forceKill) clearTimeout(forceKill);
+      if (error) reject(error);
+      else resolve();
+    };
+    child.once("error", () =>
+      finish(new Error(`${input.label} failed to start.`)),
+    );
+    child.once("close", (code) => {
+      if (timedOut) {
+        finish(new Error(`${input.label} exceeded its pinned deadline.`));
+      } else if (code !== 0) {
+        finish(new Error(`${input.label} exited with code ${code}.`));
+      } else {
+        finish();
+      }
+    });
+  });
+}
+
+export async function restoreBackup(
+  id: number,
+  options: {
+    restoreRole?: string;
+    preRestoreCleanup?: "invoice-0108";
+    verifiedBackup?: BackupLog;
+    updateBackupLogAfterRestore?: boolean;
+    runtimeRole?: string;
+  } = {},
+): Promise<void> {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) throw new Error("DATABASE_URL not set");
+
+  const restoreRole = options.restoreRole;
+  const attendedInvoice0108Restore =
+    options.preRestoreCleanup === "invoice-0108";
+  if (
+    attendedInvoice0108Restore &&
+    (restoreRole === undefined ||
+      options.runtimeRole === undefined ||
+      !/^[a-z_][a-z0-9_]{0,62}$/.test(options.runtimeRole) ||
+      options.runtimeRole === restoreRole ||
+      options.verifiedBackup === undefined ||
+      options.updateBackupLogAfterRestore !== false)
+  ) {
+    throw new Error(
+      "Invoice 0108 restore requires an exact role, verified backup row, and external receipt custody.",
+    );
+  }
+  if (options.verifiedBackup !== undefined && !attendedInvoice0108Restore) {
+    throw new Error("A verified backup row is restricted to attended restore.");
+  }
+  const productionBoundary =
+    restoreRole === undefined
+      ? undefined
+      : productionRestoreProcessBoundary(databaseUrl, restoreRole, process.env);
 
   if (restoreInProgress) {
     throw new Error("Obnovení už právě probíhá. Počkejte na jeho dokončení.");
   }
 
-  const row = await getBackup(id);
-  if (!row || row.status !== "success" || !row.objectPath) {
+  const row = options.verifiedBackup ?? (await getBackup(id));
+  if (!row || row.id !== id || row.status !== "success" || !row.objectPath) {
     throw new Error("Záloha nenalezena nebo není dokončená.");
   }
 
   restoreInProgress = true;
   const dir = await mkdtemp(join(tmpdir(), "stavba-restore-"));
   const filePath = join(dir, "dump.pgcustom");
+  const restoreSqlPath = join(dir, "restore.sql");
   try {
     const buffer = await readBackupDump(row);
-    await writeFile(filePath, buffer);
+    try {
+      await writeFile(filePath, buffer, { mode: 0o600 });
+    } finally {
+      buffer.fill(0);
+    }
 
-    await new Promise<void>((resolve, reject) => {
-      const child = spawn(
-        PG_RESTORE,
-        [
-          "--clean",
-          "--if-exists",
-          "--no-owner",
-          "--no-acl",
-          "--single-transaction",
-          "-d",
-          databaseUrl,
-          filePath,
-        ],
-        { stdio: ["ignore", "ignore", "pipe"] },
-      );
-      let stderr = "";
-      child.stderr.on("data", (d: Buffer) => {
-        stderr += d.toString();
+    if (attendedInvoice0108Restore && productionBoundary !== undefined) {
+      const sqlHandle = await open(restoreSqlPath, "wx", 0o600);
+      try {
+        await runProductionRestoreChild({
+          command: PRODUCTION_PG_RESTORE,
+          args: [
+            "--clean",
+            "--if-exists",
+            "--no-owner",
+            "--no-acl",
+            "--exit-on-error",
+            "--file=-",
+            filePath,
+          ],
+          environment: productionBoundary.environment,
+          stdout: sqlHandle.fd,
+          label: "pg_restore",
+        });
+        await sqlHandle.sync();
+      } finally {
+        await sqlHandle.close();
+      }
+      const generatedSql = await stat(restoreSqlPath);
+      if (
+        !generatedSql.isFile() ||
+        generatedSql.size < 1 ||
+        generatedSql.size > PRODUCTION_RESTORE_MAX_SQL_BYTES
+      ) {
+        throw new Error("Generated restore SQL is outside the pinned bound.");
+      }
+      const freezePool = new pg.Pool({
+        connectionString: databaseUrl,
+        max: 1,
+        connectionTimeoutMillis: 15_000,
       });
-      child.on("error", reject);
-      child.on("close", (code) => {
-        if (code === 0) resolve();
-        else
-          reject(
-            new Error(`pg_restore exited with code ${code}: ${stderr.trim()}`),
+      const freezeClient = await freezePool.connect();
+      let runtimeThawed = false;
+      try {
+        await freezeClient.query(`ALTER ROLE "${options.runtimeRole}" NOLOGIN`);
+        const freeze = await freezeClient.query(
+          "SELECT rolcanlogin, (SELECT count(*)::integer FROM pg_stat_activity WHERE usename = $1 AND pid <> pg_backend_pid()) AS runtime_sessions FROM pg_roles WHERE rolname = $1",
+          [options.runtimeRole],
+        );
+        if (
+          freeze.rows.length !== 1 ||
+          freeze.rows[0]?.rolcanlogin !== false ||
+          freeze.rows[0]?.runtime_sessions !== 0
+        ) {
+          throw new Error("Runtime writer freeze is not exclusive.");
+        }
+        await runProductionRestoreChild({
+          command: PRODUCTION_PSQL,
+          args: [
+            "--no-psqlrc",
+            "--single-transaction",
+            "--set=ON_ERROR_STOP=1",
+            "--dbname",
+            productionBoundary.databaseArgument,
+            "--command",
+            'DROP TABLE IF EXISTS "public"."invoice_source_allocations"',
+            "--file",
+            restoreSqlPath,
+          ],
+          environment: productionBoundary.environment,
+          stdout: "ignore",
+          label: "psql",
+        });
+        await freezeClient.query(`ALTER ROLE "${options.runtimeRole}" LOGIN`);
+        const thaw = await freezeClient.query(
+          "SELECT rolcanlogin FROM pg_roles WHERE rolname = $1",
+          [options.runtimeRole],
+        );
+        if (thaw.rows.length !== 1 || thaw.rows[0]?.rolcanlogin !== true) {
+          throw new Error("Runtime role could not be restored after recovery.");
+        }
+        runtimeThawed = true;
+      } finally {
+        freezeClient.release();
+        await freezePool.end();
+        if (!runtimeThawed) {
+          logger.error(
+            { backupId: id },
+            "Attended restore failed with runtime role left NOLOGIN",
           );
+        }
+      }
+    } else {
+      await new Promise<void>((resolve, reject) => {
+        const child = spawn(
+          PG_RESTORE,
+          [
+            "--clean",
+            "--if-exists",
+            "--no-owner",
+            "--no-acl",
+            "--single-transaction",
+            "-d",
+            databaseUrl,
+            filePath,
+          ],
+          { stdio: ["ignore", "ignore", "pipe"] },
+        );
+        let stderr = "";
+        child.stderr.on("data", (d: Buffer) => {
+          stderr += d.toString();
+        });
+        child.on("error", reject);
+        child.on("close", (code) => {
+          if (code === 0) resolve();
+          else
+            reject(
+              new Error(
+                `pg_restore exited with code ${code}: ${stderr.trim()}`,
+              ),
+            );
+        });
       });
-    });
+    }
 
-    await db
-      .update(backupLogTable)
-      .set({ restoredAt: new Date() })
-      .where(eq(backupLogTable.id, id));
+    if (options.updateBackupLogAfterRestore !== false) {
+      await db
+        .update(backupLogTable)
+        .set({ restoredAt: new Date() })
+        .where(eq(backupLogTable.id, id));
+    }
 
     logger.warn({ backupId: id }, "Database restored from backup");
   } finally {

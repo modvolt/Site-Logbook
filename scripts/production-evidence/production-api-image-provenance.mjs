@@ -36,13 +36,24 @@ import {
   parseStrictSecretFreeJson,
   parseProductionImagePublicationReceipt,
 } from "./production-image-publication-contract.mjs";
+import {
+  MANUAL_PRODUCTION_IMAGE_COMPLETE_MODE,
+  parseManualProductionImageCompleteReceipt,
+  validateManualProductionImageCompleteReceiptAgainstRawEvidence,
+} from "./manual-production-image-complete-contract.mjs";
 
 export const PRODUCTION_API_IMAGE_PROVENANCE_CONFIRMATION =
   "PRODUCE_AND_SIGN_EXACT_SITE_LOGBOOK_PRODUCTION_API_IMAGE_PROVENANCE";
+export const PRODUCTION_API_IMAGE_PROVENANCE_MANUAL_CONFIRMATION =
+  "PRODUCE_AND_SIGN_EXACT_SITE_LOGBOOK_MANUAL_OFFLINE_PRODUCTION_API_IMAGE_PROVENANCE";
 export const PRODUCTION_API_IMAGE_PROVENANCE_RECEIPT_SCHEMA =
   "site-logbook.production-api-image-provenance-production-receipt/v1";
 export const PRODUCTION_API_IMAGE_PROVENANCE_RECEIPT_KIND =
   "site-logbook-production-api-image-provenance-production-receipt";
+export const PRODUCTION_API_IMAGE_PROVENANCE_MANUAL_RECEIPT_SCHEMA =
+  "site-logbook.production-api-image-provenance-manual-production-receipt/v1";
+export const PRODUCTION_API_IMAGE_PROVENANCE_MANUAL_RECEIPT_KIND =
+  "site-logbook-production-api-image-provenance-manual-production-receipt";
 export const PRODUCTION_API_IMAGE_PROVENANCE_FILES = Object.freeze({
   provenance: "production-api-image-provenance.json",
   signature: "production-api-image-provenance.sig",
@@ -57,6 +68,7 @@ const CUSTODY_SCRIPT = path.join(
 );
 const MAX_PUBLICATION_RECEIPT_BYTES = 1024 * 1024;
 const MAX_API_OCI_PROVENANCE_BYTES = 16 * 1024 * 1024;
+const MAX_MANUAL_EVIDENCE_BYTES = 1024 * 1024;
 const MAX_SIGNATURE_BYTES = 64;
 const MAX_CHILD_OUTPUT_BYTES = 16 * 1024;
 const CUSTODY_TIMEOUT_MS = 120_000;
@@ -534,6 +546,74 @@ function verifyApiOciProvenanceBytes(bytes, publication, request) {
   return Object.freeze({ sha256: actualSha256 });
 }
 
+async function readPinnedManualEvidenceEntry(entry, field) {
+  const input = await readStableSingleLinkFile(
+    entry.path,
+    MAX_MANUAL_EVIDENCE_BYTES,
+    field,
+    false,
+  );
+  requireEqual(sha256(input.bytes), entry.sha256, `${field}.sha256`);
+  let value;
+  try {
+    value = parseStrictSecretFreeJson(input.bytes, field);
+  } catch (error) {
+    fail(
+      "PRODUCTION_API_PROVENANCE_INPUT_INVALID",
+      `${field} must be strict secret-free JSON pinned by the caller.`,
+      error,
+    );
+  }
+  return Object.freeze({ input, value, sha256: entry.sha256 });
+}
+
+async function readPinnedManualEvidence(request) {
+  const custody = await readPinnedManualEvidenceEntry(
+    request.manualEvidence.custody,
+    "manualCustody",
+  );
+  const custodyVerification = await readPinnedManualEvidenceEntry(
+    request.manualEvidence.custodyVerification,
+    "manualCustodyVerification",
+  );
+  const packageMetadata = await readPinnedManualEvidenceEntry(
+    request.manualEvidence.packageMetadata,
+    "manualPackageMetadata",
+  );
+  const registrySummary = await readPinnedManualEvidenceEntry(
+    request.manualEvidence.registrySummary,
+    "manualRegistrySummary",
+  );
+  const images = {};
+  const registryResults = {};
+  for (const key of Object.keys(PRODUCTION_IMAGE_SPECS)) {
+    images[key] = await readPinnedManualEvidenceEntry(
+      request.manualEvidence.images[key],
+      `manualImage.${key}`,
+    );
+    registryResults[key] = await readPinnedManualEvidenceEntry(
+      request.manualEvidence.registryResults[key],
+      `manualRegistryResult.${key}`,
+    );
+  }
+  return Object.freeze({
+    custody,
+    custodyVerification,
+    packageMetadata,
+    registrySummary,
+    images: Object.freeze(images),
+    registryResults: Object.freeze(registryResults),
+    inputs: Object.freeze([
+      custody.input,
+      custodyVerification.input,
+      packageMetadata.input,
+      registrySummary.input,
+      ...Object.values(images).map((entry) => entry.input),
+      ...Object.values(registryResults).map((entry) => entry.input),
+    ]),
+  });
+}
+
 async function assertMissing(target, field) {
   try {
     await lstat(target);
@@ -973,6 +1053,9 @@ export async function runProductionPublisherCustodySignatureWithTestProcess(
 }
 
 function parseRequest(rawRequest) {
+  if (rawRequest?.publicationMode === MANUAL_PRODUCTION_IMAGE_COMPLETE_MODE) {
+    return parseManualRequest(rawRequest);
+  }
   const request = exactKeys(
     rawRequest,
     [
@@ -1043,6 +1126,7 @@ function parseRequest(rawRequest) {
     );
   }
   return Object.freeze({
+    publicationMode: "github-actions",
     publicationReceipt,
     publicationReceiptSha256: exactDigest(
       request.publicationReceiptSha256,
@@ -1063,6 +1147,271 @@ function parseRequest(rawRequest) {
     publisherKeyId,
     vault,
     outputDirectory,
+  });
+}
+
+function parseManualRequest(rawRequest) {
+  const request = exactKeys(
+    rawRequest,
+    [
+      "publicationMode",
+      "manualCompleteReceipt",
+      "manualCompleteReceiptSha256",
+      "manualCustody",
+      "manualCustodySha256",
+      "manualCustodyVerification",
+      "manualCustodyVerificationSha256",
+      "manualPackageMetadata",
+      "manualPackageMetadataSha256",
+      "manualRegistrySummary",
+      "manualRegistrySummarySha256",
+      "manualImageApi",
+      "manualImageApiSha256",
+      "manualImageControlPlane",
+      "manualImageControlPlaneSha256",
+      "manualImageHostOperator",
+      "manualImageHostOperatorSha256",
+      "manualImageWeb",
+      "manualImageWebSha256",
+      "manualRegistryResultApi",
+      "manualRegistryResultApiSha256",
+      "manualRegistryResultControlPlane",
+      "manualRegistryResultControlPlaneSha256",
+      "manualRegistryResultHostOperator",
+      "manualRegistryResultHostOperatorSha256",
+      "manualRegistryResultWeb",
+      "manualRegistryResultWebSha256",
+      "apiOciProvenance",
+      "sourceSha",
+      "apiImage",
+      "apiOciProvenanceSha256",
+      "publisherKeyId",
+      "vault",
+      "outputDirectory",
+      "confirmation",
+    ],
+    "request",
+  );
+  if (
+    request.publicationMode !== MANUAL_PRODUCTION_IMAGE_COMPLETE_MODE ||
+    request.confirmation !== PRODUCTION_API_IMAGE_PROVENANCE_MANUAL_CONFIRMATION
+  ) {
+    fail(
+      "PRODUCTION_API_PROVENANCE_DARK",
+      "The exact attended manual-offline provenance confirmation is required.",
+    );
+  }
+  const publicationReceipt = absoluteOutsideRepository(
+    request.manualCompleteReceipt,
+    "manualCompleteReceipt",
+  );
+  const vault = absoluteOutsideRepository(request.vault, "vault");
+  const apiOciProvenance = absoluteOutsideRepository(
+    request.apiOciProvenance,
+    "apiOciProvenance",
+  );
+  const outputDirectory = absoluteOutsideRepository(
+    request.outputDirectory,
+    "outputDirectory",
+  );
+  const manualEvidence = Object.freeze({
+    custody: Object.freeze({
+      path: absoluteOutsideRepository(request.manualCustody, "manualCustody"),
+      sha256: exactDigest(request.manualCustodySha256, "manualCustodySha256"),
+    }),
+    custodyVerification: Object.freeze({
+      path: absoluteOutsideRepository(
+        request.manualCustodyVerification,
+        "manualCustodyVerification",
+      ),
+      sha256: exactDigest(
+        request.manualCustodyVerificationSha256,
+        "manualCustodyVerificationSha256",
+      ),
+    }),
+    packageMetadata: Object.freeze({
+      path: absoluteOutsideRepository(
+        request.manualPackageMetadata,
+        "manualPackageMetadata",
+      ),
+      sha256: exactDigest(
+        request.manualPackageMetadataSha256,
+        "manualPackageMetadataSha256",
+      ),
+    }),
+    registrySummary: Object.freeze({
+      path: absoluteOutsideRepository(
+        request.manualRegistrySummary,
+        "manualRegistrySummary",
+      ),
+      sha256: exactDigest(
+        request.manualRegistrySummarySha256,
+        "manualRegistrySummarySha256",
+      ),
+    }),
+    images: Object.freeze({
+      api: Object.freeze({
+        path: absoluteOutsideRepository(
+          request.manualImageApi,
+          "manualImageApi",
+        ),
+        sha256: exactDigest(
+          request.manualImageApiSha256,
+          "manualImageApiSha256",
+        ),
+      }),
+      controlPlane: Object.freeze({
+        path: absoluteOutsideRepository(
+          request.manualImageControlPlane,
+          "manualImageControlPlane",
+        ),
+        sha256: exactDigest(
+          request.manualImageControlPlaneSha256,
+          "manualImageControlPlaneSha256",
+        ),
+      }),
+      hostOperator: Object.freeze({
+        path: absoluteOutsideRepository(
+          request.manualImageHostOperator,
+          "manualImageHostOperator",
+        ),
+        sha256: exactDigest(
+          request.manualImageHostOperatorSha256,
+          "manualImageHostOperatorSha256",
+        ),
+      }),
+      web: Object.freeze({
+        path: absoluteOutsideRepository(
+          request.manualImageWeb,
+          "manualImageWeb",
+        ),
+        sha256: exactDigest(
+          request.manualImageWebSha256,
+          "manualImageWebSha256",
+        ),
+      }),
+    }),
+    registryResults: Object.freeze({
+      api: Object.freeze({
+        path: absoluteOutsideRepository(
+          request.manualRegistryResultApi,
+          "manualRegistryResultApi",
+        ),
+        sha256: exactDigest(
+          request.manualRegistryResultApiSha256,
+          "manualRegistryResultApiSha256",
+        ),
+      }),
+      controlPlane: Object.freeze({
+        path: absoluteOutsideRepository(
+          request.manualRegistryResultControlPlane,
+          "manualRegistryResultControlPlane",
+        ),
+        sha256: exactDigest(
+          request.manualRegistryResultControlPlaneSha256,
+          "manualRegistryResultControlPlaneSha256",
+        ),
+      }),
+      hostOperator: Object.freeze({
+        path: absoluteOutsideRepository(
+          request.manualRegistryResultHostOperator,
+          "manualRegistryResultHostOperator",
+        ),
+        sha256: exactDigest(
+          request.manualRegistryResultHostOperatorSha256,
+          "manualRegistryResultHostOperatorSha256",
+        ),
+      }),
+      web: Object.freeze({
+        path: absoluteOutsideRepository(
+          request.manualRegistryResultWeb,
+          "manualRegistryResultWeb",
+        ),
+        sha256: exactDigest(
+          request.manualRegistryResultWebSha256,
+          "manualRegistryResultWebSha256",
+        ),
+      }),
+    }),
+  });
+  if (!OUTPUT_BASENAME.test(path.basename(outputDirectory))) {
+    fail(
+      "PRODUCTION_API_PROVENANCE_PATH_INVALID",
+      "outputDirectory basename is invalid.",
+    );
+  }
+  if (
+    publicationReceipt === apiOciProvenance ||
+    isWithin(vault, publicationReceipt) ||
+    isWithin(vault, apiOciProvenance) ||
+    isWithin(vault, outputDirectory) ||
+    isWithin(outputDirectory, vault)
+  ) {
+    fail(
+      "PRODUCTION_API_PROVENANCE_PATH_INVALID",
+      "Manual inputs, outputs and the custody vault must remain separated.",
+    );
+  }
+  const manualEvidencePaths = [
+    manualEvidence.custody.path,
+    manualEvidence.custodyVerification.path,
+    manualEvidence.packageMetadata.path,
+    manualEvidence.registrySummary.path,
+    ...Object.values(manualEvidence.images).map((entry) => entry.path),
+    ...Object.values(manualEvidence.registryResults).map((entry) => entry.path),
+  ];
+  const separatedPaths = [
+    publicationReceipt,
+    apiOciProvenance,
+    ...manualEvidencePaths,
+  ];
+  if (
+    new Set(separatedPaths).size !== separatedPaths.length ||
+    manualEvidencePaths.some(
+      (entry) =>
+        isWithin(vault, entry) ||
+        isWithin(outputDirectory, entry) ||
+        isWithin(entry, vault) ||
+        isWithin(entry, outputDirectory),
+    )
+  ) {
+    fail(
+      "PRODUCTION_API_PROVENANCE_PATH_INVALID",
+      "Manual evidence inputs must be mutually distinct and separated from custody and output paths.",
+    );
+  }
+  const apiImage = exactText(request.apiImage, "apiImage").toLowerCase();
+  if (!API_IMAGE.test(apiImage)) {
+    fail(
+      "PRODUCTION_API_PROVENANCE_BINDING_INVALID",
+      "apiImage is not the immutable production API repository.",
+    );
+  }
+  const publisherKeyId = exactText(request.publisherKeyId, "publisherKeyId");
+  if (!KEY_ID.test(publisherKeyId)) {
+    fail(
+      "PRODUCTION_API_PROVENANCE_BINDING_INVALID",
+      "publisherKeyId is invalid.",
+    );
+  }
+  return Object.freeze({
+    publicationMode: MANUAL_PRODUCTION_IMAGE_COMPLETE_MODE,
+    publicationReceipt,
+    publicationReceiptSha256: exactDigest(
+      request.manualCompleteReceiptSha256,
+      "manualCompleteReceiptSha256",
+    ),
+    apiOciProvenance,
+    sourceSha: exactSha(request.sourceSha, "sourceSha"),
+    apiImage,
+    apiOciProvenanceSha256: exactDigest(
+      request.apiOciProvenanceSha256,
+      "apiOciProvenanceSha256",
+    ),
+    publisherKeyId,
+    vault,
+    outputDirectory,
+    manualEvidence,
   });
 }
 
@@ -1101,19 +1450,28 @@ function publisherAuthority(keys, expectedPin, keyId) {
   return Object.freeze({ key, sha256: actualPin });
 }
 
-function buildProvenance(receipt, request) {
+function reviewedImageSetSha256FromPublication(publication, request) {
+  return request.publicationMode === MANUAL_PRODUCTION_IMAGE_COMPLETE_MODE
+    ? publication.receipt.reviewedImageSetSha256
+    : publication.receipt.chain.reviewedImageSetSha256;
+}
+
+function buildProvenance(publication, request) {
+  const receipt = publication.receipt;
   const api = receipt.images.api;
   requireEqual(receipt.source.sha, request.sourceSha, "receipt.source.sha");
-  requireEqual(
-    receipt.caller.runId,
-    request.completeRunId,
-    "receipt.caller.runId",
-  );
-  requireEqual(
-    receipt.caller.runAttempt,
-    request.completeRunAttempt,
-    "receipt.caller.runAttempt",
-  );
+  if (request.publicationMode === "github-actions") {
+    requireEqual(
+      receipt.caller.runId,
+      request.completeRunId,
+      "receipt.caller.runId",
+    );
+    requireEqual(
+      receipt.caller.runAttempt,
+      request.completeRunAttempt,
+      "receipt.caller.runAttempt",
+    );
+  }
   requireEqual(api.image, request.apiImage, "receipt.images.api.image");
   requireEqual(
     api.digest,
@@ -1142,7 +1500,10 @@ function buildProvenance(receipt, request) {
     subjectDigest: api.digest,
     sourceSha: receipt.source.sha,
     publicationReceiptSha256: request.publicationReceiptSha256,
-    reviewedImageSetSha256: receipt.chain.reviewedImageSetSha256,
+    reviewedImageSetSha256: reviewedImageSetSha256FromPublication(
+      publication,
+      request,
+    ),
     subjectRunnableManifestDigest: api.runnableManifestDigest,
     ociProvenanceSha256: api.provenance.sha256,
     buildProfile: api.build.imageProfile,
@@ -1160,6 +1521,75 @@ function buildProductionReceipt({
   publisherPublicKeySha256,
 }) {
   const api = publication.receipt.images.api;
+  const output = Object.freeze({
+    keyId: request.publisherKeyId,
+    publisherPublicKeySha256,
+    provenanceSha256: sha256(provenanceCanonical),
+    signatureSha256: sha256(signature),
+    provenanceFile: PRODUCTION_API_IMAGE_PROVENANCE_FILES.provenance,
+    signatureFile: PRODUCTION_API_IMAGE_PROVENANCE_FILES.signature,
+  });
+  const policy = Object.freeze({
+    additionalRegistryWritePerformed: false,
+    productionTargetsTouched: false,
+    deploymentAuthorized: false,
+    migrationAuthorized: false,
+    applicationStartAuthorized: false,
+    privateMaterialPrinted: false,
+    persistenceMode: "exclusive-directory-hardlink-fsync-readback",
+  });
+  if (request.publicationMode === MANUAL_PRODUCTION_IMAGE_COMPLETE_MODE) {
+    const value = Object.freeze({
+      schemaVersion: PRODUCTION_API_IMAGE_PROVENANCE_MANUAL_RECEIPT_SCHEMA,
+      kind: PRODUCTION_API_IMAGE_PROVENANCE_MANUAL_RECEIPT_KIND,
+      publication: Object.freeze({
+        mode: MANUAL_PRODUCTION_IMAGE_COMPLETE_MODE,
+        receiptSha256: publication.sha256,
+        sourceSha: publication.receipt.source.sha,
+        manualCustodyReceiptSha256: publication.receipt.custody.receiptSha256,
+        manualCustodyVerificationSha256:
+          publication.receipt.custody.verificationSha256,
+        registryPublicationSha256: publication.receipt.registry.sha256,
+        packageMetadataObservedAt:
+          publication.receipt.packageMetadata.observedAt,
+        reviewedImageSetSha256: publication.receipt.reviewedImageSetSha256,
+        apiImage: api.image,
+        apiDigest: api.digest,
+        apiRunnableManifestDigest: api.runnableManifestDigest,
+        apiConfigDigest: api.configDigest,
+        apiOciProvenanceSha256: api.provenance.sha256,
+        apiRegistryEvidenceSha256: api.registryEvidenceSha256,
+      }),
+      rawEvidence: Object.freeze({
+        custodySha256: request.manualEvidence.custody.sha256,
+        custodyVerificationSha256:
+          request.manualEvidence.custodyVerification.sha256,
+        packageMetadataSha256: request.manualEvidence.packageMetadata.sha256,
+        registrySummarySha256: request.manualEvidence.registrySummary.sha256,
+        images: Object.freeze(
+          Object.fromEntries(
+            Object.entries(request.manualEvidence.images).map(
+              ([key, entry]) => [key, entry.sha256],
+            ),
+          ),
+        ),
+        registryResults: Object.freeze(
+          Object.fromEntries(
+            Object.entries(request.manualEvidence.registryResults).map(
+              ([key, entry]) => [key, entry.sha256],
+            ),
+          ),
+        ),
+      }),
+      output,
+      policy,
+    });
+    assertSecretFree(
+      value,
+      "productionApiImageProvenanceManualProductionReceipt",
+    );
+    return Object.freeze({ value, canonical: canonicalJson(value) });
+  }
   const value = Object.freeze({
     schemaVersion: PRODUCTION_API_IMAGE_PROVENANCE_RECEIPT_SCHEMA,
     kind: PRODUCTION_API_IMAGE_PROVENANCE_RECEIPT_KIND,
@@ -1176,23 +1606,8 @@ function buildProductionReceipt({
       apiOciProvenanceSha256: api.provenance.sha256,
       apiRegistryEvidenceSha256: api.registryEvidenceSha256,
     }),
-    output: Object.freeze({
-      keyId: request.publisherKeyId,
-      publisherPublicKeySha256,
-      provenanceSha256: sha256(provenanceCanonical),
-      signatureSha256: sha256(signature),
-      provenanceFile: PRODUCTION_API_IMAGE_PROVENANCE_FILES.provenance,
-      signatureFile: PRODUCTION_API_IMAGE_PROVENANCE_FILES.signature,
-    }),
-    policy: Object.freeze({
-      additionalRegistryWritePerformed: false,
-      productionTargetsTouched: false,
-      deploymentAuthorized: false,
-      migrationAuthorized: false,
-      applicationStartAuthorized: false,
-      privateMaterialPrinted: false,
-      persistenceMode: "exclusive-directory-hardlink-fsync-readback",
-    }),
+    output,
+    policy,
   });
   assertSecretFree(value, "productionApiImageProvenanceProductionReceipt");
   return Object.freeze({ value, canonical: canonicalJson(value) });
@@ -1224,19 +1639,29 @@ function assertRealPathSeparation({
   repository,
   vault,
   outputDirectory,
-  publicationReceipt,
-  apiOciProvenance,
+  inputPaths,
 }) {
+  if (
+    !Array.isArray(inputPaths) ||
+    inputPaths.length < 2 ||
+    new Set(inputPaths).size !== inputPaths.length
+  ) {
+    fail(
+      "PRODUCTION_API_PROVENANCE_PATH_INVALID",
+      "Resolved evidence inputs must be mutually distinct.",
+    );
+  }
   if (
     isWithin(repository, vault) ||
     isWithin(repository, outputDirectory) ||
-    isWithin(repository, publicationReceipt) ||
-    isWithin(repository, apiOciProvenance) ||
-    isWithin(vault, publicationReceipt) ||
-    isWithin(vault, apiOciProvenance) ||
     isWithin(vault, outputDirectory) ||
     isWithin(outputDirectory, vault) ||
-    publicationReceipt === apiOciProvenance
+    inputPaths.some(
+      (entry) =>
+        isWithin(repository, entry) ||
+        isWithin(vault, entry) ||
+        isWithin(outputDirectory, entry),
+    )
   ) {
     fail(
       "PRODUCTION_API_PROVENANCE_PATH_INVALID",
@@ -1255,12 +1680,19 @@ async function runProducerCore(
     trustedPublisherKeys,
     expectedPublisherPublicKeySha256,
     signWithCustody,
+    clock = Date.now,
     testHooks = Object.freeze({}),
   } = dependencies;
   if (typeof signWithCustody !== "function") {
     fail(
       "PRODUCTION_API_PROVENANCE_CUSTODY_FAILED",
       "The attended custody signer is unavailable.",
+    );
+  }
+  if (typeof clock !== "function") {
+    fail(
+      "PRODUCTION_API_PROVENANCE_AUTHORITY_INVALID",
+      "The sign-time clock is unavailable.",
     );
   }
   const authority = publisherAuthority(
@@ -1294,13 +1726,23 @@ async function runProducerCore(
     publicationInput.bytes,
     "publicationReceipt",
   );
-  const publication = parseProductionImagePublicationReceipt(publicationRaw, {
-    expectedStage: "complete",
-    expectedSourceSha: request.sourceSha,
-    expectedRunId: request.completeRunId,
-    expectedRunAttempt: request.completeRunAttempt,
-    expectedReceiptSha256: request.publicationReceiptSha256,
-  });
+  const publication =
+    request.publicationMode === MANUAL_PRODUCTION_IMAGE_COMPLETE_MODE
+      ? parseManualProductionImageCompleteReceipt(publicationRaw, {
+          expectedSourceSha: request.sourceSha,
+          expectedReceiptSha256: request.publicationReceiptSha256,
+        })
+      : parseProductionImagePublicationReceipt(publicationRaw, {
+          expectedStage: "complete",
+          expectedSourceSha: request.sourceSha,
+          expectedRunId: request.completeRunId,
+          expectedRunAttempt: request.completeRunAttempt,
+          expectedReceiptSha256: request.publicationReceiptSha256,
+        });
+  const manualEvidence =
+    request.publicationMode === MANUAL_PRODUCTION_IMAGE_COMPLETE_MODE
+      ? await readPinnedManualEvidence(request)
+      : undefined;
   const apiOciProvenanceInput = await readStableSingleLinkFile(
     request.apiOciProvenance,
     MAX_API_OCI_PROVENANCE_BYTES,
@@ -1321,10 +1763,60 @@ async function runProducerCore(
     repository: repositoryInfo.path,
     vault: vaultInfo.path,
     outputDirectory: resolvedOutputDirectory,
-    publicationReceipt: publicationInput.path,
-    apiOciProvenance: apiOciProvenanceInput.path,
+    inputPaths: [
+      publicationInput.path,
+      apiOciProvenanceInput.path,
+      ...(manualEvidence?.inputs.map((entry) => entry.path) ?? []),
+    ],
   });
-  const provenance = buildProvenance(publication.receipt, request);
+  if (manualEvidence) {
+    const nowMs = clock();
+    if (!Number.isSafeInteger(nowMs) || nowMs <= 0) {
+      fail(
+        "PRODUCTION_API_PROVENANCE_AUTHORITY_INVALID",
+        "The sign-time clock returned an invalid value.",
+      );
+    }
+    validateManualProductionImageCompleteReceiptAgainstRawEvidence(
+      publication.receipt,
+      {
+        custody: manualEvidence.custody.value,
+        custodySha256: manualEvidence.custody.sha256,
+        custodyVerification: manualEvidence.custodyVerification.value,
+        custodyVerificationSha256: manualEvidence.custodyVerification.sha256,
+        packageMetadata: manualEvidence.packageMetadata.value,
+        packageMetadataSha256: manualEvidence.packageMetadata.sha256,
+        registrySummary: manualEvidence.registrySummary.value,
+        registrySummarySha256: manualEvidence.registrySummary.sha256,
+        images: Object.fromEntries(
+          Object.entries(manualEvidence.images).map(([key, entry]) => [
+            key,
+            entry.value,
+          ]),
+        ),
+        imageSha256: Object.fromEntries(
+          Object.entries(manualEvidence.images).map(([key, entry]) => [
+            key,
+            entry.sha256,
+          ]),
+        ),
+        registryResults: Object.fromEntries(
+          Object.entries(manualEvidence.registryResults).map(([key, entry]) => [
+            key,
+            entry.value,
+          ]),
+        ),
+        registryResultSha256: Object.fromEntries(
+          Object.entries(manualEvidence.registryResults).map(([key, entry]) => [
+            key,
+            entry.sha256,
+          ]),
+        ),
+        nowMs,
+      },
+    );
+  }
+  const provenance = buildProvenance(publication, request);
 
   const stageBasename = `.${path.basename(request.outputDirectory)}.${process.pid}.${randomBytes(12).toString("hex")}.stage`;
   const stageDirectory = path.join(outputParent, stageBasename);
@@ -1645,6 +2137,7 @@ export async function runProductionApiImageProvenanceProducerWithTestAuthority(
     "trustedPublisherKeys",
     "expectedPublisherPublicKeySha256",
     "signWithCustody",
+    ...(Object.hasOwn(dependencies ?? {}, "clock") ? ["clock"] : []),
     ...(Object.hasOwn(dependencies ?? {}, "testHooks") ? ["testHooks"] : []),
   ];
   const authority = exactKeys(
@@ -1703,10 +2196,98 @@ function parseArgs(argv) {
     }
     options[name] = value;
   }
+  if (command === "produce-manual-offline") {
+    const mapped = exactKeys(
+      options,
+      [
+        "manual-complete-receipt",
+        "manual-complete-receipt-sha256",
+        "manual-custody",
+        "manual-custody-sha256",
+        "manual-custody-verification",
+        "manual-custody-verification-sha256",
+        "manual-package-metadata",
+        "manual-package-metadata-sha256",
+        "manual-registry-summary",
+        "manual-registry-summary-sha256",
+        "manual-image-api",
+        "manual-image-api-sha256",
+        "manual-image-control-plane",
+        "manual-image-control-plane-sha256",
+        "manual-image-host-operator",
+        "manual-image-host-operator-sha256",
+        "manual-image-web",
+        "manual-image-web-sha256",
+        "manual-registry-result-api",
+        "manual-registry-result-api-sha256",
+        "manual-registry-result-control-plane",
+        "manual-registry-result-control-plane-sha256",
+        "manual-registry-result-host-operator",
+        "manual-registry-result-host-operator-sha256",
+        "manual-registry-result-web",
+        "manual-registry-result-web-sha256",
+        "api-oci-provenance",
+        "source-sha",
+        "api-image",
+        "api-oci-provenance-sha256",
+        "publisher-key-id",
+        "vault",
+        "output-directory",
+        "confirm",
+      ],
+      "options",
+    );
+    return {
+      publicationMode: MANUAL_PRODUCTION_IMAGE_COMPLETE_MODE,
+      manualCompleteReceipt: mapped["manual-complete-receipt"],
+      manualCompleteReceiptSha256: mapped["manual-complete-receipt-sha256"],
+      manualCustody: mapped["manual-custody"],
+      manualCustodySha256: mapped["manual-custody-sha256"],
+      manualCustodyVerification: mapped["manual-custody-verification"],
+      manualCustodyVerificationSha256:
+        mapped["manual-custody-verification-sha256"],
+      manualPackageMetadata: mapped["manual-package-metadata"],
+      manualPackageMetadataSha256: mapped["manual-package-metadata-sha256"],
+      manualRegistrySummary: mapped["manual-registry-summary"],
+      manualRegistrySummarySha256: mapped["manual-registry-summary-sha256"],
+      manualImageApi: mapped["manual-image-api"],
+      manualImageApiSha256: mapped["manual-image-api-sha256"],
+      manualImageControlPlane: mapped["manual-image-control-plane"],
+      manualImageControlPlaneSha256:
+        mapped["manual-image-control-plane-sha256"],
+      manualImageHostOperator: mapped["manual-image-host-operator"],
+      manualImageHostOperatorSha256:
+        mapped["manual-image-host-operator-sha256"],
+      manualImageWeb: mapped["manual-image-web"],
+      manualImageWebSha256: mapped["manual-image-web-sha256"],
+      manualRegistryResultApi: mapped["manual-registry-result-api"],
+      manualRegistryResultApiSha256:
+        mapped["manual-registry-result-api-sha256"],
+      manualRegistryResultControlPlane:
+        mapped["manual-registry-result-control-plane"],
+      manualRegistryResultControlPlaneSha256:
+        mapped["manual-registry-result-control-plane-sha256"],
+      manualRegistryResultHostOperator:
+        mapped["manual-registry-result-host-operator"],
+      manualRegistryResultHostOperatorSha256:
+        mapped["manual-registry-result-host-operator-sha256"],
+      manualRegistryResultWeb: mapped["manual-registry-result-web"],
+      manualRegistryResultWebSha256:
+        mapped["manual-registry-result-web-sha256"],
+      apiOciProvenance: mapped["api-oci-provenance"],
+      sourceSha: mapped["source-sha"],
+      apiImage: mapped["api-image"],
+      apiOciProvenanceSha256: mapped["api-oci-provenance-sha256"],
+      publisherKeyId: mapped["publisher-key-id"],
+      vault: mapped.vault,
+      outputDirectory: mapped["output-directory"],
+      confirmation: mapped.confirm,
+    };
+  }
   if (command !== "produce") {
     fail(
       "PRODUCTION_API_PROVENANCE_DARK",
-      "Only the exact produce command is available.",
+      "Only the exact reviewed producer commands are available.",
     );
   }
   const mapped = exactKeys(
@@ -1747,6 +2328,16 @@ function usage() {
   return [
     "Usage:",
     "  node scripts/production-evidence/production-api-image-provenance.mjs produce --publication-receipt ABSOLUTE_PATH --publication-receipt-sha256 sha256:... --api-oci-provenance ABSOLUTE_PATH --source-sha 40_HEX --complete-run-id INTEGER --complete-run-attempt INTEGER --api-image ghcr.io/modvolt/site-logbook-production-api@sha256:... --api-oci-provenance-sha256 sha256:... --publisher-key-id ed25519:... --vault ABSOLUTE_PATH --output-directory NEW_ABSOLUTE_PATH --confirm PRODUCE_AND_SIGN_EXACT_SITE_LOGBOOK_PRODUCTION_API_IMAGE_PROVENANCE",
+    "  node scripts/production-evidence/production-api-image-provenance.mjs produce-manual-offline [EXACT_OPTIONS_BELOW]",
+    "    --manual-complete-receipt ABSOLUTE_PATH --manual-complete-receipt-sha256 sha256:...",
+    "    --manual-custody ABSOLUTE_PATH --manual-custody-sha256 sha256:... --manual-custody-verification ABSOLUTE_PATH --manual-custody-verification-sha256 sha256:...",
+    "    --manual-package-metadata ABSOLUTE_PATH --manual-package-metadata-sha256 sha256:... --manual-registry-summary ABSOLUTE_PATH --manual-registry-summary-sha256 sha256:...",
+    "    --manual-image-api ABSOLUTE_PATH --manual-image-api-sha256 sha256:... --manual-image-control-plane ABSOLUTE_PATH --manual-image-control-plane-sha256 sha256:...",
+    "    --manual-image-host-operator ABSOLUTE_PATH --manual-image-host-operator-sha256 sha256:... --manual-image-web ABSOLUTE_PATH --manual-image-web-sha256 sha256:...",
+    "    --manual-registry-result-api ABSOLUTE_PATH --manual-registry-result-api-sha256 sha256:... --manual-registry-result-control-plane ABSOLUTE_PATH --manual-registry-result-control-plane-sha256 sha256:...",
+    "    --manual-registry-result-host-operator ABSOLUTE_PATH --manual-registry-result-host-operator-sha256 sha256:... --manual-registry-result-web ABSOLUTE_PATH --manual-registry-result-web-sha256 sha256:...",
+    "    --api-oci-provenance ABSOLUTE_PATH --source-sha 40_HEX --api-image ghcr.io/modvolt/site-logbook-production-api@sha256:... --api-oci-provenance-sha256 sha256:...",
+    "    --publisher-key-id ed25519:... --vault ABSOLUTE_PATH --output-directory NEW_ABSOLUTE_PATH --confirm PRODUCE_AND_SIGN_EXACT_SITE_LOGBOOK_MANUAL_OFFLINE_PRODUCTION_API_IMAGE_PROVENANCE",
     "",
     "The complete publication receipt digest and all image/source bindings must be independently reviewed.",
     "The command emits public digests only; private key material never enters argv, env or stdout.",

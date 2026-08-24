@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import {
   appendFile,
+  chmod,
   lstat,
+  mkdir,
   mkdtemp,
   open,
   readFile,
@@ -94,13 +96,21 @@ vi.mock("@workspace/db/production-migration-role-authority", () => ({
 
 import {
   applyProductionRuntimeDbCredentialCutover,
+  applyProductionRuntimeDbCredentialRotation,
   canonicalProductionRuntimeDbCredentialJson,
+  createPostgres16ScramSha256Verifier,
+  generateFreshProductionRuntimeDbCredentialSecret,
   parseAndVerifyProductionRuntimeDbCredentialReceipt,
+  prepareProductionRuntimeDbCredentialRotationRequest,
   productionRuntimeDbCredentialSha256,
   PRODUCTION_MIGRATION_ADVISORY_LOCK_KEY,
   PRODUCTION_RUNTIME_DB_CREDENTIAL_CONFIRMATION,
   PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_MAX_AGE_MS,
   PRODUCTION_RUNTIME_DB_CREDENTIAL_REQUEST_SCHEMA,
+  PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_CONFIRMATION,
+  PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_PREPARE_CONFIRMATION,
+  PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_RECEIPT_SCHEMA,
+  PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_REQUEST_SCHEMA,
   type ProductionRuntimeCredentialClient,
 } from "../src/lib/production-runtime-db-credential-cutover";
 import {
@@ -113,15 +123,25 @@ import {
   persistProductionRuntimeDbCredentialReceipt,
   readStableProductionRuntimeDbCredentialInputFile,
   reserveProductionRuntimeDbCredentialReceipt,
+  reserveProductionRuntimeDbCredentialRotationSecret,
 } from "../src/production-runtime-db-credential-cutover";
 
 const PASSWORD = "R".repeat(48);
+const PREVIOUS_VERIFIER = createPostgres16ScramSha256Verifier(
+  "O".repeat(48),
+  Buffer.from("00112233445566778899aabbccddeeff", "hex"),
+);
+const DIFFERENT_VALID_VERIFIER = createPostgres16ScramSha256Verifier(
+  "D".repeat(48),
+  Buffer.from("ffeeddccbbaa99887766554433221100", "hex"),
+);
 
 function fixture(
   options: {
     pre?: Partial<Record<string, unknown>>;
     fail?: "alter" | "stored-verifier" | "commit" | "runtime-connect";
     roleProjectionDrift?: "membership" | "acl" | "default-acl";
+    initialVerifier?: string;
   } = {},
 ) {
   const migrationPlanCanonical = canonicalProductionRuntimeDbCredentialJson({
@@ -213,7 +233,7 @@ function fixture(
       { grantee: "unexpected_role", privileges: ["INSERT"] },
     ];
   }
-  let storedVerifier = "";
+  let storedVerifier = options.initialVerifier ?? "";
   const admin: ProductionRuntimeCredentialClient = {
     async query(statement, values) {
       queries.push({ statement, values });
@@ -292,6 +312,51 @@ function fixture(
     releases,
     get runtimeConnectInput() {
       return runtimeConnectInput;
+    },
+  };
+}
+
+function rotationFixture(
+  options: Parameters<typeof fixture>[0] & {
+    issuedAt?: string;
+    expiresAt?: string;
+  } = {},
+) {
+  const state = fixture({
+    ...options,
+    pre: { runtimeCredentialPresent: true, ...options.pre },
+    initialVerifier: options.initialVerifier ?? PREVIOUS_VERIFIER,
+  });
+  const cutover = JSON.parse(state.input.requestCanonical) as Record<
+    string,
+    unknown
+  >;
+  const requestCanonical = canonicalProductionRuntimeDbCredentialJson({
+    ...cutover,
+    schemaVersion: PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_REQUEST_SCHEMA,
+    kind: "site-logbook-production-runtime-db-credential-rotation-request",
+    operation: "rotate-existing-runtime-credential",
+    expectedCurrentCredentialVerifierSha256:
+      productionRuntimeDbCredentialSha256(PREVIOUS_VERIFIER),
+    approvalId: "runtime-credential-rotation-20260818",
+    issuedAt: options.issuedAt ?? "2026-08-18T09:59:00.000Z",
+    expiresAt: options.expiresAt ?? "2026-08-18T11:00:00.000Z",
+    confirmation: PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_CONFIRMATION,
+  });
+  const { runtimePassword: _runtimePassword, ...common } = state.input;
+  const secrets: string[] = [];
+  return {
+    ...state,
+    input: {
+      ...common,
+      requestCanonical,
+      persistGeneratedSecret: vi.fn(async (secret: string) => {
+        secrets.push(secret);
+      }),
+    },
+    secrets,
+    get runtimeConnectInput() {
+      return state.runtimeConnectInput;
     },
   };
 }
@@ -567,6 +632,198 @@ describe("production runtime database credential cutover", () => {
       code: "PRODUCTION_RUNTIME_DB_CREDENTIAL_REQUEST_INVALID",
     });
     expect(state.input.connectAdmin).not.toHaveBeenCalled();
+  });
+});
+
+describe("production runtime database credential rotation", () => {
+  it("prepares the exact predecessor-bound request read-only without emitting rolpassword", async () => {
+    const state = fixture({
+      pre: { runtimeCredentialPresent: true },
+      initialVerifier: PREVIOUS_VERIFIER,
+    });
+    const prepared = await prepareProductionRuntimeDbCredentialRotationRequest({
+      migrationPlanCanonical: state.input.migrationPlanCanonical,
+      roleTransactionReceiptCanonical:
+        state.input.roleTransactionReceiptCanonical,
+      rolePostCommitArtifactCanonical:
+        state.input.rolePostCommitArtifactCanonical,
+      embeddedSourceSha: EXECUTOR_SHA,
+      executorImage: EXECUTOR_IMAGE,
+      liveSourceSha: SOURCE_SHA,
+      databaseName: "site_logbook",
+      approvalId: "runtime-credential-rotation-prepare-20260818",
+      connectAdmin: state.input.connectAdmin,
+      signal: state.input.signal,
+      now: () => new Date("2026-08-18T10:00:00.000Z"),
+    });
+    const request = JSON.parse(prepared.requestCanonical);
+    expect(request).toMatchObject({
+      schemaVersion: PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_REQUEST_SCHEMA,
+      expectedCurrentCredentialVerifierSha256:
+        productionRuntimeDbCredentialSha256(PREVIOUS_VERIFIER),
+      issuedAt: "2026-08-18T10:00:00.000Z",
+      expiresAt: "2026-08-19T10:00:00.000Z",
+      authorizesDeployment: false,
+    });
+    expect(prepared.requestCanonical).not.toContain(PREVIOUS_VERIFIER);
+    expect(prepared).toMatchObject({
+      decision: "PREPARED",
+      authorizesCredentialMutation: false,
+      authorizesApplicationStart: false,
+      authorizesDeployment: false,
+    });
+    const statements = state.queries.map(({ statement }) => statement);
+    expect(statements[0]).toBe("BEGIN ISOLATION LEVEL SERIALIZABLE READ ONLY");
+    expect(statements).toContain("ROLLBACK");
+    expect(statements).not.toContain("COMMIT");
+    expect(
+      statements.some((statement) => statement.startsWith("ALTER ROLE")),
+    ).toBe(false);
+  });
+
+  it("rotates an existing SCRAM credential with a control-plane generated secret and secret-free PASS evidence", async () => {
+    const state = rotationFixture();
+    const result = await applyProductionRuntimeDbCredentialRotation(
+      state.input,
+    );
+
+    expect(state.secrets).toHaveLength(1);
+    expect(state.secrets[0]).toMatch(/^[A-Za-z0-9_-]{64}$/);
+    expect(state.secrets[0]).not.toBe(PASSWORD);
+    expect(state.runtimeConnectInput).toEqual({
+      databaseName: "site_logbook",
+      databaseUser: PRODUCTION_RUNTIME_DATABASE_USER,
+      password: state.secrets[0],
+    });
+    expect(result.receiptCanonical).not.toContain(state.secrets[0]);
+    expect(result.receiptCanonical).not.toContain(PREVIOUS_VERIFIER);
+    expect(JSON.parse(result.receiptCanonical)).toMatchObject({
+      schemaVersion: PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_RECEIPT_SCHEMA,
+      kind: "site-logbook-production-runtime-db-credential-rotation-receipt",
+      operation: "rotate-existing-runtime-credential",
+      decision: "PASS",
+      verification: {
+        credentialWasPresentBefore: true,
+        previousVerifierDifferedFromNew: true,
+        freshSecretGeneratedByControlPlane: true,
+        secretBytesAbsentFromEvidenceAndLogs: true,
+      },
+      authorizesApplicationStart: false,
+      authorizesDeployment: false,
+    });
+    const statements = state.queries.map(({ statement }) => statement);
+    expect(
+      statements.filter((statement) =>
+        statement.includes("runtimeCredentialVerifier"),
+      ),
+    ).toHaveLength(2);
+    expect(
+      state.queries.find((entry) =>
+        entry.statement.includes("pg_advisory_xact_lock"),
+      )?.values,
+    ).toEqual([PRODUCTION_MIGRATION_ADVISORY_LOCK_KEY]);
+
+    const verdict = parseAndVerifyProductionRuntimeDbCredentialReceipt(
+      receiptParserInput(
+        state as unknown as ReturnType<typeof fixture>,
+        result.receiptCanonical,
+      ),
+    );
+    expect(verdict.request.schemaVersion).toBe(
+      PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_REQUEST_SCHEMA,
+    );
+    expect(verdict.receiptSha256).toBe(result.receiptSha256);
+  });
+
+  it("generates independent URL-safe 384-bit secrets", () => {
+    const first = generateFreshProductionRuntimeDbCredentialSecret();
+    const second = generateFreshProductionRuntimeDbCredentialSecret();
+    expect(first).toMatch(/^[A-Za-z0-9_-]{64}$/);
+    expect(second).toMatch(/^[A-Za-z0-9_-]{64}$/);
+    expect(first).not.toBe(second);
+  });
+
+  it("rejects stale or over-24-hour attended requests before secret custody or DB access", async () => {
+    for (const state of [
+      rotationFixture({
+        issuedAt: "2026-08-16T10:00:00.000Z",
+        expiresAt: "2026-08-17T10:00:00.000Z",
+      }),
+      rotationFixture({
+        issuedAt: "2026-08-18T09:00:00.000Z",
+        expiresAt: "2026-08-19T09:00:00.001Z",
+      }),
+    ]) {
+      await expect(
+        applyProductionRuntimeDbCredentialRotation(state.input),
+      ).rejects.toThrow(/PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_REQUEST_/);
+      expect(state.input.persistGeneratedSecret).not.toHaveBeenCalled();
+      expect(state.input.connectAdmin).not.toHaveBeenCalled();
+    }
+  });
+
+  it.each([
+    ["missing", { pre: { runtimeCredentialPresent: false } }],
+    ["non-SCRAM", { initialVerifier: "md5-not-an-approved-verifier" }],
+    ["replayed or drifted", { initialVerifier: DIFFERENT_VALID_VERIFIER }],
+  ] as const)(
+    "rolls back a %s predecessor before ALTER",
+    async (_label, options) => {
+      const state = rotationFixture(options);
+      await expect(
+        applyProductionRuntimeDbCredentialRotation(state.input),
+      ).rejects.toThrow(/PRODUCTION_RUNTIME_DB_CREDENTIAL_/);
+      const statements = state.queries.map(({ statement }) => statement);
+      expect(statements).toContain("ROLLBACK");
+      expect(
+        statements.some((statement) => statement.startsWith("ALTER ROLE")),
+      ).toBe(false);
+      expect(statements).not.toContain("COMMIT");
+    },
+  );
+
+  it("classifies an ambiguous rotation COMMIT as non-retryable manual review", async () => {
+    const state = rotationFixture({ fail: "commit" });
+    await expect(
+      applyProductionRuntimeDbCredentialRotation(state.input),
+    ).rejects.toMatchObject({
+      code: "PRODUCTION_RUNTIME_DB_CREDENTIAL_COMMIT_OUTCOME_UNKNOWN",
+      commitOutcomeUnknown: true,
+      manualReviewRequired: true,
+    });
+    const statements = state.queries.map(({ statement }) => statement);
+    expect(statements).toContain("COMMIT");
+    expect(statements).not.toContain("ROLLBACK");
+    expect(state.input.connectRuntime).not.toHaveBeenCalled();
+  });
+
+  it("rejects self-asserted secret-boundary fields and an expired activation replay", async () => {
+    const state = rotationFixture();
+    const produced = await applyProductionRuntimeDbCredentialRotation(
+      state.input,
+    );
+    const tampered = mutateCanonical(produced.receiptCanonical, (receipt) => {
+      (
+        receipt.verification as Record<string, unknown>
+      ).secretBytesAbsentFromEvidenceAndLogs = false;
+    });
+    expect(() =>
+      parseAndVerifyProductionRuntimeDbCredentialReceipt(
+        receiptParserInput(
+          state as unknown as ReturnType<typeof fixture>,
+          tampered,
+        ),
+      ),
+    ).toThrow(/PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_INVALID/);
+
+    const stale = receiptParserInput(
+      state as unknown as ReturnType<typeof fixture>,
+      produced.receiptCanonical,
+    );
+    stale.expected.activationIssuedAt = "2026-08-18T11:00:31.000Z";
+    expect(() =>
+      parseAndVerifyProductionRuntimeDbCredentialReceipt(stale),
+    ).toThrow(/PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_REQUEST_STALE/);
   });
 });
 
@@ -900,6 +1157,103 @@ describe("production runtime credential CLI boundary", () => {
     ).toThrow(/PRODUCTION_RUNTIME_DB_CREDENTIAL_CLI_ARGUMENT_INVALID/);
   });
 
+  it("requires a separate secret-output path only for the exact rotation ceremony", () => {
+    const rotationArgv = [
+      ...exactArgv.slice(0, -1),
+      PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_CONFIRMATION,
+      "--rotation-secret-out",
+      "/private/runtime-credential.secret",
+    ];
+    expect(
+      parseProductionRuntimeDbCredentialCliArguments(rotationArgv),
+    ).toMatchObject({
+      confirm: PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_CONFIRMATION,
+      "rotation-secret-out": "/private/runtime-credential.secret",
+    });
+    expect(() =>
+      parseProductionRuntimeDbCredentialCliArguments([
+        ...exactArgv,
+        "--rotation-secret-out",
+        "/private/runtime-credential.secret",
+      ]),
+    ).toThrow(/PRODUCTION_RUNTIME_DB_CREDENTIAL_CLI_ARGUMENT_INVALID/);
+    expect(() =>
+      parseProductionRuntimeDbCredentialCliArguments(rotationArgv.slice(0, -2)),
+    ).toThrow(/PRODUCTION_RUNTIME_DB_CREDENTIAL_CLI_ARGUMENT_INVALID/);
+
+    const prepareArgv = [
+      "--migration-plan-file",
+      "/evidence/plan.json",
+      "--role-transaction-receipt-file",
+      "/evidence/role-receipt.json",
+      "--role-postcommit-file",
+      "/evidence/role-postcommit.json",
+      "--request-out",
+      "/evidence/rotation-request.json",
+      "--live-source-sha",
+      SOURCE_SHA,
+      "--database-name",
+      "site_logbook",
+      "--approval-id",
+      "runtime-credential-rotation-prepare-20260818",
+      "--confirm",
+      PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_PREPARE_CONFIRMATION,
+    ];
+    expect(
+      parseProductionRuntimeDbCredentialCliArguments(prepareArgv),
+    ).toMatchObject({
+      confirm: PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_PREPARE_CONFIRMATION,
+      "request-out": "/evidence/rotation-request.json",
+    });
+    expect(prepareArgv.join(" ")).not.toMatch(/SCRAM-SHA-256|R{32}/);
+  });
+
+  it("persists generated secret bytes only in a separate exclusive private inode", async () => {
+    const directory = await mkdtemp(
+      path.join(os.tmpdir(), "site-logbook-runtime-rotation-secret-"),
+    );
+    const evidence = path.join(directory, "evidence");
+    const privateDirectory = path.join(directory, "private");
+    await Promise.all([mkdir(evidence), mkdir(privateDirectory)]);
+    if (process.platform !== "win32") {
+      await Promise.all([
+        chmod(evidence, 0o700),
+        chmod(privateDirectory, 0o700),
+      ]);
+    }
+    try {
+      const secretPath = path.join(privateDirectory, "runtime.secret");
+      const receiptPath = path.join(evidence, "receipt.json");
+      const secret = generateFreshProductionRuntimeDbCredentialSecret();
+      const reservation =
+        await reserveProductionRuntimeDbCredentialRotationSecret(secretPath, [
+          path.join(evidence, "request.json"),
+          receiptPath,
+        ]);
+      await reservation.persist(secret);
+      expect(await readFile(secretPath, "utf8")).toBe(secret);
+      const stat = await lstat(secretPath, { bigint: true });
+      expect(stat.nlink).toBe(1n);
+      if (process.platform !== "win32") {
+        expect(Number(stat.mode & 0o777n)).toBe(0o600);
+      }
+      await expect(
+        reserveProductionRuntimeDbCredentialRotationSecret(secretPath, [
+          path.join(evidence, "request.json"),
+          receiptPath,
+        ]),
+      ).rejects.toThrow(/OUTPUT_EXISTS/);
+      await expect(
+        reserveProductionRuntimeDbCredentialRotationSecret(
+          path.join(evidence, "secret-must-not-be-evidence"),
+          [path.join(evidence, "request.json"), receiptPath],
+        ),
+      ).rejects.toThrow(/SECRET_PATH_ALIASES_EVIDENCE/);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it.each([
     `postgres://stavba:${PASSWORD}@postgres:5432/site_logbook?user=site_logbook_runtime`,
     `postgres://stavba:${PASSWORD}@postgres:5432/site_logbook?password=override`,
@@ -924,11 +1278,19 @@ describe("production runtime credential CLI boundary", () => {
     const reserveAt = source.indexOf(
       "const reservation = await reserveProductionRuntimeDbCredentialReceipt",
     );
-    const applyAt = source.indexOf(
-      "result = await applyProductionRuntimeDbCredentialCutover",
+    const dispatchAt = source.indexOf("result = rotation");
+    const cutoverAt = source.indexOf(
+      "applyProductionRuntimeDbCredentialCutover",
+      dispatchAt,
+    );
+    const rotationAt = source.indexOf(
+      "applyProductionRuntimeDbCredentialRotation",
+      dispatchAt,
     );
     expect(reserveAt).toBeGreaterThan(-1);
-    expect(applyAt).toBeGreaterThan(reserveAt);
+    expect(dispatchAt).toBeGreaterThan(reserveAt);
+    expect(cutoverAt).toBeGreaterThan(dispatchAt);
+    expect(rotationAt).toBeGreaterThan(dispatchAt);
   });
 
   it("bounds reads at MAX+1 and rejects both oversized and concurrently grown inputs", async () => {

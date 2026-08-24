@@ -133,6 +133,7 @@ COPY --from=builder /repo/scripts/check-audit-0107-release-evidence.mjs ./script
 RUN test -f /app/.site-logbook-control-plane-image \
     && test -f /app/dist/production-exact-0096-backup-producer.mjs \
     && test -f /app/dist/production-exact-0107-backup-producer.mjs \
+    && test -f /app/dist/production-exact-0107-restore-runner.mjs \
     && test -f /app/dist/production-exact-0096-backup-host-worker.mjs \
     && test -f /app/dist/production-migration-host-operator.mjs \
     && test -f /app/dist/production-runtime-db-credential-cutover.mjs

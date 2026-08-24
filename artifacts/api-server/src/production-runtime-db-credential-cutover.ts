@@ -13,9 +13,15 @@ import pg from "pg";
 import { requireEmbeddedProductionBuildSha } from "./lib/build-provenance";
 import {
   applyProductionRuntimeDbCredentialCutover,
+  applyProductionRuntimeDbCredentialRotation,
   parseProductionRuntimeDbCredentialRequest,
   productionRuntimeDbCredentialSha256,
   PRODUCTION_RUNTIME_DB_CREDENTIAL_CONFIRMATION,
+  PRODUCTION_RUNTIME_DB_CREDENTIAL_REQUEST_SCHEMA,
+  PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_CONFIRMATION,
+  PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_PREPARE_CONFIRMATION,
+  PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_REQUEST_SCHEMA,
+  prepareProductionRuntimeDbCredentialRotationRequest,
   type ProductionRuntimeCredentialClient,
 } from "./lib/production-runtime-db-credential-cutover";
 import {
@@ -24,10 +30,11 @@ import {
   PRODUCTION_RUNTIME_CREDENTIAL_EXECUTOR_IMAGE_ENV,
   PRODUCTION_RUNTIME_DATABASE_PASSWORD_ENV,
   PRODUCTION_RUNTIME_DATABASE_USER,
+  requireProductionRuntimeDatabasePassword,
 } from "./lib/production-runtime-database";
 
 const MAX_ARTIFACT_BYTES = 512 * 1024;
-const ARGUMENTS = [
+const CUTOVER_ARGUMENTS = [
   "request-file",
   "migration-plan-file",
   "role-transaction-receipt-file",
@@ -35,6 +42,27 @@ const ARGUMENTS = [
   "receipt-out",
   "confirm",
 ] as const;
+const ROTATION_ARGUMENTS = [
+  ...CUTOVER_ARGUMENTS,
+  "rotation-secret-out",
+] as const;
+const ROTATION_PREPARE_ARGUMENTS = [
+  "migration-plan-file",
+  "role-transaction-receipt-file",
+  "role-postcommit-file",
+  "request-out",
+  "live-source-sha",
+  "database-name",
+  "approval-id",
+  "confirm",
+] as const;
+const ARGUMENTS = Array.from(
+  new Set([
+    ...CUTOVER_ARGUMENTS,
+    ...ROTATION_ARGUMENTS,
+    ...ROTATION_PREPARE_ARGUMENTS,
+  ]),
+);
 
 class ProductionRuntimeDbCredentialCliError extends Error {
   constructor(
@@ -71,10 +99,20 @@ function parseArguments(argv: readonly string[]): Record<string, string> {
     }
     values[name] = value;
   }
+  const expectedArguments =
+    values.confirm === PRODUCTION_RUNTIME_DB_CREDENTIAL_CONFIRMATION
+      ? CUTOVER_ARGUMENTS
+      : values.confirm ===
+          PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_CONFIRMATION
+        ? ROTATION_ARGUMENTS
+        : values.confirm ===
+            PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_PREPARE_CONFIRMATION
+          ? ROTATION_PREPARE_ARGUMENTS
+          : undefined;
   if (
-    Object.keys(values).length !== ARGUMENTS.length ||
-    !ARGUMENTS.every((key) => typeof values[key] === "string") ||
-    values.confirm !== PRODUCTION_RUNTIME_DB_CREDENTIAL_CONFIRMATION
+    !expectedArguments ||
+    Object.keys(values).length !== expectedArguments.length ||
+    !expectedArguments.every((key) => typeof values[key] === "string")
   ) {
     fail("PRODUCTION_RUNTIME_DB_CREDENTIAL_CLI_ARGUMENT_INVALID");
   }
@@ -398,17 +436,188 @@ export async function persistProductionRuntimeDbCredentialReceipt(
   return published.path;
 }
 
+export async function reserveProductionRuntimeDbCredentialRotationSecret(
+  filename: string,
+  forbiddenArtifactPaths: readonly string[],
+) {
+  if (
+    !path.isAbsolute(filename) ||
+    !Array.isArray(forbiddenArtifactPaths) ||
+    forbiddenArtifactPaths.length < 2 ||
+    forbiddenArtifactPaths.some((entry) => !path.isAbsolute(entry))
+  ) {
+    fail("PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_SECRET_PATH_INVALID");
+  }
+  const requestedPrivateParent = path.dirname(path.resolve(filename));
+  const privateParent = await realpath(requestedPrivateParent).catch((error) =>
+    fail(
+      "PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_SECRET_PATH_INVALID",
+      error,
+    ),
+  );
+  const privateParentIdentity = await lstat(privateParent, {
+    bigint: true,
+  }).catch((error) =>
+    fail(
+      "PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_SECRET_PATH_INVALID",
+      error,
+    ),
+  );
+  if (
+    path.normalize(privateParent) !== path.normalize(requestedPrivateParent) ||
+    !privateParentIdentity.isDirectory() ||
+    privateParentIdentity.isSymbolicLink() ||
+    (process.platform !== "win32" &&
+      (privateParentIdentity.mode & 0o777n) !== 0o700n)
+  ) {
+    fail("PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_SECRET_PATH_INVALID");
+  }
+  const artifactParents = await Promise.all(
+    forbiddenArtifactPaths.map((entry) =>
+      realpath(path.dirname(path.resolve(entry))).catch((error) =>
+        fail(
+          "PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_SECRET_PATH_INVALID",
+          error,
+        ),
+      ),
+    ),
+  );
+  if (
+    artifactParents.some(
+      (parent) => path.normalize(parent) === path.normalize(privateParent),
+    ) ||
+    forbiddenArtifactPaths.some(
+      (entry) =>
+        path.normalize(path.resolve(entry)) ===
+        path.normalize(path.resolve(filename)),
+    )
+  ) {
+    fail(
+      "PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_SECRET_PATH_ALIASES_EVIDENCE",
+    );
+  }
+  const reservation =
+    await reserveProductionRuntimeDbCredentialReceipt(filename);
+  let persisted = false;
+  return Object.freeze({
+    path: reservation.path,
+    async persist(secret: string): Promise<void> {
+      if (persisted) {
+        fail("PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_SECRET_STATE_INVALID");
+      }
+      persisted = true;
+      try {
+        requireProductionRuntimeDatabasePassword(secret);
+        await reservation.finalize(secret);
+      } catch (error) {
+        fail(
+          "PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_SECRET_PERSIST_FAILED",
+          error,
+        );
+      }
+    },
+    async closeIncomplete(): Promise<void> {
+      if (persisted) return;
+      persisted = true;
+      await reservation.closeIncomplete();
+    },
+  });
+}
+
 export async function runProductionRuntimeDbCredentialCutoverCli(
   argv: readonly string[],
   env: NodeJS.ProcessEnv = process.env,
   signal: AbortSignal = new AbortController().signal,
 ) {
   const options = parseArguments(argv);
+  if (
+    options.confirm ===
+    PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_PREPARE_CONFIRMATION
+  ) {
+    const embeddedSourceSha = requireEmbeddedProductionBuildSha();
+    const adminDatabaseUrl =
+      env[PRODUCTION_RUNTIME_CREDENTIAL_ADMIN_DATABASE_URL_ENV];
+    const executorImage = env[PRODUCTION_RUNTIME_CREDENTIAL_EXECUTOR_IMAGE_ENV];
+    const runtimePassword = env[PRODUCTION_RUNTIME_DATABASE_PASSWORD_ENV];
+    if (
+      typeof adminDatabaseUrl !== "string" ||
+      adminDatabaseUrl.length === 0 ||
+      typeof executorImage !== "string" ||
+      executorImage.length === 0 ||
+      (runtimePassword !== undefined && runtimePassword.length > 0)
+    ) {
+      fail("PRODUCTION_RUNTIME_DB_CREDENTIAL_CLI_SECRET_ENV_MISSING");
+    }
+    const parsedAdminUrl = parseProductionRuntimeCredentialAdminDatabaseUrl(
+      adminDatabaseUrl,
+      options["database-name"],
+    );
+    const migrationPlanCanonical = await readStableRegularFile(
+      options["migration-plan-file"],
+    );
+    const roleTransactionReceiptCanonical = await readStableRegularFile(
+      options["role-transaction-receipt-file"],
+    );
+    const rolePostCommitArtifactCanonical = await readStableRegularFile(
+      options["role-postcommit-file"],
+    );
+    const reservation = await reserveProductionRuntimeDbCredentialReceipt(
+      options["request-out"],
+    );
+    let prepared;
+    try {
+      prepared = await prepareProductionRuntimeDbCredentialRotationRequest({
+        migrationPlanCanonical,
+        roleTransactionReceiptCanonical,
+        rolePostCommitArtifactCanonical,
+        embeddedSourceSha,
+        executorImage,
+        liveSourceSha: options["live-source-sha"],
+        databaseName: options["database-name"],
+        approvalId: options["approval-id"],
+        connectAdmin: () =>
+          connect(
+            parsedAdminUrl.href,
+            "site-logbook-production-runtime-credential-rotation-prepare",
+          ),
+        signal,
+      });
+    } catch (error) {
+      await reservation.closeIncomplete();
+      throw error;
+    }
+    const published = await reservation.finalize(prepared.requestCanonical);
+    if (published.sha256 !== prepared.requestSha256) {
+      fail("PRODUCTION_RUNTIME_DB_CREDENTIAL_CLI_OUTPUT_READBACK_INVALID");
+    }
+    return Object.freeze({
+      decision: "PREPARED" as const,
+      requestPath: published.path,
+      requestSha256: prepared.requestSha256,
+      authorizesCredentialMutation: false as const,
+      authorizesApplicationStart: false as const,
+      authorizesDeployment: false as const,
+    });
+  }
   const requestCanonical = await readStableRegularFile(
     options["request-file"],
     64 * 1024,
   );
   const request = parseProductionRuntimeDbCredentialRequest(requestCanonical);
+  const rotation =
+    request.schemaVersion ===
+    PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_REQUEST_SCHEMA;
+  if (
+    (rotation &&
+      options.confirm !==
+        PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_CONFIRMATION) ||
+    (!rotation &&
+      (request.schemaVersion !==
+        PRODUCTION_RUNTIME_DB_CREDENTIAL_REQUEST_SCHEMA ||
+        options.confirm !== PRODUCTION_RUNTIME_DB_CREDENTIAL_CONFIRMATION))
+  ) {
+    fail("PRODUCTION_RUNTIME_DB_CREDENTIAL_CLI_CEREMONY_MISMATCH");
+  }
   const embeddedSourceSha = requireEmbeddedProductionBuildSha();
   const adminDatabaseUrl =
     env[PRODUCTION_RUNTIME_CREDENTIAL_ADMIN_DATABASE_URL_ENV];
@@ -417,8 +626,9 @@ export async function runProductionRuntimeDbCredentialCutoverCli(
   if (
     typeof adminDatabaseUrl !== "string" ||
     adminDatabaseUrl.length === 0 ||
-    typeof runtimePassword !== "string" ||
-    runtimePassword.length === 0 ||
+    (rotation
+      ? runtimePassword !== undefined && runtimePassword.length > 0
+      : typeof runtimePassword !== "string" || runtimePassword.length === 0) ||
     typeof executorImage !== "string" ||
     executorImage.length === 0
   ) {
@@ -428,9 +638,6 @@ export async function runProductionRuntimeDbCredentialCutoverCli(
     adminDatabaseUrl,
     request.databaseName,
   );
-  const runtimeUrl = new URL(parsedAdminUrl.href);
-  runtimeUrl.username = PRODUCTION_RUNTIME_DATABASE_USER;
-  runtimeUrl.password = runtimePassword;
 
   const migrationPlanCanonical = await readStableRegularFile(
     options["migration-plan-file"],
@@ -447,30 +654,71 @@ export async function runProductionRuntimeDbCredentialCutoverCli(
   const reservation = await reserveProductionRuntimeDbCredentialReceipt(
     options["receipt-out"],
   );
+  let secretReservation:
+    | Awaited<
+        ReturnType<typeof reserveProductionRuntimeDbCredentialRotationSecret>
+      >
+    | undefined;
+  try {
+    secretReservation = rotation
+      ? await reserveProductionRuntimeDbCredentialRotationSecret(
+          options["rotation-secret-out"],
+          [
+            options["request-file"],
+            options["migration-plan-file"],
+            options["role-transaction-receipt-file"],
+            options["role-postcommit-file"],
+            options["receipt-out"],
+          ],
+        )
+      : undefined;
+  } catch (error) {
+    await reservation.closeIncomplete();
+    throw error;
+  }
+  const connectRuntime = (input: {
+    databaseName: string;
+    databaseUser: typeof PRODUCTION_RUNTIME_DATABASE_USER;
+    password: string;
+  }) => {
+    const runtimeUrl = new URL(parsedAdminUrl.href);
+    runtimeUrl.username = input.databaseUser;
+    runtimeUrl.password = input.password;
+    return connect(
+      runtimeUrl.href,
+      "site-logbook-production-runtime-credential-proof",
+    );
+  };
   let result;
   try {
-    result = await applyProductionRuntimeDbCredentialCutover({
+    const common = {
       requestCanonical,
       migrationPlanCanonical,
       roleTransactionReceiptCanonical,
       rolePostCommitArtifactCanonical,
       embeddedSourceSha,
       executorImage,
-      runtimePassword,
       connectAdmin: () =>
         connect(
           parsedAdminUrl.href,
           "site-logbook-production-runtime-credential-admin",
         ),
-      connectRuntime: () =>
-        connect(
-          runtimeUrl.href,
-          "site-logbook-production-runtime-credential-proof",
-        ),
+      connectRuntime,
       signal,
-    });
+    };
+    result = rotation
+      ? await applyProductionRuntimeDbCredentialRotation({
+          ...common,
+          persistGeneratedSecret: (secret) =>
+            secretReservation!.persist(secret),
+        })
+      : await applyProductionRuntimeDbCredentialCutover({
+          ...common,
+          runtimePassword: runtimePassword!,
+        });
   } catch (error) {
     await reservation.closeIncomplete();
+    await secretReservation?.closeIncomplete();
     throw error;
   }
   let published;
@@ -508,12 +756,22 @@ async function main(): Promise<void> {
       controller.signal,
     );
     process.stdout.write(
-      `${JSON.stringify({
-        decision: result.decision,
-        receiptSha256: result.receiptSha256,
-        authorizesApplicationStart: false,
-        authorizesDeployment: false,
-      })}\n`,
+      `${JSON.stringify(
+        result.decision === "PREPARED"
+          ? {
+              decision: result.decision,
+              requestSha256: result.requestSha256,
+              authorizesCredentialMutation: false,
+              authorizesApplicationStart: false,
+              authorizesDeployment: false,
+            }
+          : {
+              decision: result.decision,
+              receiptSha256: result.receiptSha256,
+              authorizesApplicationStart: false,
+              authorizesDeployment: false,
+            },
+      )}\n`,
     );
   } catch (error) {
     const code =

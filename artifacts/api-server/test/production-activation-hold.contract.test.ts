@@ -44,6 +44,9 @@ import {
   PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_PARSER,
   PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_SCHEMA,
   PRODUCTION_RUNTIME_DB_CREDENTIAL_REQUEST_SCHEMA,
+  PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_CONFIRMATION,
+  PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_RECEIPT_SCHEMA,
+  PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_REQUEST_SCHEMA,
 } from "../src/lib/production-runtime-db-credential-cutover";
 import { productionRuntimeBindingMatches } from "../src/lib/migration-health";
 import { createProductionRuntimeBinding } from "../src/lib/production-startup-evidence";
@@ -190,6 +193,81 @@ function credentialEvidence() {
       exactScramVerifierStoredInTransaction: true,
       freshRuntimeLoginVerified: true,
       exactRuntimeIdentityVerified: true,
+    },
+    approvalId: request.approvalId,
+    startedAt: "2026-08-18T11:58:00.000Z",
+    completedAt: "2026-08-18T11:58:30.000Z",
+    requiresExplicitCoolifySecretTransfer: true,
+    authorizesApplicationStart: false,
+    authorizesDeployment: false,
+  } as const;
+  return { request, receipt };
+}
+
+function credentialRotationEvidence() {
+  const request = {
+    schemaVersion: PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_REQUEST_SCHEMA,
+    kind: "site-logbook-production-runtime-db-credential-rotation-request",
+    operation: "rotate-existing-runtime-credential",
+    liveSourceSha: SOURCE_SHA,
+    executorSourceSha: EXECUTOR_SHA,
+    executorImage: EXECUTOR_IMAGE,
+    databaseName: "site_logbook",
+    runtimeRole: "site_logbook_runtime",
+    migratorRole: "site_logbook_migrator",
+    expectedMigrationPlanSha256: MIGRATION_PLAN_SHA256,
+    expectedRoleTransactionReceiptSha256: ROLE_RECEIPT_SHA256,
+    expectedRolePostCommitArtifactSha256: ROLE_POSTCOMMIT_SHA256,
+    expectedCurrentCredentialVerifierSha256: `sha256:${"a".repeat(64)}`,
+    approvalId: "runtime-credential-rotation-20260818",
+    issuedAt: "2026-08-18T11:56:00.000Z",
+    expiresAt: "2026-08-18T12:10:00.000Z",
+    advisoryLockKey: PRODUCTION_MIGRATION_ADVISORY_LOCK_KEY,
+    confirmation: PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_CONFIRMATION,
+    authorizesDeployment: false,
+  } as const;
+  const requestCanonical = canonicalProductionRuntimeDbCredentialJson(request);
+  const receipt = {
+    schemaVersion: PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_RECEIPT_SCHEMA,
+    kind: "site-logbook-production-runtime-db-credential-rotation-receipt",
+    operation: "rotate-existing-runtime-credential",
+    decision: "PASS",
+    sourceBinding: {
+      liveSourceSha: SOURCE_SHA,
+      executorSourceSha: EXECUTOR_SHA,
+      executorImage: EXECUTOR_IMAGE,
+    },
+    requestSha256: productionRuntimeDbCredentialSha256(requestCanonical),
+    database: {
+      name: "site_logbook",
+      adminSessionUser: "stavba",
+      runtimeUser: "site_logbook_runtime",
+      migratorUser: "site_logbook_migrator",
+    },
+    roleEvidence: {
+      migrationPlanSha256: MIGRATION_PLAN_SHA256,
+      transactionReceiptSha256: ROLE_RECEIPT_SHA256,
+      postCommitArtifactSha256: ROLE_POSTCOMMIT_SHA256,
+    },
+    transaction: {
+      isolationLevel: "serializable",
+      advisoryLockKey: PRODUCTION_MIGRATION_ADVISORY_LOCK_KEY,
+      credentialMutationMechanism:
+        "postgresql-16-client-side-scram-sha-256-verifier",
+      cleartextCredentialSentInSql: false,
+      cleartextCredentialSentAsQueryParameter: false,
+      committed: true,
+    },
+    verification: {
+      credentialWasPresentBefore: true,
+      predecessorVerifierSha256Matched: true,
+      previousVerifierDifferedFromNew: true,
+      credentialPresentInTransaction: true,
+      exactScramVerifierStoredInTransaction: true,
+      freshRuntimeLoginVerified: true,
+      exactRuntimeIdentityVerified: true,
+      freshSecretGeneratedByControlPlane: true,
+      secretBytesAbsentFromEvidenceAndLogs: true,
     },
     approvalId: request.approvalId,
     startedAt: "2026-08-18T11:58:00.000Z",
@@ -1132,6 +1210,47 @@ describe("production activation HOLD lifecycle", () => {
       "credential-receipt",
       "final-observations",
     ]);
+
+    const rotationBundle = structuredClone(bundle);
+    const rotationCredential = credentialRotationEvidence();
+    const rotationEvidence = rotationBundle.activation
+      .evidence as unknown as Record<string, unknown>;
+    rotationEvidence.runtimeDatabaseCredentialCutover = {
+      passReceipt: artifact(
+        "runtime-database-credential-rotation-pass-receipt",
+        rotationCredential.receipt,
+      ),
+      request: artifact(
+        "runtime-database-credential-rotation-request",
+        rotationCredential.request,
+      ),
+    };
+    const rotationApprovalArtifact =
+      rotationEvidence.activationApproval as Record<string, unknown>;
+    const rotationApproval = rotationApprovalArtifact.payload as Record<
+      string,
+      unknown
+    >;
+    rotationApproval.credentialRequestSha256 =
+      productionRuntimeDbCredentialSha256(
+        canonicalProductionRuntimeDbCredentialJson(rotationCredential.request),
+      );
+    rotationApproval.credentialReceiptSha256 =
+      productionRuntimeDbCredentialSha256(
+        canonicalProductionRuntimeDbCredentialJson(rotationCredential.receipt),
+      );
+    rotationApprovalArtifact.sha256 = digest(
+      canonicalProductionActivationJson(rotationApproval),
+    );
+    await expect(
+      verifyWithAdapters(
+        rotationBundle as unknown as ProductionActivationBundleV2,
+        adapters,
+      ),
+    ).resolves.toMatchObject({
+      sourceSha: EXECUTOR_SHA,
+      databaseUser: "site_logbook_runtime",
+    });
 
     const shortContainerBundle = signedFixtureBundle(
       files,
