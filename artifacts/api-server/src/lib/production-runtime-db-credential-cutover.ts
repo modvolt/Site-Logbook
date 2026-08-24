@@ -21,8 +21,16 @@ export const PRODUCTION_RUNTIME_DB_CREDENTIAL_REQUEST_SCHEMA =
   "site-logbook.production-runtime-db-credential-cutover-request/v1" as const;
 export const PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_SCHEMA =
   "site-logbook.production-runtime-db-credential-cutover-receipt/v1" as const;
+export const PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_REQUEST_SCHEMA =
+  "site-logbook.production-runtime-db-credential-rotation-request/v2" as const;
+export const PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_RECEIPT_SCHEMA =
+  "site-logbook.production-runtime-db-credential-rotation-receipt/v2" as const;
 export const PRODUCTION_RUNTIME_DB_CREDENTIAL_CONFIRMATION =
   "SET_EXACT_PRODUCTION_RUNTIME_DB_CREDENTIAL_AFTER_ROLE_SEPARATION" as const;
+export const PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_CONFIRMATION =
+  "ROTATE_EXACT_PRODUCTION_RUNTIME_DB_CREDENTIAL_FOR_NEW_ACTIVATION_PREDECESSOR" as const;
+export const PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_PREPARE_CONFIRMATION =
+  "PREPARE_EXACT_PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_REQUEST_READ_ONLY" as const;
 export const PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_MAX_AGE_MS =
   24 * 60 * 60 * 1000;
 export const PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_MAX_DURATION_MS =
@@ -58,6 +66,27 @@ const REQUEST_KEYS = [
   "confirmation",
   "authorizesDeployment",
 ] as const;
+const ROTATION_REQUEST_KEYS = [
+  "schemaVersion",
+  "kind",
+  "operation",
+  "liveSourceSha",
+  "executorSourceSha",
+  "executorImage",
+  "databaseName",
+  "runtimeRole",
+  "migratorRole",
+  "expectedMigrationPlanSha256",
+  "expectedRoleTransactionReceiptSha256",
+  "expectedRolePostCommitArtifactSha256",
+  "expectedCurrentCredentialVerifierSha256",
+  "approvalId",
+  "issuedAt",
+  "expiresAt",
+  "advisoryLockKey",
+  "confirmation",
+  "authorizesDeployment",
+] as const;
 const RECEIPT_KEYS = [
   "schemaVersion",
   "kind",
@@ -75,6 +104,7 @@ const RECEIPT_KEYS = [
   "authorizesApplicationStart",
   "authorizesDeployment",
 ] as const;
+const ROTATION_RECEIPT_KEYS = [...RECEIPT_KEYS, "operation"] as const;
 const RECEIPT_SOURCE_BINDING_KEYS = [
   "liveSourceSha",
   "executorSourceSha",
@@ -105,6 +135,17 @@ const RECEIPT_VERIFICATION_KEYS = [
   "exactScramVerifierStoredInTransaction",
   "freshRuntimeLoginVerified",
   "exactRuntimeIdentityVerified",
+] as const;
+const ROTATION_RECEIPT_VERIFICATION_KEYS = [
+  "credentialWasPresentBefore",
+  "predecessorVerifierSha256Matched",
+  "previousVerifierDifferedFromNew",
+  "credentialPresentInTransaction",
+  "exactScramVerifierStoredInTransaction",
+  "freshRuntimeLoginVerified",
+  "exactRuntimeIdentityVerified",
+  "freshSecretGeneratedByControlPlane",
+  "secretBytesAbsentFromEvidenceAndLogs",
 ] as const;
 const RECEIPT_PARSER_INPUT_KEYS = [
   "requestCanonical",
@@ -185,6 +226,32 @@ export type ProductionRuntimeDbCredentialRequest = Readonly<{
   authorizesDeployment: false;
 }>;
 
+export type ProductionRuntimeDbCredentialRotationRequest = Readonly<{
+  schemaVersion: typeof PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_REQUEST_SCHEMA;
+  kind: "site-logbook-production-runtime-db-credential-rotation-request";
+  operation: "rotate-existing-runtime-credential";
+  liveSourceSha: string;
+  executorSourceSha: string;
+  executorImage: string;
+  databaseName: string;
+  runtimeRole: typeof PRODUCTION_RUNTIME_DATABASE_USER;
+  migratorRole: typeof PRODUCTION_MIGRATOR_DATABASE_USER;
+  expectedMigrationPlanSha256: string;
+  expectedRoleTransactionReceiptSha256: string;
+  expectedRolePostCommitArtifactSha256: string;
+  expectedCurrentCredentialVerifierSha256: string;
+  approvalId: string;
+  issuedAt: string;
+  expiresAt: string;
+  advisoryLockKey: typeof PRODUCTION_MIGRATION_ADVISORY_LOCK_KEY;
+  confirmation: typeof PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_CONFIRMATION;
+  authorizesDeployment: false;
+}>;
+
+export type ProductionRuntimeDbCredentialRequestAny =
+  | ProductionRuntimeDbCredentialRequest
+  | ProductionRuntimeDbCredentialRotationRequest;
+
 export type ProductionRuntimeDbCredentialMigrationTransitionBinding = Readonly<{
   decision: "PASS";
   sourceSha: string;
@@ -215,7 +282,7 @@ export type ProductionRuntimeDbCredentialReceiptParserInput = Readonly<{
 }>;
 
 export type ProductionRuntimeDbCredentialReceiptVerdict = Readonly<{
-  request: ProductionRuntimeDbCredentialRequest;
+  request: ProductionRuntimeDbCredentialRequestAny;
   decision: "PASS";
   receiptSha256: string;
   migrationTransitionSha256: string;
@@ -246,6 +313,26 @@ export type ProductionRuntimeDbCredentialCutoverInput = Readonly<{
     databaseUser: typeof PRODUCTION_RUNTIME_DATABASE_USER;
     password: string;
   }) => Promise<ProductionRuntimeCredentialClient>;
+  signal: AbortSignal;
+  now?: () => Date;
+}>;
+
+export type ProductionRuntimeDbCredentialRotationInput = Readonly<
+  Omit<ProductionRuntimeDbCredentialCutoverInput, "runtimePassword"> & {
+    persistGeneratedSecret: (secret: string) => Promise<void>;
+  }
+>;
+
+export type ProductionRuntimeDbCredentialRotationPrepareInput = Readonly<{
+  migrationPlanCanonical: string;
+  roleTransactionReceiptCanonical: string;
+  rolePostCommitArtifactCanonical: string;
+  embeddedSourceSha: string;
+  executorImage: string;
+  liveSourceSha: string;
+  databaseName: string;
+  approvalId: string;
+  connectAdmin: () => Promise<ProductionRuntimeCredentialClient>;
   signal: AbortSignal;
   now?: () => Date;
 }>;
@@ -406,8 +493,73 @@ function parseCanonicalObject(
 
 export function parseProductionRuntimeDbCredentialRequest(
   canonical: string,
-): ProductionRuntimeDbCredentialRequest {
+): ProductionRuntimeDbCredentialRequestAny {
   const value = parseCanonicalObject(canonical, "credentialRequest", 64 * 1024);
+  if (
+    value.schemaVersion ===
+      PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_REQUEST_SCHEMA ||
+    value.kind ===
+      "site-logbook-production-runtime-db-credential-rotation-request"
+  ) {
+    if (
+      !exactKeys(value, ROTATION_REQUEST_KEYS) ||
+      value.schemaVersion !==
+        PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_REQUEST_SCHEMA ||
+      value.kind !==
+        "site-logbook-production-runtime-db-credential-rotation-request" ||
+      value.operation !== "rotate-existing-runtime-credential" ||
+      typeof value.liveSourceSha !== "string" ||
+      !SOURCE_SHA.test(value.liveSourceSha) ||
+      typeof value.executorSourceSha !== "string" ||
+      !SOURCE_SHA.test(value.executorSourceSha) ||
+      value.executorSourceSha === value.liveSourceSha ||
+      typeof value.executorImage !== "string" ||
+      !CONTROL_PLANE_IMAGE.test(value.executorImage) ||
+      typeof value.databaseName !== "string" ||
+      !IDENTIFIER.test(value.databaseName) ||
+      value.runtimeRole !== PRODUCTION_RUNTIME_DATABASE_USER ||
+      value.migratorRole !== PRODUCTION_MIGRATOR_DATABASE_USER ||
+      typeof value.expectedMigrationPlanSha256 !== "string" ||
+      !SHA256.test(value.expectedMigrationPlanSha256) ||
+      typeof value.expectedRoleTransactionReceiptSha256 !== "string" ||
+      !SHA256.test(value.expectedRoleTransactionReceiptSha256) ||
+      typeof value.expectedRolePostCommitArtifactSha256 !== "string" ||
+      !SHA256.test(value.expectedRolePostCommitArtifactSha256) ||
+      typeof value.expectedCurrentCredentialVerifierSha256 !== "string" ||
+      !SHA256.test(value.expectedCurrentCredentialVerifierSha256) ||
+      typeof value.approvalId !== "string" ||
+      !APPROVAL_ID.test(value.approvalId) ||
+      value.advisoryLockKey !== PRODUCTION_MIGRATION_ADVISORY_LOCK_KEY ||
+      value.confirmation !==
+        PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_CONFIRMATION ||
+      value.authorizesDeployment !== false
+    ) {
+      fail(
+        "PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_REQUEST_INVALID",
+        "Credential rotation request differs from the source-pinned production contract.",
+      );
+    }
+    const issuedAt = parseCredentialTimestamp(
+      value.issuedAt,
+      "credentialRotationRequest.issuedAt",
+    );
+    const expiresAt = parseCredentialTimestamp(
+      value.expiresAt,
+      "credentialRotationRequest.expiresAt",
+    );
+    if (
+      expiresAt <= issuedAt ||
+      expiresAt - issuedAt > PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_MAX_AGE_MS
+    ) {
+      fail(
+        "PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_REQUEST_TIME_INVALID",
+        "Credential rotation request must have one positive validity window of at most 24 hours.",
+      );
+    }
+    return Object.freeze(
+      value as unknown as ProductionRuntimeDbCredentialRotationRequest,
+    );
+  }
   if (
     !exactKeys(value, REQUEST_KEYS) ||
     value.schemaVersion !== PRODUCTION_RUNTIME_DB_CREDENTIAL_REQUEST_SCHEMA ||
@@ -451,6 +603,27 @@ export function createProductionRuntimeDbCredentialRequest(
 ) {
   const canonical = canonicalProductionRuntimeDbCredentialJson(value);
   const request = parseProductionRuntimeDbCredentialRequest(canonical);
+  return Object.freeze({
+    value: request,
+    canonical,
+    sha256: productionRuntimeDbCredentialSha256(canonical),
+  });
+}
+
+export function createProductionRuntimeDbCredentialRotationRequest(
+  value: ProductionRuntimeDbCredentialRotationRequest,
+) {
+  const canonical = canonicalProductionRuntimeDbCredentialJson(value);
+  const request = parseProductionRuntimeDbCredentialRequest(canonical);
+  if (
+    request.schemaVersion !==
+    PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_REQUEST_SCHEMA
+  ) {
+    fail(
+      "PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_REQUEST_INVALID",
+      "Credential rotation request parsed as a different ceremony.",
+    );
+  }
   return Object.freeze({
     value: request,
     canonical,
@@ -621,6 +794,9 @@ export function parseAndVerifyProductionRuntimeDbCredentialReceipt(
   const request = parseProductionRuntimeDbCredentialRequest(
     input.requestCanonical,
   );
+  const isRotation =
+    request.schemaVersion ===
+    PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_REQUEST_SCHEMA;
   const receipt = parseCanonicalObject(
     input.receiptCanonical,
     "credentialReceipt",
@@ -628,7 +804,11 @@ export function parseAndVerifyProductionRuntimeDbCredentialReceipt(
   );
   assertSecretFreeCredentialEvidence(request, "credentialRequest");
   assertSecretFreeCredentialEvidence(receipt, "credentialReceipt");
-  exactReceiptObject(receipt, RECEIPT_KEYS, "credentialReceipt");
+  exactReceiptObject(
+    receipt,
+    isRotation ? ROTATION_RECEIPT_KEYS : RECEIPT_KEYS,
+    "credentialReceipt",
+  );
   const sourceBinding = exactReceiptObject(
     receipt.sourceBinding,
     RECEIPT_SOURCE_BINDING_KEYS,
@@ -651,7 +831,7 @@ export function parseAndVerifyProductionRuntimeDbCredentialReceipt(
   );
   const verification = exactReceiptObject(
     receipt.verification,
-    RECEIPT_VERIFICATION_KEYS,
+    isRotation ? ROTATION_RECEIPT_VERIFICATION_KEYS : RECEIPT_VERIFICATION_KEYS,
     "credentialReceipt.verification",
   );
 
@@ -676,9 +856,16 @@ export function parseAndVerifyProductionRuntimeDbCredentialReceipt(
   }
 
   if (
-    receipt.schemaVersion !== PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_SCHEMA ||
-    receipt.kind !==
-      "site-logbook-production-runtime-db-credential-cutover-receipt" ||
+    (isRotation
+      ? receipt.schemaVersion !==
+          PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_RECEIPT_SCHEMA ||
+        receipt.kind !==
+          "site-logbook-production-runtime-db-credential-rotation-receipt" ||
+        receipt.operation !== "rotate-existing-runtime-credential"
+      : receipt.schemaVersion !==
+          PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_SCHEMA ||
+        receipt.kind !==
+          "site-logbook-production-runtime-db-credential-cutover-receipt") ||
     receipt.decision !== "PASS" ||
     receipt.requestSha256 !==
       productionRuntimeDbCredentialSha256(input.requestCanonical) ||
@@ -704,7 +891,13 @@ export function parseAndVerifyProductionRuntimeDbCredentialReceipt(
     transaction.cleartextCredentialSentInSql !== false ||
     transaction.cleartextCredentialSentAsQueryParameter !== false ||
     transaction.committed !== true ||
-    verification.credentialWasAbsentBefore !== true ||
+    (isRotation
+      ? verification.credentialWasPresentBefore !== true ||
+        verification.predecessorVerifierSha256Matched !== true ||
+        verification.previousVerifierDifferedFromNew !== true ||
+        verification.freshSecretGeneratedByControlPlane !== true ||
+        verification.secretBytesAbsentFromEvidenceAndLogs !== true
+      : verification.credentialWasAbsentBefore !== true) ||
     verification.credentialPresentInTransaction !== true ||
     verification.exactScramVerifierStoredInTransaction !== true ||
     verification.freshRuntimeLoginVerified !== true ||
@@ -728,6 +921,31 @@ export function parseAndVerifyProductionRuntimeDbCredentialReceipt(
     receipt.completedAt,
     "credentialReceipt.completedAt",
   );
+  if (isRotation) {
+    const requestIssuedAt = parseCredentialTimestamp(
+      request.issuedAt,
+      "credentialRotationRequest.issuedAt",
+    );
+    const requestExpiresAt = parseCredentialTimestamp(
+      request.expiresAt,
+      "credentialRotationRequest.expiresAt",
+    );
+    if (
+      startedAt + PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_MAX_CLOCK_SKEW_MS <
+        requestIssuedAt ||
+      completedAt >
+        requestExpiresAt +
+          PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_MAX_CLOCK_SKEW_MS ||
+      activationIssuedAt >
+        requestExpiresAt +
+          PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_MAX_CLOCK_SKEW_MS
+    ) {
+      fail(
+        "PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_REQUEST_STALE",
+        "Credential rotation request was not valid for the ceremony and activation predecessor.",
+      );
+    }
+  }
   if (
     startedAt < migrationCompletedAt ||
     completedAt < startedAt ||
@@ -807,8 +1025,15 @@ function throwIfAborted(signal: AbortSignal): void {
 }
 
 function assertRoleAuthority(
-  request: ProductionRuntimeDbCredentialRequest,
-  input: ProductionRuntimeDbCredentialCutoverInput,
+  request: ProductionRuntimeDbCredentialRequestAny,
+  input: Readonly<{
+    migrationPlanCanonical: string;
+    roleTransactionReceiptCanonical: string;
+    rolePostCommitArtifactCanonical: string;
+    embeddedSourceSha: string;
+    executorImage: string;
+    signal: AbortSignal;
+  }>,
 ): Readonly<{
   rolePlan: ProductionRolePlan;
   approvedProjection: ProductionRoleProjection;
@@ -886,9 +1111,230 @@ function assertRoleAuthority(
   });
 }
 
-export async function applyProductionRuntimeDbCredentialCutover(
-  input: ProductionRuntimeDbCredentialCutoverInput,
+export function generateFreshProductionRuntimeDbCredentialSecret(): string {
+  const secret = randomBytes(48).toString("base64url");
+  return requireProductionRuntimeDatabasePassword(secret);
+}
+
+export async function prepareProductionRuntimeDbCredentialRotationRequest(
+  input: ProductionRuntimeDbCredentialRotationPrepareInput,
 ) {
+  if (
+    !isRecord(input) ||
+    typeof input.migrationPlanCanonical !== "string" ||
+    typeof input.roleTransactionReceiptCanonical !== "string" ||
+    typeof input.rolePostCommitArtifactCanonical !== "string" ||
+    typeof input.embeddedSourceSha !== "string" ||
+    !SOURCE_SHA.test(input.embeddedSourceSha) ||
+    typeof input.executorImage !== "string" ||
+    !CONTROL_PLANE_IMAGE.test(input.executorImage) ||
+    typeof input.liveSourceSha !== "string" ||
+    !SOURCE_SHA.test(input.liveSourceSha) ||
+    input.liveSourceSha === input.embeddedSourceSha ||
+    typeof input.databaseName !== "string" ||
+    !IDENTIFIER.test(input.databaseName) ||
+    typeof input.approvalId !== "string" ||
+    !APPROVAL_ID.test(input.approvalId) ||
+    typeof input.connectAdmin !== "function" ||
+    !(input.signal instanceof AbortSignal) ||
+    (input.now !== undefined && typeof input.now !== "function")
+  ) {
+    fail(
+      "PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_PREPARE_INPUT_INVALID",
+      "Read-only credential rotation preparation input is malformed.",
+    );
+  }
+  throwIfAborted(input.signal);
+  const now = input.now ?? (() => new Date());
+  const issuedAt = exactTimestamp(now);
+  const expiresAt = new Date(
+    Date.parse(issuedAt) + PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_MAX_AGE_MS,
+  ).toISOString();
+  const requestBase = {
+    schemaVersion: PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_REQUEST_SCHEMA,
+    kind: "site-logbook-production-runtime-db-credential-rotation-request",
+    operation: "rotate-existing-runtime-credential",
+    liveSourceSha: input.liveSourceSha,
+    executorSourceSha: input.embeddedSourceSha,
+    executorImage: input.executorImage,
+    databaseName: input.databaseName,
+    runtimeRole: PRODUCTION_RUNTIME_DATABASE_USER,
+    migratorRole: PRODUCTION_MIGRATOR_DATABASE_USER,
+    expectedMigrationPlanSha256: productionRuntimeDbCredentialSha256(
+      input.migrationPlanCanonical,
+    ),
+    expectedRoleTransactionReceiptSha256: productionRuntimeDbCredentialSha256(
+      input.roleTransactionReceiptCanonical,
+    ),
+    expectedRolePostCommitArtifactSha256: productionRuntimeDbCredentialSha256(
+      input.rolePostCommitArtifactCanonical,
+    ),
+    approvalId: input.approvalId,
+    issuedAt,
+    expiresAt,
+    advisoryLockKey: PRODUCTION_MIGRATION_ADVISORY_LOCK_KEY,
+    confirmation: PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_CONFIRMATION,
+    authorizesDeployment: false,
+  } as const;
+  const provisional = createProductionRuntimeDbCredentialRotationRequest({
+    ...requestBase,
+    expectedCurrentCredentialVerifierSha256: `sha256:${"0".repeat(64)}`,
+  }).value;
+  const roleAuthority = assertRoleAuthority(provisional, input);
+  let admin: ProductionRuntimeCredentialClient | undefined;
+  let transactionOpen = false;
+  let destroyAdmin = false;
+  try {
+    admin = await input.connectAdmin();
+    throwIfAborted(input.signal);
+    await admin.query("BEGIN ISOLATION LEVEL SERIALIZABLE READ ONLY");
+    transactionOpen = true;
+    await admin.query("SELECT pg_advisory_xact_lock($1::integer)", [
+      PRODUCTION_MIGRATION_ADVISORY_LOCK_KEY,
+    ]);
+    const liveProjectionRow = oneRow(
+      await admin.query(PRODUCTION_ROLE_PROJECTION_SQL, [
+        input.databaseName,
+        PRODUCTION_RUNTIME_DATABASE_USER,
+        PRODUCTION_MIGRATOR_DATABASE_USER,
+      ]),
+      ["projection"],
+      "rotationPrepareLiveRoleProjection",
+    );
+    let liveRoleProjection: ProductionRoleProjection;
+    try {
+      liveRoleProjection = normalizeProductionMigrationRoleProjection(
+        liveProjectionRow.projection,
+        roleAuthority.rolePlan,
+        { allowNullFunctions: true },
+      );
+      const validation = validateProductionRoleProjection(liveRoleProjection);
+      if (!validation.ok) {
+        const first = validation.errors[0];
+        fail(
+          "PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_PREPARE_ROLE_INVALID",
+          `Live role projection failed at ${first?.code ?? "UNKNOWN"}:${first?.path ?? "$"}.`,
+        );
+      }
+    } catch (error) {
+      if (error instanceof ProductionRuntimeDbCredentialCutoverError) {
+        throw error;
+      }
+      fail(
+        "PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_PREPARE_ROLE_INVALID",
+        "Live role projection could not be normalized under the read-only attended lock.",
+        { cause: error },
+      );
+    }
+    if (
+      canonicalProductionRuntimeDbCredentialJson(liveRoleProjection) !==
+      canonicalProductionRuntimeDbCredentialJson(
+        roleAuthority.approvedProjection,
+      )
+    ) {
+      fail(
+        "PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_PREPARE_ROLE_DRIFT",
+        "Live role projection differs from the approved post-commit authority.",
+      );
+    }
+    const pre = oneRow(
+      await admin.query(ADMIN_PRECONDITION_SQL, [
+        PRODUCTION_RUNTIME_DATABASE_USER,
+        PRODUCTION_MIGRATOR_DATABASE_USER,
+      ]),
+      [
+        "databaseName",
+        "sessionUser",
+        "currentUser",
+        "adminSuperuser",
+        "runtimeExists",
+        "runtimeLogin",
+        "runtimePrivileged",
+        "runtimeCredentialPresent",
+        "migratorExists",
+        "migratorLogin",
+      ],
+      "rotationPrepareAdminPrecondition",
+    );
+    if (
+      pre.databaseName !== input.databaseName ||
+      typeof pre.sessionUser !== "string" ||
+      pre.sessionUser !== pre.currentUser ||
+      pre.sessionUser === PRODUCTION_RUNTIME_DATABASE_USER ||
+      pre.sessionUser === PRODUCTION_MIGRATOR_DATABASE_USER ||
+      pre.adminSuperuser !== true ||
+      pre.runtimeExists !== true ||
+      pre.runtimeLogin !== true ||
+      pre.runtimePrivileged !== false ||
+      pre.runtimeCredentialPresent !== true ||
+      pre.migratorExists !== true ||
+      pre.migratorLogin !== false
+    ) {
+      fail(
+        "PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_PREPARE_PRECONDITION_FAILED",
+        "Live roles or attended administrator differ from the exact rotation predecessor.",
+      );
+    }
+    const current = oneRow(
+      await admin.query(RUNTIME_CREDENTIAL_STATE_SQL, [
+        PRODUCTION_RUNTIME_DATABASE_USER,
+      ]),
+      ["runtimeCredentialVerifier"],
+      "rotationPrepareCredentialState",
+    );
+    if (
+      typeof current.runtimeCredentialVerifier !== "string" ||
+      !SCRAM_VERIFIER.test(current.runtimeCredentialVerifier)
+    ) {
+      fail(
+        "PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_PREPARE_PREDECESSOR_INVALID",
+        "Existing runtime credential is absent, ambiguous, or not an exact PostgreSQL 16 SCRAM verifier.",
+      );
+    }
+    const prepared = createProductionRuntimeDbCredentialRotationRequest({
+      ...requestBase,
+      expectedCurrentCredentialVerifierSha256:
+        productionRuntimeDbCredentialSha256(current.runtimeCredentialVerifier),
+    });
+    assertSecretFreeCredentialEvidence(prepared.value, "rotationRequest");
+    throwIfAborted(input.signal);
+    await admin.query("ROLLBACK");
+    transactionOpen = false;
+    return Object.freeze({
+      decision: "PREPARED" as const,
+      requestCanonical: prepared.canonical,
+      requestSha256: prepared.sha256,
+      authorizesCredentialMutation: false as const,
+      authorizesApplicationStart: false as const,
+      authorizesDeployment: false as const,
+    });
+  } catch (error) {
+    if (transactionOpen && admin) {
+      try {
+        await admin.query("ROLLBACK");
+        transactionOpen = false;
+      } catch (rollbackError) {
+        destroyAdmin = true;
+        fail(
+          "PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_PREPARE_ROLLBACK_UNKNOWN",
+          "Read-only preparation transaction closure is unknown; emit no request and investigate.",
+          { cause: rollbackError, manualReviewRequired: true },
+        );
+      }
+    }
+    throw error;
+  } finally {
+    if (admin) await admin.release(destroyAdmin);
+  }
+}
+
+async function applyProductionRuntimeDbCredentialMutation(
+  input:
+    | ProductionRuntimeDbCredentialCutoverInput
+    | ProductionRuntimeDbCredentialRotationInput,
+  expectedCeremony: "first-cutover" | "rotation",
+) {
+  const rotation = expectedCeremony === "rotation";
   if (
     !isRecord(input) ||
     typeof input.requestCanonical !== "string" ||
@@ -899,7 +1345,11 @@ export async function applyProductionRuntimeDbCredentialCutover(
     !SOURCE_SHA.test(input.embeddedSourceSha) ||
     typeof input.executorImage !== "string" ||
     !IMMUTABLE_IMAGE.test(input.executorImage) ||
-    typeof input.runtimePassword !== "string" ||
+    (rotation
+      ? !("persistGeneratedSecret" in input) ||
+        typeof input.persistGeneratedSecret !== "function"
+      : !("runtimePassword" in input) ||
+        typeof input.runtimePassword !== "string") ||
     typeof input.connectAdmin !== "function" ||
     typeof input.connectRuntime !== "function" ||
     !(input.signal instanceof AbortSignal) ||
@@ -913,13 +1363,61 @@ export async function applyProductionRuntimeDbCredentialCutover(
   const request = parseProductionRuntimeDbCredentialRequest(
     input.requestCanonical,
   );
-  const runtimePassword = requireProductionRuntimeDatabasePassword(
-    input.runtimePassword,
-  );
+  if (
+    (rotation &&
+      request.schemaVersion !==
+        PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_REQUEST_SCHEMA) ||
+    (!rotation &&
+      request.schemaVersion !== PRODUCTION_RUNTIME_DB_CREDENTIAL_REQUEST_SCHEMA)
+  ) {
+    fail(
+      "PRODUCTION_RUNTIME_DB_CREDENTIAL_CEREMONY_MISMATCH",
+      "Credential request schema does not match the selected attended ceremony.",
+    );
+  }
+  let runtimePassword = rotation
+    ? ""
+    : requireProductionRuntimeDatabasePassword(
+        (input as ProductionRuntimeDbCredentialCutoverInput).runtimePassword,
+      );
   const roleAuthority = assertRoleAuthority(request, input);
   throwIfAborted(input.signal);
   const now = input.now ?? (() => new Date());
   const startedAt = exactTimestamp(now);
+  if (rotation) {
+    const issuedAt = parseCredentialTimestamp(
+      (request as ProductionRuntimeDbCredentialRotationRequest).issuedAt,
+      "credentialRotationRequest.issuedAt",
+    );
+    const expiresAt = parseCredentialTimestamp(
+      (request as ProductionRuntimeDbCredentialRotationRequest).expiresAt,
+      "credentialRotationRequest.expiresAt",
+    );
+    const startTime = Date.parse(startedAt);
+    if (
+      startTime + PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_MAX_CLOCK_SKEW_MS <
+        issuedAt ||
+      startTime >
+        expiresAt + PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_MAX_CLOCK_SKEW_MS
+    ) {
+      fail(
+        "PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_REQUEST_STALE",
+        "Credential rotation request is not currently valid.",
+      );
+    }
+    runtimePassword = generateFreshProductionRuntimeDbCredentialSecret();
+    try {
+      await (
+        input as ProductionRuntimeDbCredentialRotationInput
+      ).persistGeneratedSecret(runtimePassword);
+    } catch (error) {
+      fail(
+        "PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_SECRET_CUSTODY_FAILED",
+        "Fresh runtime credential could not be durably transferred to private custody before mutation.",
+        { cause: error },
+      );
+    }
+  }
   let admin: ProductionRuntimeCredentialClient | undefined;
   let runtime: ProductionRuntimeCredentialClient | undefined;
   let transactionOpen = false;
@@ -1008,7 +1506,7 @@ export async function applyProductionRuntimeDbCredentialCutover(
       pre.runtimeExists !== true ||
       pre.runtimeLogin !== true ||
       pre.runtimePrivileged !== false ||
-      pre.runtimeCredentialPresent !== false ||
+      pre.runtimeCredentialPresent !== rotation ||
       pre.migratorExists !== true ||
       pre.migratorLogin !== false
     ) {
@@ -1017,8 +1515,39 @@ export async function applyProductionRuntimeDbCredentialCutover(
         "Live roles or attended administrator differ from the approved separated state.",
       );
     }
+    let previousRuntimeVerifier: string | undefined;
+    if (rotation) {
+      const current = oneRow(
+        await admin.query(RUNTIME_CREDENTIAL_STATE_SQL, [
+          PRODUCTION_RUNTIME_DATABASE_USER,
+        ]),
+        ["runtimeCredentialVerifier"],
+        "runtimeCredentialStateBeforeRotation",
+      );
+      if (
+        typeof current.runtimeCredentialVerifier !== "string" ||
+        !SCRAM_VERIFIER.test(current.runtimeCredentialVerifier) ||
+        productionRuntimeDbCredentialSha256(
+          current.runtimeCredentialVerifier,
+        ) !==
+          (request as ProductionRuntimeDbCredentialRotationRequest)
+            .expectedCurrentCredentialVerifierSha256
+      ) {
+        fail(
+          "PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_PREDECESSOR_INVALID",
+          "Existing runtime credential is absent, ambiguous, or not an exact PostgreSQL 16 SCRAM verifier.",
+        );
+      }
+      previousRuntimeVerifier = current.runtimeCredentialVerifier;
+    }
     throwIfAborted(input.signal);
     const scramVerifier = createPostgres16ScramSha256Verifier(runtimePassword);
+    if (rotation && scramVerifier === previousRuntimeVerifier) {
+      fail(
+        "PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_SECRET_REUSE_DETECTED",
+        "Fresh credential unexpectedly reproduced the existing verifier.",
+      );
+    }
     const alterRoleStatement =
       createPostgres16RuntimeCredentialAlterStatement(scramVerifier);
     if (alterRoleStatement.includes(runtimePassword)) {
@@ -1081,9 +1610,30 @@ export async function applyProductionRuntimeDbCredentialCutover(
       );
     }
     const completedAt = exactTimestamp(now);
+    if (
+      rotation &&
+      Date.parse(completedAt) >
+        Date.parse(
+          (request as ProductionRuntimeDbCredentialRotationRequest).expiresAt,
+        ) +
+          PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_MAX_CLOCK_SKEW_MS
+    ) {
+      fail(
+        "PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_REQUEST_EXPIRED_AFTER_COMMIT",
+        "Credential rotated, but the attended request expired before verification completed; do not activate or retry blindly.",
+        { manualReviewRequired: true },
+      );
+    }
     const receipt = Object.freeze({
-      schemaVersion: PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_SCHEMA,
-      kind: "site-logbook-production-runtime-db-credential-cutover-receipt",
+      schemaVersion: rotation
+        ? PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_RECEIPT_SCHEMA
+        : PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_SCHEMA,
+      kind: rotation
+        ? "site-logbook-production-runtime-db-credential-rotation-receipt"
+        : "site-logbook-production-runtime-db-credential-cutover-receipt",
+      ...(rotation
+        ? { operation: "rotate-existing-runtime-credential" as const }
+        : {}),
       decision: "PASS",
       sourceBinding: Object.freeze({
         liveSourceSha: request.liveSourceSha,
@@ -1113,13 +1663,25 @@ export async function applyProductionRuntimeDbCredentialCutover(
         cleartextCredentialSentAsQueryParameter: false,
         committed: true,
       }),
-      verification: Object.freeze({
-        credentialWasAbsentBefore: true,
-        credentialPresentInTransaction: true,
-        exactScramVerifierStoredInTransaction: true,
-        freshRuntimeLoginVerified: true,
-        exactRuntimeIdentityVerified: true,
-      }),
+      verification: rotation
+        ? Object.freeze({
+            credentialWasPresentBefore: true,
+            predecessorVerifierSha256Matched: true,
+            previousVerifierDifferedFromNew: true,
+            credentialPresentInTransaction: true,
+            exactScramVerifierStoredInTransaction: true,
+            freshRuntimeLoginVerified: true,
+            exactRuntimeIdentityVerified: true,
+            freshSecretGeneratedByControlPlane: true,
+            secretBytesAbsentFromEvidenceAndLogs: true,
+          })
+        : Object.freeze({
+            credentialWasAbsentBefore: true,
+            credentialPresentInTransaction: true,
+            exactScramVerifierStoredInTransaction: true,
+            freshRuntimeLoginVerified: true,
+            exactRuntimeIdentityVerified: true,
+          }),
       approvalId: request.approvalId,
       startedAt,
       completedAt,
@@ -1192,4 +1754,16 @@ export async function applyProductionRuntimeDbCredentialCutover(
     if (runtime) await runtime.release(false);
     if (admin) await admin.release(destroyAdmin);
   }
+}
+
+export async function applyProductionRuntimeDbCredentialCutover(
+  input: ProductionRuntimeDbCredentialCutoverInput,
+) {
+  return applyProductionRuntimeDbCredentialMutation(input, "first-cutover");
+}
+
+export async function applyProductionRuntimeDbCredentialRotation(
+  input: ProductionRuntimeDbCredentialRotationInput,
+) {
+  return applyProductionRuntimeDbCredentialMutation(input, "rotation");
 }
