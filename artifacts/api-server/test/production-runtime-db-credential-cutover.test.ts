@@ -94,6 +94,21 @@ vi.mock("@workspace/db/production-migration-role-authority", () => ({
   },
 }));
 
+vi.mock("@workspace/db/production-migration-role-0108-authority", () => ({
+  PRODUCTION_MIGRATION_ROLE_0108_ADVISORY_LOCK_KEY: 91070108,
+  overlayProductionRole0108Projection(projection: Record<string, unknown>) {
+    return { ...projection, fixtureContract: "0108" };
+  },
+  deriveProductionRole0108PostProjection(
+    projection: Record<string, unknown>,
+  ) {
+    return { ...projection, fixtureContract: "0108" };
+  },
+  validateProductionRole0108Projection() {
+    return { ok: true, errors: [] };
+  },
+}));
+
 import {
   applyProductionRuntimeDbCredentialCutover,
   applyProductionRuntimeDbCredentialRotation,

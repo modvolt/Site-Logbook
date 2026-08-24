@@ -12,6 +12,13 @@ import {
   type ProductionRoleProjection,
 } from "@workspace/db/production-migration-role-authority";
 import {
+  PRODUCTION_MIGRATION_ROLE_0108_ADVISORY_LOCK_KEY,
+  deriveProductionRole0108PostProjection,
+  overlayProductionRole0108Projection,
+  validateProductionRole0108Projection,
+  type ProductionRole0108Projection,
+} from "@workspace/db/production-migration-role-0108-authority";
+import {
   PRODUCTION_MIGRATOR_DATABASE_USER,
   PRODUCTION_RUNTIME_DATABASE_USER,
   requireProductionRuntimeDatabasePassword,
@@ -1111,6 +1118,36 @@ function assertRoleAuthority(
   });
 }
 
+function exactRotationRoleProjection(
+  raw: unknown,
+  roleAuthority: Readonly<{
+    rolePlan: ProductionRolePlan;
+    approvedProjection: ProductionRoleProjection;
+  }>,
+): Readonly<{
+  live: ProductionRole0108Projection;
+  approved: ProductionRole0108Projection;
+}> {
+  const normalized = normalizeProductionMigrationRoleProjection(
+    raw,
+    roleAuthority.rolePlan,
+    { allowNullFunctions: true },
+  );
+  const live = overlayProductionRole0108Projection(normalized);
+  const validation = validateProductionRole0108Projection(live, "post");
+  if (!validation.ok) {
+    const first = validation.errors[0];
+    fail(
+      "PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_ROLE_INVALID",
+      `Live 0108 role projection failed at ${first?.code ?? "UNKNOWN"}:${first?.path ?? "$"}.`,
+    );
+  }
+  const approved = deriveProductionRole0108PostProjection(
+    roleAuthority.approvedProjection,
+  );
+  return Object.freeze({ live, approved });
+}
+
 export function generateFreshProductionRuntimeDbCredentialSecret(): string {
   const secret = randomBytes(48).toString("base64url");
   return requireProductionRuntimeDatabasePassword(secret);
@@ -1192,6 +1229,9 @@ export async function prepareProductionRuntimeDbCredentialRotationRequest(
     await admin.query("SELECT pg_advisory_xact_lock($1::integer)", [
       PRODUCTION_MIGRATION_ADVISORY_LOCK_KEY,
     ]);
+    await admin.query("SELECT pg_advisory_xact_lock($1::integer)", [
+      PRODUCTION_MIGRATION_ROLE_0108_ADVISORY_LOCK_KEY,
+    ]);
     const liveProjectionRow = oneRow(
       await admin.query(PRODUCTION_ROLE_PROJECTION_SQL, [
         input.databaseName,
@@ -1201,21 +1241,15 @@ export async function prepareProductionRuntimeDbCredentialRotationRequest(
       ["projection"],
       "rotationPrepareLiveRoleProjection",
     );
-    let liveRoleProjection: ProductionRoleProjection;
+    let liveRoleProjection: ProductionRole0108Projection;
+    let approvedRoleProjection: ProductionRole0108Projection;
     try {
-      liveRoleProjection = normalizeProductionMigrationRoleProjection(
+      const exact = exactRotationRoleProjection(
         liveProjectionRow.projection,
-        roleAuthority.rolePlan,
-        { allowNullFunctions: true },
+        roleAuthority,
       );
-      const validation = validateProductionRoleProjection(liveRoleProjection);
-      if (!validation.ok) {
-        const first = validation.errors[0];
-        fail(
-          "PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_PREPARE_ROLE_INVALID",
-          `Live role projection failed at ${first?.code ?? "UNKNOWN"}:${first?.path ?? "$"}.`,
-        );
-      }
+      liveRoleProjection = exact.live;
+      approvedRoleProjection = exact.approved;
     } catch (error) {
       if (error instanceof ProductionRuntimeDbCredentialCutoverError) {
         throw error;
@@ -1228,9 +1262,7 @@ export async function prepareProductionRuntimeDbCredentialRotationRequest(
     }
     if (
       canonicalProductionRuntimeDbCredentialJson(liveRoleProjection) !==
-      canonicalProductionRuntimeDbCredentialJson(
-        roleAuthority.approvedProjection,
-      )
+      canonicalProductionRuntimeDbCredentialJson(approvedRoleProjection)
     ) {
       fail(
         "PRODUCTION_RUNTIME_DB_CREDENTIAL_ROTATION_PREPARE_ROLE_DRIFT",
@@ -1432,7 +1464,13 @@ async function applyProductionRuntimeDbCredentialMutation(
     await admin.query("SELECT pg_advisory_xact_lock($1::integer)", [
       request.advisoryLockKey,
     ]);
-    let liveRoleProjection: ProductionRoleProjection;
+    if (rotation) {
+      await admin.query("SELECT pg_advisory_xact_lock($1::integer)", [
+        PRODUCTION_MIGRATION_ROLE_0108_ADVISORY_LOCK_KEY,
+      ]);
+    }
+    let liveRoleProjection: ProductionRoleProjection | ProductionRole0108Projection;
+    let approvedRoleProjection: ProductionRoleProjection | ProductionRole0108Projection;
     try {
       const liveProjectionRow = oneRow(
         await admin.query(PRODUCTION_ROLE_PROJECTION_SQL, [
@@ -1443,18 +1481,28 @@ async function applyProductionRuntimeDbCredentialMutation(
         ["projection"],
         "liveRoleProjection",
       );
-      liveRoleProjection = normalizeProductionMigrationRoleProjection(
-        liveProjectionRow.projection,
-        roleAuthority.rolePlan,
-        { allowNullFunctions: true },
-      );
-      const validation = validateProductionRoleProjection(liveRoleProjection);
-      if (!validation.ok) {
-        const first = validation.errors[0];
-        fail(
-          "PRODUCTION_RUNTIME_DB_CREDENTIAL_LIVE_ROLE_PROJECTION_INVALID",
-          `Live role projection failed the source-reviewed contract at ${first?.code ?? "UNKNOWN"}:${first?.path ?? "$"}.`,
+      if (rotation) {
+        const exact = exactRotationRoleProjection(
+          liveProjectionRow.projection,
+          roleAuthority,
         );
+        liveRoleProjection = exact.live;
+        approvedRoleProjection = exact.approved;
+      } else {
+        liveRoleProjection = normalizeProductionMigrationRoleProjection(
+          liveProjectionRow.projection,
+          roleAuthority.rolePlan,
+          { allowNullFunctions: true },
+        );
+        const validation = validateProductionRoleProjection(liveRoleProjection);
+        if (!validation.ok) {
+          const first = validation.errors[0];
+          fail(
+            "PRODUCTION_RUNTIME_DB_CREDENTIAL_LIVE_ROLE_PROJECTION_INVALID",
+            `Live role projection failed the source-reviewed contract at ${first?.code ?? "UNKNOWN"}:${first?.path ?? "$"}.`,
+          );
+        }
+        approvedRoleProjection = roleAuthority.approvedProjection;
       }
     } catch (error) {
       if (error instanceof ProductionRuntimeDbCredentialCutoverError) {
@@ -1468,9 +1516,7 @@ async function applyProductionRuntimeDbCredentialMutation(
     }
     if (
       canonicalProductionRuntimeDbCredentialJson(liveRoleProjection) !==
-      canonicalProductionRuntimeDbCredentialJson(
-        roleAuthority.approvedProjection,
-      )
+      canonicalProductionRuntimeDbCredentialJson(approvedRoleProjection)
     ) {
       fail(
         "PRODUCTION_RUNTIME_DB_CREDENTIAL_ROLE_DRIFT",
