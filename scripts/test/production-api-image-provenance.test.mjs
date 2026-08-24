@@ -26,6 +26,9 @@ import {
 import {
   PRODUCTION_API_IMAGE_PROVENANCE_CONFIRMATION,
   PRODUCTION_API_IMAGE_PROVENANCE_FILES,
+  PRODUCTION_API_IMAGE_PROVENANCE_MANUAL_CONFIRMATION,
+  PRODUCTION_API_IMAGE_PROVENANCE_MANUAL_RECEIPT_KIND,
+  PRODUCTION_API_IMAGE_PROVENANCE_MANUAL_RECEIPT_SCHEMA,
   PRODUCTION_API_IMAGE_PROVENANCE_RECEIPT_KIND,
   PRODUCTION_API_IMAGE_PROVENANCE_RECEIPT_SCHEMA,
   ProductionApiImageProvenanceError,
@@ -34,6 +37,12 @@ import {
   runProductionApiImageProvenanceProducerWithTestAuthority,
   runProductionPublisherCustodySignatureWithTestProcess,
 } from "../production-evidence/production-api-image-provenance.mjs";
+import {
+  MANUAL_PRODUCTION_IMAGE_COMPLETE_KIND,
+  MANUAL_PRODUCTION_IMAGE_COMPLETE_MODE,
+  MANUAL_PRODUCTION_IMAGE_COMPLETE_SCHEMA,
+  sealManualProductionImageCompleteReceipt,
+} from "../production-evidence/manual-production-image-complete-contract.mjs";
 import {
   PRODUCTION_IMAGE_PUBLICATION_CALLER,
   PRODUCTION_IMAGE_PUBLICATION_KIND,
@@ -293,6 +302,240 @@ function publicationBinding(stage = "complete", options = {}) {
   });
 }
 
+function manualPublicationBinding(options = {}) {
+  const legacy = receiptFixture("complete");
+  const reviewedImages = structuredClone(legacy.images);
+  for (const image of Object.values(reviewedImages)) {
+    image.published = false;
+    image.registryVerified = false;
+    image.registryEvidenceSha256 = null;
+  }
+  const provenanceValue = apiOciProvenanceFixture(reviewedImages.api);
+  options.mutateApiOciProvenance?.(provenanceValue);
+  const apiOciProvenanceRaw = Buffer.from(
+    options.apiOciProvenanceRaw ?? JSON.stringify(provenanceValue),
+    "utf8",
+  );
+  reviewedImages.api.provenance.sha256 = sha256(apiOciProvenanceRaw);
+  const reviewedSet = reviewedImageSetSha256(reviewedImages);
+  const reviewedImageRaw = Object.fromEntries(
+    Object.entries(reviewedImages).map(([key, value]) => [
+      key,
+      Buffer.from(JSON.stringify(value), "utf8"),
+    ]),
+  );
+  const custodyValue = {
+    schemaVersion: "site-logbook.production-image-manual-custody/v1",
+    kind: "site-logbook-production-image-manual-custody",
+    builder: {
+      buildkit: "v0.30.0@sha256:fixture",
+      buildx: "v0.34.1 fixture",
+      dockerCliImage: "docker:28.5.1-cli@sha256:fixture",
+      exactSourceCheckout: "linux-native-git-object-checkout",
+      platform: "linux/amd64",
+      slsaProvenanceVersion: "v0.2",
+    },
+    execution: {
+      createdAt: "2026-08-24T16:39:50.380Z",
+      expiresAt: "2026-08-25T16:39:50.380Z",
+      mode: "operator-local",
+      operator: "modvolt",
+      publicationNonceSha256: digest("manual-publication-nonce"),
+    },
+    extraction: {
+      layoutsDirectory: "layouts-custody-1",
+      policy: "workflow-safe-extract-oci-v1",
+    },
+    images: reviewedImages,
+    policy: {
+      deploymentAuthorized: false,
+      githubActionsArtifactClaimed: false,
+      migrationAuthorized: false,
+      productionTargetsTouched: false,
+      registryWritePermitted: false,
+    },
+    reviewedImageSetSha256: reviewedSet,
+    source: legacy.source,
+    workflowFileSha256: digest("manual-workflow"),
+  };
+  const custodyRaw = Buffer.from(JSON.stringify(custodyValue), "utf8");
+  const custodySha256 = sha256(custodyRaw);
+  const custodyVerificationValue = {
+    allReviewedOciLayoutsVerified: true,
+    currentPublicMainRechecked: true,
+    custodySha256,
+    kind: "site-logbook-production-image-manual-custody-verification",
+    qualityRunRechecked: true,
+    reviewedImageSetSha256: reviewedSet,
+    safeExtractionVerified: true,
+    schemaVersion:
+      "site-logbook.production-image-manual-custody-verification/v1",
+    sourceSha: SOURCE_SHA,
+    sourceTreeSha: TREE_SHA,
+    verifiedAt: "2026-08-24T16:39:50.394Z",
+  };
+  const custodyVerificationRaw = Buffer.from(
+    JSON.stringify(custodyVerificationValue),
+    "utf8",
+  );
+  const completedImages = structuredClone(reviewedImages);
+  const registryResults = {};
+  const registryResultRaw = {};
+  const registryResultSha256 = {};
+  for (const [key, image] of Object.entries(completedImages)) {
+    const index = Object.keys(completedImages).indexOf(key);
+    const preWriteDigestState = index === 0 ? "present" : "absent";
+    const result = {
+      schemaVersion: "site-logbook.production-image-registry-publication/v1",
+      sourceSha: SOURCE_SHA,
+      component: image.component,
+      repository: image.repository,
+      digest: image.digest,
+      immutableImage: image.image,
+      referenceMode: "digest-only",
+      preWriteDigestState,
+      digestAlreadyPresent: preWriteDigestState === "present",
+      registryWritePerformed: preWriteDigestState === "absent",
+      sourceRecheckPerformed: true,
+      digestReferenceVerified: true,
+      runnableManifestVerified: true,
+      attestationManifestVerified: true,
+      allReviewedBlobsVerified: true,
+      publishedAt: "2026-08-24T17:00:00.000Z",
+    };
+    const raw = Buffer.from(JSON.stringify(result), "utf8");
+    registryResults[key] = result;
+    registryResultRaw[key] = raw;
+    registryResultSha256[key] = sha256(raw);
+    image.published = true;
+    image.registryVerified = true;
+    image.registryEvidenceSha256 = registryResultSha256[key];
+  }
+  const registrySummary = {
+    schemaVersion:
+      "site-logbook.production-image-manual-registry-publication/v1",
+    kind: "site-logbook-production-image-manual-registry-publication",
+    sourceSha: SOURCE_SHA,
+    custodySha256,
+    reviewedImageSetSha256: reviewedSet,
+    allFourImagesRegistryVerified: true,
+    deploymentAuthorized: false,
+    deploymentPerformed: false,
+    migrationAuthorized: false,
+    migrationPerformed: false,
+    productionTargetsTouched: false,
+    publishedAt: "2026-08-24T17:00:00.000Z",
+    images: registryResults,
+  };
+  const registrySummaryRaw = Buffer.from(
+    JSON.stringify(registrySummary),
+    "utf8",
+  );
+  const registrySummarySha256 = sha256(registrySummaryRaw);
+  const rawPackageMetadata = {
+    actor: "modvolt",
+    actorId: 289280891,
+    kind: "site-logbook-production-image-manual-package-metadata",
+    oauthScopes: ["write:packages"],
+    observedAt: "2026-08-24T17:01:00.000Z",
+    packages: Object.values(PRODUCTION_IMAGE_SPECS).map((spec, index) => ({
+      id: 9000 + index,
+      name: spec.repository.split("/").at(-1),
+      owner: { id: 289280891, login: "modvolt" },
+      package_type: "container",
+      version_count: index + 1,
+      visibility: "private",
+    })),
+    registryPublicationSha256: registrySummarySha256,
+    schemaVersion: "site-logbook.production-image-manual-package-metadata/v1",
+    sourceSha: SOURCE_SHA,
+  };
+  const packageMetadataRaw = Buffer.from(
+    JSON.stringify(rawPackageMetadata),
+    "utf8",
+  );
+  const packageMetadata = {
+    observedAt: rawPackageMetadata.observedAt,
+    packages: Object.fromEntries(
+      rawPackageMetadata.packages.map((entry) => {
+        const key = Object.entries(PRODUCTION_IMAGE_SPECS).find(
+          ([, spec]) => spec.repository.split("/").at(-1) === entry.name,
+        )[0];
+        return [
+          key,
+          {
+            name: entry.name,
+            packageType: entry.package_type,
+            ownerLogin: entry.owner.login,
+            ownerId: String(entry.owner.id),
+            visibility: entry.visibility,
+            id: String(entry.id),
+            versionCount: entry.version_count,
+          },
+        ];
+      }),
+    ),
+  };
+  const receipt = {
+    schemaVersion: MANUAL_PRODUCTION_IMAGE_COMPLETE_SCHEMA,
+    kind: MANUAL_PRODUCTION_IMAGE_COMPLETE_KIND,
+    publicationMode: MANUAL_PRODUCTION_IMAGE_COMPLETE_MODE,
+    source: legacy.source,
+    custody: {
+      receiptSha256: custodySha256,
+      verificationSha256: sha256(custodyVerificationRaw),
+      publicationNonceSha256: custodyValue.execution.publicationNonceSha256,
+      createdAt: "2026-08-24T16:39:50.380Z",
+      verifiedAt: "2026-08-24T16:39:50.394Z",
+      expiresAt: "2026-08-25T16:39:50.380Z",
+    },
+    registry: {
+      summary: registrySummary,
+      sha256: registrySummarySha256,
+    },
+    packageMetadata,
+    rawEvidence: {
+      custodySha256,
+      custodyVerificationSha256: sha256(custodyVerificationRaw),
+      packageMetadataSha256: sha256(packageMetadataRaw),
+      registrySummarySha256,
+      images: Object.fromEntries(
+        Object.entries(reviewedImageRaw).map(([key, raw]) => [
+          key,
+          sha256(raw),
+        ]),
+      ),
+      registryResults: registryResultSha256,
+    },
+    images: completedImages,
+    reviewedImageSetSha256: reviewedSet,
+    policy: {
+      registryWriteCompleted: true,
+      packagesVisibilityVerified: true,
+      platform: "linux/amd64",
+      githubActionsArtifactClaimed: false,
+      productionTargetsTouched: false,
+      deploymentAuthorized: false,
+      deploymentPerformed: false,
+      migrationAuthorized: false,
+      migrationPerformed: false,
+    },
+    createdAt: "2026-08-24T17:02:00.000Z",
+  };
+  return Object.freeze({
+    publication: sealManualProductionImageCompleteReceipt(receipt),
+    apiOciProvenanceRaw,
+    rawEvidence: Object.freeze({
+      custody: custodyRaw,
+      custodyVerification: custodyVerificationRaw,
+      packageMetadata: packageMetadataRaw,
+      registrySummary: registrySummaryRaw,
+      images: Object.freeze(reviewedImageRaw),
+      registryResults: Object.freeze(registryResultRaw),
+    }),
+  });
+}
+
 function publicKeyPin(publicKey) {
   return sha256(publicKey.export({ type: "spki", format: "der" }));
 }
@@ -318,16 +561,84 @@ async function context(t, options = {}) {
   const publicPem = pair.publicKey.export({ type: "spki", format: "pem" });
   const binding =
     options.binding ??
-    publicationBinding(options.stage, {
-      apiOciProvenanceRaw: options.apiOciProvenanceRaw,
-      mutateApiOciProvenance: options.mutateApiOciProvenance,
-    });
+    (options.manual
+      ? manualPublicationBinding({
+          apiOciProvenanceRaw: options.apiOciProvenanceRaw,
+          mutateApiOciProvenance: options.mutateApiOciProvenance,
+        })
+      : publicationBinding(options.stage, {
+          apiOciProvenanceRaw: options.apiOciProvenanceRaw,
+          mutateApiOciProvenance: options.mutateApiOciProvenance,
+        }));
   const publication = binding.publication;
   const receiptRaw = options.receiptRaw ?? publication.canonical;
   await writeFile(publicationReceipt, receiptRaw, { mode: 0o600 });
   await writeFile(apiOciProvenance, binding.apiOciProvenanceRaw, {
     mode: 0o600,
   });
+  const manualEvidence = options.manual
+    ? {
+        custody: binding.rawEvidence.custody,
+        custodyVerification: binding.rawEvidence.custodyVerification,
+        packageMetadata: binding.rawEvidence.packageMetadata,
+        registrySummary: binding.rawEvidence.registrySummary,
+        images: { ...binding.rawEvidence.images },
+        registryResults: { ...binding.rawEvidence.registryResults },
+      }
+    : undefined;
+  options.mutateRawEvidence?.(manualEvidence);
+  const manualEvidencePaths = options.manual
+    ? {
+        custody: join(root, "manual-custody.json"),
+        custodyVerification: join(root, "manual-custody-verification.json"),
+        packageMetadata: join(root, "manual-package-metadata.json"),
+        registrySummary: join(root, "manual-registry-summary.json"),
+        images: Object.fromEntries(
+          Object.keys(PRODUCTION_IMAGE_SPECS).map((key) => [
+            key,
+            join(root, `manual-image-${key}.json`),
+          ]),
+        ),
+        registryResults: Object.fromEntries(
+          Object.keys(PRODUCTION_IMAGE_SPECS).map((key) => [
+            key,
+            join(root, `manual-registry-result-${key}.json`),
+          ]),
+        ),
+      }
+    : undefined;
+  if (options.manual) {
+    await writeFile(manualEvidencePaths.custody, manualEvidence.custody, {
+      mode: 0o600,
+    });
+    await writeFile(
+      manualEvidencePaths.custodyVerification,
+      manualEvidence.custodyVerification,
+      { mode: 0o600 },
+    );
+    await writeFile(
+      manualEvidencePaths.packageMetadata,
+      manualEvidence.packageMetadata,
+      { mode: 0o600 },
+    );
+    await writeFile(
+      manualEvidencePaths.registrySummary,
+      manualEvidence.registrySummary,
+      { mode: 0o600 },
+    );
+    for (const key of Object.keys(PRODUCTION_IMAGE_SPECS)) {
+      await writeFile(
+        manualEvidencePaths.images[key],
+        manualEvidence.images[key],
+        { mode: 0o600 },
+      );
+      await writeFile(
+        manualEvidencePaths.registryResults[key],
+        manualEvidence.registryResults[key],
+        { mode: 0o600 },
+      );
+    }
+  }
   let signerCalls = 0;
   const signer =
     options.signWithCustody ??
@@ -352,23 +663,89 @@ async function context(t, options = {}) {
       trustedPublisherKeys: { [KEY_ID]: publicPem },
       expectedPublisherPublicKeySha256: publicKeyPin(pair.publicKey),
       signWithCustody: signer,
+      ...(options.manual
+        ? {
+            clock:
+              options.clock ?? (() => Date.parse("2026-08-24T17:02:30.000Z")),
+          }
+        : {}),
     },
-    request: {
-      publicationReceipt,
-      publicationReceiptSha256: sha256(receiptRaw),
-      apiOciProvenance,
-      sourceSha: SOURCE_SHA,
-      completeRunId:
-        options.stage === "preflight-only" ? "31540000001" : COMPLETE_RUN_ID,
-      completeRunAttempt: COMPLETE_RUN_ATTEMPT,
-      apiImage: publication.receipt.images.api.image,
-      apiOciProvenanceSha256: publication.receipt.images.api.provenance.sha256,
-      publisherKeyId: KEY_ID,
-      vault,
-      outputDirectory,
-      confirmation: PRODUCTION_API_IMAGE_PROVENANCE_CONFIRMATION,
-    },
+    request: options.manual
+      ? {
+          publicationMode: MANUAL_PRODUCTION_IMAGE_COMPLETE_MODE,
+          manualCompleteReceipt: publicationReceipt,
+          manualCompleteReceiptSha256: sha256(receiptRaw),
+          manualCustody: manualEvidencePaths.custody,
+          manualCustodySha256: sha256(manualEvidence.custody),
+          manualCustodyVerification: manualEvidencePaths.custodyVerification,
+          manualCustodyVerificationSha256: sha256(
+            manualEvidence.custodyVerification,
+          ),
+          manualPackageMetadata: manualEvidencePaths.packageMetadata,
+          manualPackageMetadataSha256: sha256(manualEvidence.packageMetadata),
+          manualRegistrySummary: manualEvidencePaths.registrySummary,
+          manualRegistrySummarySha256: sha256(manualEvidence.registrySummary),
+          manualImageApi: manualEvidencePaths.images.api,
+          manualImageApiSha256: sha256(manualEvidence.images.api),
+          manualImageControlPlane: manualEvidencePaths.images.controlPlane,
+          manualImageControlPlaneSha256: sha256(
+            manualEvidence.images.controlPlane,
+          ),
+          manualImageHostOperator: manualEvidencePaths.images.hostOperator,
+          manualImageHostOperatorSha256: sha256(
+            manualEvidence.images.hostOperator,
+          ),
+          manualImageWeb: manualEvidencePaths.images.web,
+          manualImageWebSha256: sha256(manualEvidence.images.web),
+          manualRegistryResultApi: manualEvidencePaths.registryResults.api,
+          manualRegistryResultApiSha256: sha256(
+            manualEvidence.registryResults.api,
+          ),
+          manualRegistryResultControlPlane:
+            manualEvidencePaths.registryResults.controlPlane,
+          manualRegistryResultControlPlaneSha256: sha256(
+            manualEvidence.registryResults.controlPlane,
+          ),
+          manualRegistryResultHostOperator:
+            manualEvidencePaths.registryResults.hostOperator,
+          manualRegistryResultHostOperatorSha256: sha256(
+            manualEvidence.registryResults.hostOperator,
+          ),
+          manualRegistryResultWeb: manualEvidencePaths.registryResults.web,
+          manualRegistryResultWebSha256: sha256(
+            manualEvidence.registryResults.web,
+          ),
+          apiOciProvenance,
+          sourceSha: SOURCE_SHA,
+          apiImage: publication.receipt.images.api.image,
+          apiOciProvenanceSha256:
+            publication.receipt.images.api.provenance.sha256,
+          publisherKeyId: KEY_ID,
+          vault,
+          outputDirectory,
+          confirmation: PRODUCTION_API_IMAGE_PROVENANCE_MANUAL_CONFIRMATION,
+        }
+      : {
+          publicationReceipt,
+          publicationReceiptSha256: sha256(receiptRaw),
+          apiOciProvenance,
+          sourceSha: SOURCE_SHA,
+          completeRunId:
+            options.stage === "preflight-only"
+              ? "31540000001"
+              : COMPLETE_RUN_ID,
+          completeRunAttempt: COMPLETE_RUN_ATTEMPT,
+          apiImage: publication.receipt.images.api.image,
+          apiOciProvenanceSha256:
+            publication.receipt.images.api.provenance.sha256,
+          publisherKeyId: KEY_ID,
+          vault,
+          outputDirectory,
+          confirmation: PRODUCTION_API_IMAGE_PROVENANCE_CONFIRMATION,
+        },
     signerCalls: () => signerCalls,
+    manualEvidence,
+    manualEvidencePaths,
   };
 }
 
@@ -532,6 +909,316 @@ test("derives, custody-signs and durably publishes exact host-parser provenance"
     "evidence-output",
     "vault",
   ]);
+});
+
+test("manual-offline complete evidence produces the unchanged signed v2 provenance without invented GitHub publication identity", async (t) => {
+  const fixture = await context(t, { manual: true });
+  const result = await runProductionApiImageProvenanceProducerWithTestAuthority(
+    fixture.request,
+    fixture.authority,
+  );
+  assert.equal(fixture.signerCalls(), 1);
+  const provenanceRaw = await readFile(
+    join(
+      fixture.outputDirectory,
+      PRODUCTION_API_IMAGE_PROVENANCE_FILES.provenance,
+    ),
+    "utf8",
+  );
+  const signature = await readFile(
+    join(
+      fixture.outputDirectory,
+      PRODUCTION_API_IMAGE_PROVENANCE_FILES.signature,
+    ),
+  );
+  const productionReceiptRaw = await readFile(
+    join(
+      fixture.outputDirectory,
+      PRODUCTION_API_IMAGE_PROVENANCE_FILES.receipt,
+    ),
+    "utf8",
+  );
+  const provenance = JSON.parse(provenanceRaw);
+  assert.equal(provenance.schemaVersion, IMAGE_PROVENANCE_SCHEMA);
+  assert.equal(provenance.publicationReceiptSha256, fixture.publication.sha256);
+  assert.equal(
+    provenance.reviewedImageSetSha256,
+    fixture.publication.receipt.reviewedImageSetSha256,
+  );
+  const verified = verifyProductionApiImageProvenanceArtifactWithTestAuthority(
+    {
+      canonical: provenanceRaw,
+      signature,
+      sourceSha: SOURCE_SHA,
+      expectedApiImage: fixture.publication.receipt.images.api.image,
+    },
+    { trustedImageProvenanceKeys: fixture.authority.trustedPublisherKeys },
+  );
+  assert.equal(verified.sha256, result.provenanceSha256);
+
+  const productionReceipt = JSON.parse(productionReceiptRaw);
+  assert.equal(
+    productionReceipt.schemaVersion,
+    PRODUCTION_API_IMAGE_PROVENANCE_MANUAL_RECEIPT_SCHEMA,
+  );
+  assert.equal(
+    productionReceipt.kind,
+    PRODUCTION_API_IMAGE_PROVENANCE_MANUAL_RECEIPT_KIND,
+  );
+  assert.equal(
+    productionReceipt.publication.mode,
+    MANUAL_PRODUCTION_IMAGE_COMPLETE_MODE,
+  );
+  assert.equal(
+    productionReceipt.publication.manualCustodyReceiptSha256,
+    fixture.publication.receipt.custody.receiptSha256,
+  );
+  assert.equal(
+    productionReceipt.publication.registryPublicationSha256,
+    fixture.publication.receipt.registry.sha256,
+  );
+  assert.equal(
+    productionReceipt.rawEvidence.packageMetadataSha256,
+    fixture.request.manualPackageMetadataSha256,
+  );
+  assert.equal(
+    productionReceipt.rawEvidence.images.api,
+    fixture.request.manualImageApiSha256,
+  );
+  assert.equal(
+    productionReceipt.rawEvidence.registryResults.api,
+    fixture.request.manualRegistryResultApiSha256,
+  );
+  assert.equal(
+    productionReceipt.policy.additionalRegistryWritePerformed,
+    false,
+  );
+  assert.doesNotMatch(productionReceiptRaw, /(?:artifact|completeRun|runId)/iu);
+  assert.doesNotMatch(provenanceRaw, /(?:artifact|completeRun|runId)/iu);
+});
+
+test("manual-offline mode rejects mixed GitHub identity and binding drift before custody signing", async (t) => {
+  await t.test("invented complete run", async (nested) => {
+    const fixture = await context(nested, { manual: true });
+    await assert.rejects(
+      runProductionApiImageProvenanceProducerWithTestAuthority(
+        { ...fixture.request, completeRunId: COMPLETE_RUN_ID },
+        fixture.authority,
+      ),
+      expectProducerCode("PRODUCTION_API_PROVENANCE_REQUEST_INVALID"),
+    );
+    assert.equal(fixture.signerCalls(), 0);
+  });
+  await t.test("reviewed manual receipt digest", async (nested) => {
+    const fixture = await context(nested, { manual: true });
+    await assert.rejects(
+      runProductionApiImageProvenanceProducerWithTestAuthority(
+        {
+          ...fixture.request,
+          manualCompleteReceiptSha256: digest("wrong-manual-receipt"),
+        },
+        fixture.authority,
+      ),
+      /MANUAL_PRODUCTION_IMAGE_BINDING_INVALID/u,
+    );
+    assert.equal(fixture.signerCalls(), 0);
+  });
+  await t.test("source", async (nested) => {
+    const fixture = await context(nested, { manual: true });
+    await assert.rejects(
+      runProductionApiImageProvenanceProducerWithTestAuthority(
+        { ...fixture.request, sourceSha: "f".repeat(40) },
+        fixture.authority,
+      ),
+      /MANUAL_PRODUCTION_IMAGE_BINDING_INVALID/u,
+    );
+    assert.equal(fixture.signerCalls(), 0);
+  });
+});
+
+test("manual-offline signing derives claims from caller-pinned raw evidence", async (t) => {
+  await t.test("forged embedded nonce", async (nested) => {
+    const binding = manualPublicationBinding();
+    const forged = structuredClone(binding.publication.receipt);
+    forged.custody.publicationNonceSha256 = digest("forged-embedded-nonce");
+    const fixture = await context(nested, {
+      manual: true,
+      binding: {
+        ...binding,
+        publication: sealManualProductionImageCompleteReceipt(forged),
+      },
+    });
+    await assert.rejects(
+      runProductionApiImageProvenanceProducerWithTestAuthority(
+        fixture.request,
+        fixture.authority,
+      ),
+      /MANUAL_PRODUCTION_IMAGE_BINDING_INVALID/u,
+    );
+    assert.equal(fixture.signerCalls(), 0);
+  });
+
+  await t.test("raw result drift with freshly pinned bytes", async (nested) => {
+    const fixture = await context(nested, {
+      manual: true,
+      mutateRawEvidence(evidence) {
+        const result = JSON.parse(
+          evidence.registryResults.api.toString("utf8"),
+        );
+        result.publishedAt = "2026-08-24T17:00:01.000Z";
+        evidence.registryResults.api = Buffer.from(JSON.stringify(result));
+      },
+    });
+    await assert.rejects(
+      runProductionApiImageProvenanceProducerWithTestAuthority(
+        fixture.request,
+        fixture.authority,
+      ),
+      /MANUAL_PRODUCTION_IMAGE_BINDING_INVALID/u,
+    );
+    assert.equal(fixture.signerCalls(), 0);
+  });
+
+  await t.test("wrong caller-pinned custody hash", async (nested) => {
+    const fixture = await context(nested, { manual: true });
+    await assert.rejects(
+      runProductionApiImageProvenanceProducerWithTestAuthority(
+        {
+          ...fixture.request,
+          manualCustodySha256: digest("wrong-raw-custody"),
+        },
+        fixture.authority,
+      ),
+      expectProducerCode("PRODUCTION_API_PROVENANCE_BINDING_INVALID"),
+    );
+    assert.equal(fixture.signerCalls(), 0);
+  });
+});
+
+test("manual-offline sign-time clock is bounded, replay-stable and always fails after custody expiry", async (t) => {
+  const binding = manualPublicationBinding();
+  const first = await context(t, {
+    manual: true,
+    binding,
+    outputName: "manual-replay-first",
+  });
+  const second = await context(t, {
+    manual: true,
+    binding,
+    outputName: "manual-replay-second",
+  });
+  await runProductionApiImageProvenanceProducerWithTestAuthority(
+    first.request,
+    first.authority,
+  );
+  await runProductionApiImageProvenanceProducerWithTestAuthority(
+    second.request,
+    second.authority,
+  );
+  assert.equal(
+    await readFile(
+      join(
+        first.outputDirectory,
+        PRODUCTION_API_IMAGE_PROVENANCE_FILES.provenance,
+      ),
+      "utf8",
+    ),
+    await readFile(
+      join(
+        second.outputDirectory,
+        PRODUCTION_API_IMAGE_PROVENANCE_FILES.provenance,
+      ),
+      "utf8",
+    ),
+  );
+
+  await t.test("expired custody", async (nested) => {
+    const fixture = await context(nested, {
+      manual: true,
+      binding,
+      clock: () => Date.parse("2026-08-25T16:39:50.381Z"),
+    });
+    await assert.rejects(
+      runProductionApiImageProvenanceProducerWithTestAuthority(
+        fixture.request,
+        fixture.authority,
+      ),
+      /MANUAL_PRODUCTION_IMAGE_TIME_INVALID/u,
+    );
+    assert.equal(fixture.signerCalls(), 0);
+  });
+
+  await t.test("future evidence beyond five minutes", async (nested) => {
+    const fixture = await context(nested, {
+      manual: true,
+      binding,
+      clock: () => Date.parse("2026-08-24T16:45:00.000Z"),
+    });
+    await assert.rejects(
+      runProductionApiImageProvenanceProducerWithTestAuthority(
+        fixture.request,
+        fixture.authority,
+      ),
+      /MANUAL_PRODUCTION_IMAGE_TIME_INVALID/u,
+    );
+    assert.equal(fixture.signerCalls(), 0);
+  });
+});
+
+test("manual-offline raw inputs reject aliases, hard links and symbolic links before signing", async (t) => {
+  await t.test("request alias", async (nested) => {
+    const fixture = await context(nested, { manual: true });
+    await assert.rejects(
+      runProductionApiImageProvenanceProducerWithTestAuthority(
+        {
+          ...fixture.request,
+          manualImageApi: fixture.request.manualCustody,
+          manualImageApiSha256: fixture.request.manualCustodySha256,
+        },
+        fixture.authority,
+      ),
+      expectProducerCode("PRODUCTION_API_PROVENANCE_PATH_INVALID"),
+    );
+    assert.equal(fixture.signerCalls(), 0);
+  });
+
+  await t.test("hard-linked custody", async (nested) => {
+    const fixture = await context(nested, { manual: true });
+    const hardLink = join(fixture.root, "manual-custody-hardlink.json");
+    await link(fixture.manualEvidencePaths.custody, hardLink);
+    await assert.rejects(
+      runProductionApiImageProvenanceProducerWithTestAuthority(
+        { ...fixture.request, manualCustody: hardLink },
+        fixture.authority,
+      ),
+      expectProducerCode("PRODUCTION_API_PROVENANCE_INPUT_INVALID"),
+    );
+    assert.equal(fixture.signerCalls(), 0);
+  });
+
+  await t.test("symbolic-linked custody", async (nested) => {
+    const fixture = await context(nested, { manual: true });
+    const symbolicLink = join(fixture.root, "manual-custody-symlink.json");
+    try {
+      await symlink(fixture.manualEvidencePaths.custody, symbolicLink, "file");
+    } catch (error) {
+      if (error?.code === "EPERM") {
+        nested.diagnostic(
+          "Windows symlink privilege is unavailable; lstat rejection remains covered by the input reader.",
+        );
+        return;
+      }
+      throw error;
+    }
+    await assert.rejects(
+      runProductionApiImageProvenanceProducerWithTestAuthority(
+        { ...fixture.request, manualCustody: symbolicLink },
+        fixture.authority,
+      ),
+      expectProducerCode("PRODUCTION_API_PROVENANCE_INPUT_INVALID"),
+    );
+    assert.equal(fixture.signerCalls(), 0);
+  });
 });
 
 test("is default-dark and production entrypoint refuses authority injection", async (t) => {

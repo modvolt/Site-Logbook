@@ -44,6 +44,7 @@ const commands = [
       "scripts/test/production-role-separation-0108-contract.test.mjs",
       "scripts/test/production-migration-adapter.pg16.test.mjs",
       "scripts/test/production-coolify-observer.test.mjs",
+      "scripts/test/manual-production-image-complete-contract.test.mjs",
       "scripts/test/production-image-publication-contract.test.mjs",
     ],
   ],
