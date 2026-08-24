@@ -1215,7 +1215,7 @@ test("manual-offline raw inputs reject aliases, hard links and symbolic links be
         { ...fixture.request, manualCustody: symbolicLink },
         fixture.authority,
       ),
-      expectProducerCode("PRODUCTION_API_PROVENANCE_INPUT_INVALID"),
+      expectProducerCode("PRODUCTION_API_PROVENANCE_PATH_INVALID"),
     );
     assert.equal(fixture.signerCalls(), 0);
   });
