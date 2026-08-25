@@ -42,14 +42,16 @@ import {
 } from "../lib/operational-incident-store";
 import {
   classifyMigrationInventory,
-  productionRuntimeBindingMatches,
 } from "../lib/migration-health";
 import { resolveApiBuildVersion } from "../lib/build-provenance";
 import {
-  readProductionRuntimeBinding,
   readProductionRuntimeHealthProjection,
-  readProductionRuntimeReadinessState,
 } from "../lib/production-runtime-state";
+import {
+  projectProductionRuntimeHealth,
+  readProductionRuntimePreflightSnapshot,
+  readProductionRuntimePreflightState,
+} from "../lib/production-runtime-preflight";
 
 const WINDOW_24H = 24 * 60 * 60 * 1000;
 const DEAD_LETTER_REQUEUE_BODY_KEYS = new Set([
@@ -59,7 +61,7 @@ const DEAD_LETTER_REQUEUE_BODY_KEYS = new Set([
 ]);
 
 function productionRuntimeLatchAllowsReadiness(): boolean {
-  const state = readProductionRuntimeReadinessState();
+  const state = readProductionRuntimePreflightState();
   if (state === "failed") return false;
   return (
     process.env.SITE_LOGBOOK_RUNTIME_ENVIRONMENT !== "production" ||
@@ -192,12 +194,7 @@ async function checkMigrationParity(): Promise<{
     const runtimeEnvironment = process.env.SITE_LOGBOOK_RUNTIME_ENVIRONMENT;
     const controlParity =
       runtimeEnvironment === "production"
-        ? productionRuntimeBindingMatches(
-            readProductionRuntimeBinding(),
-            resolveApiBuildVersion(),
-            latestExpectedTag,
-            inventory,
-          ) && readProductionRuntimeReadinessState() === "ready"
+        ? readProductionRuntimePreflightState() === "ready"
         : runtimeEnvironment === "staging" ||
             process.env.NODE_ENV !== "production"
           ? null
@@ -488,6 +485,35 @@ const router: IRouter = Router();
 router.get("/healthz", async (_req, res) => {
   const apiVersion = resolveApiBuildVersion();
   const uptimeSeconds = process.uptime();
+
+  if (process.env.SITE_LOGBOOK_RUNTIME_ENVIRONMENT === "production") {
+    const dbPing = await checkDbLatency();
+    const current = readProductionRuntimePreflightSnapshot();
+    const effective =
+      dbPing.status === "error" && current
+        ? { ...current, state: "failed" as const, database: "error" as const }
+        : current;
+    const projection = projectProductionRuntimeHealth(effective);
+    const data = HealthCheckResponse.parse({
+      status: projection.status,
+      version: apiVersion,
+      uptimeSeconds,
+      dbStatus: projection.database,
+      dbLatencyMs: dbPing.latencyMs,
+      storageStatus: "ok",
+      migrationParity: projection.schema === "0108",
+    });
+    res.status(projection.httpStatus).json({
+      ...data,
+      buildSha: projection.buildSha,
+      database: projection.database,
+      schema: projection.schema,
+      runtimeRole: projection.runtimeRole,
+      activationEvidence: projection.activationEvidence,
+      backup: projection.backup,
+    });
+    return;
+  }
 
   // A runtime parity failure is a synchronous, permanent latch. Return 503
   // before doing any I/O; a fresh guarded process is the only recovery path.

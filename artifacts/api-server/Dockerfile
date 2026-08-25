@@ -9,9 +9,8 @@
 #
 # The container never applies database migrations on startup. A separately
 # approved one-shot schema control plane must first produce canonical intent,
-# execution and exact steady release evidence. The immutable production image
-# first serves a fail-closed HOLD listener without importing the application,
-# database, workers, or object-storage clients.
+# execution evidence. The immutable production image performs a read-only live
+# database/schema/runtime-role preflight before importing workers or listening.
 
 ARG BUILD_SHA
 
@@ -104,14 +103,12 @@ USER node
 
 EXPOSE 5000
 
-# A process-healthy HOLD is distinct from externally ready: /api/healthz stays
-# 503, while the loopback-only container endpoint is 200. After activation the
-# application /api/healthz becomes the successful branch.
+# The application readiness endpoint is authoritative for container health.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=5 \
-  CMD node -e "const b='http://127.0.0.1:'+(process.env.PORT||5000);fetch(b+'/api/healthz').then(async r=>r.ok||((await fetch(b+'/.well-known/site-logbook-container-health')).ok)).then(ok=>process.exit(ok?0:1)).catch(()=>process.exit(1))"
+  CMD node -e "const b='http://127.0.0.1:'+(process.env.PORT||5000);fetch(b+'/api/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-# The HOLD entrypoint reads only the preconfigured read-only evidence mount. A
-# later evidence-file appearance changes no Compose or container config bytes.
+# The production entrypoint preserves build identity and starts only after the
+# in-process live read-only preflight succeeds.
 CMD ["node", "--enable-source-maps", "/app/dist/production-api-entrypoint.mjs"]
 
 # ---------- One-shot schema control plane / staging ----------

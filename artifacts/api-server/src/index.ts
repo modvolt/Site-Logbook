@@ -5,16 +5,16 @@ import {
   requireEmbeddedProductionBuildSha,
   requiresReleaseStartupGuard,
 } from "./lib/build-provenance";
-import { verifyLiveProductionAuditReadiness } from "./lib/production-audit-readiness";
-import { verifyLiveProductionInvoice0108Readiness } from "./lib/production-invoice-0108-readiness";
-import { installProductionRuntimeBinding } from "./lib/production-runtime-state";
 import {
   PRODUCTION_RUNTIME_SHUTDOWN_DRAIN_MS,
   startProductionRuntimeFailStop,
   type ProductionRuntimeFailStopController,
 } from "./lib/production-runtime-fail-stop";
-import { runProductionActivationRuntimePreflight } from "./lib/production-startup";
-import type { ProductionReleaseSummary } from "./lib/production-startup-evidence";
+import {
+  failProductionRuntimePreflight,
+  refreshProductionRuntimePreflight,
+  runAfterProductionRuntimePreflight,
+} from "./lib/production-runtime-preflight";
 
 const CONTROL_PLANE_IMAGE_MARKER = "/app/.site-logbook-control-plane-image";
 
@@ -30,9 +30,7 @@ function requiredRuntimeEnvironment(
   return value;
 }
 
-export async function startProductionApplicationRuntime(
-  activationAuthority?: ProductionReleaseSummary,
-): Promise<void> {
+export async function startProductionApplicationRuntime(): Promise<void> {
   let productionRuntimeGuarded = false;
   // Release identity is embedded by esbuild. Runtime NODE_ENV is mutable and
   // therefore cannot disable the evidence/attestation/database startup guard.
@@ -40,43 +38,20 @@ export async function startProductionApplicationRuntime(
     const embeddedBuildSha = requireEmbeddedProductionBuildSha();
     const runtimeEnvironment = requiredRuntimeEnvironment(process.env);
     if (runtimeEnvironment === "production") {
-      if (!activationAuthority) {
-        throw new Error(
-          "PRODUCTION_RUNTIME_ACTIVATION_AUTHORITY_REQUIRED: production index startup is allowed only through the verified HOLD v3 entrypoint.",
-        );
-      }
-      const result = await runProductionActivationRuntimePreflight(
+      await runAfterProductionRuntimePreflight(
         process.env,
         embeddedBuildSha,
-        activationAuthority,
-        {
-          verifyDatabase:
-            activationAuthority.lineage.decision === "ALREADY_0108"
-              ? verifyLiveProductionInvoice0108Readiness
-              : verifyLiveProductionAuditReadiness,
+        () => {
+          productionRuntimeGuarded = true;
         },
       );
-      installProductionRuntimeBinding(
-        result.binding,
-        result.refreshLiveReadiness,
-      );
-      productionRuntimeGuarded = true;
     } else {
-      if (activationAuthority) {
-        throw new Error(
-          "PRODUCTION_RUNTIME_ACTIVATION_ENVIRONMENT_INVALID: signed activation authority is production-only.",
-        );
-      }
       if (!existsSync(CONTROL_PLANE_IMAGE_MARKER)) {
         throw new Error(
           "STAGING_CONTROL_PLANE_IMAGE_REQUIRED: staging runtime is allowed only in the explicit control-plane image target.",
         );
       }
     }
-  } else if (activationAuthority) {
-    throw new Error(
-      "PRODUCTION_RUNTIME_ACTIVATION_BUILD_INVALID: signed activation authority requires an immutable release build.",
-    );
   }
 
   // Application, listen and every background worker remain unreachable until
@@ -163,6 +138,8 @@ export async function startProductionApplicationRuntime(
       // Arm parity fail-stop before any worker can claim or mutate work.
       if (productionRuntimeGuarded) {
         runtimeFailStop = startProductionRuntimeFailStop({
+          refreshLiveReadiness: refreshProductionRuntimePreflight,
+          failReadiness: failProductionRuntimePreflight,
           onTrip: (reason) => requestShutdown(1, reason),
           onTripError: (error) =>
             logger.error({ err: error }, "Runtime fail-stop shutdown failed"),

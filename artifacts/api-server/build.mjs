@@ -246,14 +246,15 @@ globalThis.require = __hostOperatorCreateRequire(import.meta.url);`,
     !productionEntrypoint.includes('new URL("./index.mjs", import.meta.url)')
   ) {
     throw new Error(
-      "production-api-entrypoint.mjs must defer the application bundle until activation.",
+      "production-api-entrypoint.mjs must defer the application bundle until live preflight.",
     );
   }
   if (
-    !productionEntrypoint.includes("startProductionApplicationRuntime(release)")
+    !productionEntrypoint.includes("startProductionApplicationRuntime()") ||
+    productionEntrypoint.includes("startProductionActivationHold")
   ) {
     throw new Error(
-      "production-api-entrypoint.mjs must pass the verified activation authority into the deferred runtime bundle.",
+      "production-api-entrypoint.mjs must start the deferred runtime without activation HOLD authority.",
     );
   }
   const runtimeEntrypoint = await readFile(
@@ -264,10 +265,10 @@ globalThis.require = __hostOperatorCreateRequire(import.meta.url);`,
     !runtimeEntrypoint.includes(
       "async function startProductionApplicationRuntime",
     ) ||
-    !runtimeEntrypoint.includes("runProductionActivationRuntimePreflight")
+    !runtimeEntrypoint.includes("runAfterProductionRuntimePreflight")
   ) {
     throw new Error(
-      "index.mjs must verify and install the passed activation authority inside its own bundle graph.",
+      "index.mjs must complete the live read-only runtime preflight inside its own bundle graph.",
     );
   }
 
