@@ -1,5 +1,4 @@
-      PRODUCTION_API_IMAGE: ${PRODUCTION_API_IMAGE:?set immutable API repository@sha256 digest}
-      # Stavba — production runtime (PostgreSQL + API + Web).
+# Stavba — production runtime (PostgreSQL + API + Web).
 #
 # This manifest has no build path or mutable image fallback. Render it only with
 # separately approved immutable images and canonical production evidence. On
@@ -33,6 +32,7 @@ services:
       postgres:
         condition: service_healthy
     environment:
+      PRODUCTION_API_IMAGE: ${PRODUCTION_API_IMAGE:?set immutable API repository@sha256 digest}
       PORT: 5000
       SITE_LOGBOOK_RUNTIME_ENVIRONMENT: production
       BUILD_SHA: ${BUILD_SHA:?set the exact 40-character release commit SHA}
