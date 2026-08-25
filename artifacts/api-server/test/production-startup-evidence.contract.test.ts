@@ -48,6 +48,9 @@ describe("production steady-0107 startup boundary", () => {
     ]) {
       expect(compose).toContain(`image: \${${key}:?`);
     }
+    expect(compose).toContain(
+      "PRODUCTION_API_IMAGE: ${PRODUCTION_API_IMAGE:?set immutable API repository@sha256 digest}",
+    );
     expect(compose).not.toContain("postgres:16-alpine");
     expect(compose).not.toContain("minio/minio:latest");
     expect(compose).not.toContain("minio/mc:latest");
