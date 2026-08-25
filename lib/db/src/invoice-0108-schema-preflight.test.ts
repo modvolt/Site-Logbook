@@ -6,12 +6,32 @@ import {
   INVOICE_0108_KNOWN_ROWS_SHA256,
   INVOICE_0108_MIGRATION,
   INVOICE_0108_SNAPSHOT,
+  classifyObservedInvoice0108DefaultKind,
   loadAndValidateInvoice0108MigrationBundle,
   validateInvoice0108SchemaObservation,
   type Invoice0108SchemaObservation,
 } from "./invoice-0108-schema-preflight.js";
 
 const migrationsDir = path.resolve(import.meta.dirname, "../migrations");
+
+test("classifies PostgreSQL numeric defaults as pinned literals", () => {
+  assert.equal(
+    classifyObservedInvoice0108DefaultKind(
+      "billing_settings",
+      "advance_number_next_seq",
+      "1",
+    ),
+    "literal:1",
+  );
+  assert.equal(
+    classifyObservedInvoice0108DefaultKind(
+      "billing_settings",
+      "advance_number_next_seq",
+      "next_invoice_number()",
+    ),
+    "unsupported:next_invoice_number()",
+  );
+});
 
 function exactObservation(): Invoice0108SchemaObservation {
   const bundle = loadAndValidateInvoice0108MigrationBundle(migrationsDir);
