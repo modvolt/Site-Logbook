@@ -29,6 +29,8 @@ export const PRODUCTION_ACTIVATION_0108_APPROVAL_CONFIRMATION =
   "AUTHORIZE_EXACT_SITE_LOGBOOK_PRODUCTION_INVOICE_0108_ACTIVATION_V3" as const;
 export const PRODUCTION_ACTIVATION_0108_CONTRACT_TEST_CONFIRMATION =
   "USE_PRODUCTION_ACTIVATION_0108_PREDECESSOR_TEST_VERIFIER_ONLY" as const;
+export const PRODUCTION_INVOICE_0108_MIGRATION_EXECUTION_SOURCE_SHA =
+  "c0c848509cff3c109a6efeba54a5204f471f5ee4" as const;
 
 const SOURCE_SHA = /^[0-9a-f]{40}$/;
 const SHA256 = /^sha256:[0-9a-f]{64}$/;
@@ -415,8 +417,16 @@ async function verifyProductionActivationContractV3Core(
   const approval = parseProductionActivation0108Approval(approvalCanonical);
 
   for (const [field, actual, expected] of [
-    ["backup.sourceSha", backup.value.sourceSha, activation.sourceSha],
-    ["plan.sourceSha", plan.value.sourceSha, activation.sourceSha],
+    [
+      "backup.sourceSha",
+      backup.value.sourceSha,
+      PRODUCTION_INVOICE_0108_MIGRATION_EXECUTION_SOURCE_SHA,
+    ],
+    [
+      "plan.sourceSha",
+      plan.value.sourceSha,
+      PRODUCTION_INVOICE_0108_MIGRATION_EXECUTION_SOURCE_SHA,
+    ],
     ["approval.sourceSha", approval.sourceSha, activation.sourceSha],
     ["approval.apiImage", approval.apiImage, activation.apiImage],
     ["approval.nonce", approval.nonce, activation.nonce],

@@ -10,6 +10,7 @@ import {
   PRODUCTION_ACTIVATION_0108_APPROVAL_SCHEMA,
   PRODUCTION_ACTIVATION_0108_CONTRACT_TEST_CONFIRMATION,
   PRODUCTION_ACTIVATION_0108_READINESS_SCHEMA,
+  PRODUCTION_INVOICE_0108_MIGRATION_EXECUTION_SOURCE_SHA,
   createProductionActivation0108ContractTestVerifier,
 } from "../../artifacts/api-server/src/lib/production-activation-0108-contract.ts";
 import { canonicalProductionActivationJson } from "../../artifacts/api-server/src/lib/production-activation-hold.ts";
@@ -61,14 +62,16 @@ function inventory(state) {
   };
 }
 
-function fixture() {
+function fixture({
+  migrationSourceSha = PRODUCTION_INVOICE_0108_MIGRATION_EXECUTION_SOURCE_SHA,
+} = {}) {
   const backup = createProductionMigrationArtifact({
     schemaVersion:
       "site-logbook.production-exact-0107-backup-restore-reference/v1",
     kind: "site-logbook-production-exact-0107-backup-restore-reference",
     receiptStorageId: "fixture-exact-0107-backup.json",
     receiptSha256: `sha256:${"1".repeat(64)}`,
-    sourceSha,
+    sourceSha: migrationSourceSha,
     sourceInventorySha256:
       PRODUCTION_INVOICE_0108_PRE_STATE.knownAppliedRowsSha256,
     backupCompletedAt: "2026-08-23T09:00:00.000Z",
@@ -78,7 +81,7 @@ function fixture() {
     authorizesProductionMigration: false,
   });
   const plan = createProductionInvoice0108Plan({
-    sourceSha,
+    sourceSha: migrationSourceSha,
     backupRestoreReferenceCanonical: backup.canonical,
     createdAt: "2026-08-23T09:10:00.000Z",
   });
@@ -398,6 +401,17 @@ test("v3 semantic contract rejects a receipt/readiness cross-binding mismatch", 
   );
   await assert.rejects(
     verify(tampered, async () => predecessorSummary),
+    /PRODUCTION_ACTIVATION_0108_BINDING_INVALID/u,
+  );
+});
+
+test("v3 semantic contract rejects a different internally consistent migration execution source", async () => {
+  const { bundle } = fixture({ migrationSourceSha: "f".repeat(40) });
+  const verify = createProductionActivation0108ContractTestVerifier(
+    PRODUCTION_ACTIVATION_0108_CONTRACT_TEST_CONFIRMATION,
+  );
+  await assert.rejects(
+    verify(bundle, async () => predecessorSummary),
     /PRODUCTION_ACTIVATION_0108_BINDING_INVALID/u,
   );
 });

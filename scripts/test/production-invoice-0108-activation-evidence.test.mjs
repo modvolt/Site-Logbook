@@ -6,6 +6,7 @@ import test from "node:test";
 
 import {
   PRODUCTION_ACTIVATION_0108_APPROVAL_CONFIRMATION,
+  PRODUCTION_INVOICE_0108_MIGRATION_EXECUTION_SOURCE_SHA,
   parseProductionActivation0108Approval,
   parseProductionActivation0108Readiness,
 } from "../../artifacts/api-server/src/lib/production-activation-0108-contract.ts";
@@ -89,7 +90,7 @@ async function fixture() {
     kind: "site-logbook-production-exact-0107-backup-restore-reference",
     receiptStorageId: "exact-0107/receipt.json",
     receiptSha256: `sha256:${"4".repeat(64)}`,
-    sourceSha: SOURCE_SHA,
+    sourceSha: PRODUCTION_INVOICE_0108_MIGRATION_EXECUTION_SOURCE_SHA,
     sourceInventorySha256:
       PRODUCTION_INVOICE_0108_PRE_STATE.knownAppliedRowsSha256,
     backupCompletedAt: "2026-08-23T09:00:00.000Z",
@@ -99,7 +100,7 @@ async function fixture() {
     authorizesProductionMigration: false,
   });
   const plan = createProductionInvoice0108Plan({
-    sourceSha: SOURCE_SHA,
+    sourceSha: PRODUCTION_INVOICE_0108_MIGRATION_EXECUTION_SOURCE_SHA,
     backupRestoreReferenceCanonical: backup.canonical,
     createdAt: "2026-08-23T09:10:00.000Z",
   });
