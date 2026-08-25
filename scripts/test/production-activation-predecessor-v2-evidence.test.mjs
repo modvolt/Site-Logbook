@@ -708,7 +708,7 @@ test("the durable output is accepted as predecessorEvidence by the existing 0108
   }
 });
 
-test("production wiring is fixed to the direct v2 runtime verifier", async () => {
+test("production wiring is fixed to the exact 0108 predecessor verifier", async () => {
   const source = await readFile(
     new URL(
       "../production-evidence/run-production-activation-predecessor-v2-evidence.mjs",
@@ -716,10 +716,14 @@ test("production wiring is fixed to the direct v2 runtime verifier", async () =>
     ),
     "utf8",
   );
-  assert.match(source, /verifyProductionActivationContractV2/);
   assert.match(
     source,
-    /verifyContract:\s*verifyProductionActivationContractV2/,
+    /verifyProductionInvoice0108PredecessorActivationContractV2/,
   );
+  assert.match(
+    source,
+    /verifyContract:\s*verifyProductionInvoice0108PredecessorActivationContractV2/,
+  );
+  assert.doesNotMatch(source, /verifyContract:\s*verifyProductionActivationContractV2/);
   assert.match(source, /process\.env\.NODE_ENV !== "test"/);
 });

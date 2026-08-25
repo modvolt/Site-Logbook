@@ -10,7 +10,7 @@ import {
   PRODUCTION_ACTIVATION_APPROVAL_CONFIRMATION,
   PRODUCTION_ACTIVATION_APPROVAL_SCHEMA,
   parseProductionActivationApprovalV2,
-  verifyProductionActivationContractV2,
+  verifyProductionInvoice0108PredecessorActivationContractV2,
 } from "../../artifacts/api-server/src/lib/production-activation-contract.ts";
 import { canonicalProductionActivationJson } from "../../artifacts/api-server/src/lib/production-activation-hold.ts";
 import {
@@ -905,7 +905,7 @@ async function executeCore(argv, dependencies) {
 
 const DIRECT_DEPENDENCIES = Object.freeze({
   now: Date.now,
-  verifyContract: verifyProductionActivationContractV2,
+  verifyContract: verifyProductionInvoice0108PredecessorActivationContractV2,
   verifyObservations: verifyProductionObservationExports,
   verifyProvenance: verifyProductionApiImageProvenanceArtifact,
 });
