@@ -108,7 +108,12 @@ function evidence() {
     },
     runtimeDatabaseCredentialCutover: {
       request: simple("runtime-credential-request"),
-      passReceipt: simple("runtime-credential-pass-receipt"),
+      passReceipt: simple("runtime-credential-pass-receipt", {
+        verification: {
+          freshSecretGeneratedByControlPlane: true,
+          secretBytesAbsentFromEvidenceAndLogs: true,
+        },
+      }),
     },
     finalObservations: {
       coolify: artifact("coolify-observation", {

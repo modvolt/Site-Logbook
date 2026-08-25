@@ -43,7 +43,9 @@ const FORBIDDEN_KEY =
 const PUBLIC_IDENTITY_OR_POLICY_KEYS = new Set([
   "adminSessionUser",
   "activeApplicationSessions",
+  "freshSecretGeneratedByControlPlane",
   "sessionUser",
+  "secretBytesAbsentFromEvidenceAndLogs",
   "snapshotTokenSha256",
   "public.user_sessions",
   "public.work_session_billing_links",

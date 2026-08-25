@@ -49,7 +49,7 @@ export { PRODUCTION_MIGRATION_ADVISORY_LOCK_KEY };
 const SOURCE_SHA = /^[0-9a-f]{40}$/;
 const SHA256 = /^sha256:[0-9a-f]{64}$/;
 const IMMUTABLE_IMAGE =
-  /^[a-z0-9.-]+(?::[0-9]+)?\/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$/;
+  /^[a-z0-9][a-z0-9._:-]*(?:\/[a-z0-9][a-z0-9._-]*)*@sha256:[0-9a-f]{64}$/;
 const CONTROL_PLANE_IMAGE =
   /^ghcr\.io\/modvolt\/site-logbook-control-plane@sha256:[0-9a-f]{64}$/;
 const SCRAM_VERIFIER =

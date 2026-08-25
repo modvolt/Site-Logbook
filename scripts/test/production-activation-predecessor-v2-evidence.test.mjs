@@ -161,7 +161,12 @@ async function fixture() {
     transitionPass,
   };
   const credential = {
-    passReceipt: simple("runtime-credential-pass-receipt"),
+    passReceipt: simple("runtime-credential-pass-receipt", {
+      verification: {
+        freshSecretGeneratedByControlPlane: true,
+        secretBytesAbsentFromEvidenceAndLogs: true,
+      },
+    }),
     request: simple("runtime-credential-request"),
   };
   const files = {

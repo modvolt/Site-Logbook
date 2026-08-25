@@ -869,6 +869,23 @@ describe("production runtime database credential PASS receipt parser", () => {
     });
   });
 
+  it("accepts the immutable Compose-local live image identity signed by the historical backup contract", async () => {
+    const state = fixture();
+    const produced = await applyProductionRuntimeDbCredentialCutover(
+      state.input,
+    );
+    const input = receiptParserInput(state, produced.receiptCanonical);
+    input.expected.liveSourceImage =
+      `ef09696arga7h9ox6ojgv7ru_api@sha256:${"d".repeat(64)}`;
+
+    expect(
+      parseAndVerifyProductionRuntimeDbCredentialReceipt(input),
+    ).toMatchObject({
+      decision: "PASS",
+      receiptSha256: produced.receiptSha256,
+    });
+  });
+
   it.each([
     [
       "commit",
