@@ -375,7 +375,7 @@ export function loadAndValidateInvoice0108MigrationBundle(
   });
 }
 
-function observedDefaultKind(
+export function classifyObservedInvoice0108DefaultKind(
   table: string,
   column: string,
   expression: unknown,
@@ -391,6 +391,9 @@ function observedDefaultKind(
   }
   if (value === "false") return "false";
   if (value === "now()") return "now";
+  if (/^-?(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value)) {
+    return `literal:${value}`;
+  }
   const literal = /^'([^']*)'(?:::[a-z ]+)?$/.exec(value)?.[1];
   return literal === undefined ? `unsupported:${value}` : `literal:${literal}`;
 }
@@ -430,7 +433,7 @@ async function readInvoice0108SchemaObservation(
       column: row.column_name,
       dataType: row.data_type.replace(/,\s+/g, ","),
       notNull: row.not_null,
-      defaultKind: observedDefaultKind(
+      defaultKind: classifyObservedInvoice0108DefaultKind(
         row.table_name,
         row.column_name,
         row.default_expression,
