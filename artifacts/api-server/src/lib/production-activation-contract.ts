@@ -51,6 +51,8 @@ export const PRODUCTION_ACTIVATION_APPROVAL_CONFIRMATION =
   "AUTHORIZE_EXACT_SITE_LOGBOOK_PRODUCTION_ACTIVATION_V2" as const;
 export const PRODUCTION_ACTIVATION_CONTRACT_TEST_CONFIRMATION =
   "USE_PRODUCTION_ACTIVATION_CONTRACT_TEST_ADAPTERS_ONLY" as const;
+export const PRODUCTION_INVOICE_0108_CREDENTIAL_EXECUTION_SOURCE_SHA =
+  "6d4d1e73f047974856907e712cf44cdf7ea0236a" as const;
 
 const SOURCE_SHA = /^[0-9a-f]{40}$/;
 const RAW_SHA256 = /^[0-9a-f]{64}$/;
@@ -555,8 +557,17 @@ function detachedSignature(backup: Record<string, unknown>): string {
 async function verifyProductionActivationContractV2Core(
   bundle: ProductionActivationBundleV2,
   adapters: ProductionActivationContractAdapters,
+  credentialExecutorSourceSha?: string,
 ): Promise<ProductionReleaseSummary> {
   const activation = record(bundle.activation, "activation");
+  const expectedCredentialExecutorSourceSha =
+    credentialExecutorSourceSha ?? String(activation.sourceSha);
+  if (!SOURCE_SHA.test(expectedCredentialExecutorSourceSha)) {
+    fail(
+      "PRODUCTION_ACTIVATION_CREDENTIAL_EXECUTOR_SOURCE_INVALID",
+      "the pinned runtime credential executor source is invalid.",
+    );
+  }
   const evidence = record(activation.evidence, "activation.evidence");
   const backup = record(
     evidence.exact0096Backup,
@@ -835,7 +846,7 @@ async function verifyProductionActivationContractV2Core(
     receiptCanonical: credentialReceiptCanonical,
     expected: Object.freeze({
       sourceSha: String(backupLiveSource.sha),
-      executorSourceSha: String(activation.sourceSha),
+      executorSourceSha: expectedCredentialExecutorSourceSha,
       liveSourceImage: String(backupLiveSource.imageRef),
       databaseName: String(migrationDatabase.name),
       migrationPlanSha256: migrationPlanArtifact.sha256,
@@ -885,7 +896,7 @@ async function verifyProductionActivationContractV2Core(
   );
   exactEqual(
     credentialVerdict.request.executorSourceSha,
-    activation.sourceSha,
+    expectedCredentialExecutorSourceSha,
     "credential.request.executorSourceSha",
   );
   exactEqual(
@@ -1223,10 +1234,28 @@ export async function verifyProductionActivationContractV2(
   return verifyProductionActivationContractV2Core(bundle, DIRECT_ADAPTERS);
 }
 
+/** Exact 0108 handoff: reuses the already completed, source-pinned credential rotation. */
+export async function verifyProductionInvoice0108PredecessorActivationContractV2(
+  bundle: ProductionActivationBundleV2,
+): Promise<ProductionReleaseSummary> {
+  if (arguments.length !== 1) {
+    fail(
+      "PRODUCTION_ACTIVATION_VERIFIER_INPUT_INVALID",
+      "production semantic verification accepts the signed bundle only.",
+    );
+  }
+  return verifyProductionActivationContractV2Core(
+    bundle,
+    DIRECT_ADAPTERS,
+    PRODUCTION_INVOICE_0108_CREDENTIAL_EXECUTION_SOURCE_SHA,
+  );
+}
+
 export interface ProductionActivationContractTestVerifier {
   (
     bundle: ProductionActivationBundleV2,
     adapters: ProductionActivationContractAdapters,
+    credentialExecutorSourceSha?: string,
   ): Promise<ProductionReleaseSummary>;
 }
 

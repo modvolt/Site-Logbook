@@ -61,6 +61,7 @@ const RESOLVED = "5".repeat(64);
 const CONTAINER = "a".repeat(64);
 const NONCE = "b".repeat(64);
 const EXECUTOR_SHA = "6".repeat(40);
+const DURABLE_CREDENTIAL_EXECUTOR_SHA = "9".repeat(40);
 const LIVE_SOURCE_IMAGE = `ghcr.io/modvolt/site-logbook-api@sha256:${"7".repeat(64)}`;
 const EXECUTOR_IMAGE = `ghcr.io/modvolt/site-logbook-control-plane@sha256:${"8".repeat(64)}`;
 const MIGRATION_PLAN_SHA256 = `sha256:${"9".repeat(64)}`;
@@ -138,12 +139,12 @@ function imageProvenance(
   };
 }
 
-function credentialEvidence() {
+function credentialEvidence(executorSourceSha = EXECUTOR_SHA) {
   const request = {
     schemaVersion: PRODUCTION_RUNTIME_DB_CREDENTIAL_REQUEST_SCHEMA,
     kind: "site-logbook-production-runtime-db-credential-cutover-request",
     liveSourceSha: SOURCE_SHA,
-    executorSourceSha: EXECUTOR_SHA,
+    executorSourceSha,
     executorImage: EXECUTOR_IMAGE,
     databaseName: "site_logbook",
     runtimeRole: "site_logbook_runtime",
@@ -163,7 +164,7 @@ function credentialEvidence() {
     decision: "PASS",
     sourceBinding: {
       liveSourceSha: SOURCE_SHA,
-      executorSourceSha: EXECUTOR_SHA,
+      executorSourceSha,
       executorImage: EXECUTOR_IMAGE,
     },
     requestSha256: productionRuntimeDbCredentialSha256(requestCanonical),
@@ -282,6 +283,7 @@ function credentialRotationEvidence() {
 function evidence(
   containerId: string,
   apiImageProvenance: ReturnType<typeof imageProvenance>,
+  credentialExecutorSourceSha = EXECUTOR_SHA,
 ) {
   const receipts = Array.from({ length: 10 }, (_, index) =>
     artifact(`migration-receipt-${index + 1}`, {
@@ -289,7 +291,7 @@ function evidence(
       result: "PASS",
     }),
   );
-  const credentials = credentialEvidence();
+  const credentials = credentialEvidence(credentialExecutorSourceSha);
   const finalObservations = {
     coolify: artifact("final-coolify-observation", { result: "PASS" }),
     docker: artifact("final-docker-observation", { result: "PASS" }),
@@ -448,6 +450,7 @@ function signedBundle(
   hostPublicKeySha256: string,
   binding: ProductionActivationExpectedBinding = expected(),
   overrides: Readonly<Record<string, JsonValue>> = {},
+  credentialExecutorSourceSha = EXECUTOR_SHA,
 ) {
   const activationEvidence = evidence(
     binding.containerId,
@@ -456,6 +459,7 @@ function signedBundle(
       publisherPublicKeySha256,
       binding.sourceSha,
     ),
+    credentialExecutorSourceSha,
   );
   const hostAttestation = {
     activationEvidenceSha256: digest(
@@ -523,6 +527,7 @@ function signedFixtureBundle(
   files: Awaited<ReturnType<typeof fixture>>,
   binding: ProductionActivationExpectedBinding = expected(),
   overrides: Readonly<Record<string, JsonValue>> = {},
+  credentialExecutorSourceSha = EXECUTOR_SHA,
 ) {
   return signedBundle(
     files.publisherPrivateKey,
@@ -531,6 +536,7 @@ function signedFixtureBundle(
     files.hostPublicKeySha256,
     binding,
     overrides,
+    credentialExecutorSourceSha,
   );
 }
 
@@ -1185,6 +1191,7 @@ describe("production activation HOLD lifecycle", () => {
         excludedMigration0100Present: false,
       },
     });
+
     expect(
       productionRuntimeBindingMatches(
         createProductionRuntimeBinding(release),
@@ -1210,6 +1217,25 @@ describe("production activation HOLD lifecycle", () => {
       "credential-receipt",
       "final-observations",
     ]);
+
+    const durableCredentialBundle = signedFixtureBundle(
+      files,
+      expected(),
+      {},
+      DURABLE_CREDENTIAL_EXECUTOR_SHA,
+    );
+    await expect(
+      verifyWithAdapters(durableCredentialBundle, adapters),
+    ).rejects.toThrow(
+      /PRODUCTION_RUNTIME_DB_CREDENTIAL_RECEIPT_BINDING_INVALID/,
+    );
+    await expect(
+      verifyWithAdapters(
+        durableCredentialBundle,
+        adapters,
+        DURABLE_CREDENTIAL_EXECUTOR_SHA,
+      ),
+    ).resolves.toMatchObject({ sourceSha: EXECUTOR_SHA });
 
     const rotationBundle = structuredClone(bundle);
     const rotationCredential = credentialRotationEvidence();
@@ -1437,6 +1463,10 @@ describe("production activation deployment contract", () => {
       path.join(apiRoot, "src/lib/production-activation-contract.ts"),
       "utf8",
     );
+    const contract0108 = await readFile(
+      path.join(apiRoot, "src/lib/production-activation-0108-contract.ts"),
+      "utf8",
+    );
     expect(entrypoint).not.toMatch(/from ["']\.\/app["']/);
     expect(entrypoint).not.toMatch(/from ["']\.\/index["']/);
     expect(entrypoint).toContain('new URL("./index.mjs", import.meta.url)');
@@ -1478,6 +1508,12 @@ describe("production activation deployment contract", () => {
     );
     expect(contract).not.toContain("credentialReceiptParser: undefined");
     expect(contract).not.toContain("@workspace/db");
+    expect(contract0108).toContain(
+      "verifyProductionInvoice0108PredecessorActivationContractV2",
+    );
+    expect(contract0108).not.toMatch(
+      /verifyProductionActivationContractV3Core\(\s*bundle,\s*verifyProductionActivationContractV2\s*,?\s*\)/,
+    );
   });
 
   it("uses a fixed read-only host directory and removes evidence B64 env transport", async () => {

@@ -18,7 +18,7 @@ import {
   type JsonValue,
   type ProductionActivationBundleV3,
 } from "./production-activation-hold";
-import { verifyProductionActivationContractV2 } from "./production-activation-contract";
+import { verifyProductionInvoice0108PredecessorActivationContractV2 } from "./production-activation-contract";
 import type { ProductionReleaseSummary } from "./production-startup-evidence";
 
 export const PRODUCTION_ACTIVATION_0108_READINESS_SCHEMA =
@@ -542,7 +542,7 @@ export async function verifyProductionActivationContractV3(
   }
   return verifyProductionActivationContractV3Core(
     bundle,
-    verifyProductionActivationContractV2,
+    verifyProductionInvoice0108PredecessorActivationContractV2,
   );
 }
 
