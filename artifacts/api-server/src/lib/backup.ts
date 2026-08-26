@@ -31,6 +31,10 @@ import {
   BACKUP_ACTIVE_KEY_ENV,
   BACKUP_KEYRING_ENV,
 } from "./secret-envelope";
+import {
+  redactBackupDatabaseUrl,
+  resolveBackupDatabaseUrl,
+} from "./backup-database-url";
 
 const objectStorage = new ObjectStorageService();
 
@@ -270,8 +274,10 @@ export async function runPgDump(
       }
       if (terminationError) finish(terminationError);
       else if (code === 0) finish();
-      else
-        finish(new Error(`pg_dump exited with code ${code}: ${stderr.trim()}`));
+      else {
+        const message = `pg_dump exited with code ${code}: ${stderr.trim()}`;
+        finish(new Error(redactBackupDatabaseUrl(message, databaseUrl)));
+      }
     });
   });
 }
@@ -690,7 +696,8 @@ type CreateBackupOptions = {
 
 interface ReservedBackupAttempt {
   row: BackupLog;
-  databaseUrl: string;
+  runtimeDatabaseUrl: string;
+  backupDatabaseUrl: string;
   filename: string;
   objectPath: string;
   trigger: "manual" | "auto";
@@ -939,8 +946,9 @@ async function reconcileAbandonedRunningBackups(): Promise<
 async function reserveBackupAttempt(
   opts: CreateBackupOptions,
 ): Promise<ReservedBackupAttempt> {
-  const databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl) throw new Error("DATABASE_URL not set");
+  const runtimeDatabaseUrl = process.env.DATABASE_URL;
+  if (!runtimeDatabaseUrl) throw new Error("DATABASE_URL not set");
+  const backupDatabaseUrl = resolveBackupDatabaseUrl();
   if (!backupsEnabled()) {
     throw new Error(
       "Object storage is not configured; cannot store backups. Configure the S3_* variables.",
@@ -973,7 +981,8 @@ async function reserveBackupAttempt(
 
   return {
     row,
-    databaseUrl,
+    runtimeDatabaseUrl,
+    backupDatabaseUrl,
     filename,
     objectPath,
     trigger: opts.trigger,
@@ -991,7 +1000,8 @@ async function executeReservedBackup(
 ): Promise<CreatedBackupLog> {
   const {
     row,
-    databaseUrl,
+    runtimeDatabaseUrl,
+    backupDatabaseUrl,
     filename,
     objectPath,
     trigger,
@@ -1027,9 +1037,9 @@ async function executeReservedBackup(
     let dump: Buffer;
     if (captureSourceSnapshotTableCounts) {
       const captured = await withExportedBackupSnapshot(
-        databaseUrl,
+        backupDatabaseUrl,
         (snapshotId) =>
-          runPgDump(databaseUrl, maxPayloadBytes, snapshotId, {
+          runPgDump(backupDatabaseUrl, maxPayloadBytes, snapshotId, {
             signal: abortController.signal,
           }),
         {
@@ -1040,7 +1050,7 @@ async function executeReservedBackup(
       dump = captured.value;
       sourceSnapshotEvidence = captured.evidence;
     } else {
-      dump = await runPgDump(databaseUrl, maxPayloadBytes, undefined, {
+      dump = await runPgDump(backupDatabaseUrl, maxPayloadBytes, undefined, {
         signal: abortController.signal,
       });
     }
@@ -1084,7 +1094,7 @@ async function executeReservedBackup(
       };
       const successPersisted = await raceBackupRestoreOperation(
         persistBackupCreationSuccess({
-          databaseUrl,
+          databaseUrl: runtimeDatabaseUrl,
           backupId: row.id,
           objectPath,
           sizeBytes: storedSize,
@@ -1138,7 +1148,7 @@ async function executeReservedBackup(
     try {
       resolution = await boundedBackupCleanup(
         resolveBackupCreationFailure({
-          databaseUrl,
+          databaseUrl: runtimeDatabaseUrl,
           backupId: row.id,
           error: message,
           successMetadata,
@@ -2270,7 +2280,7 @@ async function reserveAutoBackupIfDue(
       try {
         if (signal?.aborted) {
           await resolveBackupCreationFailure({
-            databaseUrl: attempt.databaseUrl,
+            databaseUrl: attempt.runtimeDatabaseUrl,
             backupId: attempt.row.id,
             error:
               "Automatic backup cancelled before execution because the scheduler stopped.",
