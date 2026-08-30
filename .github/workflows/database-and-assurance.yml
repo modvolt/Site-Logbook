@@ -1,0 +1,300 @@
+name: Database and assurance
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/database-and-assurance.yml
+      - lib/db/**
+      - scripts/production-evidence/production-migration-*
+      - scripts/production-evidence/run-production-migration.mjs
+      - scripts/test/production-migration-*
+      - scripts/test/production-role-*
+      - scripts/test/database-assurance-backup-role.pg16.test.ts
+      - artifacts/api-server/src/lib/backup*.ts
+      - artifacts/api-server/test/backup*.test.ts
+      - docker-compose.yml
+      - .env.example
+      - package.json
+      - pnpm-lock.yaml
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: Assurance profile
+        type: choice
+        required: true
+        default: database
+        options:
+          - database
+          - full
+  schedule:
+    - cron: "17 1 * * 0"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || 'full' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  database-assurance:
+    if: >-
+      github.event_name == 'pull_request' ||
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' &&
+        (inputs.profile == 'database' || inputs.profile == 'full'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      MIGRATION_RUNNER_PG16_CONTAINER: database-assurance-migration-${{ github.run_id }}-${{ github.run_attempt }}
+      ROLE_BACKUP_PG16_CONTAINER: database-assurance-role-backup-${{ github.run_id }}-${{ github.run_attempt }}
+      DATABASE_ASSURANCE_DUMP: /tmp/database-assurance-${{ github.run_id }}-${{ github.run_attempt }}.dump
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 11.9.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Frozen install
+        run: pnpm install --frozen-lockfile
+
+      - name: Start disposable migration runner PostgreSQL 16 fixture
+        run: >-
+          docker run --rm -d --name "$MIGRATION_RUNNER_PG16_CONTAINER"
+          --cpus 1 --memory 512m --pids-limit 256
+          --tmpfs /var/lib/postgresql/data:rw,nosuid,nodev,size=512m
+          -p 127.0.0.1:61493:5432
+          -e POSTGRES_DB=admin
+          -e POSTGRES_USER=admin
+          -e POSTGRES_PASSWORD=migration-runner-assurance-ci-only
+          -e POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256
+          -e POSTGRES_HOST_AUTH_METHOD=scram-sha-256
+          postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
+
+      - name: Wait for disposable migration runner fixture
+        run: |
+          for _ in $(seq 1 30); do
+            if docker exec "$MIGRATION_RUNNER_PG16_CONTAINER" pg_isready -U admin -d admin; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs "$MIGRATION_RUNNER_PG16_CONTAINER"
+          exit 1
+
+      - name: Production migration runner PostgreSQL 16 gate
+        run: pnpm test:production-migration-runner:pg16
+        env:
+          PRODUCTION_MIGRATION_RUNNER_PG16_URL: postgresql://admin:migration-runner-assurance-ci-only@127.0.0.1:61493/admin
+
+      - name: Remove disposable migration runner fixture
+        if: always()
+        run: |
+          if docker ps -a --filter "name=^/${MIGRATION_RUNNER_PG16_CONTAINER}$" --format '{{.Names}}' | grep -Fxq "$MIGRATION_RUNNER_PG16_CONTAINER"; then
+            docker rm --force "$MIGRATION_RUNNER_PG16_CONTAINER"
+          fi
+          test -z "$(docker ps -a --filter "name=^/${MIGRATION_RUNNER_PG16_CONTAINER}$" --format '{{.Names}}')"
+
+      - name: Start disposable role and backup PostgreSQL 16 fixture
+        run: >-
+          docker run --rm -d --name "$ROLE_BACKUP_PG16_CONTAINER"
+          --cpus 1 --memory 512m --pids-limit 256
+          --tmpfs /var/lib/postgresql/data:rw,nosuid,nodev,size=512m
+          -p 127.0.0.1:61494:5432
+          -e POSTGRES_DB=admin
+          -e POSTGRES_USER=admin
+          -e POSTGRES_PASSWORD=role-backup-assurance-ci-only
+          -e POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256
+          -e POSTGRES_HOST_AUTH_METHOD=scram-sha-256
+          postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
+
+      - name: Wait for disposable role and backup fixture
+        run: |
+          for _ in $(seq 1 30); do
+            if docker exec "$ROLE_BACKUP_PG16_CONTAINER" pg_isready -U admin -d admin; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs "$ROLE_BACKUP_PG16_CONTAINER"
+          exit 1
+
+      - name: Production role bootstrap PostgreSQL 16 gate
+        run: pnpm test:production-migration-role-bootstrap:pg16
+        env:
+          PRODUCTION_ROLE_BOOTSTRAP_PG16_DISPOSABLE_CONFIRM: I_CONFIRM_THIS_IS_A_DISPOSABLE_LOCAL_PG16_ROLE_BOOTSTRAP_FIXTURE
+          PRODUCTION_ROLE_BOOTSTRAP_PG16_URL: postgresql://admin:role-backup-assurance-ci-only@127.0.0.1:61494/admin
+
+      - name: Database assurance backup role PostgreSQL 16 gate
+        run: >-
+          node --import ./lib/db/node_modules/tsx/dist/loader.mjs --test
+          scripts/test/database-assurance-backup-role.pg16.test.ts
+        env:
+          DATABASE_ASSURANCE_BACKUP_PG16_DISPOSABLE_CONFIRM: I_CONFIRM_THIS_IS_A_DISPOSABLE_LOCAL_PG16_BACKUP_ROLE_FIXTURE
+          DATABASE_ASSURANCE_BACKUP_PG16_URL: postgresql://admin:role-backup-assurance-ci-only@127.0.0.1:61494/admin
+
+      - name: Create and inspect custom-format backup as backup role
+        env:
+          PGPASSWORD: database-assurance-ci-only
+        run: |
+          docker exec -e PGPASSWORD="$PGPASSWORD" "$ROLE_BACKUP_PG16_CONTAINER" \
+            pg_dump --username=site_logbook_backup --dbname=admin --format=custom \
+            --file=/tmp/database-assurance.dump
+          docker cp "$ROLE_BACKUP_PG16_CONTAINER:/tmp/database-assurance.dump" "$DATABASE_ASSURANCE_DUMP"
+          test -s "$DATABASE_ASSURANCE_DUMP"
+          docker exec "$ROLE_BACKUP_PG16_CONTAINER" \
+            pg_restore --list /tmp/database-assurance.dump > /dev/null
+
+      - name: Remove backup artifact and disposable role fixture
+        if: always()
+        run: |
+          rm -f "$DATABASE_ASSURANCE_DUMP"
+          if docker ps -a --filter "name=^/${ROLE_BACKUP_PG16_CONTAINER}$" --format '{{.Names}}' | grep -Fxq "$ROLE_BACKUP_PG16_CONTAINER"; then
+            docker rm --force "$ROLE_BACKUP_PG16_CONTAINER"
+          fi
+          test ! -e "$DATABASE_ASSURANCE_DUMP"
+          test -z "$(docker ps -a --filter "name=^/${ROLE_BACKUP_PG16_CONTAINER}$" --format '{{.Names}}')"
+
+  recovery-assurance:
+    if: >-
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && inputs.profile == 'full')
+    needs: database-assurance
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
+        env:
+          POSTGRES_DB: site_logbook_ci_test
+          POSTGRES_PASSWORD: recovery-assurance-ci-only
+          POSTGRES_USER: site_logbook_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U site_logbook_ci -d site_logbook_ci_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      MINIO_RECOVERY_CONTAINER: database-assurance-minio-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 11.9.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Frozen install
+        run: pnpm install --frozen-lockfile
+
+      - name: Audit dependencies
+        run: pnpm audit --audit-level=moderate
+
+      - name: Start isolated MinIO recovery target
+        run: >-
+          docker run --rm -d --name "$MINIO_RECOVERY_CONTAINER"
+          -p 127.0.0.1:19000:9000
+          -e MINIO_ROOT_USER=database-assurance-ci-access
+          -e MINIO_ROOT_PASSWORD=database-assurance-ci-secret-only
+          minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+          server /data
+
+      - name: Wait for isolated MinIO
+        run: |
+          for _ in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:19000/minio/health/ready > /dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs "$MINIO_RECOVERY_CONTAINER"
+          exit 1
+
+      - name: Isolated encrypted backup restore and concurrency gate
+        run: pnpm --filter @workspace/api-server test:backup-restore:isolated
+        env:
+          TEST_DATABASE_URL: postgresql://site_logbook_ci:recovery-assurance-ci-only@127.0.0.1:5432/site_logbook_ci_test
+          BACKUP_RESTORE_TEST_ENABLED: "true"
+          BACKUP_RESTORE_TEST_CONFIRM_ISOLATED: "true"
+          BACKUP_RESTORE_TEST_TIMEOUT_MS: "180000"
+          FULL_OBJECT_RESTORE_TEST_ENABLED: "false"
+          S3_ENDPOINT: http://127.0.0.1:19000
+          S3_REGION: us-east-1
+          S3_BUCKET: site-logbook-ci-backup-test
+          S3_ACCESS_KEY_ID: database-assurance-ci-access
+          S3_SECRET_ACCESS_KEY: database-assurance-ci-secret-only
+          S3_FORCE_PATH_STYLE: "true"
+          BACKUP_ENCRYPTION_KEYRING: '{"ci-backup":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}'
+          BACKUP_ENCRYPTION_ACTIVE_KEY_ID: ci-backup
+
+      - name: Encrypted streaming object recovery drill
+        run: pnpm --filter @workspace/api-server objects:recovery:drill
+        env:
+          NODE_ENV: test
+          OBJECT_RECOVERY_DRILL_CONFIRM_ISOLATED: "true"
+          OBJECT_RECOVERY_DRILL_ENDPOINT: http://127.0.0.1:19000
+          OBJECT_RECOVERY_DRILL_ACCESS_KEY: database-assurance-ci-access
+          OBJECT_RECOVERY_DRILL_SECRET_KEY: database-assurance-ci-secret-only
+
+      - name: Stop isolated MinIO
+        if: always()
+        run: |
+          if docker ps -a --filter "name=^/${MINIO_RECOVERY_CONTAINER}$" --format '{{.Names}}' | grep -Fxq "$MINIO_RECOVERY_CONTAINER"; then
+            docker rm --force "$MINIO_RECOVERY_CONTAINER"
+          fi
+          test -z "$(docker ps -a --filter "name=^/${MINIO_RECOVERY_CONTAINER}$" --format '{{.Names}}')"
+
+  full-stack-assurance:
+    if: >-
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && inputs.profile == 'full')
+    needs: database-assurance
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 11.9.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Frozen install
+        run: pnpm install --frozen-lockfile
+
+      - name: R14 isolated full-stack and fault gate
+        run: pnpm test:e2e:r14-full-stack
+        env:
+          R14_SOURCE_SHA: ${{ github.sha }}
