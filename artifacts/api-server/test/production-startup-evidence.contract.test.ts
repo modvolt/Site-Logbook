@@ -93,35 +93,47 @@ describe("production steady-0107 startup boundary", () => {
   });
 
   it("proves the runtime credential against a self-owned disposable PostgreSQL 16 fixture", () => {
-    const workflow = source(".github/workflows/quality-gate.yml");
-    expect(workflow).toContain(
-      "RUNTIME_CREDENTIAL_PG16_CONTAINER: site-logbook-runtime-credential-pg16-${{ github.run_id }}-${{ github.run_attempt }}",
+    const assuranceWorkflow = source(
+      ".github/workflows/database-and-assurance.yml",
     );
-    expect(workflow).toContain("-p 127.0.0.1:61495:5432");
-    expect(workflow).toContain("POSTGRES_DB=runtime_credential_pg16_fixture");
-    expect(workflow).toContain(
+    const fastWorkflow = source(".github/workflows/quality-gate.yml");
+    expect(assuranceWorkflow).toContain(
+      "RUNTIME_CREDENTIAL_PG16_CONTAINER: database-assurance-runtime-credential-${{ github.run_id }}-${{ github.run_attempt }}",
+    );
+    expect(assuranceWorkflow).toContain("-p 127.0.0.1:61495:5432");
+    expect(assuranceWorkflow).toContain(
+      "POSTGRES_DB=runtime_credential_pg16_fixture",
+    );
+    expect(assuranceWorkflow).toContain(
       "POSTGRES_USER=runtime_credential_pg16_fixture_admin",
     );
-    expect(workflow).toContain(
+    expect(assuranceWorkflow).toContain(
       "POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256",
     );
-    expect(workflow).toContain(
+    expect(assuranceWorkflow).toContain(
+      "POSTGRES_HOST_AUTH_METHOD=scram-sha-256",
+    );
+    expect(assuranceWorkflow).toContain(
       "pnpm test:production-runtime-db-credential:pg16",
     );
-    expect(workflow).toContain(
+    expect(assuranceWorkflow).toContain(
       "I_CONFIRM_THIS_IS_A_DISPOSABLE_LOCAL_PG16_RUNTIME_CREDENTIAL_FIXTURE",
     );
-    expect(workflow).toContain(
+    expect(assuranceWorkflow).toContain(
       "SELECT count(*) FROM pg_catalog.pg_roles WHERE rolname = 'site_logbook_runtime'",
     );
-    expect(workflow).toContain(
+    expect(assuranceWorkflow).toContain(
       'docker rm --force "$RUNTIME_CREDENTIAL_PG16_CONTAINER"',
     );
-    expect(workflow).toContain(
+    expect(assuranceWorkflow).toContain(
       "postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777",
     );
-    expect(workflow).not.toContain(
+    expect(assuranceWorkflow).not.toContain(
       "PRODUCTION_RUNTIME_DB_CREDENTIAL_PG16_URL: postgresql://site_logbook_ci:",
+    );
+    expect(fastWorkflow).not.toContain("RUNTIME_CREDENTIAL_PG16_CONTAINER");
+    expect(fastWorkflow).not.toContain(
+      "test:production-runtime-db-credential:pg16",
     );
   });
 
