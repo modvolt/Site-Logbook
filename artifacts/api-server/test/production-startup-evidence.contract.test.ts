@@ -173,9 +173,9 @@ describe("production steady-0107 startup boundary", () => {
     }
   });
 
-  it("fails production direct-index startup before importing app or workers", () => {
+  it("runs the live production preflight before importing app or workers", () => {
     const index = source("artifacts/api-server/src/index.ts");
-    const preflight = index.indexOf("runProductionActivationRuntimePreflight");
+    const preflight = index.indexOf("runAfterProductionRuntimePreflight");
     const appImport = index.indexOf('import("./app")');
     const listen = index.indexOf("app.listen");
     const worker = index.indexOf('import("./lib/extraction-worker")');
@@ -188,11 +188,11 @@ describe("production steady-0107 startup boundary", () => {
     expect(index).toContain("requiresReleaseStartupGuard");
     expect(index).not.toContain('if (process.env.NODE_ENV === "production")');
     expect(index).toContain("startProductionApplicationRuntime");
-    expect(index).toContain("PRODUCTION_RUNTIME_ACTIVATION_AUTHORITY_REQUIRED");
+    expect(index).not.toContain("PRODUCTION_RUNTIME_ACTIVATION_AUTHORITY_REQUIRED");
     expect(index).not.toContain("requireObservedProductionHostRunner");
     expect(index).not.toContain("runProductionStartupPreflight");
     expect(index).toContain("pathToFileURL(path.resolve(process.argv[1]))");
-    expect(index).toContain("verifyLiveProductionAuditReadiness");
+    expect(index).not.toContain("verifyLiveProductionAuditReadiness");
     expect(index).toContain("STAGING_CONTROL_PLANE_IMAGE_REQUIRED");
     expect(index).toContain("startProductionRuntimeFailStop");
     const entrypoint = source(
@@ -207,7 +207,8 @@ describe("production steady-0107 startup boundary", () => {
     expect(entrypoint).not.toContain(
       "PRODUCTION_EXPECTED_RESOLVED_COMPOSE_SHA256",
     );
-    expect(entrypoint).toContain("startProductionApplicationRuntime(release)");
+    expect(entrypoint).toContain("startProductionApplicationRuntime()");
+    expect(entrypoint).not.toContain("startProductionActivationHold");
     expect(index.indexOf("startProductionRuntimeFailStop({")).toBeLessThan(
       index.indexOf("startWorker(backup.startBackupScheduler)"),
     );
@@ -235,36 +236,26 @@ describe("production steady-0107 startup boundary", () => {
     expect(checker).toContain("predecessorArtifact.value.schemaVersion");
   });
 
-  it("refreshes live database/schema identity and exposes secret-free parity", () => {
+  it("refreshes current database/schema/role readiness without activation evidence", () => {
     const health = source("artifacts/api-server/src/routes/health.ts");
     const adapter = source(
       "artifacts/api-server/src/lib/production-audit-readiness.ts",
     );
     expect(adapter).toContain("verifyProductionAuditSchemaReadiness");
-    expect(health).toContain("readProductionRuntimeReadinessState");
+    expect(health).toContain("readProductionRuntimePreflightState");
     expect(health).toContain("productionRuntimeLatchAllowsReadiness");
     expect(health).toContain("unavailableProductionControlParity");
     expect(health).toContain("process.env.SITE_LOGBOOK_RUNTIME_ENVIRONMENT");
     const healthz = health.indexOf('router.get("/healthz"');
-    const latch = health.indexOf(
-      "if (!productionRuntimeLatchAllowsReadiness())",
+    const productionBranch = health.indexOf(
+      'process.env.SITE_LOGBOOK_RUNTIME_ENVIRONMENT === "production"',
       healthz,
     );
     const dbProbe = health.indexOf("await checkDbLatency()", healthz);
-    expect(latch).toBeGreaterThan(healthz);
-    expect(latch).toBeLessThan(dbProbe);
-    expect(health.slice(latch, dbProbe)).toContain("res.status(503)");
-    const finalLatch = health.indexOf(
-      "productionRuntimeLatchAllowsReadiness();",
-      dbProbe,
-    );
-    const finalResponse = health.indexOf(
-      "res.status(ready ? 200 : 503)",
-      dbProbe,
-    );
-    expect(finalLatch).toBeGreaterThan(dbProbe);
-    expect(finalLatch).toBeLessThan(finalResponse);
-    expect(health).toContain("productionRuntimeBindingMatches");
+    expect(productionBranch).toBeGreaterThan(healthz);
+    expect(dbProbe).toBeGreaterThan(productionBranch);
+    expect(health).toContain("projectProductionRuntimeHealth");
+    expect(health).not.toContain("productionRuntimeBindingMatches");
     expect(health).toContain("readProductionRuntimeHealthProjection");
     expect(health).toContain(
       "SELECT created_at, hash FROM drizzle.__drizzle_migrations",

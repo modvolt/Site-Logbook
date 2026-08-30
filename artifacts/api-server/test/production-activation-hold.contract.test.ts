@@ -1470,14 +1470,11 @@ describe("production activation deployment contract", () => {
     expect(entrypoint).not.toMatch(/from ["']\.\/app["']/);
     expect(entrypoint).not.toMatch(/from ["']\.\/index["']/);
     expect(entrypoint).toContain('new URL("./index.mjs", import.meta.url)');
-    expect(entrypoint).toContain("startProductionApplicationRuntime(release)");
+    expect(entrypoint).toContain("startProductionApplicationRuntime()");
     expect(entrypoint).not.toContain("installProductionRuntimeBinding");
     expect(entrypoint).toContain("process.exit(1)");
-    expect(entrypoint).toContain(
-      "PINNED_PRODUCTION_PUBLISHER_PROVENANCE_KEY_SHA256",
-    );
-    expect(entrypoint).toContain("PINNED_PRODUCTION_HOST_EVIDENCE_KEY_SHA256");
-    expect(entrypoint).toContain("requiredExactSourceTrustPin");
+    expect(entrypoint).not.toContain("startProductionActivationHold");
+    expect(entrypoint).not.toContain("activation-bundle-v3.json");
     expect(hold).not.toContain("@workspace/db");
     expect(hold).not.toContain("S3Client");
     expect(hold).not.toContain("production-startup-evidence");
@@ -1536,6 +1533,7 @@ describe("production activation deployment contract", () => {
       "/var/lib/modvolt/site-logbook-production-evidence:/run/site-logbook-production-evidence:rw",
     );
     expect(dockerfile).toContain("/app/dist/production-api-entrypoint.mjs");
-    expect(dockerfile).toContain(PRODUCTION_ACTIVATION_HEALTH_PATH);
+    expect(dockerfile).not.toContain(PRODUCTION_ACTIVATION_HEALTH_PATH);
+    expect(dockerfile).toContain("fetch(b+'/api/healthz')");
   });
 });
