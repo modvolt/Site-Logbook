@@ -10,7 +10,7 @@ const root = resolve(import.meta.dirname, "..", "..", "..");
 const backupSource = readFileSync(
   resolve(root, "artifacts/api-server/src/lib/backup.ts"),
   "utf8",
-);
+).replace(/\r\n/g, "\n");
 const appSource = readFileSync(
   resolve(root, "artifacts/api-server/src/app.ts"),
   "utf8",
