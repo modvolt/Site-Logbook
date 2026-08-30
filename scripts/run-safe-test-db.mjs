@@ -170,6 +170,13 @@ async function main() {
       console.log(`[test:db] ${index + 1}/${testFiles.length} ${file}`);
       try {
         await createDatabase(adminPool, suiteName, templateName);
+        const suiteEnv = {
+          ...childEnv,
+          DATABASE_URL: suiteUrl,
+        };
+        if (isolatedBackupRestore) {
+          suiteEnv.BACKUP_DATABASE_URL = suiteUrl;
+        }
         const status = runNode(
           [
             vitestCli,
@@ -182,7 +189,7 @@ async function main() {
           ],
           {
             cwd: apiDirectory,
-            env: { ...childEnv, DATABASE_URL: suiteUrl },
+            env: suiteEnv,
           },
         );
         if (status !== 0) failures.push(file);

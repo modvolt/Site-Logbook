@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 
 export const SENSITIVE_TEST_ENV_PATTERNS = [
   /^DATABASE_URL$/i,
+  /^BACKUP_DATABASE_URL$/i,
   /^TEST_DATABASE_URL$/i,
   /(_SECRET|_TOKEN|_PASSWORD|_KEY)$/i,
   /^(AWS|S3|HETZNER)_/i,
