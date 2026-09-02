@@ -1,0 +1,129 @@
+name: ${RELEASE_SMOKE_PROJECT:?runner-generated project required}
+
+services:
+  postgres:
+    image: postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
+    platform: linux/amd64
+    restart: "no"
+    environment:
+      POSTGRES_USER: release_smoke_admin
+      POSTGRES_DB: release_smoke_test
+      POSTGRES_PASSWORD: ${RELEASE_SMOKE_DB_PASSWORD:?synthetic credential required}
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "release_smoke_admin", "-d", "release_smoke_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks: [smoke_internal]
+
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    platform: linux/amd64
+    restart: "no"
+    command: ["server", "/data"]
+    environment:
+      MINIO_ROOT_USER: release-smoke-access
+      MINIO_ROOT_PASSWORD: ${RELEASE_SMOKE_S3_PASSWORD:?synthetic credential required}
+      MINIO_BROWSER: "off"
+    tmpfs:
+      - /data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks: [smoke_internal]
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+    platform: linux/amd64
+    restart: "no"
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MC_HOST_smoke: http://release-smoke-access:${RELEASE_SMOKE_S3_PASSWORD:?synthetic credential required}@minio:9000
+    entrypoint: ["mc"]
+    command: ["mb", "--ignore-existing", "smoke/release-smoke-test"]
+    networks: [smoke_internal]
+
+  # Phase 6B-R selects source-side fixture initialization. No control-plane
+  # service is started; its required workflow input is inspected only.
+  api:
+    image: ${RELEASE_SMOKE_API_IMAGE:?exact API digest required}
+    platform: linux/amd64
+    pull_policy: never
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    # Intentionally retain the image's default production entrypoint and Cmd.
+    environment:
+      NODE_ENV: production
+      SITE_LOGBOOK_RUNTIME_ENVIRONMENT: production
+      PORT: "5000"
+      BUILD_SHA: ${RELEASE_SMOKE_SOURCE_SHA:?exact source required}
+      PRODUCTION_EXPECTED_DATABASE_USER: site_logbook_runtime
+      DATABASE_URL: postgresql://site_logbook_runtime:${RELEASE_SMOKE_RUNTIME_PASSWORD:?synthetic credential required}@postgres:5432/release_smoke_test
+      BACKUP_DATABASE_URL: postgresql://site_logbook_backup:${RELEASE_SMOKE_BACKUP_PASSWORD:?synthetic credential required}@postgres:5432/release_smoke_test
+      SESSION_SECRET: ${RELEASE_SMOKE_SESSION_SECRET:?synthetic credential required}
+      API_TRUSTED_PROXY_CIDRS: ${RELEASE_SMOKE_PROXY_CIDR:?disposable bridge CIDR required}
+      PUBLIC_APP_URL: https://release-smoke.invalid
+      EXTERNAL_ACCOUNTS_ENABLED: "false"
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: us-east-1
+      S3_BUCKET: release-smoke-test
+      S3_ACCESS_KEY_ID: release-smoke-access
+      S3_SECRET_ACCESS_KEY: ${RELEASE_SMOKE_S3_PASSWORD:?synthetic credential required}
+      S3_FORCE_PATH_STYLE: "true"
+      S3_PRIVATE_PREFIX: private
+      S3_PUBLIC_PREFIX: public
+      SECRET_ENCRYPTION_KEYRING: ${RELEASE_SMOKE_KEYRING:?synthetic key required}
+      SECRET_ENCRYPTION_ACTIVE_KEY_ID: release-smoke
+      BACKUP_ENABLED: "false"
+      OPENAI_DOCUMENT_EXTRACTION_ENABLED: "false"
+      SMTP_HOST: ""
+      IMAP_HOST: ""
+      GOOGLE_CLIENT_ID: ""
+      GOOGLE_CLIENT_SECRET: ""
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5000/api/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+    networks: [smoke_internal]
+
+  web:
+    image: ${RELEASE_SMOKE_WEB_IMAGE:?exact web digest required}
+    platform: linux/amd64
+    pull_policy: never
+    restart: "no"
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      NGINX_PORT: "80"
+      API_UPSTREAM: http://api:5000
+      NGINX_SERVER_NAME: localhost
+    ports:
+      - "127.0.0.1::80"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks: [smoke_internal, smoke_host]
+
+networks:
+  smoke_internal:
+    internal: true
+  # Same loopback ingress boundary as R14; only nginx joins this bridge.
+  smoke_host:
