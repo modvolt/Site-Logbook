@@ -39,6 +39,7 @@ services:
       # The login role is source-pinned. Its separately generated secret is
       # transferred to Coolify only after the attended role/credential receipt.
       DATABASE_URL: postgres://site_logbook_runtime:${PRODUCTION_RUNTIME_DATABASE_PASSWORD:?set the separate runtime database secret}@postgres:5432/${POSTGRES_DB}
+      BACKUP_DATABASE_URL: ${BACKUP_DATABASE_URL:?set the dedicated read-only backup database URL}
       SESSION_SECRET: ${SESSION_SECRET}
       # Object storage. Uploads are proxied through the API, which reaches the
       # bucket over S3_ENDPOINT — the browser never talks to storage, so no
