@@ -3,12 +3,12 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
+import { parseDocument } from "yaml";
 import {
   loadStagingOperationalAlertDrillConfig,
   runStagingOperationalAlertDrill,
   StagingOperationalAlertDrillError,
 } from "../staging-operational-alert-drill.mjs";
-import { parseWorkflow } from "../workflow-execution-harness.mjs";
 
 const SHA = "a".repeat(40);
 const TOKEN = "B".repeat(43);
@@ -17,6 +17,29 @@ const WORKFLOW_URL = new URL(
   "../../.github/workflows/staging-smoke.yml",
   import.meta.url,
 );
+
+function parseWorkflowStrict(source, sourceName = "workflow") {
+  const document = parseDocument(source, {
+    prettyErrors: true,
+    strict: true,
+    uniqueKeys: true,
+  });
+
+  if (document.errors.length > 0) {
+    throw new Error(
+      `${sourceName} is not valid unique-key YAML:\n` +
+        document.errors.map((error) => error.message).join("\n"),
+    );
+  }
+
+  const workflow = document.toJS({ mapAsMap: false });
+
+  if (!workflow || typeof workflow !== "object" || Array.isArray(workflow)) {
+    throw new Error(`${sourceName} must contain a YAML mapping.`);
+  }
+
+  return workflow;
+}
 
 afterEach(async () => {
   await Promise.all(
@@ -149,7 +172,10 @@ test("rejects a stale receiver image before sending a synthetic event", async ()
 
 test("manual staging smoke wires the guarded receiver drill and secret-free evidence", async () => {
   const workflow = await readFile(WORKFLOW_URL, "utf8");
-  const parsed = parseWorkflow(workflow, ".github/workflows/staging-smoke.yml");
+  const parsed = parseWorkflowStrict(
+    workflow,
+    ".github/workflows/staging-smoke.yml",
+  );
   const job = parsed.jobs["authenticated-staging-smoke"];
   const drillSteps = job.steps.filter(
     (step) =>
