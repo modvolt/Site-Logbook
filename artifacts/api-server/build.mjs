@@ -30,6 +30,7 @@ async function buildAll() {
       path.resolve(artifactDir, "src/index.ts"),
       path.resolve(artifactDir, "src/production-api-entrypoint.ts"),
       path.resolve(artifactDir, "src/migrate.ts"),
+      path.resolve(artifactDir, "src/standard-production-migration.ts"),
       path.resolve(artifactDir, "src/external-schema-preflight.ts"),
       path.resolve(artifactDir, "src/external-schema-inventory.ts"),
       path.resolve(artifactDir, "src/external-schema-steady-state.ts"),
