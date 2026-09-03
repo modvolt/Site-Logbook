@@ -5,6 +5,10 @@ on:
     paths:
       - .github/workflows/database-and-assurance.yml
       - lib/db/**
+      - artifacts/api-server/src/lib/standard-production-migration.ts
+      - artifacts/api-server/src/standard-production-migration.ts
+      - artifacts/api-server/test/standard-production-migration.test.ts
+      - scripts/test/standard-production-migration-lane.pg16.test.ts
       - scripts/production-evidence/production-migration-*
       - scripts/production-evidence/run-production-migration.mjs
       - scripts/test/production-migration-*
@@ -101,6 +105,19 @@ jobs:
         run: pnpm test:production-migration-runner:pg16
         env:
           PRODUCTION_MIGRATION_RUNNER_PG16_URL: postgresql://admin:migration-runner-assurance-ci-only@127.0.0.1:61493/admin
+
+      - name: Committed migration chain smoke
+        run: pnpm --filter @workspace/db run test:migrate
+        env:
+          DATABASE_URL: postgresql://admin:migration-runner-assurance-ci-only@127.0.0.1:61493/admin
+
+      - name: Standard migration lane PostgreSQL 16 gate
+        run: >-
+          node --import ./lib/db/node_modules/tsx/dist/loader.mjs --test
+          scripts/test/standard-production-migration-lane.pg16.test.ts
+        env:
+          STANDARD_PRODUCTION_MIGRATION_PG16_URL: postgresql://admin:migration-runner-assurance-ci-only@127.0.0.1:61493/admin
+          STANDARD_PRODUCTION_MIGRATION_PG16_CONFIRM: I_CONFIRM_THIS_IS_A_DISPOSABLE_LOCAL_PG16_MIGRATION_FIXTURE
 
       - name: Remove disposable migration runner fixture
         if: always()
