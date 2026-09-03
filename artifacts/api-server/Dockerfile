@@ -8,8 +8,9 @@
 #   docker build -f artifacts/api-server/Dockerfile -t stavba-api .
 #
 # The container never applies database migrations on startup. A separately
-# approved one-shot schema control plane must first produce canonical intent,
-# execution evidence. The immutable production image performs a read-only live
+# approved explicit standard migration CLI uses a dedicated credential that the
+# running API must not receive. It is not invoked by CMD or healthcheck.
+# The immutable production image performs a read-only live
 # database/schema/runtime-role preflight before importing workers or listening.
 
 ARG BUILD_SHA
@@ -86,17 +87,22 @@ ENV BUILD_SHA=$BUILD_SHA
 
 # Runtime deps that esbuild keeps external (e.g. @aws-sdk, nodemailer).
 COPY --from=builder /app/node_modules ./node_modules
-# Runtime allowlist: production cannot invoke migration or mutating gate bundles.
+# Runtime allowlist: application plus explicit one-shot standard migration CLI;
+# no legacy migration or mutating gate bundles.
 COPY --from=builder /repo/artifacts/api-server/dist/index.mjs ./dist/index.mjs
 COPY --from=builder /repo/artifacts/api-server/dist/index.mjs.map ./dist/index.mjs.map
 COPY --from=builder /repo/artifacts/api-server/dist/production-api-entrypoint.mjs ./dist/production-api-entrypoint.mjs
 COPY --from=builder /repo/artifacts/api-server/dist/production-api-entrypoint.mjs.map ./dist/production-api-entrypoint.mjs.map
+COPY --from=builder /repo/artifacts/api-server/dist/standard-production-migration.mjs ./dist/standard-production-migration.mjs
+COPY --from=builder /repo/artifacts/api-server/dist/standard-production-migration.mjs.map ./dist/standard-production-migration.mjs.map
 COPY --from=builder /repo/artifacts/api-server/dist/thread-stream-worker.mjs ./dist/thread-stream-worker.mjs
 COPY --from=builder /repo/artifacts/api-server/dist/pino-worker.mjs ./dist/pino-worker.mjs
 COPY --from=builder /repo/artifacts/api-server/dist/pino-file.mjs ./dist/pino-file.mjs
 COPY --from=builder /repo/artifacts/api-server/dist/pino-pretty.mjs ./dist/pino-pretty.mjs
-# SQL is used only by the in-process read-only readiness and health projections.
+# SQL supports read-only readiness and the explicitly invoked migration CLI.
 COPY --from=builder /repo/lib/db/migrations ./migrations
+
+RUN test -f /app/dist/standard-production-migration.mjs
 
 RUN chown -R node:node /app
 USER node

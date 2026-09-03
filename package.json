@@ -61,6 +61,8 @@
     "test:production-activation-0108-contract": "node --import ./lib/db/node_modules/tsx/dist/loader.mjs --test scripts/test/production-activation-0108-contract.test.mjs",
     "test:production-runtime-db-credential:pg16": "node --import ./lib/db/node_modules/tsx/dist/loader.mjs --test scripts/test/production-runtime-db-credential-cutover.pg16.test.ts",
     "production:migration": "node --import ./lib/db/node_modules/tsx/dist/loader.mjs scripts/production-evidence/run-production-migration.mjs",
+    "production:migration:plan": "node --import ./lib/db/node_modules/tsx/dist/loader.mjs artifacts/api-server/src/standard-production-migration.ts plan",
+    "production:migration:apply": "node --import ./lib/db/node_modules/tsx/dist/loader.mjs artifacts/api-server/src/standard-production-migration.ts apply",
     "production:invoice-0108": "node --import ./lib/db/node_modules/tsx/dist/loader.mjs scripts/production-evidence/run-production-invoice-0108.mjs",
     "production:invoice-0108-activation-evidence": "node --import ./lib/db/node_modules/tsx/dist/loader.mjs scripts/production-evidence/run-production-invoice-0108-activation-evidence.mjs",
     "production:host-evidence": "node scripts/production-evidence/run-production-host-evidence.mjs",

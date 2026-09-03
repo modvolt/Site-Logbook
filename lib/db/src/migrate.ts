@@ -75,7 +75,144 @@ function resolveMigrationsFolder(): string {
 function readJournal(migrationsFolder: string): Journal {
   const journalPath = path.join(migrationsFolder, "meta", "_journal.json");
   const raw = readFileSync(journalPath, "utf8");
-  return JSON.parse(raw) as Journal;
+  const journal = JSON.parse(raw) as Journal;
+  validateMigrationJournal(journal);
+  return journal;
+}
+
+export class MigrationTransitionError extends Error {
+  constructor(readonly code: string) {
+    super(code);
+    this.name = "MigrationTransitionError";
+  }
+}
+
+/** idx order is authoritative; historical timestamps need not be increasing. */
+export function validateMigrationJournal(value: unknown): asserts value is Journal {
+  const entries = (value as Journal | null)?.entries;
+  if (!Array.isArray(entries)) throw new MigrationTransitionError("INVALID_JOURNAL");
+  const indexes = new Set<number>();
+  const times = new Set<number>();
+  const tags = new Set<string>();
+  let previous = -1;
+  for (const entry of entries) {
+    if (!entry || !Number.isInteger(entry.idx) || entry.idx <= previous ||
+        indexes.has(entry.idx) || !Number.isSafeInteger(entry.when) ||
+        entry.when <= 0 || times.has(entry.when) ||
+        typeof entry.tag !== "string" || !entry.tag.trim() ||
+        entry.tag !== entry.tag.trim() || tags.has(entry.tag)) {
+      throw new MigrationTransitionError("INVALID_JOURNAL");
+    }
+    indexes.add(entry.idx);
+    times.add(entry.when);
+    tags.add(entry.tag);
+    previous = entry.idx;
+  }
+}
+
+export interface MigrationState {
+  migrationsFolder: string;
+  expectedCount: number;
+  appliedCount: number;
+  latestExpectedTag: string | null;
+  currentAppliedTag: string | null;
+  expectedTags: string[];
+  pendingTags: string[];
+  unknownAppliedMarkers: string[];
+  nonContiguousHistory: boolean;
+  databaseName: string;
+  sessionUser: string;
+  currentUser: string;
+}
+
+export interface MigrationGuard {
+  expectedCurrentTag: string;
+  expectedTargetTag: string;
+  requireExactlyOnePending?: true;
+  /** Optional for existing callers; the standard lane always supplies it. */
+  expectedRole?: string;
+}
+
+export interface MigrationOptions {
+  migrationsFolder?: string;
+  guard?: MigrationGuard;
+  failIfLockBusy?: boolean;
+}
+
+export function validateExpectedMigrationTransition(state: MigrationState, guard: MigrationGuard): void {
+  const reject = (code: string): never => { throw new MigrationTransitionError(code); };
+  if (state.appliedCount > state.expectedCount) reject("DATABASE_AHEAD");
+  if (state.unknownAppliedMarkers.length) reject("UNKNOWN_APPLIED_MARKERS");
+  if (state.nonContiguousHistory) reject("NON_CONTIGUOUS_HISTORY");
+  if (guard.expectedRole && (state.sessionUser !== guard.expectedRole || state.currentUser !== guard.expectedRole)) {
+    reject("ROLE_MISMATCH");
+  }
+  if (state.currentAppliedTag === guard.expectedTargetTag && state.pendingTags.length === 0) reject("ALREADY_APPLIED");
+  if (state.currentAppliedTag !== guard.expectedCurrentTag) reject("CURRENT_MISMATCH");
+  const currentIndex = state.expectedTags.indexOf(guard.expectedCurrentTag);
+  if (currentIndex < 0 || state.expectedTags[currentIndex + 1] !== guard.expectedTargetTag) reject("TARGET_NOT_NEXT");
+  if (state.pendingTags.length !== 1 || state.pendingTags[0] !== guard.expectedTargetTag) reject("TRANSITION_NOT_READY");
+}
+
+async function inspectOnConnection(client: Queryable, migrationsFolder: string, journal: Journal): Promise<MigrationState> {
+  const identity = await client.query<{ databaseName: string; sessionUser: string; currentUser: string }>(
+    'SELECT current_database() AS "databaseName", session_user AS "sessionUser", current_user AS "currentUser"',
+  );
+  const tracking = await client.query<{ present: boolean }>(
+    "SELECT to_regclass('drizzle.__drizzle_migrations') IS NOT NULL AS present",
+  );
+  const rows = tracking.rows[0].present
+    ? (await client.query<{ created_at: string | null }>("SELECT created_at FROM drizzle.__drizzle_migrations ORDER BY id")).rows
+    : [];
+  const expected = new Set(journal.entries.map((entry) => String(entry.when)));
+  const applied = new Set<string>();
+  const unknownAppliedMarkers: string[] = [];
+  for (const row of rows) {
+    const marker = String(row.created_at);
+    if (!expected.has(marker) || applied.has(marker)) unknownAppliedMarkers.push(marker);
+    applied.add(marker);
+  }
+  let gap = false;
+  let nonContiguousHistory = false;
+  let currentAppliedTag: string | null = null;
+  const pendingTags: string[] = [];
+  for (const entry of journal.entries) {
+    if (applied.has(String(entry.when))) {
+      if (gap) nonContiguousHistory = true;
+      currentAppliedTag = entry.tag;
+    } else {
+      gap = true;
+      pendingTags.push(entry.tag);
+    }
+  }
+  return {
+    migrationsFolder, expectedCount: journal.entries.length, appliedCount: rows.length,
+    latestExpectedTag: journal.entries.at(-1)?.tag ?? null, currentAppliedTag,
+    expectedTags: journal.entries.map((entry) => entry.tag), pendingTags,
+    unknownAppliedMarkers, nonContiguousHistory, ...identity.rows[0],
+  };
+}
+
+/** Consistent read-only snapshot; never creates schema/tracking or takes the migration lock. */
+export async function inspectMigrationState(databaseUrl: string, options: Pick<MigrationOptions, "migrationsFolder"> = {}): Promise<MigrationState> {
+  if (!databaseUrl) throw new MigrationTransitionError("CREDENTIAL_REQUIRED");
+  const migrationsFolder = options.migrationsFolder ?? resolveMigrationsFolder();
+  const journal = readJournal(migrationsFolder);
+  const pool = new Pool({ connectionString: databaseUrl });
+  let client: pg.PoolClient | undefined;
+  try {
+    client = await pool.connect();
+    await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
+    const state = await inspectOnConnection(client, migrationsFolder, journal);
+    await client.query("COMMIT");
+    return state;
+  } finally {
+    if (client) {
+      await client.query("ROLLBACK").catch(() => {});
+      client.release();
+    }
+    await pool.end();
+  }
 }
 
 type Queryable = Pick<pg.PoolClient, "query">;
@@ -194,22 +331,32 @@ async function recoverMissingMigrations(
  */
 export async function runMigrations(
   databaseUrl = process.env.DATABASE_URL,
+  options: MigrationOptions = {},
 ): Promise<MigrationSummary> {
   if (!databaseUrl) {
     throw new Error("DATABASE_URL must be set to run database migrations.");
   }
 
-  const migrationsFolder = resolveMigrationsFolder();
+  const migrationsFolder = options.migrationsFolder ?? resolveMigrationsFolder();
   const journal = readJournal(migrationsFolder);
   const expected = journal.entries;
 
   const pool = new Pool({ connectionString: databaseUrl });
-  const client = await pool.connect();
+  let client: pg.PoolClient | undefined;
   try {
+    client = await pool.connect();
     // Serialize concurrent migration runs (e.g. several containers booting at
     // once). Session-level lock held until we explicitly unlock below.
-    await client.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK_KEY]);
+    if (options.failIfLockBusy) {
+      const lock = await client.query<{ locked: boolean }>("SELECT pg_try_advisory_lock($1) AS locked", [MIGRATION_LOCK_KEY]);
+      if (!lock.rows[0].locked) throw new MigrationTransitionError("MIGRATION_LOCK_BUSY");
+    } else {
+      await client.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK_KEY]);
+    }
     try {
+      if (options.guard) {
+        validateExpectedMigrationTransition(await inspectOnConnection(client, migrationsFolder, journal), options.guard);
+      }
       await ensureTrackingTable(client);
       const appliedBefore = (await readAppliedMillis(client)).length;
 
@@ -247,7 +394,7 @@ export async function runMigrations(
         .catch(() => {});
     }
   } finally {
-    client.release();
+    client?.release();
     await pool.end();
   }
 }

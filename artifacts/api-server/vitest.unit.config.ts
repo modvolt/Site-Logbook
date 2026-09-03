@@ -37,6 +37,7 @@ export default defineConfig({
       "test/work-session-math.test.ts",
       "test/live-events-domains.test.ts",
       "test/migration-health.test.ts",
+      "test/standard-production-migration.test.ts",
       "test/production-exact-0096-backup-producer.test.ts",
       "test/production-exact-0096-backup-producer-entrypoint.test.ts",
       "test/production-exact-0096-object-storage.test.ts",
