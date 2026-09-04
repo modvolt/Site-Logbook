@@ -1,6 +1,9 @@
-import { and, asc, desc, eq, inArray, max, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, ne, max, sql } from "drizzle-orm";
 import {
   db,
+  publicAccessTokensTable,
+  quoteVersionsTable,
+  quoteDecisionEventsTable,
   billingSettingsTable,
   quotesTable,
   quoteItemsTable,
@@ -11,10 +14,12 @@ import {
   type Quote,
   type QuoteItem,
 } from "@workspace/db";
-import { generateQuotePdf, type QuotePdfData } from "./quote-pdf";
+import { generateQuotePdf } from "./quote-pdf";
 import { sendEmailWithPdf } from "./email";
 import { ObjectStorageService } from "./objectStorage";
 import { randomUUID } from "node:crypto";
+import { withQuoteDelivery } from "./quote-delivery";
+import { logger } from "./logger";
 import { publicAppGrantUrl, publicAppOrigin } from "./public-origin";
 import {
   consumePublicAccessToken,
@@ -25,6 +30,8 @@ import {
 } from "./public-access-token";
 import {
   createQuoteVersionAndToken,
+  readQuoteSnapshot,
+  quoteSnapshotPdfData,
   latestQuoteVersion,
   publicQuoteVersion,
   recordAdminQuoteDecision,
@@ -32,7 +39,6 @@ import {
 } from "./quote-version-service";
 import { quoteDecisionExpiresAt, QuoteValidityError } from "./quote-validity";
 import {
-  computeQuoteItemTotals,
   computeQuoteTotals,
   normalizeQuoteRowType,
   type QuoteRowType,
@@ -105,20 +111,6 @@ function parseNum(v: string | number | null | undefined, fallback = 0): number {
 // ---------------------------------------------------------------------------
 // Settings (quote number series)
 // ---------------------------------------------------------------------------
-
-async function ensureSettings() {
-  const existing = await db
-    .select()
-    .from(billingSettingsTable)
-    .where(eq(billingSettingsTable.id, SETTINGS_ID))
-    .limit(1);
-  if (existing.length > 0) return existing[0];
-  const [row] = await db
-    .insert(billingSettingsTable)
-    .values({ id: SETTINGS_ID })
-    .returning();
-  return row;
-}
 
 async function assignQuoteNumber(): Promise<string> {
   return db.transaction(async (tx) => {
@@ -474,16 +466,15 @@ export async function createQuote(input: QuoteCreateInput) {
 }
 
 export async function updateQuote(id: number, input: QuoteUpdateInput) {
-  const [existing] = await db
-    .select()
-    .from(quotesTable)
-    .where(eq(quotesTable.id, id))
-    .limit(1);
-  if (!existing) throw appError(404, "Nabídka nenalezena.");
-  if (existing.status !== "draft")
-    throw appError(409, "Upravovat lze pouze nabídky ve stavu Koncept.");
-
   await db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select()
+      .from(quotesTable)
+      .where(eq(quotesTable.id, id))
+      .for("update");
+    if (!existing) throw appError(404, "Nabídka nenalezena.");
+    if (existing.status !== "draft")
+      throw appError(409, "Upravovat lze pouze nabídky ve stavu Koncept.");
     const set: Record<string, unknown> = { updatedAt: new Date() };
     if ("customerId" in input) set.customerId = input.customerId ?? null;
     if (input.title != null) set.title = input.title;
@@ -522,60 +513,9 @@ export async function deleteQuote(id: number) {
 // State transitions
 // ---------------------------------------------------------------------------
 
-async function buildPdfData(
-  quote: NonNullable<Awaited<ReturnType<typeof getQuoteDetail>>>,
-) {
-  const settings = await ensureSettings();
-  const vatPayer = settings.vatPayer;
-
-  const pdfItems = quote.items.map((item) => {
-    const totals = computeQuoteItemTotals(item, vatPayer);
-    return {
-      description: item.description,
-      rowType: item.rowType,
-      quantity: item.quantity,
-      unit: item.unit ?? null,
-      unitPrice: item.unitPrice,
-      vatRate: item.vatRate,
-      ...totals,
-    };
-  });
-
-  const totals = computeQuoteTotals(pdfItems, vatPayer);
-
-  const pdfData: QuotePdfData = {
-    quoteNumber: quote.quoteNumber ?? `#${quote.id}`,
-    customerName: quote.customerCompanyName,
-    customerIc: quote.customerIc,
-    customerDic: quote.customerDic,
-    customerAddress: quote.customerAddress,
-    customerEmail: quote.customerEmail,
-    validUntil: quote.validUntil,
-    notes: quote.notes,
-    items: pdfItems,
-    subtotalWithoutVat: totals.totalWithoutVat,
-    totalVat: totals.totalVat,
-    totalWithVat: totals.totalWithVat,
-    supplier: {
-      name: settings.supplierName,
-      ic: settings.supplierIc,
-      dic: settings.supplierDic,
-      address: settings.supplierAddress,
-      email: settings.supplierEmail,
-      phone: settings.supplierPhone,
-      footerNote: settings.invoiceFooterNote,
-      vatPayer,
-    },
-    currency: "Kč",
-  };
-  return pdfData;
-}
-
 export async function generateAndStorePdf(id: number) {
-  const quote = await getQuoteDetail(id);
-  if (!quote) throw appError(404, "Nabídka nenalezena.");
-  const pdfData = await buildPdfData(quote);
-  const buffer = generateQuotePdf(pdfData);
+  const snapshot = await readQuoteSnapshot(id);
+  const buffer = generateQuotePdf(quoteSnapshotPdfData(snapshot));
   const objectPath = `/objects/quotes/${randomUUID()}`;
   await objectStorage.putPrivateObject(objectPath, buffer, "application/pdf");
   await db
@@ -585,7 +525,7 @@ export async function generateAndStorePdf(id: number) {
   return { objectPath, buffer };
 }
 
-export async function sendQuote(
+async function sendQuoteAttempt(
   id: number,
   opts: {
     to?: string | null;
@@ -593,6 +533,7 @@ export async function sendQuote(
     message?: string | null;
     createdByUserId: number;
   },
+  attempt: { id: number; beforeSmtp: (version: { id: number; version: number }) => Promise<void> },
 ) {
   // Validate the canonical external origin before generating or storing a PDF.
   // Request Host headers are never accepted as link input.
@@ -602,12 +543,11 @@ export async function sendQuote(
   if (!["draft", "sent"].includes(quote.status))
     throw appError(409, "Nabídku v tomto stavu nelze odeslat.");
 
-  const to = (opts.to ?? quote.customerEmail ?? "").trim();
+  let to = (opts.to ?? quote.customerEmail ?? "").trim();
   const emailPattern = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
   if (!emailPattern.test(to))
     throw appError(400, "Chybí platná e-mailová adresa příjemce.");
 
-  await ensureSettings();
   let expiresAt: Date;
   try {
     expiresAt = quoteDecisionExpiresAt(
@@ -627,13 +567,23 @@ export async function sendQuote(
     buffer,
     version,
     token: shareToken,
+    record,
+    expectedUpdatedAt,
+    snapshot,
   } = await createQuoteVersionAndToken({
     quoteId: id,
     expiresAt,
     createdByUserId: opts.createdByUserId,
   });
+  // The recipient selected implicitly must be the customer in the rendered snapshot.
+  to = (opts.to ?? snapshot.customer.email ?? "").trim();
+  if (!emailPattern.test(to))
+    throw appError(
+      400,
+      "Chybí platná e-mailová adresa příjemce uložené nabídky.",
+    );
 
-  const number = quote.quoteNumber ?? `#${id}`;
+  const number = snapshot.quote.quoteNumber ?? `#${id}`;
   const subject = (opts.subject ?? "").trim() || `Cenová nabídka ${number}`;
 
   // Build share link line
@@ -642,10 +592,12 @@ export async function sendQuote(
     publicAppGrantUrl("/quote-share", shareToken);
 
   const message =
-    (opts.message ?? "").trim() ||
-    `Dobrý den,\n\nv příloze zasíláme cenovou nabídku ${number}.${shareLine}\n\nS pozdravem`;
+    ((opts.message ?? "").trim() ||
+      `Dobrý den,\n\nv příloze zasíláme cenovou nabídku ${number}.\n\nS pozdravem`) +
+    shareLine;
 
   try {
+    await attempt.beforeSmtp(version);
     await sendEmailWithPdf({
       to,
       subject,
@@ -654,23 +606,102 @@ export async function sendQuote(
       filename: `nabidka-${number.replace(/[^\w.-]+/g, "-")}.pdf`,
     });
   } catch (error) {
-    await revokePublicAccessTokens({
-      purpose: "quote_decision",
-      resourceId: id,
-      reason: "delivery_failed",
-    }).catch(() => undefined);
+    // Revoke only this prepared token, never a concurrent/previous successful link.
+    if ((error as { definitelyNotAccepted?: boolean }).definitelyNotAccepted) {
+      try {
+        await db
+          .update(publicAccessTokensTable)
+          .set({ revokedAt: new Date(), revokeReason: "delivery_failed" })
+          .where(
+            and(
+              eq(publicAccessTokensTable.id, record.id),
+              isNull(publicAccessTokensTable.consumedAt),
+            ),
+          );
+      } catch {
+        logger.error(
+          { quoteId: id, attemptId: attempt.id, versionId: version.id },
+          "Quote failed-token cleanup failed",
+        );
+      }
+    }
+    if ((error as { definitelyNotAccepted?: boolean }).definitelyNotAccepted) {
+      throw Object.assign(
+        appError(
+          502,
+          "SMTP server e-mail nepřijal. Zkontrolujte nastavení a adresu příjemce.",
+        ),
+        { definitelyNotAccepted: true },
+      );
+    }
     throw error;
   }
 
-  await db
-    .update(quotesTable)
-    .set({
-      status: "sent",
-      pdfObjectPath: version.pdfObjectPath,
-      shareToken: null,
-      updatedAt: new Date(),
-    })
-    .where(eq(quotesTable.id, id));
+  await db.transaction(async (tx) => {
+    const [current] = await tx
+      .select()
+      .from(quotesTable)
+      .where(eq(quotesTable.id, id))
+      .for("update");
+    const latest = await latestQuoteVersion(tx, id);
+    if (
+      !current ||
+      !["draft", "sent"].includes(current.status) ||
+      current.updatedAt.getTime() !== expectedUpdatedAt.getTime() ||
+      latest?.id !== version.id
+    ) {
+      throw appError(
+        409,
+        "SMTP přijal e-mail, ale nabídka se mezitím změnila. Stav nebyl přepsán; ověřte výsledek.",
+      );
+    }
+    const [previous] = current.pdfObjectPath
+      ? await tx
+          .select()
+          .from(quoteVersionsTable)
+          .where(
+            and(
+              eq(quoteVersionsTable.quoteId, id),
+              eq(quoteVersionsTable.pdfObjectPath, current.pdfObjectPath),
+            ),
+          )
+      : [];
+    if (previous)
+      await tx
+        .insert(quoteDecisionEventsTable)
+        .values({
+          quoteId: id,
+          quoteVersionId: previous.id,
+          action: "superseded",
+          actorType: "system",
+          reason: "quote_reissued",
+        });
+    await tx
+      .update(publicAccessTokensTable)
+      .set({
+        revokedAt: new Date(),
+        revokeReason: "replaced",
+        revokedByUserId: opts.createdByUserId,
+      })
+      .where(
+        and(
+          eq(publicAccessTokensTable.purpose, "quote_decision"),
+          eq(publicAccessTokensTable.resourceId, id),
+          ne(publicAccessTokensTable.id, record.id),
+          isNull(publicAccessTokensTable.revokedAt),
+          isNull(publicAccessTokensTable.consumedAt),
+        ),
+      );
+    await tx
+      .update(quotesTable)
+      .set({
+        status: "sent",
+        pdfObjectPath: version.pdfObjectPath,
+        shareToken: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(quotesTable.id, id));
+  });
 
   return {
     sent: true,
@@ -876,4 +907,29 @@ export async function convertQuoteToJob(
 
     return { jobId: job.id, jobGroupId: group.id };
   });
+}
+
+export async function sendQuote(
+  id: number,
+  opts: {
+    to?: string | null;
+    subject?: string | null;
+    message?: string | null;
+    createdByUserId: number;
+    idempotencyKey?: string;
+  },
+) {
+  return withQuoteDelivery(
+    {
+      quoteId: id,
+      userId: opts.createdByUserId,
+      key: opts.idempotencyKey,
+      request: {
+        to: opts.to ?? null,
+        subject: opts.subject ?? null,
+        message: opts.message ?? null,
+      },
+    },
+    (attempt) => sendQuoteAttempt(id, opts, attempt),
+  );
 }

@@ -68,7 +68,7 @@ export async function resolveEmailConfig(): Promise<ResolvedEmailConfig> {
       port: row.port ?? 587,
       secure: row.secure ?? row.port === 465,
       user,
-      pass: user ? password ?? undefined : undefined,
+      pass: user ? (password ?? undefined) : undefined,
       from: formatFrom(address, row.fromName),
     };
   }
@@ -105,19 +105,35 @@ export async function resolveEmailConfig(): Promise<ResolvedEmailConfig> {
 }
 
 function getTransporter(cfg: ResolvedEmailConfig): Transporter {
-  const sig = JSON.stringify([cfg.host, cfg.port, cfg.secure, cfg.user, cfg.pass]);
+  const sig = JSON.stringify([
+    cfg.host,
+    cfg.port,
+    cfg.secure,
+    cfg.user,
+    cfg.pass,
+  ]);
   if (cached && cached.sig === sig) return cached.transporter;
-  const transporter = nodemailer.createTransport(buildSmtpTransportOptions(cfg));
+  const transporter = nodemailer.createTransport(
+    buildSmtpTransportOptions(cfg),
+  );
   cached = { sig, transporter };
   return transporter;
 }
 
 export async function sendEmailWithPdf(params: SendEmailParams): Promise<void> {
   const { to, subject, text, pdfBase64, filename } = params;
-  const cfg = await resolveEmailConfig();
+  let cfg: ResolvedEmailConfig;
+  try {
+    cfg = await resolveEmailConfig();
+  } catch (error) {
+    throw Object.assign(
+      new Error("Odesílání e-mailů není správně nakonfigurováno."),
+      { definitelyNotAccepted: true, cause: error },
+    );
+  }
 
   try {
-    await getTransporter(cfg).sendMail({
+    const result = await getTransporter(cfg).sendMail({
       from: cfg.from,
       to,
       subject,
@@ -130,9 +146,33 @@ export async function sendEmailWithPdf(params: SendEmailParams): Promise<void> {
         },
       ],
     });
+    if (!result.accepted?.length) {
+      throw Object.assign(new Error("SMTP server nepřijal žádného příjemce."), {
+        definitelyNotAccepted: true,
+      });
+    }
   } catch (err) {
-    const detail = err instanceof Error ? err.message : String(err);
-    throw new Error(`Odeslání e-mailu selhalo: ${detail}`);
+    const smtp = err as {
+      code?: string;
+      command?: string;
+      responseCode?: number;
+      definitelyNotAccepted?: boolean;
+    };
+    const definitelyNotAccepted =
+      smtp.definitelyNotAccepted === true ||
+      (smtp.responseCode != null &&
+        smtp.responseCode >= 400 &&
+        smtp.responseCode <= 599) ||
+      ["ECONNECTION", "EDNS", "EAUTH", "EENVELOPE"].includes(smtp.code ?? "") ||
+      (smtp.code === "ETIMEDOUT" && smtp.command === "CONN");
+    throw Object.assign(
+      new Error(
+        definitelyNotAccepted
+          ? "SMTP server e-mail nepřijal. Zkontrolujte nastavení a příjemce."
+          : "Výsledek předání SMTP serveru není jistý. Neopakujte odeslání automaticky.",
+      ),
+      { definitelyNotAccepted },
+    );
   }
 }
 
@@ -145,7 +185,11 @@ export async function sendEmailWithPdf(params: SendEmailParams): Promise<void> {
  * tests exercise the full request-signature path without requiring an SMTP
  * server to be set up in the dev environment.
  */
-export async function sendPlainEmail(params: { to: string; subject: string; text: string }): Promise<void> {
+export async function sendPlainEmail(params: {
+  to: string;
+  subject: string;
+  text: string;
+}): Promise<void> {
   let cfg: ResolvedEmailConfig;
   try {
     cfg = await resolveEmailConfig();
@@ -155,9 +199,9 @@ export async function sendPlainEmail(params: { to: string; subject: string; text
       // stored and callers (e.g. e2e tests) receive a successful response.
       console.warn(
         "[DEV] SMTP not configured — email not sent. Would have delivered:\n" +
-        `  To: ${params.to}\n` +
-        `  Subject: ${params.subject}\n` +
-        `---\n${params.text}\n---`,
+          `  To: ${params.to}\n` +
+          `  Subject: ${params.subject}\n` +
+          `---\n${params.text}\n---`,
       );
       return;
     }

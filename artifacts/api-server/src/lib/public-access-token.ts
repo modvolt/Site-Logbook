@@ -512,10 +512,12 @@ export interface IssuePublicAccessTokenInput {
   quoteVersionId?: number | null;
   ppeEvidenceVersionId?: number | null;
   allowExpiredForTesting?: boolean;
+  /** Quote delivery prepares a token; previous links stay valid until SMTP succeeds. */
+  deferQuoteReplacement?: boolean;
   onIssue?: (tx: DbTransaction) => Promise<void>;
 }
 
-async function lockAndAssertActiveOwner(
+export async function lockAndAssertActiveOwner(
   tx: DbTransaction,
   ownerUserId: number,
   purpose: PublicAccessTokenPurpose,
@@ -636,25 +638,29 @@ async function issueWithTransaction(
   }
   await lockAndAssertActiveOwner(tx, input.createdByUserId, input.purpose);
   await lockGrantFamily(tx, input.purpose, input.resourceId);
-  await tx
-    .update(publicAccessTokensTable)
-    .set({
-      revokedAt: now,
-      revokedByUserId: input.createdByUserId,
-      revokeReason: "replaced",
-    })
-    .where(
-      and(
-        inArray(
-          publicAccessTokensTable.purpose,
-          CONFLICTING_PURPOSES[input.purpose],
+  if (!(input.purpose === "quote_decision" && input.deferQuoteReplacement))
+    await tx
+      .update(publicAccessTokensTable)
+      .set({
+        revokedAt: now,
+        revokedByUserId: input.createdByUserId,
+        revokeReason: "replaced",
+      })
+      .where(
+        and(
+          inArray(
+            publicAccessTokensTable.purpose,
+            CONFLICTING_PURPOSES[input.purpose],
+          ),
+          eq(
+            publicAccessTokensTable.resourceType,
+            RESOURCE_TYPE[input.purpose],
+          ),
+          eq(publicAccessTokensTable.resourceId, input.resourceId),
+          isNull(publicAccessTokensTable.revokedAt),
+          isNull(publicAccessTokensTable.consumedAt),
         ),
-        eq(publicAccessTokensTable.resourceType, RESOURCE_TYPE[input.purpose]),
-        eq(publicAccessTokensTable.resourceId, input.resourceId),
-        isNull(publicAccessTokensTable.revokedAt),
-        isNull(publicAccessTokensTable.consumedAt),
-      ),
-    );
+      );
   const [inserted] = await tx
     .insert(publicAccessTokensTable)
     .values({
