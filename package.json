@@ -53,7 +53,7 @@
     "typecheck:e2e:r14-full-stack": "tsc -p e2e/tsconfig.r14-full-stack.json",
     "test:e2e": "playwright test --config=e2e/playwright.config.ts",
     "test:e2e:pwa-isolation": "node ./scripts/run-pwa-isolation-gate.mjs",
-    "test:e2e:r14-full-stack": "node ./scripts/run-r14-full-stack-gate.mjs",
+    "test:e2e:r14-full-stack": "node ./scripts/run-r14-full-stack-gate.mjs"
   },
   "packageManager": "pnpm@11.9.0",
   "private": true,
