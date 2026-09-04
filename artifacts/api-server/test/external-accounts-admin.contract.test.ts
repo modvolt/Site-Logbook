@@ -102,20 +102,14 @@ describe("R16-C2 authenticated external account surface", () => {
 
   it("ships dark defaults, registered routes and an OpenAPI contract", () => {
     const env = read(".env.example");
-    const stagingEnv = read(".env.staging.example");
     const compose = read("docker-compose.yml");
-    const stagingCompose = read("docker-compose.staging.yml");
     const manifest = read(
       "artifacts/api-server/src/generated/api-route-manifest.ts",
     );
     const openapi = read("lib/api-spec/openapi.yaml");
 
     expect(env).toContain("EXTERNAL_ACCOUNTS_ENABLED=false");
-    expect(stagingEnv).toContain("STAGING_EXTERNAL_ACCOUNTS_ENABLED=false");
     expect(compose).toContain('EXTERNAL_ACCOUNTS_ENABLED: "false"');
-    expect(stagingCompose).toContain(
-      "${STAGING_EXTERNAL_ACCOUNTS_ENABLED:?set false for the external account dark rollout}",
-    );
     expect(manifest).toContain('template: "/external-accounts"');
     expect(manifest).toContain('template: "/portal/resources"');
     expect(openapi).toContain("/external-accounts/{id}/activate:");

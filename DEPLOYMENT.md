@@ -125,26 +125,7 @@ plain HTTP, MinIO, AWS and arbitrary S3-compatible endpoints.
 
 This repo's `docker-compose.yml` is Coolify-ready.
 
-> **Staging is a separate runtime.** Use `docker-compose.staging.yml` as a
-> standalone Compose file; never merge it with this production/local file. Its
-> input contract is `.env.staging.example`, all inputs use the `STAGING_` prefix,
-> and only the `web` service on container port `80` may receive a Coolify domain.
-> Do not add custom Compose networks: Coolify supplies the isolated per-resource
-> network and connects its proxy to it. PostgreSQL, API and Mailpit publish
-> no host ports and must not receive a domain. The staging preflight
-> rejects `modvoltapp.cz` (including subdomains), loopback origins, non-exact build
-> SHAs, a non-HTTPS or non-staging S3 target, and missing or reused
-> application/backup keyrings before stateful services start. Staging uses a
-> separately provisioned external S3 bucket and least-privilege credential;
-> this Compose file never creates or changes that bucket. Mailpit is fixed at
-> `v1.30.0`; its staging-only CA enables the API's
-> mandatory verified STARTTLS without weakening production mail transport. The API
-> receives only the public CA volume, never Mailpit's private server key. To
-> rotate that CA, replace the staging `staging_mailtls` and `staging_mailca`
-> volumes and restart Mailpit followed by the API. Provisioning and the first
-> staging deploy require a separate authorized
-> run; merely committing this definition does not create or modify a Coolify
-> resource.
+> **Legacy staging retired.** The historical staging runtime and publisher lane have been removed; production workflows and safeguards remain unchanged.
 
 1. **Create resource** → _Docker Compose_ → point it at this repository (the
    compose file is at the repo root).
