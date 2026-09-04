@@ -48,7 +48,6 @@ Thumbs.db
 .env
 .env.*
 !.env.example
-!.env.staging.example
 
 # Database dumps / backups (these belong in object storage, never the repo)
 *.pgcustom

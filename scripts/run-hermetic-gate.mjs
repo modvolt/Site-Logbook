@@ -20,8 +20,6 @@ const commands = [
       "--test",
       "scripts/test/assert-safe-test-env.test.mjs",
       "scripts/test/recovery-ceremony.test.mjs",
-      "scripts/test/staging-release-guard.test.mjs",
-      "scripts/test/staging-release-evidence.test.mjs",
       "scripts/test/r14-full-stack-contract.test.mjs",
       "scripts/test/production-host-evidence.test.mjs",
       "scripts/test/production-host-operator-packaging.test.mjs",

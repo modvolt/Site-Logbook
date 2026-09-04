@@ -274,10 +274,4 @@ describe("production steady-0107 startup boundary", () => {
     );
   });
 
-  it("keeps the staging control-plane publisher explicit", () => {
-    const workflow = source(".github/workflows/staging-images.yml");
-    expect(workflow.match(/target: control-plane/g)).toHaveLength(2);
-    const staging = source("docker-compose.staging.yml");
-    expect(staging).toContain("SITE_LOGBOOK_RUNTIME_ENVIRONMENT: staging");
-  });
 });
