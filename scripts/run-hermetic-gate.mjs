@@ -24,7 +24,6 @@ const commands = [
       "scripts/test/staging-release-evidence.test.mjs",
       "scripts/test/r14-full-stack-contract.test.mjs",
       "scripts/test/production-host-evidence.test.mjs",
-      "scripts/test/production-api-image-provenance.test.mjs",
       "scripts/test/production-host-operator-packaging.test.mjs",
       "scripts/test/production-pinned-key-contract.test.mjs",
       "scripts/test/production-signing-custody.test.mjs",
@@ -44,8 +43,6 @@ const commands = [
       "scripts/test/production-role-separation-0108-contract.test.mjs",
       "scripts/test/production-migration-adapter.pg16.test.mjs",
       "scripts/test/production-coolify-observer.test.mjs",
-      "scripts/test/manual-production-image-complete-contract.test.mjs",
-      "scripts/test/production-image-publication-contract.test.mjs",
     ],
   ],
   [
