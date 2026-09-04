@@ -188,17 +188,17 @@ test("modern runtime authority uses only fixed inspect argv and returns exact no
   assert.equal(typeof result, "string");
   const observation = JSON.parse(result);
   assert.equal(result, canonicalProductionExact0096BackupJson(observation));
-  assert.equal(observation.value.authorizesProductionMigration, false);
-  assert.equal(observation.value.productionTargetsTouched, false);
-  assert.deepEqual(observation.value.runtimeBinding, fixture.binding);
+  assert.equal(observation.authorizesProductionMigration, false);
+  assert.equal(observation.productionTargetsTouched, false);
+  assert.deepEqual(observation.runtimeBinding, fixture.binding);
 });
 
 test("exact frozen legacy runtime is accepted only through the one-time surrogate branch", async () => {
   const fixture = runtimeFixture("legacy");
   const { result } = await observe(fixture);
   const observation = JSON.parse(result);
-  assert.equal(observation.value.authorizesProductionMigration, false);
-  assert.deepEqual(observation.value.runtimeBinding, fixture.binding);
+  assert.equal(observation.authorizesProductionMigration, false);
+  assert.deepEqual(observation.runtimeBinding, fixture.binding);
   assert.equal(
     fixture.binding.resolvedConfigSha256,
     fixture.binding.deploymentConfigSha256,
