@@ -1,4 +1,4 @@
-import { asc, desc, eq, max } from "drizzle-orm";
+import { and, asc, desc, eq, max } from "drizzle-orm";
 import {
   billingSettingsTable,
   customersTable,
@@ -11,6 +11,7 @@ import {
   type QuoteVersionSnapshot,
 } from "@workspace/db";
 import { randomUUID } from "node:crypto";
+import { logger } from "./logger";
 import {
   evidenceSha256,
   normalizedUserAgentSha256,
@@ -20,6 +21,7 @@ import { ObjectStorageService } from "./objectStorage";
 import { generateQuotePdf, type QuotePdfData } from "./quote-pdf";
 import {
   issuePublicAccessToken,
+  lockAndAssertActiveOwner,
   revokePublicAccessTokens,
 } from "./public-access-token";
 import {
@@ -36,7 +38,7 @@ type DbClient = typeof db | DbTransaction;
 
 const objectStorage = new ObjectStorageService();
 const SETTINGS_ID = 1;
-export const QUOTE_RENDERER_VERSION = "quote-pdf-v2";
+export const QUOTE_RENDERER_VERSION = "quote-pdf-v3";
 export const QUOTE_DECISION_CONFIRMATION_TEXT =
   "Potvrzuji, že jsem se seznámil/a s touto konkrétní verzí nabídky a uvedené rozhodnutí se vztahuje k jejímu obsahu a ceně.";
 
@@ -120,18 +122,13 @@ async function loadSnapshot(
       "Nastavení fakturace nenalezeno.",
     );
 
-  const itemRows = lock
-    ? await client
-        .select()
-        .from(quoteItemsTable)
-        .where(eq(quoteItemsTable.quoteId, quote.id))
-        .orderBy(asc(quoteItemsTable.position))
-        .for("share")
-    : await client
-        .select()
-        .from(quoteItemsTable)
-        .where(eq(quoteItemsTable.quoteId, quote.id))
-        .orderBy(asc(quoteItemsTable.position));
+  // All item INSERT/DELETE/reorder writers lock the parent first. No UPDATE
+  // privilege is needed on items. Both snapshot reads use REPEATABLE READ.
+  const itemRows = await client
+    .select()
+    .from(quoteItemsTable)
+    .where(eq(quoteItemsTable.quoteId, quote.id))
+    .orderBy(asc(quoteItemsTable.position), asc(quoteItemsTable.id));
 
   let customer = null;
   if (quote.customerId) {
@@ -215,8 +212,11 @@ async function loadSnapshot(
   };
 }
 
-function pdfData(snapshot: QuoteVersionSnapshot): QuotePdfData {
+export function quoteSnapshotPdfData(
+  snapshot: QuoteVersionSnapshot,
+): QuotePdfData {
   return {
+    title: snapshot.quote.title,
     quoteNumber: snapshot.quote.quoteNumber ?? `#${snapshot.quote.id}`,
     customerName: snapshot.customer.companyName,
     customerIc: snapshot.customer.ic,
@@ -249,93 +249,109 @@ export async function createQuoteVersionAndToken(input: {
   expiresAt: Date;
   createdByUserId: number;
 }) {
-  const snapshot = await loadSnapshot(db, input.quoteId, false);
+  const snapshot = await readQuoteSnapshot(input.quoteId);
   const snapshotSha256 = evidenceSha256(snapshot);
-  const buffer = generateQuotePdf(pdfData(snapshot));
+  const buffer = generateQuotePdf(quoteSnapshotPdfData(snapshot));
   const pdfSha256 = sha256Hex(buffer);
   const objectPath = `/objects/quotes/${input.quoteId}-${randomUUID()}.pdf`;
-  await objectStorage.putPrivateObject(objectPath, buffer, "application/pdf");
-
   try {
-    const result = await db.transaction(async (tx) => {
-      const currentSnapshot = await loadSnapshot(tx, input.quoteId, true);
-      if (evidenceSha256(currentSnapshot) !== snapshotSha256) {
-        throw new QuoteVersionError(
-          409,
-          "quote_changed_during_generation",
-          "Nabídka se během generování změnila. Načtěte ji znovu a opakujte odeslání.",
-        );
-      }
-      const [current] = await tx
-        .select({ status: quotesTable.status })
-        .from(quotesTable)
-        .where(eq(quotesTable.id, input.quoteId));
-      if (!current || !["draft", "sent"].includes(current.status)) {
-        throw new QuoteVersionError(
-          409,
-          "quote_not_sendable",
-          "Nabídku v tomto stavu nelze odeslat.",
-        );
-      }
-      const [{ value: latestVersion }] = await tx
-        .select({ value: max(quoteVersionsTable.version) })
-        .from(quoteVersionsTable)
-        .where(eq(quoteVersionsTable.quoteId, input.quoteId));
-      const [previous] = await tx
-        .select({ id: quoteVersionsTable.id })
-        .from(quoteVersionsTable)
-        .where(eq(quoteVersionsTable.quoteId, input.quoteId))
-        .orderBy(desc(quoteVersionsTable.version))
-        .limit(1);
-      const [version] = await tx
-        .insert(quoteVersionsTable)
-        .values({
-          quoteId: input.quoteId,
-          version: Number(latestVersion ?? 0) + 1,
-          supersedesVersionId: previous?.id ?? null,
-          dataSnapshot: snapshot,
-          snapshotSha256,
-          pdfObjectPath: objectPath,
-          pdfSha256,
-          rendererVersion: QUOTE_RENDERER_VERSION,
-          createdByUserId: input.createdByUserId,
-        })
-        .returning();
-      if (!version) throw new Error("Quote version insert returned no row.");
-      if (previous && current.status === "sent") {
-        await tx.insert(quoteDecisionEventsTable).values({
-          quoteId: input.quoteId,
-          quoteVersionId: previous.id,
-          action: "superseded",
-          actorType: "system",
-          reason: "quote_reissued",
-        });
-      }
-      const issued = await issuePublicAccessToken(
-        {
-          purpose: "quote_decision",
-          resourceId: input.quoteId,
-          quoteVersionId: version.id,
-          expiresAt: input.expiresAt,
-          createdByUserId: input.createdByUserId,
-          onIssue: async (inner) => {
-            await inner
-              .update(quotesTable)
-              .set({
-                shareToken: null,
-                pdfObjectPath: objectPath,
-                updatedAt: new Date(),
-              })
-              .where(eq(quotesTable.id, input.quoteId));
+    await objectStorage.putPrivateObject(objectPath, buffer, "application/pdf");
+    const result = await db.transaction(
+      async (tx) => {
+        const currentSnapshot = await loadSnapshot(tx, input.quoteId, true);
+        if (evidenceSha256(currentSnapshot) !== snapshotSha256) {
+          throw new QuoteVersionError(
+            409,
+            "quote_changed_during_generation",
+            "Nabídka se během generování změnila. Načtěte ji znovu a opakujte odeslání.",
+          );
+        }
+        const [current] = await tx
+          .select({
+            status: quotesTable.status,
+            updatedAt: quotesTable.updatedAt,
+          })
+          .from(quotesTable)
+          .where(eq(quotesTable.id, input.quoteId));
+        if (!current || !["draft", "sent"].includes(current.status)) {
+          throw new QuoteVersionError(
+            409,
+            "quote_not_sendable",
+            "Nabídku v tomto stavu nelze odeslat.",
+          );
+        }
+        const [{ value: latestVersion }] = await tx
+          .select({ value: max(quoteVersionsTable.version) })
+          .from(quoteVersionsTable)
+          .where(eq(quoteVersionsTable.quoteId, input.quoteId));
+        const [previous] = await tx
+          .select({ id: quoteVersionsTable.id })
+          .from(quoteVersionsTable)
+          .where(eq(quoteVersionsTable.quoteId, input.quoteId))
+          .orderBy(desc(quoteVersionsTable.version))
+          .limit(1);
+        // Lock the issuer before the version FK acquires KEY SHARE on users.
+        // Otherwise two quotes by one issuer can deadlock upgrading that lock
+        // during token issuance (FK -> owner advisory lock -> FOR UPDATE).
+        await lockAndAssertActiveOwner(tx, input.createdByUserId, "quote_decision");
+        const [version] = await tx
+          .insert(quoteVersionsTable)
+          .values({
+            quoteId: input.quoteId,
+            version: Number(latestVersion ?? 0) + 1,
+            supersedesVersionId: previous?.id ?? null,
+            dataSnapshot: snapshot,
+            snapshotSha256,
+            pdfObjectPath: objectPath,
+            pdfSha256,
+            rendererVersion: QUOTE_RENDERER_VERSION,
+            createdByUserId: input.createdByUserId,
+          })
+          .returning();
+        if (!version) throw new Error("Quote version insert returned no row.");
+        const issued = await issuePublicAccessToken(
+          {
+            purpose: "quote_decision",
+            resourceId: input.quoteId,
+            quoteVersionId: version.id,
+            expiresAt: input.expiresAt,
+            createdByUserId: input.createdByUserId,
+            deferQuoteReplacement: true,
           },
-        },
-        tx,
-      );
-      return { ...issued, version };
-    });
+          tx,
+        );
+        return { ...issued, version, expectedUpdatedAt: current.updatedAt };
+      },
+      { isolationLevel: "repeatable read" },
+    );
     return { ...result, buffer, snapshot };
   } catch (error) {
-    await objectStorage.deletePrivateObject(objectPath).catch(() => false);
+    // A COMMIT acknowledgement can be lost. Never remove a retained version's PDF.
+    try {
+      const [retained] = await db
+        .select({ id: quoteVersionsTable.id })
+        .from(quoteVersionsTable)
+        .where(eq(quoteVersionsTable.pdfObjectPath, objectPath));
+      if (!retained && !(await objectStorage.deletePrivateObject(objectPath))) {
+        logger.error(
+          { quoteId: input.quoteId, objectPath },
+          "Quote PDF cleanup did not remove object",
+        );
+      }
+    } catch {
+      logger.error(
+        { quoteId: input.quoteId, objectPath },
+        "Quote PDF cleanup failed; object retained",
+      );
+    }
+    const cause = error as { code?: string; cause?: { code?: string } };
+    if ([cause.code, cause.cause?.code].includes("40001")) {
+      throw new QuoteVersionError(
+        409,
+        "quote_changed_during_generation",
+        "Nabídka se během generování změnila. Načtěte ji znovu.",
+      );
+    }
     throw error;
   }
 }
@@ -392,8 +408,7 @@ export async function recordPublicQuoteDecision(
   const [version] = await tx
     .select()
     .from(quoteVersionsTable)
-    .where(eq(quoteVersionsTable.id, input.record.quoteVersionId))
-    .for("share");
+    .where(eq(quoteVersionsTable.id, input.record.quoteVersionId));
   if (!version || version.quoteId !== input.record.resourceId) {
     throw new QuoteVersionError(
       404,
@@ -403,13 +418,20 @@ export async function recordPublicQuoteDecision(
   }
   assertVersionDecisionValidity(version.dataSnapshot.quote.validUntil);
   const [quote] = await tx
-    .select({ id: quotesTable.id, status: quotesTable.status })
+    .select({
+      id: quotesTable.id,
+      status: quotesTable.status,
+      pdfObjectPath: quotesTable.pdfObjectPath,
+    })
     .from(quotesTable)
     .where(eq(quotesTable.id, version.quoteId))
     .for("update");
   if (!quote)
     throw new QuoteVersionError(404, "quote_not_found", "Nabídka nenalezena.");
-  if (quote.status !== "sent") {
+  if (
+    quote.status !== "sent" ||
+    quote.pdfObjectPath !== version.pdfObjectPath
+  ) {
     throw new QuoteVersionError(
       409,
       "quote_not_decidable",
@@ -442,20 +464,14 @@ export async function latestQuoteVersion(
   quoteId: number,
   lock = false,
 ) {
-  const rows = lock
-    ? await client
-        .select()
-        .from(quoteVersionsTable)
-        .where(eq(quoteVersionsTable.quoteId, quoteId))
-        .orderBy(desc(quoteVersionsTable.version))
-        .limit(1)
-        .for("share")
-    : await client
-        .select()
-        .from(quoteVersionsTable)
-        .where(eq(quoteVersionsTable.quoteId, quoteId))
-        .orderBy(desc(quoteVersionsTable.version))
-        .limit(1);
+  // Versions are protected by immutable triggers; callers serialize decisions on quotes.
+  void lock;
+  const rows = await client
+    .select()
+    .from(quoteVersionsTable)
+    .where(eq(quoteVersionsTable.quoteId, quoteId))
+    .orderBy(desc(quoteVersionsTable.version))
+    .limit(1);
   return rows[0] ?? null;
 }
 
@@ -468,7 +484,7 @@ export async function recordAdminQuoteDecision(
     reason?: string | null;
   },
 ) {
-  const version = await latestQuoteVersion(tx, input.quoteId, true);
+  const version = await issuedQuoteVersion(tx, input.quoteId);
   if (!version) {
     throw new QuoteVersionError(
       409,
@@ -534,7 +550,7 @@ export async function reopenQuoteRevision(input: {
         "Converted quote cannot be reopened without cancelling its downstream document.",
       );
     }
-    const version = await latestQuoteVersion(tx, quote.id, true);
+    const version = await issuedQuoteVersion(tx, quote.id);
     if (!version)
       throw new QuoteVersionError(
         409,
@@ -585,4 +601,116 @@ export async function listQuoteEvidence(quoteId: number) {
     .where(eq(quoteDecisionEventsTable.quoteId, quoteId))
     .orderBy(desc(quoteDecisionEventsTable.createdAt));
   return { versions, events };
+}
+
+/** One MVCC snapshot covers quote, customer, supplier and all item rows. No writes. */
+export async function readQuoteSnapshot(quoteId: number) {
+  return db.transaction((tx) => loadSnapshot(tx, quoteId, false), {
+    isolationLevel: "repeatable read",
+    accessMode: "read only",
+  });
+}
+
+export async function issuedQuoteVersion(client: DbClient, quoteId: number) {
+  const [quote] = await client
+    .select({ path: quotesTable.pdfObjectPath })
+    .from(quotesTable)
+    .where(eq(quotesTable.id, quoteId));
+  if (!quote?.path) return null;
+  const [version] = await client
+    .select()
+    .from(quoteVersionsTable)
+    .where(
+      and(
+        eq(quoteVersionsTable.quoteId, quoteId),
+        eq(quoteVersionsTable.pdfObjectPath, quote.path),
+      ),
+    );
+  return version ?? null;
+}
+
+export async function exportQuotePdf(quoteId: number, versionNumber?: number) {
+  // Status and archive selection must also belong to the same MVCC snapshot.
+  const selected = await db.transaction(
+    async (tx) => {
+      const [quote] = await tx
+        .select()
+        .from(quotesTable)
+        .where(eq(quotesTable.id, quoteId));
+      if (!quote)
+        throw new QuoteVersionError(
+          404,
+          "quote_not_found",
+          "Nabídka nenalezena.",
+        );
+      if (versionNumber != null) {
+        const [version] = await tx
+          .select()
+          .from(quoteVersionsTable)
+          .where(
+            and(
+              eq(quoteVersionsTable.quoteId, quoteId),
+              eq(quoteVersionsTable.version, versionNumber),
+            ),
+          );
+        if (!version)
+          throw new QuoteVersionError(
+            404,
+            "quote_version_not_found",
+            "Verze nabídky nenalezena.",
+          );
+        return {
+          number: quote.quoteNumber,
+          version,
+          path: version.pdfObjectPath,
+          snapshot: null,
+        };
+      }
+      if (quote.status === "draft")
+        return {
+          number: quote.quoteNumber,
+          snapshot: await loadSnapshot(tx, quoteId, false),
+          path: null,
+          version: null,
+        };
+      if (!quote.pdfObjectPath)
+        throw new QuoteVersionError(
+          404,
+          "quote_pdf_missing",
+          "Původní PDF nabídky není dostupné.",
+        );
+      return {
+        number: quote.quoteNumber,
+        path: quote.pdfObjectPath,
+        version: await issuedQuoteVersion(tx, quoteId),
+        snapshot: null,
+      };
+    },
+    { isolationLevel: "repeatable read", accessMode: "read only" },
+  );
+  const buffer = selected.snapshot
+    ? generateQuotePdf(quoteSnapshotPdfData(selected.snapshot))
+    : await objectStorage.getPrivateObjectBuffer(selected.path!, {
+        maxBytes: 25 * 1024 * 1024,
+      });
+  if (selected.version && sha256Hex(buffer) !== selected.version.pdfSha256)
+    throw new QuoteVersionError(
+      500,
+      "quote_pdf_integrity",
+      "Archivní PDF neodpovídá uložené verzi.",
+    );
+  if (buffer.subarray(0, 5).toString() !== "%PDF-")
+    throw new QuoteVersionError(
+      500,
+      "quote_pdf_invalid",
+      "Archivní soubor není platné PDF.",
+    );
+  const number = (selected.number ?? String(quoteId)).replace(
+    /[^a-zA-Z0-9_.-]+/g,
+    "-",
+  );
+  return {
+    buffer,
+    filename: `nabidka-${number}${selected.version ? `-v${selected.version.version}` : ""}.pdf`,
+  };
 }

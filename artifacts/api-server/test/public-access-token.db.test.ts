@@ -388,6 +388,10 @@ describe("hash-only public access token lifecycle", () => {
         rendererVersion: "test-v1",
       })
       .returning();
+    // A sent quote points to its actually issued immutable PDF.
+    await db.update(quotesTable)
+      .set({ pdfObjectPath: version!.pdfObjectPath })
+      .where(eq(quotesTable.id, quote!.id));
     const issued = await issuePublicAccessToken({
       purpose: "quote_decision",
       resourceId: quote!.id,

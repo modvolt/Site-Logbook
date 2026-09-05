@@ -20349,10 +20349,19 @@ export const RejectPublicQuoteLegacyResponse = zod.object({
 });
 
 /**
- * @summary Download the quote PDF
+ * Draft export is read-only and does not require SMTP or object storage. Issued quotes return their stored original; an explicit version selects an immutable archive independently of public token validity.
+ * @summary Download the saved draft or an original archived quote PDF
  */
 export const DownloadQuotePdfParams = zod.object({
   id: zod.coerce.number(),
+});
+
+export const DownloadQuotePdfQueryParams = zod.object({
+  version: zod.coerce
+    .number()
+    .min(1)
+    .optional()
+    .describe("Immutable version number from quote evidence history."),
 });
 
 /**

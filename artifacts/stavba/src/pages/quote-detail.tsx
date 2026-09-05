@@ -1,7 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation, useRoute } from "wouter";
 import {
   useGetQuote,
+  useGetQuoteEvidence,
+  getGetQuoteEvidenceQueryKey,
+  downloadQuotePdfFile,
   useCreateQuote,
   useUpdateQuote,
   useDeleteQuote,
@@ -239,6 +242,10 @@ export default function QuoteDetail() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
+  const downloadLock = useRef(false);
+  const sendLock = useRef(false);
+  const sendKey = useRef(crypto.randomUUID());
+  const [downloading, setDownloading] = useState(false);
   const [editing, setEditing] = useState(isNew);
   const [title, setTitle] = useState("");
   const [customerId, setCustomerId] = useState<string>(customerIdFromUrl);
@@ -270,12 +277,25 @@ export default function QuoteDetail() {
     },
   });
 
+  const { data: evidence, refetch: refetchEvidence } = useGetQuoteEvidence(
+    id!,
+    {
+      query: {
+        queryKey: getGetQuoteEvidenceQueryKey(id!),
+        enabled: id != null && id > 0,
+      },
+    },
+  );
+
   const { data: customers } = useListCustomers();
 
   const createQuote = useCreateQuote();
   const updateQuote = useUpdateQuote();
   const deleteQuote = useDeleteQuote();
-  const sendEmail = useSendQuoteEmail();
+  const sendEmail = useSendQuoteEmail({
+    request: { headers: { "Idempotency-Key": sendKey.current } },
+    mutation: { retry: false },
+  });
   const acceptQuote = useAcceptQuote();
   const rejectQuote = useRejectQuote();
   const expireQuote = useExpireQuote();
@@ -349,6 +369,7 @@ export default function QuoteDetail() {
   });
 
   const invalidate = () => {
+    void refetchEvidence();
     invalidateData(queryClient, "quotes");
     if (id)
       queryClient.invalidateQueries({ queryKey: getGetQuoteQueryKey(id) });
@@ -410,6 +431,8 @@ export default function QuoteDetail() {
   };
 
   const handleSend = () => {
+    if (sendLock.current) return;
+    sendLock.current = true;
     sendEmail.mutate(
       {
         id: id!,
@@ -423,10 +446,13 @@ export default function QuoteDetail() {
         onSuccess: (r) => {
           setSendDialogOpen(false);
           invalidate();
-          toast({ title: `Nabídka odeslána na ${r.to}` });
+          toast({ title: `SMTP server přijal nabídku pro ${r.to}` });
         },
-        onError: (err) =>
-          toast({ title: extractError(err), variant: "destructive" }),
+        onError: (err) => {
+          setSendDialogOpen(false);
+          invalidate();
+          toast({ title: extractError(err), variant: "destructive" });
+        },
       },
     );
   };
@@ -519,8 +545,34 @@ export default function QuoteDetail() {
       },
     );
 
-  const handleDownloadPdf = () => {
-    window.open(`/api/quotes/${id}/pdf`, "_blank");
+  const handleDownloadPdf = async (version?: number) => {
+    if (downloadLock.current || !id) return;
+    if (editing && version == null) {
+      toast({
+        title: "Nejprve uložte úpravy nabídky.",
+        description: "PDF obsahuje uložená data. Použijte tlačítko Uložit.",
+        variant: "destructive",
+      });
+      return;
+    }
+    downloadLock.current = true;
+    setDownloading(true);
+    try {
+      const blob = await downloadQuotePdfFile(id, version);
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `nabidka-${(quote?.quoteNumber ?? String(id)).replace(/[^a-zA-Z0-9_.-]+/g, "-")}${version == null ? "" : `-v${version}`}.pdf`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (err) {
+      toast({ title: extractError(err), variant: "destructive" });
+    } finally {
+      downloadLock.current = false;
+      setDownloading(false);
+    }
   };
 
   const addItem = (rowType: QuoteRowType = "item") =>
@@ -706,16 +758,52 @@ export default function QuoteDetail() {
               <Pencil className="h-4 w-4 mr-1" /> Upravit
             </Button>
           )}
-          {!isNew && quote?.pdfObjectPath && (
-            <Button variant="outline" size="sm" onClick={handleDownloadPdf}>
-              <Download className="h-4 w-4 mr-1" /> PDF
-            </Button>
-          )}
-          {!isNew && canSend && (
+          {!isNew && quote && (
             <Button
               variant="outline"
               size="sm"
+              onClick={() => void handleDownloadPdf()}
+              disabled={downloading}
+              aria-busy={downloading}
+            >
+              <Download className="h-4 w-4 mr-1" />{" "}
+              {downloading ? "Připravuji PDF…" : "Stáhnout PDF"}
+            </Button>
+          )}
+          {!isNew && evidence && evidence.versions.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" disabled={downloading}>
+                  Archiv PDF <ChevronDown className="ml-1 h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {evidence.versions.map((version) => (
+                  <DropdownMenuItem
+                    key={version.id}
+                    onClick={() => void handleDownloadPdf(version.version)}
+                  >
+                    Verze {version.version} · {fmtDate(version.createdAt)}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+          {!isNew && canSend && (
+            <Button
+              disabled={sendEmail.isPending}
+              variant="outline"
+              size="sm"
               onClick={() => {
+                if (editing) {
+                  toast({
+                    title: "Nejprve uložte úpravy nabídky.",
+                    variant: "destructive",
+                  });
+                  return;
+                }
+                sendKey.current = crypto.randomUUID();
+                sendLock.current = false;
                 setSendTo(quote?.customerEmail ?? "");
                 setSendDialogOpen(true);
               }}

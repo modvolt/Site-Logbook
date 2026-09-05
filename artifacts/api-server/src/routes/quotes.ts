@@ -7,10 +7,7 @@ import {
   SendQuoteEmailBody,
 } from "@workspace/api-zod";
 import { requirePermission } from "../middlewares/permissions";
-import {
-  ObjectStorageService,
-  ObjectNotFoundError,
-} from "../lib/objectStorage";
+import { ObjectNotFoundError } from "../lib/objectStorage";
 import { PublicOriginConfigError } from "../lib/public-origin";
 import {
   PublicAccessTokenError,
@@ -27,7 +24,6 @@ import {
   rejectQuote,
   expireQuote,
   convertQuoteToJob,
-  generateAndStorePdf,
   getQuoteByShareToken,
   acceptQuoteByToken,
   rejectQuoteByToken,
@@ -35,6 +31,7 @@ import {
   appError,
 } from "../lib/quote-service";
 import {
+  exportQuotePdf,
   listQuoteEvidence,
   reopenQuoteRevision,
 } from "../lib/quote-version-service";
@@ -45,7 +42,6 @@ import {
 } from "../lib/public-bearer-auth";
 
 const router: IRouter = Router();
-const objectStorage = new ObjectStorageService();
 
 function parseId(raw: string): number | null {
   const id = Number(raw);
@@ -107,7 +103,9 @@ function handleError(
     return;
   }
   if (isAppError(err)) {
-    res.status(err.statusCode).json({ error: err.message });
+    res
+      .status(err.statusCode)
+      .json({ error: err.message, code: (err as { code?: string }).code });
     return;
   }
   const requestId = requestCorrelationId(res.req);
@@ -408,6 +406,7 @@ router.post("/quotes/:id/send", async (req, res): Promise<void> => {
       subject: parsed.data.subject ?? null,
       message: parsed.data.message ?? null,
       createdByUserId: req.auth!.userId,
+      idempotencyKey: req.get("Idempotency-Key"),
     });
     res.json(result);
   } catch (err) {
@@ -415,7 +414,14 @@ router.post("/quotes/:id/send", async (req, res): Promise<void> => {
       res.status(404).json({ error: "PDF nabídky nebylo nalezeno." });
       return;
     }
-    req.log.error({ err, quoteId: id }, "Quote email failed");
+    req.log.error(
+      {
+        ...safeErrorMetadata(err),
+        quoteId: id,
+        requestId: requestCorrelationId(req),
+      },
+      "Quote email failed",
+    );
     handleError(err, "Odeslání nabídky e-mailem selhalo.", res);
   }
 });
@@ -564,46 +570,31 @@ router.get("/quotes/:id/pdf", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Neplatné ID nabídky." });
     return;
   }
-  const quote = await getQuoteDetail(id);
-  if (!quote) {
-    res.status(404).json({ error: "Nabídka nenalezena." });
+  res.setHeader("Cache-Control", "private, no-store");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  const version =
+    req.query.version == null
+      ? undefined
+      : typeof req.query.version === "string"
+        ? parseId(req.query.version)
+        : null;
+  if (version === null) {
+    res.status(400).json({ error: "Neplatné číslo verze." });
     return;
   }
-  if (!quote.pdfObjectPath) {
-    // Generate on the fly
-    try {
-      const { buffer } = await generateAndStorePdf(id);
-      const number = (quote.quoteNumber ?? `${id}`).replace(/[^\w.-]+/g, "-");
-      res.setHeader("Content-Type", "application/pdf");
-      res.setHeader(
-        "Content-Disposition",
-        `attachment; filename="nabidka-${number}.pdf"`,
-      );
-      res.end(buffer);
-      return;
-    } catch (err) {
-      handleError(err, "Generování PDF nabídky selhalo.", res);
-      return;
-    }
-  }
-  const number = (quote.quoteNumber ?? `${id}`).replace(/[^\w.-]+/g, "-");
-  res.setHeader(
-    "Content-Disposition",
-    `attachment; filename="nabidka-${number}.pdf"`,
-  );
   try {
-    await objectStorage.servePrivateObject(quote.pdfObjectPath, res);
+    const { buffer, filename } = await exportQuotePdf(id, version);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.end(buffer);
   } catch (err) {
     if (err instanceof ObjectNotFoundError) {
       res
         .status(404)
-        .json({ error: "PDF nabídky nebylo nalezeno v úložišti." });
+        .json({ error: "Původní PDF nebylo nalezeno v úložišti." });
       return;
     }
-    req.log.error({ err, quoteId: id }, "Quote PDF download failed");
-    if (!res.headersSent) {
-      res.status(500).json({ error: "Stažení PDF nabídky selhalo." });
-    }
+    handleError(err, "Stažení PDF nabídky selhalo.", res);
   }
 });
 

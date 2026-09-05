@@ -8371,3 +8371,11 @@ export const ListQuotesStatus = {
   rejected: "rejected",
   expired: "expired",
 } as const;
+
+export type DownloadQuotePdfParams = {
+  /**
+   * Immutable version number from quote evidence history.
+   * @minimum 1
+   */
+  version?: number;
+};

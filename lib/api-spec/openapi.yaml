@@ -9963,13 +9963,21 @@ paths:
     get:
       operationId: downloadQuotePdf
       tags: [quotes]
-      summary: Download the quote PDF
+      summary: Download the saved draft or an original archived quote PDF
+      description: Draft export is read-only and does not require SMTP or object storage. Issued quotes return their stored original; an explicit version selects an immutable archive independently of public token validity.
       parameters:
         - name: id
           in: path
           required: true
           schema:
             type: integer
+        - name: version
+          in: query
+          required: false
+          description: Immutable version number from quote evidence history.
+          schema:
+            type: integer
+            minimum: 1
       responses:
         "200":
           description: PDF file

@@ -29,6 +29,7 @@ export interface QuotePdfItem {
 }
 
 export interface QuotePdfData {
+  title?: string;
   quoteNumber: string;
   customerName?: string | null;
   customerIc?: string | null;
@@ -87,6 +88,12 @@ export function generateQuotePdf(data: QuotePdfData): Buffer {
   doc.setFontSize(12);
   doc.text(data.quoteNumber, pageWidth - marginX, y, { align: "right" });
   y += 10;
+  if (data.title) {
+    doc.setFontSize(11);
+    const titleLines = doc.splitTextToSize(data.title, pageWidth - marginX * 2);
+    doc.text(titleLines, marginX, y);
+    y += titleLines.length * 5 + 4;
+  }
 
   // ---- Supplier (left) / Customer (right) blocks ----
   const colRightX = pageWidth / 2 + 4;
@@ -122,13 +129,15 @@ export function generateQuotePdf(data: QuotePdfData): Buffer {
 
   let ly = blockTop + 6;
   for (const line of supplierLines) {
-    doc.text(line, marginX, ly);
-    ly += 5;
+    const wrapped = doc.splitTextToSize(line, colRightX - marginX - 8);
+    doc.text(wrapped, marginX, ly);
+    ly += wrapped.length * 5;
   }
   let ry = blockTop + 6;
   for (const line of customerLines) {
-    doc.text(line, colRightX, ry);
-    ry += 5;
+    const wrapped = doc.splitTextToSize(line, pageWidth - marginX - colRightX);
+    doc.text(wrapped, colRightX, ry);
+    ry += wrapped.length * 5;
   }
   y = Math.max(ly, ry) + 4;
 
@@ -200,7 +209,8 @@ export function generateQuotePdf(data: QuotePdfData): Buffer {
     startY: y,
     head,
     body,
-    margin: { left: marginX, right: marginX },
+    margin: { left: marginX, right: marginX, bottom: 20 },
+    rowPageBreak: "avoid",
     styles: {
       font: PDF_FONT,
       fontStyle: "normal",
@@ -291,17 +301,25 @@ export function generateQuotePdf(data: QuotePdfData): Buffer {
   // ---- Notes + footer note ----
   doc.setFont(PDF_FONT, "normal");
   doc.setFontSize(9);
-  if (data.notes) {
-    const wrapped = doc.splitTextToSize(data.notes, pageWidth - marginX * 2);
-    doc.text(wrapped, marginX, y);
-    y += wrapped.length * 5 + 2;
+  for (const text of [data.notes, data.supplier.footerNote]) {
+    if (!text) continue;
+    for (const line of doc.splitTextToSize(text, pageWidth - marginX * 2)) {
+      if (y > pageHeight - 22) {
+        doc.addPage();
+        y = 20;
+      }
+      doc.text(line, marginX, y);
+      y += 5;
+    }
+    y += 2;
   }
-  if (data.supplier.footerNote) {
-    const wrapped = doc.splitTextToSize(
-      data.supplier.footerNote,
-      pageWidth - marginX * 2,
-    );
-    doc.text(wrapped, marginX, y);
+  const pages = doc.getNumberOfPages();
+  for (let page = 1; page <= pages; page++) {
+    doc.setPage(page);
+    doc.setFontSize(8);
+    doc.text(`${page} / ${pages}`, pageWidth - marginX, pageHeight - 10, {
+      align: "right",
+    });
   }
 
   return Buffer.from(doc.output("arraybuffer"));

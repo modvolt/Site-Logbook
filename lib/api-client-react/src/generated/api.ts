@@ -109,6 +109,7 @@ import type {
   DocumentPageMergeResult,
   DocumentRevisionInput,
   DocumentRevisionResult,
+  DownloadQuotePdfParams,
   EmailImportAccount,
   EmailImportImportResult,
   EmailImportLabelList,
@@ -30780,25 +30781,45 @@ export const useConvertQuoteToJob = <
   return useMutation(getConvertQuoteToJobMutationOptions(options));
 };
 
-export const getDownloadQuotePdfUrl = (id: number) => {
-  return `/api/quotes/${id}/pdf`;
+export const getDownloadQuotePdfUrl = (
+  id: number,
+  params?: DownloadQuotePdfParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/quotes/${id}/pdf?${stringifiedParams}`
+    : `/api/quotes/${id}/pdf`;
 };
 
 /**
- * @summary Download the quote PDF
+ * Draft export is read-only and does not require SMTP or object storage. Issued quotes return their stored original; an explicit version selects an immutable archive independently of public token validity.
+ * @summary Download the saved draft or an original archived quote PDF
  */
 export const downloadQuotePdf = async (
   id: number,
+  params?: DownloadQuotePdfParams,
   options?: RequestInit,
 ): Promise<Blob> => {
-  return customFetch<Blob>(getDownloadQuotePdfUrl(id), {
+  return customFetch<Blob>(getDownloadQuotePdfUrl(id, params), {
     ...options,
     method: "GET",
   });
 };
 
-export const getDownloadQuotePdfQueryKey = (id: number) => {
-  return [`/api/quotes/${id}/pdf`] as const;
+export const getDownloadQuotePdfQueryKey = (
+  id: number,
+  params?: DownloadQuotePdfParams,
+) => {
+  return [`/api/quotes/${id}/pdf`, ...(params ? [params] : [])] as const;
 };
 
 export const getDownloadQuotePdfQueryOptions = <
@@ -30806,6 +30827,7 @@ export const getDownloadQuotePdfQueryOptions = <
   TError = ErrorType<void>,
 >(
   id: number,
+  params?: DownloadQuotePdfParams,
   options?: {
     query?: UseQueryOptions<
       Awaited<ReturnType<typeof downloadQuotePdf>>,
@@ -30817,11 +30839,13 @@ export const getDownloadQuotePdfQueryOptions = <
 ) => {
   const { query: queryOptions, request: requestOptions } = options ?? {};
 
-  const queryKey = queryOptions?.queryKey ?? getDownloadQuotePdfQueryKey(id);
+  const queryKey =
+    queryOptions?.queryKey ?? getDownloadQuotePdfQueryKey(id, params);
 
   const queryFn: QueryFunction<
     Awaited<ReturnType<typeof downloadQuotePdf>>
-  > = ({ signal }) => downloadQuotePdf(id, { signal, ...requestOptions });
+  > = ({ signal }) =>
+    downloadQuotePdf(id, params, { signal, ...requestOptions });
 
   return {
     queryKey,
@@ -30841,7 +30865,7 @@ export type DownloadQuotePdfQueryResult = NonNullable<
 export type DownloadQuotePdfQueryError = ErrorType<void>;
 
 /**
- * @summary Download the quote PDF
+ * @summary Download the saved draft or an original archived quote PDF
  */
 
 export function useDownloadQuotePdf<
@@ -30849,6 +30873,7 @@ export function useDownloadQuotePdf<
   TError = ErrorType<void>,
 >(
   id: number,
+  params?: DownloadQuotePdfParams,
   options?: {
     query?: UseQueryOptions<
       Awaited<ReturnType<typeof downloadQuotePdf>>,
@@ -30858,7 +30883,7 @@ export function useDownloadQuotePdf<
     request?: SecondParameter<typeof customFetch>;
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
-  const queryOptions = getDownloadQuotePdfQueryOptions(id, options);
+  const queryOptions = getDownloadQuotePdfQueryOptions(id, params, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;
